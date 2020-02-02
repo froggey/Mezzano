@@ -302,6 +302,10 @@ Internal to the pager, should not be used by other code.")
 (defconstant +block-map-track-dirty+ #x20
   "Dirty bit tracking is enabled for this entry.
 When the page is written to, the corresponding dirty bit in the card table will be set and this flag will be cleared.")
+(defconstant +block-map-transient+ #x40
+  "Entry is transient and won't be saved by snapshots.
+Accesses to stale memory will signal an error.
+Internal to sg-vec, should not be used by other code.")
 (defconstant +block-map-flag-mask+ #xFF)
 (defconstant +block-map-id-shift+ 8)
 (defconstant +block-map-id-size+ 54) ; keep it a few bits smaller than 56 to avoid bignums.

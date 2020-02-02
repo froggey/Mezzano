@@ -632,6 +632,39 @@ mapped, then the entry will be NIL."
                                                    (lognot #xFFF))))))
     frame-vector))
 
+(defun map-sg-vec (virtual-address sg-vec cache-mode)
+  (pager-rpc 'map-sg-vec-in-pager virtual-address sg-vec cache-mode))
+
+(defun map-sg-vec-in-pager (virtual-address sg-vec cache-mode)
+  (pager-log-op "Map sg-vec " virtual-address " " sg-vec " " cache-mode)
+  (with-rw-lock-write (*vm-lock*)
+    (let ((virt-offset 0))
+      (loop
+         for i below (sys.int::simple-vector-length sg-vec) by 2
+         for phys-addr = (svref sg-vec i)
+         for sg-len = (svref sg-vec (1+ i))
+         do
+           (loop
+              for page-offset below sg-len by #x1000
+              for paddr = (+ phys-addr page-offset)
+              for vaddr = (+ virtual-address virt-offset page-offset)
+              for bme = (block-info-for-virtual-address-1 vaddr t)
+              for pte = (get-pte-for-address vaddr)
+              do
+                (when (not (zerop (sys.int::memref-unsigned-byte-64 bme)))
+                  (panic "Block " address " entry not zero!"))
+                (setf (sys.int::memref-unsigned-byte-64 bme)
+                      (logior sys.int::+block-map-present+
+                              sys.int::+block-map-writable+
+                              sys.int::+block-map-transient+))
+                (setf (page-table-entry pte) (make-pte (truncate paddr #x1000)
+                                                       :writable t
+                                                       :wired t
+                                                       :dirty t
+                                                       :cache-mode cache-mode)))
+           (incf virt-offset sg-len))))
+  t)
+
 (defun pager-allocate-page (&key (new-type :active))
   (ensure (rw-lock-write-held-p *vm-lock*))
   (check-tlb-shootdown-not-in-progress)
