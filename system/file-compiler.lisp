@@ -690,7 +690,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
             (eql (first (second expansion)) 'lambda))
        (add-to-llf nil (add-deferred-lambda (second expansion) env)))
       ((eql (first expansion) 'function)
-       (compile-top-level-form-for-value `(fdefinition ',(second form))
+       (compile-top-level-form-for-value `(fdefinition ',(second expansion))
                                          env))
       ((eql (first expansion) 'setq)
        (loop
