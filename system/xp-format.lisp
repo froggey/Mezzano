@@ -347,25 +347,26 @@
                (funcall (symbol-function ',fn) xp ,(get-arg) ,colon ,atsign ,@ vars)))))))
 
 ;; TODO: Process mincol,colinc,minpad,padchar.
-(defun impl-A/S (start end escape-value)
+(defun impl-A/S (start end escape-value readably-is-nil)
   (declare (ignore end))
   (multiple-value-bind (colon atsign params)
       (parse-params start '(0 1 0 #\Space))
     (declare (ignore atsign params))
-    (if colon
-        `(let ((*print-escape* ,escape-value)
-               (arg ,(get-arg)))
-           (if arg
-               (write+ arg XP)
-               (write-string++ "()" XP 0 2)))
-        `(let ((*print-escape* ,escape-value))
-           (write+ ,(get-arg) XP)))))
+    `(let ((*print-escape* ,escape-value)
+           ,@(when readably-is-nil
+               `((*print-readably* nil))))
+       ,(if colon
+            `(let ((arg ,(get-arg)))
+               (if arg
+                   (write+ arg XP)
+                   (write-string++ "()" XP 0 2)))
+            `(write+ ,(get-arg) XP)))))
 
 (def-format-handler #\A (start end)
-  (impl-A/S start end nil))
+  (impl-A/S start end nil t))
 
 (def-format-handler #\S (start end)
-  (impl-A/S start end t))
+  (impl-A/S start end t nil))
 
 ;The basic Format directives "DBOXRCFEG$".  The key thing about all of
 ;these directives is that they just get a single arg and print a chunk of
