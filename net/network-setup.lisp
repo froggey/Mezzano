@@ -144,14 +144,14 @@
                        (mezzano.supervisor:current-boot-id)
                        'network-boot-handler
                        :target *network-serial-queue*))
-  (let ((loopback-interface (make-instance 'loopback-interface)))
-    (mezzano.network.ip::ifup loopback-interface "127.0.0.1" 8)
-    (mezzano.network.ip:add-route "127.0.0.0" 8 loopback-interface))
   (setf mezzano.network.ip::*routing-table* '()
         mezzano.network.ip::*ipv4-interfaces* '()
         mezzano.network.ip::*outstanding-sends* '()
         mezzano.network.arp::*arp-table* '()
         *hosts* `(("localhost" "127.0.0.1")))
+  (let ((loopback-interface (make-instance 'loopback-interface)))
+    (mezzano.network.ip::ifup loopback-interface "127.0.0.1" 8)
+    (mezzano.network.ip:add-route "127.0.0.0" 8 loopback-interface))
   ;; All initialzation work complete, now safe to run tasks.
   (mezzano.sync.dispatch:resume *network-serial-queue*))
 
