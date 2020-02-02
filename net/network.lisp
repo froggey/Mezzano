@@ -49,7 +49,9 @@
           (ignore-errors
             (mezzano.network.ip:make-ipv4-address address))
           ;; 2. Look in the hosts table.
-          (second (assoc address *hosts* :test 'string-equal))
+          (let ((host-entry (second (assoc address *hosts* :test 'string-equal))))
+            (when host-entry
+              (mezzano.network.ip:make-ipv4-address host-entry)))
           ;; 3. Finally do a DNS lookup.
           (ignore-errors
             (mezzano.network.dns:resolve-address address))
