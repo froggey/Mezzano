@@ -788,13 +788,13 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
           (let ((work (mezzano.supervisor:fifo-pop work-fifo)))
             (when (eql work :finished)
               (return))
-            (let* ((*current-deferred-function* work)
-                   (*top-level-form-number* (deferred-function-tlf-number work)))
-              (setf (deferred-function-function work)
-                    (mezzano.compiler::compile-ast (deferred-function-ast work))))
             (handler-bind
                 ((error (lambda (c)
                           (mezzano.supervisor:fifo-push `(:error ,work ,c) return-fifo))))
+              (let* ((*current-deferred-function* work)
+                     (*top-level-form-number* (deferred-function-tlf-number work)))
+                (setf (deferred-function-function work)
+                      (mezzano.compiler::compile-ast (deferred-function-ast work))))
               (mezzano.supervisor:fifo-push work return-fifo))))
     (mezzano.supervisor:fifo-push :exit return-fifo)))
 
