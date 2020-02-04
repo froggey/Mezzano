@@ -98,6 +98,7 @@
            #:tcp-connection-local-ip
            #:tcp-connection-remote-port
            #:tcp-connection-remote-ip
+           #:tcp-connection-timeout
            #:tcp-stream-connection
            #:network-error
            #:connection-error

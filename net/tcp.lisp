@@ -232,6 +232,11 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
    :boot-id nil
    :timeout nil))
 
+(defun (setf tcp-connection-timeout) (timeout connection)
+  (with-tcp-connection-locked connection
+    (setf (slot-value connection '%timeout) timeout)
+    (update-timeout-timer connection)))
+
 (defun arm-retransmit-timer (connection)
   (mezzano.supervisor:timer-arm (tcp-connection-rto connection)
                                 (tcp-connection-retransmit-timer connection))
