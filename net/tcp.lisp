@@ -220,7 +220,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
    (%retransmit-source :reader tcp-connection-retransmit-source)
    (%timeout-timer :reader tcp-connection-timeout-timer)
    (%timeout-source :reader tcp-connection-timeout-source)
-   (%timeout :initarg :timeout :accessor tcp-connection-timeout)
+   (%timeout :initarg :timeout :reader tcp-connection-timeout)
    (%boot-id :reader tcp-connection-boot-id
              :initarg :boot-id))
   (:default-initargs
