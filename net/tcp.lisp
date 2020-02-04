@@ -220,7 +220,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
    (%retransmit-source :reader tcp-connection-retransmit-source)
    (%timeout-timer :reader tcp-connection-timeout-timer)
    (%timeout-source :reader tcp-connection-timeout-source)
-   (%timeout :initarg :timeout :reader tcp-connection-timeout)
+   (%timeout :initarg :timeout :accessor tcp-connection-timeout)
    (%boot-id :reader tcp-connection-boot-id
              :initarg :boot-id))
   (:default-initargs
@@ -231,6 +231,11 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
    :rto *tcp-initial-retransmit-time*
    :boot-id nil
    :timeout nil))
+
+(defun (setf tcp-connection-timeout) (timeout connection)
+  (with-tcp-connection-locked connection
+    (setf (slot-value connection '%timeout) timeout)
+    (update-timeout-timer connection)))
 
 (defun arm-retransmit-timer (connection)
   (mezzano.supervisor:timer-arm (tcp-connection-rto connection)
