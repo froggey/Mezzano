@@ -733,6 +733,21 @@
                          :source result-unboxed
                          :destination result))))
 
+(define-builtin sys.int::%%round-single-float ((value) result)
+  (let ((value-unboxed (make-instance 'ir:virtual-register :kind :single-float))
+        (result-unboxed (make-instance 'ir:virtual-register :kind :integer)))
+    (emit (make-instance 'ir:unbox-single-float-instruction
+                         :source value
+                         :destination value-unboxed))
+    (emit (make-instance 'x86-instruction
+                         :opcode 'lap:cvtss2si64
+                         :operands (list result-unboxed value-unboxed)
+                         :inputs (list value-unboxed)
+                         :outputs (list result-unboxed)))
+    (emit (make-instance 'ir:box-fixnum-instruction
+                         :source result-unboxed
+                         :destination result))))
+
 (macrolet ((frob (name instruction)
              `(define-builtin ,name ((lhs rhs) result)
                 (cond ((constant-value-p rhs 'single-float)
@@ -944,6 +959,21 @@
                          :destination value-unboxed))
     (emit (make-instance 'x86-instruction
                          :opcode 'lap:cvttsd2si64
+                         :operands (list result-unboxed value-unboxed)
+                         :inputs (list value-unboxed)
+                         :outputs (list result-unboxed)))
+    (emit (make-instance 'ir:box-fixnum-instruction
+                         :source result-unboxed
+                         :destination result))))
+
+(define-builtin sys.int::%%round-double-float ((value) result)
+  (let ((value-unboxed (make-instance 'ir:virtual-register :kind :double-float))
+        (result-unboxed (make-instance 'ir:virtual-register :kind :integer)))
+    (emit (make-instance 'ir:unbox-double-float-instruction
+                         :source value
+                         :destination value-unboxed))
+    (emit (make-instance 'x86-instruction
+                         :opcode 'lap:cvtsd2si64
                          :operands (list result-unboxed value-unboxed)
                          :inputs (list value-unboxed)
                          :outputs (list result-unboxed)))

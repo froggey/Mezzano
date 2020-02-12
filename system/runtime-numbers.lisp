@@ -235,19 +235,11 @@
         ((or (floatp number)
              (floatp divisor))
          (let* ((val (/ number divisor))
-                (integer-part (if (< most-negative-fixnum
-                                     val
-                                     most-positive-fixnum)
-                                  ;; Fits in a fixnum, convert quickly.
-                                  (etypecase val
-                                    (single-float
-                                     (%%truncate-single-float val))
-                                    (double-float
-                                     (%%truncate-double-float val)))
-                                  ;; Grovel inside the float
-                                  (multiple-value-bind (significand exponent sign)
-                                      (integer-decode-float val)
-                                    (* (ash significand exponent) sign)))))
+                (integer-part (etypecase val
+                                (single-float
+                                 (mezzano.runtime::%truncate-single-float val))
+                                (double-float
+                                 (mezzano.runtime::%truncate-double-float val)))))
            (values integer-part (* (- val integer-part) divisor))))
         ((or (sys.int::ratiop number)
              (sys.int::ratiop divisor))

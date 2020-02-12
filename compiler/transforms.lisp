@@ -304,6 +304,14 @@
     ((:optimize (= safety 0) (= speed 3)))
   lhs)
 
+(define-transform sys.int::%truncate (number (divisor (eql 1)))
+    ()
+  `(call sys.int::%one-arg-truncate ,number))
+
+(define-transform sys.int::%round (number (divisor (eql 1)))
+    ()
+  `(call sys.int::%one-arg-round ,number))
+
 ;;; Fixnum comparisons.
 
 (define-transform sys.int::binary-= ((lhs fixnum) (rhs fixnum))
@@ -369,6 +377,11 @@
     ((:optimize (= safety 0) (= speed 3))
      (:result-type fixnum))
   `(call sys.int::%%truncate-single-float ,number))
+
+(define-transform sys.int::%one-arg-round ((number single-float))
+    ((:optimize (= safety 0) (= speed 3))
+     (:result-type fixnum))
+  `(call sys.int::%%round-single-float ,number))
 
 (define-transform abs ((number single-float))
     ((:optimize (= safety 0) (= speed 3)))
@@ -454,6 +467,11 @@
     ((:optimize (= safety 0) (= speed 3))
      (:result-type fixnum))
   `(call sys.int::%%truncate-double-float ,number))
+
+(define-transform sys.int::%one-arg-round ((number double-float))
+    ((:optimize (= safety 0) (= speed 3))
+     (:result-type fixnum))
+  `(call sys.int::%%round-double-float ,number))
 
 (define-transform abs ((number double-float))
     ((:optimize (= safety 0) (= speed 3)))

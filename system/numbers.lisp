@@ -125,6 +125,10 @@
 (defun truncate (number &optional (divisor 1))
   (%truncate number divisor))
 
+(declaim (inline round))
+(defun round (number &optional (divisor 1))
+  (%round number divisor))
+
 ;; Can't use DEFINE-COMMUTATIVE-ARITHMETIC-OPERATOR here because one-arg GCD is ABS.
 ;; Types are also wrong (integer vs number).
 (defun gcd (&rest integers)

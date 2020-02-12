@@ -493,6 +493,28 @@
       sys.int::complex-double-float)
      (complex-= x y))))
 
+(defun %truncate-single-float (number)
+  (if (<= sys.int::most-negative-fixnum-single-float
+          number
+          sys.int::most-positive-fixnum-single-float)
+      ;; Fits in a fixnum, convert quickly.
+      (sys.int::%%truncate-single-float number)
+      ;; Grovel inside the float
+      (multiple-value-bind (significand exponent sign)
+          (integer-decode-float number)
+        (* (ash significand exponent) sign))))
+
+(defun %truncate-double-float (number)
+  (if (<= sys.int::most-negative-fixnum-double-float
+          number
+          sys.int::most-positive-fixnum-double-float)
+      ;; Fits in a fixnum, convert quickly.
+      (sys.int::%%truncate-double-float number)
+      ;; Grovel inside the float
+      (multiple-value-bind (significand exponent sign)
+          (integer-decode-float number)
+        (* (ash significand exponent) sign))))
+
 (defun sys.int::generic-truncate (number divisor)
   (assert (/= divisor 0) (number divisor) 'division-by-zero)
   (cond
@@ -509,17 +531,23 @@
          (and (sys.int::single-float-p number)
               (sys.int::single-float-p divisor)))
      (let* ((val (/ number divisor))
-            (integer-part (if (<= sys.int::most-negative-fixnum-single-float
-                                  val
-                                  sys.int::most-positive-fixnum-single-float)
-                              ;; Fits in a fixnum, convert quickly.
-                              (sys.int::%%truncate-single-float val)
-                              ;; Grovel inside the float
-                              (multiple-value-bind (significand exponent sign)
-                                  (integer-decode-float val)
-                                (* (ash significand exponent) sign)))))
+            (integer-part (%truncate-single-float val)))
        (values integer-part (* (- val integer-part) divisor))))
     (t (sys.int::full-truncate number divisor))))
+
+(defun sys.int::%one-arg-truncate (number)
+  (declare (notinline sys.int::%truncate))
+  (typecase number
+    (integer
+     (values number 0))
+    (single-float
+     (let ((integer-part (%truncate-single-float number)))
+       (values integer-part (- number integer-part))))
+    (double-float
+     (let ((integer-part (%truncate-double-float number)))
+       (values integer-part (- number integer-part))))
+    (t
+     (sys.int::%truncate number 1))))
 
 ;;; From SBCL 1.0.55
 (defun ceiling (number &optional (divisor 1))
@@ -548,10 +576,11 @@
         (values tru rem))))
 
 ;; From SBCL 1.0.55
-(defun round (number &optional (divisor 1))
+(defun sys.int::%round (number divisor)
   "Rounds number (or number/divisor) to nearest integer.
   The second returned value is the remainder."
-  (multiple-value-bind (tru rem) (truncate number divisor)
+  (multiple-value-bind (tru rem)
+      (truncate number divisor)
     (if (zerop rem)
         (values tru rem)
         (let ((thresh (/ (abs divisor) 2)))
@@ -567,6 +596,42 @@
                      (values (+ tru 1) (- rem divisor))
                      (values (- tru 1) (+ rem divisor))))
                 (t (values tru rem)))))))
+
+(defun %round-single-float (number)
+  (if (<= sys.int::most-negative-fixnum-single-float
+          number
+          sys.int::most-positive-fixnum-single-float)
+      ;; Fits in a fixnum, convert quickly.
+      (sys.int::%%round-single-float number)
+      ;; Grovel inside the float
+      (multiple-value-bind (significand exponent sign)
+          (integer-decode-float number)
+        (* (ash significand exponent) sign))))
+
+(defun %round-double-float (number)
+  (if (<= sys.int::most-negative-fixnum-double-float
+          number
+          sys.int::most-positive-fixnum-double-float)
+      ;; Fits in a fixnum, convert quickly.
+      (sys.int::%%round-double-float number)
+      ;; Grovel inside the float
+      (multiple-value-bind (significand exponent sign)
+          (integer-decode-float number)
+        (* (ash significand exponent) sign))))
+
+(defun sys.int::%one-arg-round (number)
+  (declare (notinline sys.int::%round))
+  (typecase number
+    (integer
+     (values number 0))
+    (single-float
+     (let ((integer-part (%round-single-float number)))
+       (values integer-part (- number integer-part))))
+    (double-float
+     (let ((integer-part (%round-double-float number)))
+       (values integer-part (- number integer-part))))
+    (t
+     (sys.int::%round number 1))))
 
 (defun sys.int::generic-rem (number divisor)
   (nth-value 1 (sys.int::generic-truncate number divisor)))
