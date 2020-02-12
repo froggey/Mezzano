@@ -1077,6 +1077,13 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
     (refill-tcp-packet-buffer-no-hang stream)
     (not (null (tcp-stream-packet stream)))))
 
+;; Provide this method so that LISTEN works on octet streams too.
+;; EXTERNAL-FORMAT-MIXIN implements LISTEN on a character level,
+;; LISTEN-BYTE exists to poke directly at the raw byte stream.
+(defmethod gray:stream-listen ((stream tcp-octet-stream))
+  (let ((result (gray:stream-listen-byte stream)))
+    (and result (not (eql result :eof)))))
+
 (defmethod gray:stream-read-byte ((stream tcp-octet-stream))
   (with-tcp-connection-locked (tcp-stream-connection stream)
     (check-connection-error (tcp-stream-connection stream))
