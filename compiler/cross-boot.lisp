@@ -209,7 +209,8 @@
   type
   data)
 
-(defun sys.int::%defstruct (def)
+(defun sys.int::%defstruct (def &key location)
+  (declare (ignore location))
   (when (gethash (sys.int::structure-definition-name def) *structure-types*)
     ;; FIXME: Check compatibility here.
     (return-from sys.int::%defstruct def))

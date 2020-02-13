@@ -405,7 +405,7 @@
     (setf (mezzano.runtime::instance-access-by-name new-class 'mezzano.clos::has-standard-constructor)
           (structure-definition-has-standard-constructor sdef))))
 
-(defun convert-structure-definition-to-class (sdef)
+(defun convert-structure-definition-to-class (sdef source-location)
   ;; CLOS might not be fully initialized at this point,
   ;; construct the new class by hand.
   (let* ((s-c (find-class 'structure-class))
@@ -433,6 +433,8 @@
                        :heap-layout (layout-heap-layout (structure-definition-layout sdef))
                        :area (structure-definition-area sdef)
                        :instance-slots (convert-structure-definition-instance-slots sdef)))
+    (setf (mezzano.runtime::instance-access-by-name new-class 'mezzano.clos::source-location)
+          source-location)
     (push new-class (mezzano.runtime::instance-access-by-name parent-class 'mezzano.clos::direct-subclasses))
     new-class))
 
@@ -477,18 +479,23 @@
                   (structure-slot-definition-trivially-compatible-p existing-structure-class slot))
                 (sys.int::structure-definition-slots sdef)))))
 
-(defun %defstruct (structure-type)
+(defun %defstruct (structure-type &key location)
   (when (mezzano.runtime::structure-class-p structure-type)
     ;; Happens during cold load.
+    (when location
+      (setf (mezzano.runtime::instance-access-by-name structure-type 'mezzano.clos::source-location)
+            location))
     (return-from %defstruct structure-type))
   (let* ((name (structure-definition-name structure-type))
          (existing (find-class name nil)))
     (cond (existing
            (when (not (structure-definition-trivially-compatible-p existing structure-type))
              (mezzano.clos::redefine-structure-type existing structure-type))
+           (when location
+             (setf (slot-value existing 'mezzano.clos::source-location) location))
            existing)
           (t
-           (setf (find-class name) (convert-structure-definition-to-class structure-type))))))
+           (setf (find-class name) (convert-structure-definition-to-class structure-type location))))))
 
 (defparameter *incompatible-constant-redefinition-is-an-error* nil)
 (defparameter *defconstant-redefinition-comparator* 'eql)

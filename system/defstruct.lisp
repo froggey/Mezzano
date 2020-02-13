@@ -554,7 +554,7 @@
                                                  (some #'symbolp constructors))))
         `(progn
            (eval-when (:compile-toplevel :load-toplevel :execute)
-             (%defstruct ',struct-type))
+             (%defstruct ',struct-type :location (lambda () (declare (lambda-name (defstruct ,name))))))
            ,@(when predicate
                (list `(declaim (inline ,predicate))
                      `(defun ,predicate (object)

@@ -338,7 +338,8 @@
                   (sdef (getf class-initargs :structure-definition)))
              (cond ((eql class-name 'structure-object)
                     (setf (primordial-slot-value class (env:translate-symbol environment 'mezzano.clos::parent)) nil)
-                    (setf (primordial-slot-value class (env:translate-symbol environment 'mezzano.clos::has-standard-constructor)) nil))
+                    (setf (primordial-slot-value class (env:translate-symbol environment 'mezzano.clos::has-standard-constructor)) nil)
+                    (setf (primordial-slot-value class (env:translate-symbol environment 'mezzano.clos::source-location)) nil))
                    (t
                     (setf (primordial-slot-value class (env:translate-symbol environment 'mezzano.clos::parent))
                           (second (primordial-slot-value class (env:translate-symbol environment 'mezzano.clos::precedence-list))))
