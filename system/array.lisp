@@ -38,15 +38,25 @@
   (multiple-value-bind (element-type dimensions)
       (parse-array-type type)
     (when (or (eql element-type '*)
-              (eql dimensions '*)
-              (not (eql (length dimensions) 1)))
+              (eql dimensions '*))
       (return-from compile-simple-array-type
         (compile-array-type-1 object 'simple-array-p element-type dimensions)))
-    (let ((info (upgraded-array-info element-type)))
+    (let ((info (upgraded-array-info element-type))
+          (rank (length dimensions)))
       (when (not (specialized-array-definition-tag info))
         (return-from compile-simple-array-type
           (compile-array-type-1 object 'simple-array-p element-type dimensions)))
-      (cond ((eql (first dimensions) '*)
+      (cond ((not (eql rank 1))
+             `(and (sys.int::%object-of-type-p ,object sys.int::+object-tag-simple-array+)
+                   (eq (sys.int::%object-header-data ,object) ',rank)
+                   (sys.int::%object-of-type-p (sys.int::%object-ref-t ,object sys.int::+complex-array-storage+)
+                                               ,(specialized-array-definition-tag info))
+                   ,@(loop
+                        for dim in dimensions
+                        for i from 0
+                        unless (eql dim '*)
+                        collect `(eq (sys.int::%object-ref-t ,object (+ sys.int::+complex-array-axis-0+ ,i)) ,dim))))
+            ((eql (first dimensions) '*)
              `(sys.int::%object-of-type-p ,object ,(specialized-array-definition-tag info)))
             (t
              `(and (sys.int::%object-of-type-p ,object ,(specialized-array-definition-tag info))
