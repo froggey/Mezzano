@@ -752,7 +752,8 @@
                       (if (and (eql rank 1)
                                ;; Strings are always complex arrays.
                                (compiler-valid-not-subtypep element-type 'character))
-                          (ast `(the fixnum (call sys.int::%object-header-data ,array) form))
+                          (ast `(the fixnum (call sys.int::%object-header-data ,array))
+                               form)
                           (ast `(the fixnum (call sys.int::%object-ref-t
                                                   ,array
                                                   ',(+ sys.int::+complex-array-axis-0+ axis)))
