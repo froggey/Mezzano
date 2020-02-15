@@ -103,6 +103,8 @@ the old or new values are expected to be unbound.")
 (sys.int::defglobal *the-layout-standard-generic-function*)
 (sys.int::defglobal *the-class-standard-method*)    ;standard-method's class metaobject
 (sys.int::defglobal *the-layout-standard-method*)
+(sys.int::defglobal *the-class-standard-reader-method*)
+(sys.int::defglobal *the-class-standard-writer-method*)
 (sys.int::defglobal *standard-class-effective-slots-location*) ; Position of the effective-slots slot in standard-class.
 (sys.int::defglobal *standard-class-slot-storage-layout-location*)
 (sys.int::defglobal *standard-class-hash-location*)
@@ -2155,17 +2157,65 @@ always match."
      collect method))
 
 (defun slow-single-dispatch-method-lookup (gf args class)
-  (let* ((classes (mapcar #'class-of (required-portion gf args))))
+  (let* ((classes (mapcar #'class-of (required-portion gf args)))
+         (standard-gf-p (eql (class-of gf) *the-class-standard-gf*)))
     (multiple-value-bind (applicable-methods validp)
-        (if (eql (class-of gf) *the-class-standard-gf*)
+        (if standard-gf-p
             (std-compute-applicable-methods-using-classes gf classes)
             (compute-applicable-methods-using-classes gf classes))
       (when (not validp)
         ;; EQL specialized.
-        (setf applicable-methods (if (eql (class-of gf) *the-class-standard-gf*)
+        (setf applicable-methods (if standard-gf-p
                                      (std-compute-applicable-methods gf args)
                                      (compute-applicable-methods gf args))))
-      (let ((emfun (cond (applicable-methods
+      (let ((emfun (cond ((and applicable-methods
+                               (every 'primary-method-p applicable-methods)
+                               standard-gf-p
+                               (eql (class-of (first applicable-methods))
+                                    *the-class-standard-reader-method*)
+                               (std-class-instance-p class))
+                          ;; This is a reader method and a specialized accessor can be used.
+                          (let* ((instance (first args))
+                                 (slot-def (accessor-method-slot-definition (first applicable-methods)))
+                                 (slot-name (slot-definition-name slot-def))
+                                 (effective-slot (find-effective-slot instance slot-name)))
+                            (cond (effective-slot
+                                   (let ((location (safe-slot-definition-location effective-slot)))
+                                     (lambda (object)
+                                       (declare (sys.int::lambda-name fast-slot-reader))
+                                       (fast-slot-read object location slot-def))))
+                                  (t
+                                   ;; Slot not present, fall back on SLOT-VALUE.
+                                   (lambda (object)
+                                     (declare (sys.int::lambda-name slow-slot-reader))
+                                     (slot-value object slot-name))))))
+                         ((and applicable-methods
+                               (every 'primary-method-p applicable-methods)
+                               standard-gf-p
+                               (eql (class-of (first applicable-methods))
+                                    *the-class-standard-writer-method*)
+                               (std-class-instance-p class))
+                          ;; This is a writer method and a specialized accessor can be used.
+                          (let* ((instance (second args))
+                                 (slot-def (accessor-method-slot-definition (first applicable-methods)))
+                                 (slot-name (slot-definition-name slot-def))
+                                 (effective-slot (find-effective-slot instance slot-name)))
+                            (cond (effective-slot
+                                   (let* ((location (safe-slot-definition-location effective-slot))
+                                          (typecheck (safe-slot-definition-typecheck effective-slot))
+                                          (type (safe-slot-definition-type effective-slot)))
+                                     (lambda (new-value object)
+                                       (when (and typecheck (not (funcall typecheck new-value)))
+                                         (error 'type-error
+                                                :datum new-value
+                                                :expected-type type))
+                                       (fast-slot-write new-value object location slot-def))))
+                                  (t
+                                   ;; Slot not present, fall back on SLOT-VALUE.
+                                   (lambda (value object)
+                                     (declare (sys.int::lambda-name slow-slot-writer))
+                                     (setf (slot-value object slot-name) value))))))
+                         (applicable-methods
                           (std-compute-effective-method-function gf applicable-methods))
                          (t
                           (lambda (&rest args)

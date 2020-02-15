@@ -140,6 +140,8 @@
         *the-layout-standard-generic-function* (primordial-slot-value *the-class-standard-gf* 'slot-storage-layout)
         *the-class-standard-method* (find-class 'standard-method)
         *the-layout-standard-method* (primordial-slot-value *the-class-standard-method* 'slot-storage-layout)
+        *the-class-standard-reader-method* (find-class 'standard-reader-method)
+        *the-class-standard-writer-method* (find-class 'standard-reader-method)
         *the-class-t* (find-class 't))
   ;; Locations of important slots in metaobjects.
   (let ((s-c-layout (primordial-slot-value (find-class 'standard-class) 'slot-storage-layout)))
