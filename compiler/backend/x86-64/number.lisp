@@ -437,6 +437,21 @@
                               :inputs (list lhs rhs)
                               :outputs '())))))
 
+(define-builtin mezzano.runtime::%fixnum-<-unsigned ((lhs rhs) :b)
+  (cond ((constant-value-p rhs '(signed-byte 31))
+         (emit (make-instance 'x86-instruction
+                              :opcode 'lap:cmp64
+                              :operands (list lhs (ash (fetch-constant-value rhs)
+                                                       sys.int::+n-fixnum-bits+))
+                              :inputs (list lhs)
+                              :outputs '())))
+        (t
+         (emit (make-instance 'x86-instruction
+                              :opcode 'lap:cmp64
+                              :operands (list lhs rhs)
+                              :inputs (list lhs rhs)
+                              :outputs '())))))
+
 (define-builtin mezzano.runtime::%fixnum-right-shift ((integer count) result)
   (cond ((constant-value-p count '(integer 0))
          (let ((count-value (fetch-constant-value count)))

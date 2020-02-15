@@ -575,12 +575,19 @@ thread's stack if this function is called from normal code."
         (%double-float-as-integer old)
         (%double-float-as-integer new))))
 
+(declaim (inline %in-bounds-p))
+(defun %in-bounds-p (index limit)
+  "Test 0 <= INDEX < LIMIT. INDEX & LIMIT must both be fixnums."
+  ;; Negative 2's compliment values are extremely large positive values
+  ;; when treated as unsigned, this folds two tests into one.
+  (mezzano.runtime::%fixnum-<-unsigned (the fixnum index) (the fixnum limit)))
+
 (declaim (inline %bounds-check))
 (defun %bounds-check (object slot)
   (unless (fixnump slot)
     (raise-type-error slot 'fixnum)
     (sys.int::%%unreachable))
-  (unless (< (the fixnum slot) (the fixnum (%object-header-data object)))
+  (unless (%in-bounds-p slot (%object-header-data object))
     (raise-bounds-error object slot)
     (sys.int::%%unreachable)))
 
