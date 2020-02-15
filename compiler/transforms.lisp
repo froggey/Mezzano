@@ -501,14 +501,15 @@
 ;;; Fast array accesses, avoid type-dispatch in AREF.
 ;;; These check bounds, but not the type.
 
-(defun insert-bounds-check (array array-type index index-type &key (adjust 0))
+(defun insert-bounds-check (array array-type index index-type &key (adjust 0) force)
   ;; Index type should look like (EQL integer)
   (let ((index-value (and (typep index-type '(cons (eql eql) (cons integer null)))
                           (second index-type)))
         ;; Array type should look like (SIMPLE-ARRAY t (integer))
         (array-limit (and (typep array-type '(cons (eql simple-array) (cons t (cons (cons integer null) null))))
                           (first (third array-type)))))
-    (cond ((and index-value
+    (cond ((and (not force)
+                index-value
                 array-limit
                 (<= 0 index-value (1- (- array-limit adjust))))
            ;; Elide bounds check for fixed-sized arrays with a known index.
@@ -520,8 +521,17 @@
            ;; is slightly negative.
            `(call sys.int::%bounds-check ,array (call %fast-fixnum-+ ,index ',adjust))))))
 
+(defun insert-type-check (object type &optional (expected-type type))
+  `(let ((object ,object)) ; needed to make source-fragment work
+     (if (source-fragment (typep object ',type))
+         'nil
+         (progn
+           (call sys.int::raise-type-error object ',expected-type)
+           (call sys.int::%%unreachable)))))
+
 (defmacro define-fast-array-transform (type accessor)
   `(progn
+     ;; ROW-MAJOR-AREF on non-1D arrays without type checks.
      (define-transform row-major-aref ((array (and (simple-array ,type *)
                                                    (not (simple-array ,type (*)))))
                                        (index fixnum))
@@ -539,6 +549,53 @@
           (progn
             (call sys.int::%bounds-check storage ,index)
             (the ,',type (call (setf ,',accessor) ,value storage ,index)))))
+     ;; ROW-MAJOR-AREF on non-1D arrays with type checks.
+     (define-transform row-major-aref ((array (and (simple-array ,type *)
+                                                   (not (simple-array ,type (*)))))
+                                       (index fixnum))
+         ((:optimize (/= safety 0) (= speed 3)))
+       `(progn
+          ;; Type check, must be a complex array.
+          (if (call sys.int::%object-of-type-p ,array ',sys.int::+object-tag-simple-array+)
+              'nil
+              (progn
+                (call sys.int::raise-type-error ,array '(and (simple-array ,',type *) (not (simple-array ,',type (*)))))
+                (call sys.int::%%unreachable)))
+          (let ((storage (call sys.int::%object-ref-t ,array ',sys.int::+complex-array-storage+)))
+            (progn
+              ;; Type check, array must be of the right type.
+              (if (source-fragment (typep storage '(simple-array ,',type (*))))
+                  'nil
+                  (progn
+                    (call sys.int::raise-type-error ,array '(and (simple-array ,',type *) (not (simple-array ,',type (*)))))
+                    (call sys.int::%%unreachable)))
+              (call sys.int::%bounds-check storage ,index)
+              (the ,',type (call ,',accessor storage ,index))))))
+     (define-transform (setf row-major-aref) (value
+                                              (array (and (simple-array ,type *)
+                                                          (not (simple-array ,type (*)))))
+                                              (index fixnum))
+         ((:optimize (/= safety 0) (= speed 3)))
+       `(progn
+          ;; Type check, value must have the right type.
+          ,(insert-type-check value ',type)
+          ;; Type check, must be a complex array.
+          (if (call sys.int::%object-of-type-p ,array ',sys.int::+object-tag-simple-array+)
+              'nil
+              (progn
+                (call sys.int::raise-type-error ,array '(and (simple-array ,',type *) (not (simple-array ,',type (*)))))
+                (call sys.int::%%unreachable)))
+          (let ((storage (call sys.int::%object-ref-t ,array ',sys.int::+complex-array-storage+)))
+            (progn
+              ;; Type check, array must be of the right type.
+              (if (source-fragment (typep storage '(simple-array ,',type (*))))
+                  'nil
+                  (progn
+                    (call sys.int::raise-type-error ,array '(and (simple-array ,',type *) (not (simple-array ,',type (*)))))
+                    (call sys.int::%%unreachable)))
+              (call sys.int::%bounds-check storage ,index)
+              (the ,',type (call (setf ,',accessor) ,value storage ,index))))))
+     ;; ROW-MAJOR-AREF on 1D arrays without type checks.
      (define-transform row-major-aref ((array (simple-array ,type (*)) array-type) (index fixnum index-type))
          ((:optimize (= safety 0) (= speed 3)))
        `(progn
@@ -548,6 +605,23 @@
          ((:optimize (= safety 0) (= speed 3)))
        `(progn
           ,(insert-bounds-check array array-type index index-type)
+          (the ,',type (call (setf ,',accessor) ,value ,array ,index))))
+     ;; ROW-MAJOR-AREF on 1D arrays with type checks.
+     (define-transform row-major-aref ((array (simple-array ,type (*)) array-type) (index fixnum index-type))
+         ((:optimize (/= safety 0) (= speed 3)))
+       `(progn
+          ;; Type check, array must be of the right type.
+          ,(insert-type-check array `(simple-array ,',type (*)))
+          ,(insert-bounds-check array array-type index index-type :force t)
+          (the ,',type (call ,',accessor ,array ,index))))
+     (define-transform (setf row-major-aref) (value (array (simple-array ,type (*)) array-type) (index fixnum index-type))
+         ((:optimize (/= safety 0) (= speed 3)))
+       `(progn
+          ;; Type check, value must have the right type.
+          ,(insert-type-check value ',type)
+          ;; Type check, array must be of the right type.
+          ,(insert-type-check array `(simple-array ,',type (*)))
+          ,(insert-bounds-check array array-type index index-type :force t)
           (the ,',type (call (setf ,',accessor) ,value ,array ,index))))))
 
 (define-fast-array-transform t sys.int::%object-ref-t)
@@ -570,18 +644,19 @@
                                repeat n
                                collect (gensym "INDEX"))))
                `(progn
+                  ;; These are always safe.
                   (define-transform ,name ((array (array * ,(make-list n :initial-element '*)))
                                            ,@(loop
                                                 for index in indices
                                                 collect (list index 'fixnum)))
-                      ((:optimize (= safety 0) (= speed 3)))
+                      ((:optimize (= speed 3)))
                     `(call row-major-aref ,array (call array-row-major-index ,array ,,@indices)))
                   (define-transform (setf ,name) (value
                                                   (array (array * ,(make-list n :initial-element '*)))
                                                   ,@(loop
                                                        for index in indices
                                                        collect (list index 'fixnum)))
-                      ((:optimize (= safety 0) (= speed 3)))
+                      ((:optimize (= speed 3)))
                     `(call (setf row-major-aref) ,value ,array (call array-row-major-index ,array ,,@indices)))))))
   (def aref 0)
   (def aref 1)
@@ -597,28 +672,91 @@
              (let ((indices (loop
                                repeat n
                                collect (gensym "INDEX"))))
-               `(define-transform array-row-major-index ((array (array * ,(make-list n :initial-element '*)))
-                                                         ,@(loop
-                                                              for index in indices
-                                                              collect (list index 'fixnum)))
-                    ((:optimize (= safety 0) (= speed 3)))
-                  ,(if (zerop n)
-                       '''0
-                       (loop
-                          with current = (first indices)
-                          for dim from 1
-                          for i from 0
-                          for index in (rest indices)
-                          do
-                            (setf current ``(the fixnum
-                                                 (call %fast-fixnum-+
-                                                       (the fixnum
-                                                            (call %fast-fixnum-*
-                                                                  ,,current
-                                                                  (call array-dimension ,array ',',dim)))
-                                                       ,,index)))
-                          finally
-                            (return current)))))))
+               `(progn
+                  ;; Unsafe transform.
+                  (define-transform array-row-major-index ((array (array * ,(make-list n :initial-element '*)))
+                                                           ,@(loop
+                                                                for index in indices
+                                                                collect (list index 'fixnum)))
+                      ((:optimize (= safety 0) (= speed 3)))
+                    ,(if (zerop n)
+                         '''0
+                         (loop
+                            with current = (first indices)
+                            for dim from 1
+                            for index in (rest indices)
+                            do
+                              (setf current ``(the fixnum
+                                                   (call %fast-fixnum-+
+                                                         (the fixnum
+                                                              (call %fast-fixnum-*
+                                                                    ,,current
+                                                                    (call array-dimension ,array ',',dim)))
+                                                         ,,index)))
+                            finally
+                              (return current))))
+                  ;; Safe and type-and-bounds-checked transform.
+                  ;; There are separate transforms for ARRAY and SIMPLE-ARRAY to simplify the array type-check.
+                  (define-transform array-row-major-index ((array (simple-array * ,(make-list n :initial-element '*)) array-type)
+                                                           ,@(loop
+                                                                for index in indices
+                                                                collect (list index 'fixnum)))
+                      ((:optimize (/= safety 0) (= speed 3)))
+                    `(progn
+                       ,(insert-type-check array array-type `(simple-array * ,',(make-list n :initial-element '*)))
+                       ,,(if (zerop n)
+                             '''nil
+                             ``(call sys.int::%complex-bounds-check ,array ,,(first indices) (call %array-dimension-known ,array '0) '0))
+                       ,,(if (zerop n)
+                             '''0
+                             (loop
+                                with current = (first indices)
+                                for dim from 1
+                                for index in (rest indices)
+                                do
+                                  (setf current ``(the fixnum
+                                                       (call %fast-fixnum-+
+                                                             (the fixnum
+                                                                  (call %fast-fixnum-*
+                                                                        ,,current
+                                                                        (let ((dim (call %array-dimension-known ,array ',',dim)))
+                                                                          (progn
+                                                                            (call sys.int::%complex-bounds-check ,array ,,index dim ',',dim)
+                                                                            dim))))
+                                                             ,,index)))
+                                finally
+                                  (return current)))))
+                  (define-transform array-row-major-index ((array (and (array * ,(make-list n :initial-element '*))
+                                                                       (not simple-array))
+                                                                  array-type)
+                                                           ,@(loop
+                                                                for index in indices
+                                                                collect (list index 'fixnum)))
+                      ((:optimize (/= safety 0) (= speed 3)))
+                    `(progn
+                       ,(insert-type-check array array-type `(array * ,',(make-list n :initial-element '*)))
+                       ,,(if (zerop n)
+                             '''nil
+                             ``(call sys.int::%complex-bounds-check ,array ,,(first indices) (call %array-dimension-known ,array '0) '0))
+                       ,,(if (zerop n)
+                             '''0
+                             (loop
+                                with current = (first indices)
+                                for dim from 1
+                                for index in (rest indices)
+                                do
+                                  (setf current ``(the fixnum
+                                                       (call %fast-fixnum-+
+                                                             (the fixnum
+                                                                  (call %fast-fixnum-*
+                                                                        ,,current
+                                                                        (let ((dim (call %array-dimension-known ,array ',',dim)))
+                                                                          (progn
+                                                                            (call sys.int::%complex-bounds-check ,array ,,index dim ',',dim)
+                                                                            dim))))
+                                                             ,,index)))
+                                finally
+                                  (return current)))))))))
   (def 0)
   (def 1)
   (def 2)

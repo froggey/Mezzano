@@ -591,6 +591,15 @@ thread's stack if this function is called from normal code."
     (raise-bounds-error object slot)
     (sys.int::%%unreachable)))
 
+(declaim (inline %complex-bounds-check))
+(defun %complex-bounds-check (array index dim axis)
+  (unless (fixnump index)
+    (raise-type-error index 'fixnum)
+    (sys.int::%%unreachable))
+  (unless (%in-bounds-p index dim)
+    (sys.int::raise-complex-bounds-error array index dim axis)
+    (sys.int::%%unreachable)))
+
 ;; This is handled specially by the compiler & doesn't go through the
 ;; normal builtin mechanism. Specifically provide a wrapper function
 ;; for it.

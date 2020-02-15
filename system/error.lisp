@@ -435,6 +435,10 @@
 (defun raise-bounds-error (array index)
   (error "Index ~D out of bounds for array ~S." index array))
 
+(defun raise-complex-bounds-error (array index dim axis)
+  (error "Subscript ~S is invalid for array ~S axis ~D, should be non-negative and less than ~S."
+         index array axis dim))
+
 (defun raise-bad-go-tag (name)
   (error 'unavailable-go-tag-error :tag name))
 

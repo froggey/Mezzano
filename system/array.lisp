@@ -639,8 +639,8 @@
   (apply #'+ (maplist (lambda (x y)
                         (check-type (car x) integer)
                         (unless (<= 0 (car x) (1- (car y)))
-                          (error "Subscript ~S is invalid for axis, should be non-negative and less than ~S."
-                                 (car x) (car y)))
+                          (raise-complex-bounds-error
+                           array (car x) (car y) nil))
                         (* (car x) (apply #'* (cdr y))))
                       subscripts
                       (array-dimensions array))))
