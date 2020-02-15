@@ -526,63 +526,40 @@
 (defun sleef-signf (d)
   (sleef-mulsignf 1.0f0 d))
 
+(declaim (inline sleef-mlaf))
 (defun sleef-mlaf (x y z)
+  (declare (type single-float x y z))
   (+ (* x y) z))
 
+(declaim (inline sleef-rintf))
 (defun sleef-rintf (x)
-  (if (< x 0)
-      (truncate (- x 0.5f0))
-      (truncate (+ x 0.5f0))))
+  (declare (type single-float x))
+  (if (< x 0.0f0)
+      (the fixnum (truncate (- x 0.5f0)))
+      (the fixnum (truncate (+ x 0.5f0)))))
 
 (defconstant +sleef-pi4-a+ 0.78539816290140151978d0)
 (defconstant +sleef-pi4-b+ 4.9604678871439933374d-10)
 (defconstant +sleef-pi4-c+ 1.1258708853173288931d-18)
 (defconstant +sleef-pi4-d+ 1.7607799325916000908d-27)
 
+(declaim (inline sleef-mla))
 (defun sleef-mla (x y z)
+  (declare (type double-float x y z))
   (+ (* x y) z))
 
+(declaim (inline sleef-rint))
 (defun sleef-rint (x)
-  (if (< x 0)
-      (truncate (- x 0.5d0))
-      (truncate (+ x 0.5d0))))
+  (declare (type double-float x))
+  (if (< x 0.0d0)
+      (the fixnum (truncate (- x 0.5d0)))
+      (the fixnum (truncate (+ x 0.5d0)))))
 
-(defun sin-single-float (d)
-  (let ((q 0)
-        (s 0.0f0))
-    (setf q (sleef-rintf (* d (/ (float pi 0.0f0)))))
-
-    (setf d (sleef-mlaf q (* +sleef-pi4-af+ -4) d))
-    (setf d (sleef-mlaf q (* +sleef-pi4-bf+ -4) d))
-    (setf d (sleef-mlaf q (* +sleef-pi4-cf+ -4) d))
-    (setf d (sleef-mlaf q (* +sleef-pi4-df+ -4) d))
-
-    (setf s (* d d))
-
-    (when (logtest q 1)
-      (setf d (- d)))
-
-    (finish-sincos-single-float s d)))
-
-(defun cos-single-float (d)
-  (let ((q 0)
-        (s 0.0f0))
-    (setf q (+ 1 (* 2 (sleef-rintf (- (* d (/ (float pi 0.0f0))) 0.5f0)))))
-
-    (setf d (sleef-mlaf q (* +sleef-pi4-af+ -2) d))
-    (setf d (sleef-mlaf q (* +sleef-pi4-bf+ -2) d))
-    (setf d (sleef-mlaf q (* +sleef-pi4-cf+ -2) d))
-    (setf d (sleef-mlaf q (* +sleef-pi4-df+ -2) d))
-
-    (setf s (* d d))
-
-    (when (not (logtest q 2))
-      (setf d (- d)))
-
-    (finish-sincos-single-float s d)))
-
+(declaim (inline finish-sincos-single-float))
 (defun finish-sincos-single-float (s d)
+  (declare (type single-float s d))
   (let ((u 2.6083159809786593541503f-06))
+    (declare (type single-float u))
     (setf u (sleef-mlaf u s -0.0001981069071916863322258f0))
     (setf u (sleef-mlaf u s 0.00833307858556509017944336f0))
     (setf u (sleef-mlaf u s -0.166666597127914428710938f0))
@@ -594,42 +571,45 @@
           (t
            u))))
 
-(defun sin-double-float (d)
-  (let ((q 0)
-        (s 0.0d0))
-    (setf q (sleef-rint (* d (/ (float pi 0.0d0)))))
+(defun sin-single-float (d)
+  (declare (type single-float d)
+           (optimize (speed 3) (safety 0) (debug 0)))
+  (let* ((q (sleef-rintf (* d (/ (float pi 0.0f0)))))
+         (q-float (float q 0.0f0)))
+    (declare (type fixnum q)
+             (type single-float q-float))
+    (setf d (sleef-mlaf q-float (* +sleef-pi4-af+ -4) d))
+    (setf d (sleef-mlaf q-float (* +sleef-pi4-bf+ -4) d))
+    (setf d (sleef-mlaf q-float (* +sleef-pi4-cf+ -4) d))
+    (setf d (sleef-mlaf q-float (* +sleef-pi4-df+ -4) d))
+    (let ((s (* d d)))
+      (declare (type single-float s))
+      (when (logtest q 1)
+        (setf d (- 0.0f0 d)))
+      (finish-sincos-single-float s d))))
 
-    (setf d (sleef-mla q (* +sleef-pi4-a+ -4) d))
-    (setf d (sleef-mla q (* +sleef-pi4-b+ -4) d))
-    (setf d (sleef-mla q (* +sleef-pi4-c+ -4) d))
-    (setf d (sleef-mla q (* +sleef-pi4-d+ -4) d))
+(defun cos-single-float (d)
+  (declare (type single-float d)
+           (optimize (speed 3) (safety 0) (debug 0)))
+  (let* ((q (+ 1 (* 2 (sleef-rintf (- (* d (/ (float pi 0.0f0))) 0.5f0)))))
+         (q-float (float q 0.0f0)))
+    (declare (type fixnum q)
+             (type single-float q-float))
+    (setf d (sleef-mlaf q-float (* +sleef-pi4-af+ -2) d))
+    (setf d (sleef-mlaf q-float (* +sleef-pi4-bf+ -2) d))
+    (setf d (sleef-mlaf q-float (* +sleef-pi4-cf+ -2) d))
+    (setf d (sleef-mlaf q-float (* +sleef-pi4-df+ -2) d))
+    (let ((s (* d d)))
+      (declare (type single-float s))
+      (when (not (logtest q 2))
+        (setf d (- 0.0f0 d)))
+      (finish-sincos-single-float s d))))
 
-    (setf s (* d d))
-
-    (when (logtest q 1)
-      (setf d (- d)))
-
-    (finish-sincos-double-float s d)))
-
-(defun cos-double-float (d)
-  (let ((q 0)
-        (s 0.0d0))
-    (setf q (+ 1 (* 2 (sleef-rint (- (* d (/ (float pi 0.0d0))) 0.5d0)))))
-
-    (setf d (sleef-mla q (* +sleef-pi4-a+ -2) d))
-    (setf d (sleef-mla q (* +sleef-pi4-b+ -2) d))
-    (setf d (sleef-mla q (* +sleef-pi4-c+ -2) d))
-    (setf d (sleef-mla q (* +sleef-pi4-d+ -2) d))
-
-    (setf s (* d d))
-
-    (when (not (logtest q 2))
-      (setf d (- d)))
-
-    (finish-sincos-double-float s d)))
-
+(declaim (inline finish-sincos-double-float))
 (defun finish-sincos-double-float (s d)
+  (declare (type double-float s d))
   (let ((u -7.97255955009037868891952d-18))
+    (declare (type double-float u))
     (setf u (sleef-mla u s 2.81009972710863200091251d-15))
     (setf u (sleef-mla u s -7.64712219118158833288484d-13))
     (setf u (sleef-mla u s 1.60590430605664501629054d-10))
@@ -640,6 +620,40 @@
     (setf u (sleef-mla u s -0.166666666666666657414808d0))
 
     (sleef-mla s (* u d) d)))
+
+(defun sin-double-float (d)
+  (declare (type double-float d)
+           (optimize (speed 3) (safety 0) (debug 0)))
+  (let* ((q (sleef-rint (* d (/ (float pi 0.0d0)))))
+         (q-float (float q 0.0d0)))
+    (declare (type fixnum q)
+             (type double-float q-float))
+    (setf d (sleef-mla q-float (* +sleef-pi4-a+ -4) d))
+    (setf d (sleef-mla q-float (* +sleef-pi4-b+ -4) d))
+    (setf d (sleef-mla q-float (* +sleef-pi4-c+ -4) d))
+    (setf d (sleef-mla q-float (* +sleef-pi4-d+ -4) d))
+    (let ((s (* d d)))
+      (declare (type double-float s))
+      (when (logtest q 1)
+        (setf d (- 0.0d0 d)))
+      (finish-sincos-double-float s d))))
+
+(defun cos-double-float (d)
+  (declare (type double-float d)
+           (optimize (speed 3) (safety 0) (debug 0)))
+  (let* ((q (+ 1 (* 2 (sleef-rint (- (* d (/ (float pi 0.0d0))) 0.5d0)))))
+         (q-float (float q 0.0d0)))
+    (declare (type fixnum q)
+             (type double-float q-float))
+    (setf d (sleef-mla q-float (* +sleef-pi4-a+ -2) d))
+    (setf d (sleef-mla q-float (* +sleef-pi4-b+ -2) d))
+    (setf d (sleef-mla q-float (* +sleef-pi4-c+ -2) d))
+    (setf d (sleef-mla q-float (* +sleef-pi4-d+ -2) d))
+    (let ((s (* d d)))
+      (declare (type double-float s))
+      (when (not (logtest q 2))
+        (setf d (- 0.0d0 d)))
+      (finish-sincos-double-float s d))))
 
 (defun sin (x)
   (etypecase x
@@ -665,16 +679,18 @@
     (real
      (cos-single-float (float x 0.0f0)))))
 
-(defun tan (d)
-  (let (q u s x)
-    (setf q (sleef-rintf (* d 2 (/ (float pi 0.0f0)))))
-
-    (setf x d)
-
-    (setf x (sleef-mlaf q (* +sleef-pi4-af+ -4 0.5f0) x))
-    (setf x (sleef-mlaf q (* +sleef-pi4-bf+ -4 0.5f0) x))
-    (setf x (sleef-mlaf q (* +sleef-pi4-cf+ -4 0.5f0) x))
-    (setf x (sleef-mlaf q (* +sleef-pi4-df+ -4 0.5f0) x))
+(defun tan-single-float (d)
+  (declare (type single-float d))
+  (let* ((q (sleef-rintf (* d 2 (/ (float pi 0.0f0)))))
+         (q-float (float q 0.0f0))
+         u s
+         (x d))
+    (declare (type fixnum q)
+             (type single-float q-float x))
+    (setf x (sleef-mlaf q-float (* +sleef-pi4-af+ -4 0.5f0) x))
+    (setf x (sleef-mlaf q-float (* +sleef-pi4-bf+ -4 0.5f0) x))
+    (setf x (sleef-mlaf q-float (* +sleef-pi4-cf+ -4 0.5f0) x))
+    (setf x (sleef-mlaf q-float (* +sleef-pi4-df+ -4 0.5f0) x))
 
     (setf s (* x x))
 
@@ -697,6 +713,13 @@
       (setf u (/ 0.0f0 0.0f0)))
 
     u))
+
+(defun tan (radians)
+  (etypecase radians
+    (double-float
+     (float (tan-single-float (float radians 0.0f0)) 0.0d0))
+    (real
+     (tan-single-float (float radians 0.0f0)))))
 
 (defconstant +sleef-r-ln2f+ 1.442695040888963407359924681001892137426645954152985934135449406931f0)
 (defconstant +sleef-l2uf+ 0.693145751953125f0)
@@ -726,12 +749,16 @@
         (- q (+ 64 #x7F))
         (- q #x7F))))
 
-(defun exp (number)
-  (let ((d (float number 0.0f0))
-        q s u)
-    (setf q (sleef-rintf (* d +sleef-r-ln2f+)))
-    (setf s (sleef-mlaf q (- +sleef-l2uf+) d))
-    (setf s (sleef-mlaf q (- +sleef-l2lf+) s))
+(defun exp-single-float (d)
+  (declare (type single-float d))
+  (let* ((q (sleef-rintf (* d +sleef-r-ln2f+)))
+         (q-float (float q 0.0f0))
+         (s d)
+         u)
+    (declare (type fixnum q)
+             (type single-float q-float s))
+    (setf s (sleef-mlaf q-float (- +sleef-l2uf+) s))
+    (setf s (sleef-mlaf q-float (- +sleef-l2lf+) s))
 
     (setf u 0.000198527617612853646278381f0)
     (setf u (sleef-mlaf u s 0.00139304355252534151077271f0))
@@ -746,9 +773,14 @@
     (if (< d -104) (setf u 0))
     (if (> d  104) (setf u single-float-positive-infinity))
 
-    (if (floatp number)
-        (float u number)
-        u)))
+    u))
+
+(defun exp (number)
+  (etypecase number
+    (double-float
+     (float (exp-single-float (float number 0.0f0)) 0.0d0))
+    (real
+     (exp-single-float (float number 0.0f0)))))
 
 (defun log-e (number)
   (let ((d (float number 0.0f0))
