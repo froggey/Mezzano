@@ -1982,6 +1982,24 @@ has only has class specializer."
                                                    repeat n-required
                                                    collect (eql-specializer-object spec)))))))
 
+(sys.int::defglobal *redefinition-flush-table* (make-hash-table))
+(sys.int::defglobal *redefinition-flush-table-lock*
+    (mezzano.supervisor:make-mutex '*redefinition-flush-table*))
+
+(defun register-redefinition-flusher (gf class)
+  "Cause GF's EMF table to be flushed when CLASS is redefined."
+  (mezzano.supervisor:with-mutex (*redefinition-flush-table-lock*)
+    (pushnew gf (gethash class *redefinition-flush-table* '()))))
+
+(defun flush-emf-tables-on-class-redefinition (class)
+  ;; CLASS is being redefined, flush any associated the EMF tables and wipe away the entry.
+  (let ((gfs (mezzano.supervisor:with-mutex (*redefinition-flush-table-lock*)
+               (prog1
+                   (gethash class *redefinition-flush-table*)
+                 (remhash class *redefinition-flush-table*)))))
+    (dolist (gf gfs)
+      (reset-gf-emf-table gf))))
+
 (defun slow-single-dispatch-method-lookup* (gf argument-offset args state)
   (declare (notinline slot-value (setf slot-value))) ; Bootstrap hack
   (let ((emf-table (classes-to-emf-table gf)))
@@ -1997,6 +2015,7 @@ has only has class specializer."
                      (every 'primary-method-p applicable-methods)
                      (typep (first applicable-methods) 'standard-reader-method)
                      (std-class-p (class-of class)))
+                (register-redefinition-flusher gf class)
                 (let* ((instance (first args))
                        (slot-def (accessor-method-slot-definition (first applicable-methods)))
                        (slot-name (slot-definition-name slot-def))
@@ -2026,6 +2045,7 @@ has only has class specializer."
                        (slot-name (slot-definition-name slot-def))
                        (effective-slot (find-effective-slot instance slot-name))
                        (new-value (first args)))
+                  (register-redefinition-flusher gf class)
                   (cond (effective-slot
                          (let* ((location (safe-slot-definition-location effective-slot))
                                 (typecheck (safe-slot-definition-typecheck effective-slot))
@@ -2179,6 +2199,7 @@ always match."
                                  (slot-def (accessor-method-slot-definition (first applicable-methods)))
                                  (slot-name (slot-definition-name slot-def))
                                  (effective-slot (find-effective-slot instance slot-name)))
+                            (register-redefinition-flusher gf class)
                             (cond (effective-slot
                                    (let ((location (safe-slot-definition-location effective-slot)))
                                      (lambda (object)
@@ -2200,6 +2221,7 @@ always match."
                                  (slot-def (accessor-method-slot-definition (first applicable-methods)))
                                  (slot-name (slot-definition-name slot-def))
                                  (effective-slot (find-effective-slot instance slot-name)))
+                            (register-redefinition-flusher gf class)
                             (cond (effective-slot
                                    (let* ((location (safe-slot-definition-location effective-slot))
                                           (typecheck (safe-slot-definition-typecheck effective-slot))
@@ -3504,11 +3526,11 @@ always match."
                  (list :direct-superclasses (safe-class-direct-superclasses class))
                  (list :direct-slots (mapcar #'convert-direct-slot-definition-to-canonical-direct-slot (safe-class-direct-slots class)))
                  (list :direct-default-initargs (safe-class-direct-default-initargs class))))
-  ;; Flush the EMF tables of generic functions. (wait, why?)
-  ;; FIXME: This needs to flush the EMF tables of any accessor GFs that have
-  ;; an EMF entry for this class.
+  ;; Flush the EMF tables of generic functions.
+  ;; FIXME: Make this cleaner, needs to cover any generic function that indirectly specializes on this class.
   (dolist (gf (safe-specializer-direct-generic-functions class))
     (reset-gf-emf-table gf))
+  (flush-emf-tables-on-class-redefinition class)
   ;; Refinalize any subclasses.
   (dolist (subclass (safe-class-direct-subclasses class))
     (std-after-reinitialization-for-classes subclass))
