@@ -183,25 +183,32 @@
            (when entry
              (macro-definition-function entry))))))
 
-(defun get-macro-definition (symbol)
+(defun get-macro-definition (symbol &optional (createp t))
   (let ((entry (gethash symbol *macros*)))
-    (when (not entry)
+    (when (and (not entry) createp)
       (let ((new-entry (make-macro-definition)))
         (setf entry (or (cas (gethash symbol *macros*) nil new-entry)
                         new-entry))))
     entry))
 
 (defun (setf macro-function) (value symbol &optional env)
-  (check-type value function)
+  (check-type value (or null function))
   (check-type symbol symbol)
   (when env
     (error "TODO: (Setf Macro-function) in environment."))
-  (setf (symbol-function symbol) (lambda (&rest r)
-                                   (declare (ignore r))
-                                   (error 'undefined-function :name symbol)))
-  (let ((entry (get-macro-definition symbol)))
-    (setf (macro-definition-function entry) value
-          (macro-definition-lambda-list entry) nil))
+  (cond (value
+         (setf (symbol-function symbol) (lambda (&rest r)
+                                          (declare (ignore r))
+                                          (error 'undefined-function :name symbol)))
+         (let ((entry (get-macro-definition symbol)))
+           (setf (macro-definition-function entry) value
+                 (macro-definition-lambda-list entry) nil)))
+        (t
+         (let ((entry (get-macro-definition symbol nil)))
+           (when (and entry (macro-definition-function entry))
+             (fmakunbound symbol)
+             (setf (macro-definition-function entry) nil
+                   (macro-definition-lambda-list entry) nil)))))
   value)
 
 (defun macro-function-lambda-list (symbol)
