@@ -26,8 +26,8 @@
   (let ((storage (fast-class-hash-table-table table)))
     (cond ((consp storage)
            ;; Single entry.
-           (if (eql (car storage) class)
-               (cdr storage)
+           (if (eq (the cons (car storage)) class)
+               (the cons (cdr storage))
                nil))
           ((not storage)
            ;; No entries.
