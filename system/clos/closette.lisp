@@ -1582,7 +1582,8 @@ has only has class specializer."
                                                            documentation
                                                            method-combination
                                                            argument-precedence-order
-                                                           declarations)
+                                                           declarations
+                                                           source-location)
   (setf (safe-generic-function-name gf) name)
   (setf (safe-generic-function-lambda-list gf) lambda-list)
   (setf (safe-generic-function-methods gf) ())
@@ -1593,6 +1594,7 @@ has only has class specializer."
   (setf (classes-to-emf-table gf) nil)
   (setf (safe-generic-function-argument-precedence-order gf) argument-precedence-order)
   (setf (safe-generic-function-method-class gf) method-class)
+  (setf (std-slot-value gf 'source-location) source-location)
   (finalize-generic-function gf))
 
 (defun make-instance-standard-generic-function

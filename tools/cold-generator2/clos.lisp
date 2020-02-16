@@ -377,11 +377,13 @@
                             direct-slots direct-default-initargs layout
                             instance-layout area sealed
                             structure-heap-layout structure-heap-size
-                            structure-definition)
+                            structure-definition
+                            source-location)
       (gethash class-name *primordial-class-table*)
     (declare (ignore layout
                      structure-heap-layout structure-heap-size
-                     structure-definition))
+                     structure-definition
+                     source-location))
     (check-type area (or null (cons symbol null)))
     (check-type sealed (or null (cons boolean null)))
 #|

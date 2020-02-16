@@ -34,7 +34,8 @@
    ;; ### AMOP says :DECLARATIONS, spec says :DECLARE?
    (declarations :initarg :declarations :initarg :declare :initform nil)
    (documentation :initform nil :initarg :documentation)
-   (dependents :initform '()))
+   (dependents :initform '())
+   (source-location :initform nil :initarg :source-location))
   (:default-initargs
    :name nil
    :lambda-list '()
@@ -93,7 +94,8 @@
   ((direct-methods :initform ())))
 
 (defclass class (specializer)
-  ((direct-subclasses :initform '())))
+  ((direct-subclasses :initform '())
+   (source-location :initform nil :initarg :source-location)))
 
 (defclass forward-referenced-class (class)
   ((name :initarg :name)))
@@ -127,8 +129,7 @@
 
 (defclass structure-class (instance-class)
   ((parent)
-   (has-standard-constructor)
-   (source-location :initform nil))
+   (has-standard-constructor))
   (:area :wired)
   (:sealed t))
 

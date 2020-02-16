@@ -24,6 +24,7 @@
        (eval-when (:compile-toplevel)
          (sys.int::%compiler-defclass ',name))
        (ensure-class ',name
+                     :source-location (lambda () (declare (sys.int::lambda-name (defclass ,name))))
                      :direct-superclasses ',direct-superclasses
                      :direct-slots (list ,@(loop
                                               for slot in direct-slots
@@ -185,6 +186,7 @@
          (egf-form `(ensure-generic-function
                      ',function-name
                      :lambda-list ',lambda-list
+                     :source-location (lambda () (declare (sys.int::lambda-name (defgeneric ,function-name))))
                      ,@(loop
                           for opt in options
                           append (canonicalize-defgeneric-option opt)))))

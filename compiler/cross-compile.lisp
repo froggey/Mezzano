@@ -1188,6 +1188,7 @@
     (sys.int::structure-slot-definition-fixed-vector slot-definition)))
 
 (defun mezzano.clos:ensure-class (name &rest initargs)
+  (remf initargs :source-location)
   (apply #'c2mop:ensure-class name initargs))
 
 (defun sys.int::known-declaration-p (declaration)
