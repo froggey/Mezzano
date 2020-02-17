@@ -706,7 +706,13 @@
                        ,(insert-type-check array array-type `(simple-array * ,',(make-list n :initial-element '*)))
                        ,,(if (zerop n)
                              '''nil
-                             ``(call sys.int::%complex-bounds-check ,array ,,(first indices) (call %array-dimension-known ,array '0) '0))
+                             ``(call sys.int::%complex-bounds-check
+                                     ,array
+                                     ,,(first indices)
+                                     ;; Types have been checked and the array is
+                                     ;; simple, so this is safe.
+                                     (call-optimize array-dimension (speed 3 safety 0) ,array '0)
+                                     '0))
                        ,,(if (zerop n)
                              '''0
                              (loop
@@ -719,7 +725,7 @@
                                                              (the fixnum
                                                                   (call %fast-fixnum-*
                                                                         ,,current
-                                                                        (let ((dim (call %array-dimension-known ,array ',',dim)))
+                                                                        (let ((dim (call-optimize array-dimension (speed 3 safety 0) ,array ',',dim)))
                                                                           (progn
                                                                             (call sys.int::%complex-bounds-check ,array ,,index dim ',',dim)
                                                                             dim))))
@@ -737,7 +743,7 @@
                        ,(insert-type-check array array-type `(array * ,',(make-list n :initial-element '*)))
                        ,,(if (zerop n)
                              '''nil
-                             ``(call sys.int::%complex-bounds-check ,array ,,(first indices) (call %array-dimension-known ,array '0) '0))
+                             ``(call sys.int::%complex-bounds-check ,array ,,(first indices) (call-optimize array-dimension (speed 3 safety 0) ,array '0) '0))
                        ,,(if (zerop n)
                              '''0
                              (loop
@@ -750,7 +756,7 @@
                                                              (the fixnum
                                                                   (call %fast-fixnum-*
                                                                         ,,current
-                                                                        (let ((dim (call %array-dimension-known ,array ',',dim)))
+                                                                        (let ((dim (call-optimize array-dimension (speed 3 safety 0) ,array ',',dim)))
                                                                           (progn
                                                                             (call sys.int::%complex-bounds-check ,array ,,index dim ',',dim)
                                                                             dim))))

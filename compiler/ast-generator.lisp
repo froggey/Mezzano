@@ -33,6 +33,7 @@ Inherit source locations/etc from INHERIT."
            ((the) #'convert-ast-the)
            ((unwind-protect) #'convert-ast-unwind-protect)
            ((call) #'convert-ast-call)
+           ((call-optimize) #'convert-ast-call-optimize)
            ((source-fragment) #'convert-ast-source-fragment)
            ((notinline-call) #'convert-ast-notinline-call)
            ((jump-table) #'convert-ast-jump-table))
@@ -209,6 +210,15 @@ Inherit source locations/etc from INHERIT."
   (make-instance 'ast-call
                  :inherit inherit
                  :name name
+                 :arguments (loop
+                               for form in arguments
+                               collect (convert-ast-form form inherit new-variables))))
+
+(defun convert-ast-call-optimize (inherit new-variables name optimize-settings &rest arguments)
+  (make-instance 'ast-call
+                 :inherit inherit
+                 :name name
+                 :optimize optimize-settings
                  :arguments (loop
                                for form in arguments
                                collect (convert-ast-form form inherit new-variables))))
