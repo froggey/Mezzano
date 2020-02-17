@@ -82,21 +82,19 @@
 
 (deftype simple-base-string (&optional size)
   (check-type size (or non-negative-fixnum (eql *)))
-  `(simple-array base-char (,size)))
+  `(simple-string ,size))
 
 (deftype base-string (&optional size)
   (check-type size (or non-negative-fixnum (eql *)))
-  `(vector base-char ,size))
+  `(string ,size))
 
 (deftype simple-string (&optional size)
   (check-type size (or non-negative-fixnum (eql *)))
-  `(or (simple-array base-char (,size))
-       (simple-array character (,size))))
+  `(simple-array character (,size)))
 
 (deftype string (&optional size)
   (check-type size (or non-negative-fixnum (eql *)))
-  `(or (vector base-char ,size)
-       (vector character ,size)))
+  `(vector character ,size))
 
 (defun simple-array-p (object)
   (or (%simple-1d-array-p object)
