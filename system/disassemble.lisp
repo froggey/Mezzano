@@ -230,10 +230,14 @@
            (when (inst-lock-prefix instruction)
              (format t "LOCK "))
            (format t "~A" (inst-opcode instruction))
-           (when (and (member (inst-opcode instruction)
-                              '(sys.lap-x86:cmp8 sys.lap-x86:sub8))
-                      (eql (first (inst-operands instruction)) :al)
-                      (integerp (second (inst-operands instruction))))
+           (when (or (and (member (inst-opcode instruction)
+                                  '(sys.lap-x86:cmp8 sys.lap-x86:sub8))
+                          (eql (first (inst-operands instruction)) :al)
+                          (integerp (second (inst-operands instruction))))
+                     (and (eql (inst-opcode instruction) 'sys.lap-x86:cmp8)
+                          (typep (first (inst-operands instruction)) 'effective-address)
+                          (eql (ea-disp (first (inst-operands instruction))) (- sys.int::+tag-object+))
+                          (integerp (second (inst-operands instruction)))))
              ;; Probably a type check.
              (let ((type-tag (type-tag-to-name (second (inst-operands instruction)))))
                (when type-tag
