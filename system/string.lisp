@@ -22,8 +22,7 @@
        (eql (array-rank object) 1)))
 
 (defun simple-string-p (object)
-  (and (simple-character-array-p object)
-       (eql (array-rank object) 1)))
+  (typep object 'simple-string))
 
 (macrolet ((def (name comparator docstring)
              `(defun ,name (string1 string2 &key (start1 0) end1 (start2 0) end2)

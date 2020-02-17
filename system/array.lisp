@@ -43,6 +43,16 @@
         (compile-array-type-1 object 'simple-array-p element-type dimensions)))
     (let ((info (upgraded-array-info element-type))
           (rank (length dimensions)))
+      (when (eql (specialized-array-definition-type info) 'character)
+        ;; Strings.
+        (return-from compile-simple-array-type
+          `(and (simple-character-array-p ,object)
+                (eq (sys.int::%object-header-data ,object) ',rank)
+                ,@(loop
+                     for dim in dimensions
+                     for i from 0
+                     unless (eql dim '*)
+                     collect `(eq (sys.int::%object-ref-t ,object (+ sys.int::+complex-array-axis-0+ ,i)) ,dim)))))
       (when (not (specialized-array-definition-tag info))
         (return-from compile-simple-array-type
           (compile-array-type-1 object 'simple-array-p element-type dimensions)))
