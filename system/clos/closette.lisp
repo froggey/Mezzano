@@ -2479,6 +2479,7 @@ always match."
                                                    nil))
                                      ,',method-args))))
                     (make-method (form)
+                      (declare (ignore form))
                       (error "MAKE-METHOD must be either the method argument or a next-method supplied to CALL-METHOD.")))
            ,effective-method-body)))))
 
