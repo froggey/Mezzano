@@ -426,6 +426,8 @@ If it is, then its weight is returned as an integer; otherwise, nil is returned.
     (#x104027 "Right-Super")
     (#x104028 "Left-Hyper")
     (#x104029 "Right-Hyper")
+    (#x10402A "Scroll-Lock" "Scrolllock")
+    (#x10402B "Num-Lock" "Numlock")
     (#x1040F0 "KP-0")
     (#x1040F1 "KP-1")
     (#x1040F2 "KP-2")

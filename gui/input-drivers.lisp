@@ -8,7 +8,7 @@
 
 (defconstant +extended-scan-code+ #xE0)
 
-(defvar *extended-key-alist*
+(defparameter *extended-key-alist*
   '((#x5B #\Left-Super)
     (#x1D #\Right-Control)
     (#x5C #\Right-Super)
@@ -27,13 +27,13 @@
     (#x35 #\KP-Divide)
     (#x1C #\KP-Enter)))
 
-(defvar *translation-table*
+(defparameter *translation-table*
   #(nil #\Esc #\1 #\2 #\3 #\4 #\5 #\6 #\7 #\8 #\9 #\0 #\- #\= #\Backspace
     #\Tab #\Q #\W #\E #\R #\T #\Y #\U #\I #\O #\P #\[ #\] #\Newline
     #\Left-Control #\A #\S #\D #\F #\G #\H #\J #\K #\L #\; #\' #\`
     #\Left-Shift #\# #\Z #\X #\C #\V #\B #\N #\M #\, #\. #\/ #\Right-Shift #\KP-Multiply
     #\Left-Meta #\Space #\Caps-Lock #\F1 #\F2 #\F3 #\F4 #\F5
-    #\F6 #\F7 #\F8 #\F9 #\F10 nil nil
+    #\F6 #\F7 #\F8 #\F9 #\F10 #\Num-Lock #\Scroll-Lock
     #\KP-7 #\KP-8 #\KP-9 #\KP-Minus
     #\KP-4 #\KP-5 #\KP-6 #\KP-Plus
     #\KP-1 #\KP-2 #\KP-3 #\KP-0 #\KP-Period nil nil #\\ #\F11 #\F12 nil nil nil nil nil nil nil
@@ -41,25 +41,57 @@
     nil nil nil nil nil nil nil nil nil nil nil nil nil nil nil nil)
   "An array, converting from non-extended scancodes to HID keys.")
 
+(defun keyboard-forwarder-process-one-key ()
+  (let ((byte (mezzano.supervisor:ps/2-key-read)))
+    (cond
+      ((eql byte +extended-scan-code+)
+       ;; Reading extended scan code.
+       (setf byte (mezzano.supervisor:ps/2-key-read))
+       (cond ((eql byte #x2A)
+              ;; Start of Print Screen's make code.
+              (when (eql (mezzano.supervisor:ps/2-key-read) #xE0)
+                (when (eql (mezzano.supervisor:ps/2-key-read) #x37)
+                  ;; Print Screen pressed.
+                  ;; E0 2A E0 37
+                  (mezzano.gui.compositor:submit-key #\Print-Screen nil))))
+             ((eql byte #xB7)
+              ;; Start of Print Screen's break code.
+              (when (eql (mezzano.supervisor:ps/2-key-read) #xE0)
+                (when (eql (mezzano.supervisor:ps/2-key-read) #xAA)
+                  ;; Print Screen released.
+                  ;; E0 B7 E0 AA
+                  (mezzano.gui.compositor:submit-key #\Print-Screen t))))
+             (t
+              ;; Normal extended key.
+              (let ((extended-key (assoc (logand byte #x7F) *extended-key-alist*)))
+                (cond (extended-key
+                       ;; Got a recognized extended key, submit it.
+                       (mezzano.gui.compositor:submit-key (second extended-key) (logtest byte #x80)))
+                      (t (format *error-output* "Ignoring unknown extended scancode ~2,'0X~%" byte)))))))
+      ((eql byte #xE1)
+       ;; Start of Pause/Break.
+       (when (eql (mezzano.supervisor:ps/2-key-read) #x1D)
+         (when (eql (mezzano.supervisor:ps/2-key-read) #x45)
+           (when (eql (mezzano.supervisor:ps/2-key-read) #xE1)
+             (when (eql (mezzano.supervisor:ps/2-key-read) #x9D)
+               (when (eql (mezzano.supervisor:ps/2-key-read) #xC5)
+                 ;; Pause/Break pressed.
+                 ;; E1 1D 45 E1 9D C5
+                 ;; There is no break code, it behaves as though it was
+                 ;; immediately released.
+                 (mezzano.gui.compositor:submit-key #\Pause nil)
+                 (mezzano.gui.compositor:submit-key #\Pause t)))))))
+      (t (let ((key (aref *translation-table* (logand byte #x7F))))
+           (cond (key
+                  ;; Got a regular key, submit it.
+                  (mezzano.gui.compositor:submit-key key (logtest byte #x80)))
+                 (t (format *error-output* "Ignoring unknown scancode ~2,'0X~%" byte))))))))
+
 (defun keyboard-forwarder-thread ()
   ;; Read bytes from the keyboard and translate them into HID events for the input manager.
   (loop
      (mezzano.internals::log-and-ignore-errors
-       (let ((byte (mezzano.supervisor:ps/2-key-read)))
-         (cond
-           ((eql byte +extended-scan-code+)
-            ;; Reading extended scan code.
-            (setf byte (mezzano.supervisor:ps/2-key-read))
-            (let ((extended-key (assoc (logand byte #x7F) *extended-key-alist*)))
-              (cond (extended-key
-                     ;; Got a recognized extended key, submit it.
-                     (mezzano.gui.compositor:submit-key (second extended-key) (logtest byte #x80)))
-                    (t (format *error-output* "Ignoring unknown extended scancode ~2,'0X~%" byte)))))
-           (t (let ((key (aref *translation-table* (logand byte #x7F))))
-                (cond (key
-                       ;; Got a regular key, submit it.
-                       (mezzano.gui.compositor:submit-key key (logtest byte #x80)))
-                      (t (format *error-output* "Ignoring unknown scancode ~2,'0X~%" byte))))))))))
+       (keyboard-forwarder-process-one-key))))
 
 ;;
 ;; From https://www.win.tue.nl/~aeb/linux/kbd/scancodes-13.html
