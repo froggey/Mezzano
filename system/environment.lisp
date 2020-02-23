@@ -405,3 +405,140 @@ It is the implementation of UIOP's lisp-version-string function."
           (format t "Up ~D day~:P, ~D hour~:P, ~D minute~:P, ~D second~:P.~%"
                   days hours minutes seconds)
           (values))))))
+
+;;; Extensible FIND-DEFINITION.
+
+(defvar *find-definitions-hooks* '())
+
+(defun add-find-definitions-hook (hook)
+  "Add a new hook to be called by FIND-DEFINITIONS.
+It must be a symbol and name a one argument function. The argument is the
+name of the object to find the definition of, which may be any kind of object.
+The function must return a list of definitions. A definition is a list
+containing the name of the definition as the first element and the source
+location as the second element."
+  (check-type hook symbol)
+  (pushnew hook *find-definitions-hooks*)
+  (values))
+
+(defun remove-find-definitions-hook (hook)
+  "Remove a find-definition hook.
+Does nothing if the the hook is not currently installed."
+  (check-type hook symbol)
+  (setf *find-definitions-hooks*
+        (remove hook *find-definitions-hooks*))
+  (values))
+
+(defun find-definitions-hooks ()
+  "Return a list of all currently installed find-definition hooks.
+This list may not be fresh and must not be modified."
+  *find-definitions-hooks*)
+
+(defun find-definitions (name)
+  "Find definition source locations for objects named NAME.
+Returns a list of definitions. A definition is a list containing the name of
+the definition as the first element and the source location as the
+second element."
+  (loop
+     for hook in *find-definitions-hooks*
+     append (funcall hook name)))
+
+(defun valid-function-name-p (object)
+  (typep object '(or symbol
+                  (cons symbol (cons symbol null)))))
+
+;; Source locations for DEFUNs and compiler-macros
+(defun find-defun-definitions (name)
+  (let ((result '()))
+    (flet ((frob-fn (name fn)
+            (let ((loc (mezzano.debug:function-source-location fn)))
+              (when loc
+                (push (list name loc) result)))))
+      (when (valid-function-name-p name)
+        (when (and (fboundp name)
+                   (not (and (symbolp name)
+                             (or (special-operator-p name)
+                                 (macro-function name)))))
+          (let ((fn (fdefinition name)))
+            (cond ((typep fn 'mezzano.clos:standard-generic-function)
+                   (let ((location (slot-value fn 'mezzano.clos::source-location)))
+                     (when location
+                       (frob-fn `(defgeneric ,name) location)))
+                   (dolist (m (mezzano.clos:generic-function-methods fn))
+                     (frob-fn (method-definition-name name m)
+                              (mezzano.clos:method-function m))))
+                  (t
+                   (frob-fn `(defun ,name) fn)))))
+        (let ((compiler-macro (compiler-macro-function name)))
+          (when compiler-macro
+            (frob-fn `(define-compiler-macro ,name)
+                     compiler-macro)))))
+    result))
+(add-find-definitions-hook 'find-defun-definitions)
+
+;; Source locations for macros.
+(defun find-macro-definitions (name)
+  (when (symbolp name)
+    (let ((macro (macro-function name)))
+      (when macro
+        (list (list `(defmacro ,name)
+                    (mezzano.debug:function-source-location macro)))))))
+(add-find-definitions-hook 'find-macro-definitions)
+
+;; Source locations for DEFSETF/DEFINE-SETF-EXPANDER.
+(defun find-setf-definitions (name)
+  (when (symbolp name)
+    (let ((expander (mezzano.extensions:setf-expander-function name)))
+      (when expander
+        (list (list `(define-setf-expander ,name)
+                    (mezzano.debug:function-source-location expander)))))))
+(add-find-definitions-hook 'find-setf-definitions)
+
+;; Source locations for DEFTYPE/DEFSTRUCT/DEFCLASS.
+(defun find-type-definitions (name)
+  (let ((result '()))
+    (flet ((frob-fn (name fn)
+             (let ((loc (mezzano.debug:function-source-location fn)))
+               (when loc
+                 (push (list name loc) result)))))
+      (when (symbolp name)
+        (let* ((type-info (mezzano.internals::type-info-for name nil))
+               (expander (and type-info
+                              (mezzano.internals::type-info-type-expander
+                               type-info))))
+          (when expander
+            (frob-fn `(deftype ,name) expander)))
+        (let* ((class (find-class name nil))
+               (location (and class (slot-value class 'mezzano.clos::source-location))))
+          (when location
+            (when (typep class 'standard-class)
+              (frob-fn `(defclass ,name) location))
+            (when (typep class 'structure-class)
+              (frob-fn `(defstruct ,name) location))))))
+    result))
+(add-find-definitions-hook 'find-type-definitions)
+
+;; Source locations for compiler transforms and builtins.
+(defun find-compiler-definitions (name)
+  (let ((result '()))
+    (flet ((frob-fn (name fn)
+             (let ((loc (mezzano.debug:function-source-location fn)))
+               (when loc
+                 (push (list name loc) result)))))
+      (let ((builtin (gethash name mezzano.compiler.backend.x86-64::*builtins*)))
+        (when builtin
+          (frob-fn `(mezzano.compiler.backend.x86-64::define-builtin ,name
+                        ,(mezzano.compiler.backend.x86-64::builtin-lambda-list builtin)
+                      ,(mezzano.compiler.backend.x86-64::builtin-result-list builtin))
+                   (mezzano.compiler.backend.x86-64::builtin-generator builtin))))
+      (let ((xforms (gethash name mezzano.compiler::*transforms*)))
+        (when xforms
+          (dolist (xform xforms)
+            (frob-fn `(mezzano.compiler::define-transform ,name
+                          ,(mapcar #'list
+                                   (mezzano.compiler::transform-lambda-list xform)
+                                   (mezzano.compiler::transform-argument-types xform))
+                          ,(mezzano.compiler::transform-result-type xform))
+                     (mezzano.compiler::transform-body xform))))))
+    result))
+(add-find-definitions-hook 'find-compiler-definitions)

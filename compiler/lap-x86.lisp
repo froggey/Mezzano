@@ -32,6 +32,15 @@ Used to make rip-relative addressing line up right.")
                                      ,@body
                                      (error "Could not encode instruction ~S." ,insn)))))))
 
+(defun find-x86-lap-definitions (name)
+  (let ((assembler (gethash name *instruction-assemblers*)))
+    (when assembler
+      (let ((loc (mezzano.debug:function-source-location assembler)))
+        (when loc
+          (list (list `(define-instruction ,name)
+                      loc)))))))
+(mezzano.extensions:add-find-definitions-hook 'find-x86-lap-definitions)
+
 (defmacro define-macro-instruction (name lambda-list &body body)
   (let ((insn (gensym)))
     `(add-instruction ',name `(:macro ,#'(lambda (,insn)

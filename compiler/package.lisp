@@ -169,7 +169,13 @@
    ;; Hash-table extensions
    #:hash-table-synchronized
    #:hash-table-enforce-gc-invariant-keys
-   #:hash-table-weakness))
+   #:hash-table-weakness
+
+   ;; Extensible find-definition
+   #:add-find-definitions-hook
+   #:remove-find-definitions-hook
+   #:find-definitions-hooks
+   #:find-definitions))
 
 (defpackage :mezzano.debug
   (:use :cl)

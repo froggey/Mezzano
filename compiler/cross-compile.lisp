@@ -1276,3 +1276,7 @@ This should only fill in the START- slots and ignore the END- slots.")
 
 (defmacro mezzano.supervisor:with-rw-lock-write ((lock) &body body)
   `(progn ,@body))
+
+(defun mezzano.extensions:add-find-definitions-hook (hook)
+  (declare (ignore hook))
+  (values))
