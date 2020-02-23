@@ -882,13 +882,15 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
   ;; mark short name directory entry as free
   (setf (aref directory start) #xE5))
 
+(defun deallocate-file (ffs fat directory offset)
+  (do ((cluster-n (read-first-cluster directory offset)
+                  (fat-value fat cluster-n)))
+      ((>= cluster-n (last-cluster-value ffs)))
+    (setf (fat-value ffs fat cluster-n) 0)))
+
 (defun remove-file (directory start disk cluster-n ffs fat)
   ;; Update FAT
-  (do ((cluster-n (read-first-cluster directory start)))
-      ((>= cluster-n (last-cluster-value ffs)))
-    (let ((next (fat-value fat cluster-n)))
-      (setf (fat-value ffs fat cluster-n) 0)
-      (setf cluster-n next)))
+  (deallocate-file ffs fat directory start)
   ;; mark directory entry (or entries) as free
   (free-file-entry directory start)
   ;; Write to disk
@@ -1421,11 +1423,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
              ;;
              ;; Delete file by freeing all of the clusters assocated
              ;; with the file.
-             (do ((cluster-n (read-first-cluster dir-array file-offset)))
-                 ((>= cluster-n (last-cluster-value ffs)))
-               (let ((next (fat-value fat cluster-n)))
-                 (setf (fat-value ffs fat cluster-n) 0)
-                 (setf cluster-n next)))
+             (deallocate-file ffs fat dir-array file-offset)
              ;; re-alloc the first cluster to the file
              (setf (fat-value ffs fat (read-first-cluster dir-array file-offset))
                    (last-cluster-value ffs))
@@ -1782,11 +1780,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                                   (%delete-directory directory offset))
                                  ((file-p directory offset)
                                   ;; free file clusters
-                                  (do ((cluster-n (read-first-cluster directory offset)))
-                                      ((>= cluster-n (last-cluster-value ffs)))
-                                    (let ((next (fat-value fat cluster-n)))
-                                      (setf (fat-value ffs fat cluster-n) 0)
-                                      (setf cluster-n next))))
+                                  (deallocate-file ffs fat directory offset))
                                  (T
                                   (error 'simple-file-error
                                          :pathname path
@@ -1797,11 +1791,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                               :format-control "Directory ~A not empty."
                               :format-arguments (list path))))
                  ;; free directory clusters
-                 (do ((cluster-n (read-first-cluster parent-dir dir-offset)))
-                     ((>= cluster-n (last-cluster-value ffs)))
-                   (let ((next (fat-value fat cluster-n)))
-                     (setf (fat-value ffs fat cluster-n) 0)
-                     (setf cluster-n next))))))
+                 (deallocate-file ffs fat parent-dir dir-offset))))
       (multiple-value-bind (parent-dir parent-cluster dir-offset)
           (open-file-metadata host new-path)
         (when (null dir-offset)
