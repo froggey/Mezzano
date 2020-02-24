@@ -214,12 +214,12 @@
         (:comment)
         (:align
          (note-variably-sized-instruction)
-         (destructuring-bind (alignment) (rest instruction)
+         (destructuring-bind (alignment &key (value 0)) (rest instruction)
            (let ((misalignment (rem *current-address* alignment)))
              (when (not (zerop misalignment))
                (loop
                   repeat (- alignment misalignment)
-                  do (emit 0))))))
+                  do (emit value))))))
         (:d8 (apply 'emit-d8 (rest instruction)))
         (:d16/le (apply 'emit-d16/le (rest instruction)))
         (:d32/le (apply 'emit-d32/le (rest instruction)))
