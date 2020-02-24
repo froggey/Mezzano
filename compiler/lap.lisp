@@ -394,13 +394,16 @@ Should only be called from assembler macros."
      when (not (listp inst))
      collect inst
      else
-     append (let ((handler (gethash (first inst) instruction-set)))
-              (when (eql (first inst) :gc)
-                (setf *last-gc-data* (rest inst)))
-              (if (and (consp handler)
-                       (eql (first handler) :macro))
-                  (expand-macros instruction-set (funcall (second handler) inst))
-                  (list inst)))))
+     append (cond ((eql (first inst) :progn)
+                   (expand-macros instruction-set (rest inst)))
+                  (t
+                   (let ((handler (gethash (first inst) instruction-set)))
+                     (when (eql (first inst) :gc)
+                       (setf *last-gc-data* (rest inst)))
+                     (if (and (consp handler)
+                              (eql (first handler) :macro))
+                         (expand-macros instruction-set (funcall (second handler) inst))
+                         (list inst)))))))
 
 (defun perform-assembly (instruction-set code-list &key (base-address 0) (initial-symbols '()) info &allow-other-keys)
   "Assemble a list of instructions, returning a u-b 8 vector of machine code,
