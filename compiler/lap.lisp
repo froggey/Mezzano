@@ -589,7 +589,7 @@ a vector of constants and an alist of symbols & addresses."
 
 (defun immediatep (thing)
   "Test if THING is an immediate value."
-  (typep thing '(or symbol label integer)))
+  (typep thing '(or symbol label integer (cons (eql :immediate)))))
 
 (defun add-to-constant-pool (value)
   (or (position value *constant-pool*)
@@ -597,6 +597,9 @@ a vector of constants and an alist of symbols & addresses."
 
 (defun resolve-immediate (value)
   "Convert an immediate value to an integer."
+  (when (and (consp value)
+             (eql (first value) :immediate))
+    (setf value (second value)))
   (etypecase value
     (cons
      (cond ((keywordp (first value))

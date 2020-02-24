@@ -391,11 +391,15 @@ Used to make rip-relative addressing line up right.")
             nil
             segment)))
 
+(defun memory-operand-p (form)
+  (and (consp form)
+       (not (immediatep form))))
+
 (defun parse-r/m (form)
   "Parse a register or effective address into a bunch of values.
 First value is the register, or false if the expression is an effective address.
 Remaining values describe the effective address: base index scale disp rip-relative segment"
-  (cond ((not (consp form))
+  (cond ((not (memory-operand-p form))
          form)
         ((and (= (length form) 2)
               (eql (first form) :constant))
@@ -556,7 +560,7 @@ Remaining values describe the effective address: base index scale disp rip-relat
 (defmacro modrm (class r/m reg opc)
   `(when (and (eql ,class (reg-class ,reg))
               (or (eql (reg-class ,r/m) ,class)
-                  (consp ,r/m))
+                  (memory-operand-p ,r/m))
               ,(if (eql class :gpr-64) '(= *cpu-mode* 64) 't))
      (return-from instruction
        (generate-modrm ,class ,r/m ,reg ,opc))))
@@ -569,7 +573,7 @@ Remaining values describe the effective address: base index scale disp rip-relat
 (defmacro modrm-imm8 (class r/m reg imm8 opc)
   `(when (and (eql ,class (reg-class ,reg))
               (or (eql (reg-class ,r/m) ,class)
-                  (consp ,r/m))
+                  (memory-operand-p ,r/m))
               ,(if (eql class :gpr-64) '(= *cpu-mode* 64) 't)
               (immediatep ,imm8))
      (let ((*following-immediate-bytes* 1))
@@ -1094,12 +1098,12 @@ Remaining values describe the effective address: base index scale disp rip-relat
     (modrm :gpr-64 src dst #x8D)))
 
 (define-instruction lgdt (gdtr)
-  (when (consp gdtr)
+  (when (memory-operand-p gdtr)
     (modrm-single :gpr-32 gdtr '(#x0F #x01) 2)))
 
 (define-instruction lidt (idtr)
-  (when (consp idtr)
-    (modrm-single :gpr-32 idtr '(#x0f #x01) 3)))
+  (when (memory-operand-p idtr)
+    (modrm-single :gpr-32 idtr '(#x0F #x01) 3)))
 
 (define-instruction ltr (selector)
   (modrm-single :gpr-16 selector '(#x0F 00) 3))
@@ -1151,48 +1155,48 @@ Remaining values describe the effective address: base index scale disp rip-relat
 (define-instruction movd (dst src)
   (when (and (eql (reg-class dst) :xmm)
              (or (eql (reg-class src) :gpr-32)
-                 (consp src)))
+                 (memory-operand-p src)))
     (emit #x66)
     (return-from instruction
       (generate-modrm :xmm src dst '(#x0F #x6E))))
   (when (and (eql (reg-class src) :xmm)
              (or (eql (reg-class dst) :gpr-32)
-                 (consp dst)))
+                 (memory-operand-p dst)))
     (emit #x66)
     (return-from instruction
       (generate-modrm :xmm dst src '(#x0F #x7E))))
   (when (and (eql (reg-class dst) :mm)
              (or (eql (reg-class src) :gpr-32)
-                 (consp src)))
+                 (memory-operand-p src)))
     (return-from instruction
       (generate-modrm :mm src dst '(#x0F #x6E))))
   (when (and (eql (reg-class src) :mm)
              (or (eql (reg-class dst) :gpr-32)
-                 (consp dst)))
+                 (memory-operand-p dst)))
     (return-from instruction
       (generate-modrm :mm dst src '(#x0F #x7E)))))
 
 (define-instruction movq (dst src)
   (when (and (eql (reg-class dst) :xmm)
              (or (eql (reg-class src) :gpr-64)
-                 (consp src)))
+                 (memory-operand-p src)))
     (emit #x66)
     (return-from instruction
       (generate-modrm :gpr-64 src dst '(#x0F #x6E))))
   (when (and (eql (reg-class src) :xmm)
              (or (eql (reg-class dst) :gpr-64)
-                 (consp dst)))
+                 (memory-operand-p dst)))
     (emit #x66)
     (return-from instruction
       (generate-modrm :gpr-64 dst src '(#x0F #x7E))))
   (when (and (eql (reg-class dst) :mm)
              (or (eql (reg-class src) :gpr-64)
-                 (consp src)))
+                 (memory-operand-p src)))
     (return-from instruction
       (generate-modrm :gpr-64 src dst '(#x0F #x6E))))
   (when (and (eql (reg-class src) :mm)
              (or (eql (reg-class dst) :gpr-64)
-                 (consp dst)))
+                 (memory-operand-p dst)))
     (return-from instruction
       (generate-modrm :gpr-64 dst src '(#x0F #x7E))))
   (when (and (eql (reg-class src) :mm)
@@ -1349,7 +1353,7 @@ Remaining values describe the effective address: base index scale disp rip-relat
 (define-instruction cvtss2si64 (dst src)
   (when (and (eql (reg-class dst) :gpr-64)
              (or (eql (reg-class src) :xmm)
-                 (consp src)))
+                 (memory-operand-p src)))
     (emit #xF3)
     (return-from instruction
       (generate-modrm :gpr-64 src dst '(#x0F #x2D)))))
@@ -1357,7 +1361,7 @@ Remaining values describe the effective address: base index scale disp rip-relat
 (define-instruction cvttss2si64 (dst src)
   (when (and (eql (reg-class dst) :gpr-64)
              (or (eql (reg-class src) :xmm)
-                 (consp src)))
+                 (memory-operand-p src)))
     (emit #xF3)
     (return-from instruction
       (generate-modrm :gpr-64 src dst '(#x0F #x2C)))))
@@ -1365,7 +1369,7 @@ Remaining values describe the effective address: base index scale disp rip-relat
 (define-instruction cvtsi2ss64 (dst src)
   (when (and (eql (reg-class dst) :xmm)
              (or (eql (reg-class src) :gpr-64)
-                 (consp src)))
+                 (memory-operand-p src)))
     (emit #xF3)
     (return-from instruction
       (generate-modrm :gpr-64 src dst '(#x0F #x2A)))))
@@ -1373,7 +1377,7 @@ Remaining values describe the effective address: base index scale disp rip-relat
 (define-instruction cvtsd2si64 (dst src)
   (when (and (eql (reg-class dst) :gpr-64)
              (or (eql (reg-class src) :xmm)
-                 (consp src)))
+                 (memory-operand-p src)))
     (emit #xF2)
     (return-from instruction
       (generate-modrm :gpr-64 src dst '(#x0F #x2D)))))
@@ -1381,7 +1385,7 @@ Remaining values describe the effective address: base index scale disp rip-relat
 (define-instruction cvttsd2si64 (dst src)
   (when (and (eql (reg-class dst) :gpr-64)
              (or (eql (reg-class src) :xmm)
-                 (consp src)))
+                 (memory-operand-p src)))
     (emit #xF2)
     (return-from instruction
       (generate-modrm :gpr-64 src dst '(#x0F #x2C)))))
@@ -1389,7 +1393,7 @@ Remaining values describe the effective address: base index scale disp rip-relat
 (define-instruction cvtsi2sd64 (dst src)
   (when (and (eql (reg-class dst) :xmm)
              (or (eql (reg-class src) :gpr-64)
-                 (consp src)))
+                 (memory-operand-p src)))
     (emit #xF2)
     (return-from instruction
       (generate-modrm :gpr-64 src dst '(#x0F #x2A)))))
@@ -1397,7 +1401,7 @@ Remaining values describe the effective address: base index scale disp rip-relat
 (define-instruction cvtss2sd64 (dst src)
   (when (and (eql (reg-class dst) :xmm)
              (or (eql (reg-class src) :xmm)
-                 (consp src)))
+                 (memory-operand-p src)))
     (emit #xF3)
     (return-from instruction
       (generate-modrm :gpr-64 src dst '(#x0F #x5A)))))
@@ -1405,25 +1409,25 @@ Remaining values describe the effective address: base index scale disp rip-relat
 (define-instruction cvtsd2ss64 (dst src)
   (when (and (eql (reg-class dst) :xmm)
              (or (eql (reg-class src) :xmm)
-                 (consp src)))
+                 (memory-operand-p src)))
     (emit #xF2)
     (return-from instruction
       (generate-modrm :gpr-64 src dst '(#x0F #x5A)))))
 
 (define-instruction fxrstor (area)
-  (when (consp area)
+  (when (memory-operand-p area)
     (modrm-single :gpr-32 area '(#x0F #xAE) 1)))
 
 (define-instruction fxsave (area)
-  (when (consp area)
+  (when (memory-operand-p area)
     (modrm-single :gpr-32 area '(#x0F #xAE) 0)))
 
 (define-instruction ldmxcsr (area)
-  (when (consp area)
+  (when (memory-operand-p area)
     (modrm-single :gpr-32 area '(#x0F #xAE) 2)))
 
 (define-instruction stmxcsr (area)
-  (when (consp area)
+  (when (memory-operand-p area)
     (modrm-single :gpr-32 area '(#x0F #xAE) 3)))
 
 (defmacro mmx-integer-op (lhs rhs opcode)
@@ -1635,7 +1639,7 @@ Remaining values describe the effective address: base index scale disp rip-relat
 (define-instruction pinsrw (lhs rhs imm)
   (when (eql (reg-class lhs) :mm)
     (cond ((or (eql (reg-class rhs) :gpr-32)
-               (consp rhs))
+               (memory-operand-p rhs))
            (let ((*following-immediate-bytes* 1))
              (generate-modrm :gpr-32 rhs lhs '(#x0F #xC4)))
            (emit-imm-with-relocation 1 imm)
@@ -1648,7 +1652,7 @@ Remaining values describe the effective address: base index scale disp rip-relat
   (when (eql (reg-class lhs) :xmm)
     (emit #x66)
     (cond ((or (eql (reg-class rhs) :gpr-32)
-               (consp rhs))
+               (memory-operand-p rhs))
            (let ((*following-immediate-bytes* 1))
              (generate-modrm :gpr-32 rhs lhs '(#x0F #xC4)))
            (emit-imm-with-relocation 1 imm)
@@ -1662,13 +1666,13 @@ Remaining values describe the effective address: base index scale disp rip-relat
 (defmacro modrm-two-classes (class r/m-class r/m reg opc)
   `(when (and (eql ,class (reg-class ,reg))
               (or (eql (reg-class ,r/m) ,r/m-class)
-                  (consp ,r/m))
+                  (memory-operand-p ,r/m))
               ,(if (eql class :gpr-64) '(= *cpu-mode* 64) 't))
      (return-from instruction
        (generate-modrm ,class ,r/m ,reg ,opc))))
 
 (define-instruction movsx8 (dst src)
-  (when (or (consp src)
+  (when (or (memory-operand-p src)
             (eql (reg-class src) :gpr-8))
     (ecase (reg-class dst)
       (:gpr-16
@@ -1679,7 +1683,7 @@ Remaining values describe the effective address: base index scale disp rip-relat
        (modrm-two-classes :gpr-64 :gpr-8 src dst '(#x0F #xBE))))))
 
 (define-instruction movsx16 (dst src)
-  (when (or (consp src)
+  (when (or (memory-operand-p src)
             (eql (reg-class src) :gpr-16))
     (ecase (reg-class dst)
       (:gpr-32
@@ -1688,14 +1692,14 @@ Remaining values describe the effective address: base index scale disp rip-relat
        (modrm-two-classes :gpr-64 :gpr-16 src dst '(#x0F #xBF))))))
 
 (define-instruction movsx32 (dst src)
-  (when (or (consp src)
+  (when (or (memory-operand-p src)
             (eql (reg-class src) :gpr-32))
     (ecase (reg-class dst)
       (:gpr-64
        (modrm-two-classes :gpr-64 :gpr-32 src dst '#x63)))))
 
 (define-instruction movzx8 (dst src)
-  (when (or (consp src)
+  (when (or (memory-operand-p src)
             (eql (reg-class src) :gpr-8))
     (ecase (reg-class dst)
       (:gpr-16
@@ -1706,7 +1710,7 @@ Remaining values describe the effective address: base index scale disp rip-relat
        (modrm-two-classes :gpr-64 :gpr-8 src dst '(#x0F #xB6))))))
 
 (define-instruction movzx16 (dst src)
-  (when (or (consp src)
+  (when (or (memory-operand-p src)
             (eql (reg-class src) :gpr-16))
     (ecase (reg-class dst)
       (:gpr-32
