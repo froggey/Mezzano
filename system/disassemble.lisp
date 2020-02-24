@@ -1058,7 +1058,7 @@
     (decode-ev-gv sys.lap-x86:bts16 sys.lap-x86:bts32 sys.lap-x86:bts64)
     (decode-ev-gv-ib sys.lap-x86:shrd16 sys.lap-x86:shrd32 sys.lap-x86:shrd64)
     (decode-ev-gv-cl sys.lap-x86:shrd16 sys.lap-x86:shrd32 sys.lap-x86:shrd64)
-    nil
+    (decode-group-15)
     nil
     (decode-eb-gb sys.lap-x86:cmpxchg) ; B0
     (decode-ev-gv sys.lap-x86:cmpxchg sys.lap-x86:cmpxchg sys.lap-x86:cmpxchg)
@@ -1478,7 +1478,7 @@
   (multiple-value-bind (reg r/m)
       (disassemble-modr/m context info)
     (let ((opcode (elt #(nil
-                         nil
+                         sys.lap-x86:str
                          nil
                          sys.lap-x86:ltr
                          nil
@@ -1493,14 +1493,34 @@
 (defun decode-group-7 (context info)
   (multiple-value-bind (reg r/m)
       (disassemble-modr/m context info)
-    (let ((opcode (elt #(nil
-                         nil
+    (let ((opcode (elt #(sys.lap-x86:sgdt
+                         sys.lap-x86:sidt
                          sys.lap-x86:lgdt
                          sys.lap-x86:lidt
                          nil
                          nil
                          nil
                          sys.lap-x86:invlpg)
+                       reg)))
+      (when opcode
+        (cond ((and (eql opcode 'sys.lap-x86:invlpg)
+                    (integerp r/m))
+               (make-instruction 'sys.lap-x86:swapgs))
+              (t
+               (make-instruction opcode
+                                 (decode-gpr64-or-mem r/m (rex-b info)))))))))
+
+(defun decode-group-15 (context info)
+  (multiple-value-bind (reg r/m)
+      (disassemble-modr/m context info)
+    (let ((opcode (elt #(sys.lap-x86:fxsave
+                         sys.lap-x86:fxrstor
+                         sys.lap-x86:ldmxcsr
+                         sys.lap-x86:stmxcsr
+                         nil
+                         nil
+                         nil
+                         nil)
                        reg)))
       (when opcode
         (make-instruction opcode

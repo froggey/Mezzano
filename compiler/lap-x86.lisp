@@ -1101,12 +1101,23 @@ Remaining values describe the effective address: base index scale disp rip-relat
   (when (memory-operand-p gdtr)
     (modrm-single :gpr-32 gdtr '(#x0F #x01) 2)))
 
+(define-instruction sgdt (gdtr)
+  (when (memory-operand-p gdtr)
+    (modrm-single :gpr-32 gdtr '(#x0F #x01) 0)))
+
 (define-instruction lidt (idtr)
   (when (memory-operand-p idtr)
     (modrm-single :gpr-32 idtr '(#x0F #x01) 3)))
 
+(define-instruction sidt (idtr)
+  (when (memory-operand-p idtr)
+    (modrm-single :gpr-32 idtr '(#x0F #x01) 1)))
+
 (define-instruction ltr (selector)
   (modrm-single :gpr-16 selector '(#x0F 00) 3))
+
+(define-instruction str (selector)
+  (modrm-single :gpr-16 selector '(#x0F 00) 1))
 
 (define-instruction idiv8 (rhs)
   (modrm-single :gpr-8 rhs #xF6 7))
@@ -1747,3 +1758,6 @@ Remaining values describe the effective address: base index scale disp rip-relat
   (when (and (not (keywordp address))
              (not (immediatep address)))
     (modrm-single :gpr-32 address '(#x0F #x01) 7)))
+
+(define-instruction swapgs ()
+  (modrm-single :gpr-32 :eax '(#x0F #x01) 7))
