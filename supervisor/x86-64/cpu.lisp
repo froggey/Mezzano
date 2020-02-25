@@ -7,6 +7,7 @@
 (defconstant +msr-ia32-efer+      #xC0000080)
 (defconstant +msr-ia32-fs-base+   #xC0000100)
 (defconstant +msr-ia32-gs-base+   #xC0000101)
+(defconstant +msr-ia32-kernel-gs+ #xC0000102)
 
 (sys.int::defglobal *n-up-cpus*)
 (sys.int::defglobal *cpus*)
