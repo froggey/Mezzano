@@ -978,11 +978,15 @@ Remaining values describe the effective address: base index scale disp rip-relat
   (when (and (eql (reg-class dst) :cr)
              (eql (reg-class src) (if (= *cpu-mode* 64) :gpr-64 :gpr-32)))
     ;; set cr
+    (when (register-requires-rex-p src)
+      (emit-rex :b t))
     (emit #x0F #x22 (encode-modrm 3 (reg-number src) (reg-number dst)))
     (return-from instruction t))
   (when (and (eql (reg-class src) :cr)
              (eql (reg-class dst) (if (= *cpu-mode* 64) :gpr-64 :gpr-32)))
     ;; get cr
+    (when (register-requires-rex-p dst)
+      (emit-rex :b t))
     (emit #x0F #x20 (encode-modrm 3 (reg-number dst) (reg-number src)))
     (return-from instruction t)))
 
@@ -990,11 +994,15 @@ Remaining values describe the effective address: base index scale disp rip-relat
   (when (and (eql (reg-class dst) :dr)
              (eql (reg-class src) (if (= *cpu-mode* 64) :gpr-64 :gpr-32)))
     ;; set dr
+    (when (register-requires-rex-p src)
+      (emit-rex :b t))
     (emit #x0F #x23 (encode-modrm 3 (reg-number src) (reg-number dst)))
     (return-from instruction t))
   (when (and (eql (reg-class src) :dr)
              (eql (reg-class dst) (if (= *cpu-mode* 64) :gpr-64 :gpr-32)))
     ;; get dr
+    (when (register-requires-rex-p dst)
+      (emit-rex :b t))
     (emit #x0F #x21 (encode-modrm 3 (reg-number dst) (reg-number src)))
     (return-from instruction t)))
 
