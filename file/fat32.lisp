@@ -1643,7 +1643,13 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
   (let ((disk (partition host))
         (ffs (fat-structure host))
         (fat (fat host))
-        (dir-list (pathname-directory pathname)))
+        (dir-list (pathname-directory pathname))
+        (path (if (or (null (pathname-device pathname))
+                      (eq (pathname-device pathname) :wild))
+                  (make-pathname :device NIL :defaults pathname)
+                  (error 'simple-file-error
+                         :pathname pathname
+                         :format-control "Pathname has a device component"))))
     (when (eql dir-list :wild)
       (setf dir-list '(:absolute :wild-inferiors)))
     (when (not (typep dir-list '(cons (eql :absolute))))
@@ -1655,7 +1661,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
        (match-in-directory disk ffs fat
                            (read-root-directory disk ffs fat)
                            (cdr dir-list)
-                           pathname)
+                           path)
        :test #'equal))))
 
 (defmethod ensure-directories-exist-using-host ((host fat-host) pathname &key verbose)
