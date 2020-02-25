@@ -379,7 +379,7 @@ Used to make rip-relative addressing line up right.")
       (emit 0 0 0 0))))
 
 (defun parse-object-ea (form segment slot-scale)
-  (destructuring-bind (base slot &optional index (scale 8))
+  (destructuring-bind (base slot &optional index (scale 8) &key (offset 0))
       (rest form)
     (values nil
             base
@@ -387,7 +387,11 @@ Used to make rip-relative addressing line up right.")
             (if index scale nil)
             ;; subtract +tag-object+, skip object header.
             ;; Return an expression, so slot goes through symbol resolution, etc.
-            `(+ (- ,sys.int::+tag-object+) 8 (* ,slot ,slot-scale))
+            `(+ (- ,sys.int::+tag-object+) 8
+                ,(if (eql slot-scale :location)
+                     `(mezzano.runtime::location-offset ,slot)
+                     `(* ,slot ,slot-scale))
+                ,@(if offset (list offset) nil))
             nil
             segment)))
 
@@ -435,6 +439,11 @@ Remaining values describe the effective address: base index scale disp rip-relat
          (parse-object-ea (rest form) (first form) 1))
         ((eql (first form) :object-unscaled)
          (parse-object-ea form nil 1))
+        ((and (member (first form) '(:cs :ss :ds :es :fs :gs))
+              (eql (second form) :object-location))
+         (parse-object-ea (rest form) (first form) :location))
+        ((eql (first form) :object-location)
+         (parse-object-ea form nil :location))
         (t (let (base index scale disp rip-relative segment)
              (dolist (elt form)
                (cond ((eql elt :rip)
