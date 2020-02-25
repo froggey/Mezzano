@@ -26,7 +26,8 @@
         (type nil)
         (named nil)
         (slot-offsets nil)
-        (sealed nil))
+        (sealed nil)
+        (slot-locations nil))
     (when (not (listp name-and-options))
       (setf name-and-options (list name-and-options)))
     (setf name (first name-and-options))
@@ -147,7 +148,7 @@
          (setf area (second option)))
         ;; (:slot-offsets)
         ;; Generate constants of the form +conc-name-slot-name+
-        ;; that contain the byte offsets of the slots.
+        ;; that contain the indices of the slots.
         ((and (eql (first option) :slot-offsets)
               (null (rest option)))
          (setf slot-offsets t))
@@ -156,7 +157,15 @@
         ((and (eql (first option) :sealed)
               (null (rest option)))
          (setf sealed t))
+        ;; (:slot-locations)
+        ;; Generate constants of the form +conc-name-slot-name+
+        ;; that contain the locations of the slots.
+        ((and (eql (first option) :slot-locations)
+              (null (rest option)))
+         (setf slot-locations t))
         (t (error "Unsupported DEFSTRUCT option ~S" option))))
+    (when (and slot-offsets slot-locations)
+      (error ":SLOT-OFFSETS and :SLOT-LOCATIONS options conflict"))
     (values name
             (if conc-namep
                 (intern (string (or conc-name
@@ -194,7 +203,7 @@
               (t copier-name))
             included-structure-name included-slot-descriptions
             print-object print-function print-object-specializer
-            named type slot-offsets sealed)))
+            named type slot-offsets sealed slot-locations)))
 
 (defun compute-struct-slot-accessor-and-size (type)
   (cond ((eql type 't)
@@ -533,7 +542,7 @@
 (defun generate-normal-defstruct (name slot-descriptions conc-name constructors predicate area copier
                                   included-structure-name included-slot-descriptions
                                   print-object print-function print-object-specializer
-                                  slot-offsets sealed docstring)
+                                  slot-offsets sealed docstring slot-locations)
   (let* ((included-structure (when included-structure-name
                                (convert-structure-class-to-structure-definition
                                 (get-structure-type included-structure-name)))))
@@ -576,7 +585,10 @@
                             (generate-normal-defstruct-slot-accessor name struct-type s))
                 when slot-offsets
                 collect `(defconstant ,(concat-symbols "+" (structure-slot-definition-accessor s) "+")
-                           ',(mezzano.runtime::location-offset-t (structure-slot-definition-location s))))
+                           ',(mezzano.runtime::location-offset-t (structure-slot-definition-location s)))
+                when slot-locations
+                collect `(defconstant ,(concat-symbols "+" (structure-slot-definition-accessor s) "+")
+                           ',(structure-slot-definition-location s)))
            ,@(loop
                 for x in constructors
                 collect (if (symbolp x)
@@ -587,9 +599,11 @@
 (defun generate-list-defstruct (name slot-descriptions conc-name constructors predicate area copier
                                 included-structure-name included-slot-descriptions
                                 print-object print-function print-object-specializer
-                                named slot-offsets sealed)
+                                named slot-offsets sealed slot-locations)
   (when slot-offsets
     (error ":SLOT-OFFSETS with LIST structures not supported yet."))
+  (when slot-locations
+    (error ":SLOT-LOCATIONS with LIST structures not supported yet."))
   (when sealed
     (error "Cannot use :SEALED on typed structures."))
   (when (or included-structure-name included-slot-descriptions)
@@ -634,9 +648,11 @@
 (defun generate-vector-defstruct (name slot-descriptions conc-name constructors predicate area copier
                                   included-structure-name included-slot-descriptions
                                   print-object print-function print-object-specializer
-                                  named inner-type slot-offsets sealed)
+                                  named inner-type slot-offsets sealed slot-locations)
   (when slot-offsets
     (error ":SLOT-OFFSETS with VECTOR structures not supported yet."))
+  (when slot-locations
+    (error ":SLOT-LOCATIONS with VECTOR structures not supported yet."))
   (when sealed
     (error "Cannot use :SEALED on typed structures."))
   (when (and named (not (eql inner-type 't)))
@@ -704,7 +720,7 @@
   (multiple-value-bind (name conc-name constructors predicate area copier
                         included-structure-name included-slot-descriptions
                         print-object print-function print-object-specializer
-                        named type slot-offsets sealed)
+                        named type slot-offsets sealed slot-locations)
       (parse-defstruct-options name-and-options)
     (let ((docstring nil))
       (when (stringp (first slot-descriptions))
@@ -714,12 +730,12 @@
          (generate-normal-defstruct name slot-descriptions conc-name constructors predicate area copier
                                     included-structure-name included-slot-descriptions
                                     print-object print-function print-object-specializer
-                                    slot-offsets sealed docstring))
+                                    slot-offsets sealed docstring slot-locations))
         ((eql type 'list)
          (generate-list-defstruct  name slot-descriptions conc-name constructors predicate area copier
                                    included-structure-name included-slot-descriptions
                                    print-object print-function print-object-specializer
-                                   named slot-offsets sealed))
+                                   named slot-offsets sealed slot-locations))
         ((or (eql type 'vector)
              (and (listp type)
                   (eql (first type) 'vector)))
@@ -729,5 +745,5 @@
                                     named (if (listp type)
                                               (second type)
                                               't)
-                                    slot-offsets sealed))
+                                    slot-offsets sealed slot-locations))
         (t (error "Currently unsupported defstruct type ~S." type))))))
