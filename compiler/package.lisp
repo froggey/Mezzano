@@ -473,6 +473,8 @@
            #:logical-core-count
            #:get-high-precision-timer
            #:high-precision-time-units-to-internal-time-units
+           #:get-page-physical-address
+           #:get-object-physical-addresses
 
            #:boot-uuid
            #:boot-field

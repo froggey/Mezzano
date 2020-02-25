@@ -597,6 +597,41 @@ Returns NIL if the entry is missing and ALLOCATE is false."
     (tlb-shootdown-all)
     (finish-tlb-shootdown)))
 
+(defun get-page-physical-address (virtual-address)
+  "Return the physical page frame mapped for VIRTUAL-ADDRESS.
+Returns NIL if the address is unmapped."
+  (pager-rpc 'get-page-physical-address-in-pager virtual-address))
+
+(defun get-page-physical-address-in-pager (virtual-address ignore2 ignore3)
+  (with-rw-lock-write (*vm-lock*)
+    (let ((pte (get-pte-for-address virtual-address nil)))
+      (when (and pte (page-present-p pte))
+        (+ (ash (page-frame pte) 12)
+           (logand virtual-address #xFFF))))))
+
+(defun get-object-physical-addresses (object)
+  "Return a simple vector containing all the physical page fors OBJECT.
+The first entry in the vector maintains the object's page offset, while
+the remaining entries start at offset 0 from the page. If a page is not
+mapped, then the entry will be NIL."
+  (let* ((address (sys.int::lisp-object-address object))
+         (start (logand address (lognot #xFFF)))
+         (end (logand (+ address (* (sys.int::object-size object) 8) #xFFF)
+                      (lognot #xFFF)))
+         (n-pages (truncate (- end start) #x1000))
+         (frame-vector (make-array n-pages)))
+    (dotimes (i n-pages)
+      (setf (aref frame-vector i)
+            (get-page-physical-address (logand (+ address (* i #x1000))
+                                               ;; Maintain the object offset
+                                               ;; for the first page, but set
+                                               ;; the offset on the remaining
+                                               ;; pages to zero.
+                                               (if (zerop i)
+                                                   -1
+                                                   (lognot #xFFF))))))
+    frame-vector))
+
 (defun pager-allocate-page (&key (new-type :active))
   (ensure (rw-lock-write-held-p *vm-lock*))
   (check-tlb-shootdown-not-in-progress)

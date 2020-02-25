@@ -44,6 +44,11 @@
   (logtest +x86-64-pte-dirty+
            (page-table-entry page-table index)))
 
+(defun page-frame (page-table &optional (index 0))
+  (ash (logand +x86-64-pte-address-mask+
+               (page-table-entry page-table index))
+       -12))
+
 (defun address-l4-bits (address) (ldb (byte 9 39) address))
 (defun address-l3-bits (address) (ldb (byte 9 30) address))
 (defun address-l2-bits (address) (ldb (byte 9 21) address))
