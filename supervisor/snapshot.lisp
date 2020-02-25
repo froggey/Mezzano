@@ -93,6 +93,8 @@
                   (+ sys.int::+card-table-base+ sys.int::+card-table-size+)
                   :sparse t)
     (alloc-blocks sys.int::*wired-function-area-limit* sys.int::*function-area-base*))
+  ;; FIXME: This should completely suspend other CPUs for the duration. Stopping
+  ;; the world is not enough.
   ;; I bet this could be partially done with CoW. Evil.
   ;; Copy without interrupts to avoid smearing.
   (without-interrupts
