@@ -138,7 +138,9 @@
   `(multiple-value-call #'list ,value-form))
 
 (defmacro nth-value (n form)
-  (cond ((and (integerp n)
+  (cond ((eql n 0)
+         `(values ,form))
+        ((and (integerp n)
               (<= 0 n 32)) ; Don't generate a zillion temporaries for large N.
          (let ((temps (loop
                          repeat n
