@@ -447,6 +447,18 @@ second element."
   (typep object '(or symbol
                   (cons symbol (cons symbol null)))))
 
+(defun method-definition-name (name method)
+  `(defmethod ,name
+       ,@(mezzano.clos:method-qualifiers method)
+     ,(mapcar (lambda (x)
+                (typecase x
+                  (mezzano.clos:class
+                   (mezzano.clos:class-name x))
+                  (mezzano.clos:eql-specializer
+                   `(eql ,(mezzano.clos:eql-specializer-object x)))
+                  (t x)))
+              (mezzano.clos:method-specializers method))))
+
 ;; Source locations for DEFUNs and compiler-macros
 (defun find-defun-definitions (name)
   (let ((result '()))
