@@ -98,7 +98,8 @@
         *bytes-consed* 0
         *allocator-lock* (mezzano.supervisor:make-mutex "Allocator")
         *allocation-fudge* (* 8 1024 1024)
-        sys.int::*generation-size-ratio* 2))
+        sys.int::*generation-size-ratio* 2)
+  (setf mezzano.supervisor::*dma-buffer-virtual-address-bump* #x0000204000000000))
 
 (defun set-allocated-object-header (address tag data)
   ;; Be careful to avoid bignum consing here. Some functions can have a

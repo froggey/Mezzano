@@ -638,6 +638,22 @@
            #:thread-thread-pool
            #:thread-pool-block
            #:inhibit-thread-pool-blocking-hijack
+
+           ;; DMA buffers.
+           #:dma-buffer
+           #:make-dma-buffer
+           #:dma-buffer-name
+           #:dma-buffer-length
+           #:dma-buffer-persistent-p
+           #:dma-buffer-contiguous-p
+           #:dma-buffer-array
+           #:dma-buffer-element-type
+           #:dma-buffer-cache-mode
+           #:dma-buffer-virtual-address
+           #:dma-buffer-physical-address
+           #:dma-buffer-cache-flush
+           #:dma-buffer-n-sg-entries
+           #:dma-buffer-sg-entry
            ))
 
 ;;; Runtime contains a bunch of low-level and common functions required to

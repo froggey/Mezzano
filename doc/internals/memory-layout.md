@@ -13,7 +13,8 @@ Virtual memory layout for the x86-64 target
 0000100000000000 - 0000120000000000  GC mark bits (one per 2 words)
 0000120000000000 - 0000200000000000  Unused
 0000200000000000 - 0000200080000000  Wired stack area
-0000200080000000 - 0000208000000000  Unused (future expansion for wired stack area)
+0000200080000000 - 0000204000000000  Unused (future expansion for wired stack area)
+0000204000000000 - 0000208000000000  DMA buffer mapping area
 0000208000000000 - 0000400000000000  Stack area
 0000400000000000 - 0000480000000000  General young generation (semispace A)
 0000480000000000 - 0000500000000000  General old generation (semispace A)

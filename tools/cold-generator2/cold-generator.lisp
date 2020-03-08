@@ -79,7 +79,8 @@
     "runtime/symbol.lisp"
     "runtime/function.lisp"
     "runtime/instance.lisp"
-    "supervisor/fdt.lisp"))
+    "supervisor/fdt.lisp"
+    "supervisor/dma-buffer.lisp"))
 
 (defparameter *source-files*
   '("system/cold-start.lisp"
