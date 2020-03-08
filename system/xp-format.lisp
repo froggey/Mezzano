@@ -410,11 +410,100 @@
       (parse-params start '())
     `(mezzano.format::format-character XP ,(get-arg) ',atsign ',colon)))
 
-;; TODO.
-(def-format-handler #\F (start end) (impl-integer start end 10))
-(def-format-handler #\E (start end) (impl-integer start end 10))
-(def-format-handler #\G (start end) (impl-integer start end 10))
-(def-format-handler #\$ (start end) (impl-integer start end 10))
+(defun format-float (stream object params atsign colon)
+  (declare (ignore atsign colon))
+  (let ((w (first params))
+        (d (second params))
+        (k (or (third params) 0))
+        (overflowchar (fourth params))
+        (padchar (or (fifth params) #\Space)))
+    ;; TODO.
+    (declare (ignore d k overflowchar padchar))
+    (let ((*print-escape* nil)
+          (*print-readably* nil))
+      (if (realp object)
+          (mezzano.internals::write-float (float object) stream)
+          ;; Format as if by ~wD
+          (mezzano.format::format-integer stream object 10 (list w) nil nil)))))
+
+(def-format-handler #\F (start end)
+  (declare (ignore end))
+  (multiple-value-bind (colon atsign params)
+      (parse-params start '(nil nil 0 nil #\Space))
+    `(let ((the-params (list ,@params)))
+       (format-float XP ,(get-arg) the-params ',atsign ',colon))))
+
+(defun format-exponent (stream object params atsign colon)
+  (declare (ignore atsign colon))
+  (let ((w (first params))
+        (d (second params))
+        (e (third params))
+        (k (or (fourth params) 1))
+        (overflowchar (fifth params))
+        (padchar (or (sixth params) #\Space))
+        (exponentchar (seventh params)))
+    ;; TODO.
+    (declare (ignore d e k overflowchar padchar exponentchar))
+    (let ((*print-escape* nil)
+          (*print-readably* nil))
+      (if (realp object)
+          (mezzano.internals::write-float (float object) stream)
+          ;; Format as if by ~wD
+          (mezzano.format::format-integer stream object 10 (list w) nil nil)))))
+
+(def-format-handler #\E (start end)
+  (declare (ignore end))
+  (multiple-value-bind (colon atsign params)
+      (parse-params start '(nil nil nil 1 nil nil nil))
+    `(let ((the-params (list ,@params)))
+       (format-exponent XP ,(get-arg) the-params ',atsign ',colon))))
+
+(defun format-general-float (stream object params atsign colon)
+  (declare (ignore atsign colon))
+  (let ((w (first params))
+        (d (second params))
+        (e (third params))
+        (k (or (fourth params) 1))
+        (overflowchar (fifth params))
+        (padchar (or (sixth params) #\Space))
+        (exponentchar (seventh params)))
+    ;; TODO.
+    (declare (ignore d e k overflowchar padchar exponentchar))
+    (let ((*print-escape* nil)
+          (*print-readably* nil))
+      (if (realp object)
+          (mezzano.internals::write-float (float object) stream)
+          ;; Format as if by ~wD
+          (mezzano.format::format-integer stream object 10 (list w) nil nil)))))
+
+(def-format-handler #\G (start end)
+  (declare (ignore end))
+  (multiple-value-bind (colon atsign params)
+      (parse-params start '(nil nil nil 1 nil nil nil))
+    `(let ((the-params (list ,@params)))
+       (format-general-float XP ,(get-arg) the-params ',atsign ',colon))))
+
+(defun format-monetary (stream object params atsign colon)
+  (declare (ignore atsign colon))
+  (let ((d (or (first params) 2))
+        (e (or (second params) 1))
+        (w (or (third params) 0))
+        (padchar (or (fourth params) #\Space)))
+    ;; TODO.
+    (declare (ignore d e padchar))
+    (let ((*print-escape* nil)
+          (*print-readably* nil))
+      (if (realp object)
+          (mezzano.internals::write-float (float object) stream)
+          ;; Format as if by ~wD
+          (mezzano.format::format-integer stream object 10 (list w) nil nil)))))
+
+(def-format-handler #\$ (start end)
+  (declare (ignore end))
+  (multiple-value-bind (colon atsign params)
+      (parse-params start '(2 1 0 #\Space))
+    `(let ((the-params (list ,@params)))
+       (format-monetary XP ,(get-arg) the-params ',atsign ',colon))))
 
 ;Format directives that get open coded "P%&~|T*?^"
 
