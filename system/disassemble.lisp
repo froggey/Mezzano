@@ -1084,14 +1084,14 @@
     nil
     (decode-v-w-ib sys.lap-x86:shufps sys.lap-x86:shufpd nil nil)
     (decode-group-9)
-    nil ; C8
-    nil
-    nil
-    nil
-    nil
-    nil
-    nil
-    nil
+    (decode-bswap) ; C8
+    (decode-bswap)
+    (decode-bswap)
+    (decode-bswap)
+    (decode-bswap)
+    (decode-bswap)
+    (decode-bswap)
+    (decode-bswap)
     nil ; D0
     (decode-pq-qq sys.lap-x86:psrlw sys.lap-x86:psrlw nil nil)
     (decode-pq-qq sys.lap-x86:psrld sys.lap-x86:psrld nil nil)
@@ -1213,6 +1213,15 @@
   (make-instruction opcode
                     (decode-gpr64 (ldb (byte 3 0) (getf info :opcode))
                                   (rex-b info))))
+
+(defun decode-bswap (context info)
+  (declare (ignore context))
+  (let ((rex-b (rex-b info))
+        (reg (ldb (byte 3 0) (getf info :opcode))))
+    (ecase (operand-size info)
+      (64 (make-instruction 'sys.lap-x86:bswap (decode-gpr64 reg rex-b)))
+      (32 (make-instruction 'sys.lap-x86:bswap (decode-gpr32 reg rex-b)))
+      (16 nil))))
 
 (defun decode-ib (context info opcode)
   (declare (ignore info))

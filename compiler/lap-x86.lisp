@@ -1746,6 +1746,11 @@ Remaining values describe the effective address: base index scale disp rip-relat
       (:gpr-64
        (modrm-two-classes :gpr-64 :gpr-16 src dst '(#x0F #xB7))))))
 
+;; This is actually just mov32, but supports 64-bit dst registers.
+;; FIXME: This is r/m r, not r r/m like the other movzx instructions.
+(define-instruction movzx32 (dst src)
+  (modrm-two-classes :gpr-32 :gpr-64 dst src #x89))
+
 (define-instruction cmpxchg (place new)
   (ecase (reg-class new)
     (:gpr-8  (modrm :gpr-8  place new '(#x0F #xB0)))
@@ -1778,3 +1783,22 @@ Remaining values describe the effective address: base index scale disp rip-relat
 
 (define-instruction swapgs ()
   (modrm-single :gpr-32 :eax '(#x0F #x01) 7))
+
+;; Note: BSWAP does not support 16-bit operands.
+(define-instruction bswap (reg)
+  (case (reg-class reg)
+    (:gpr-32
+     (multiple-value-bind (nr rex-b)
+         (encode-register reg)
+       (maybe-emit-operand-size-override :gpr-32)
+       (when rex-b
+         (emit-rex :b t))
+       (emit #x0F (+ #xC8 nr))
+       (return-from instruction t)))
+    (:gpr-64
+     (multiple-value-bind (nr rex-b)
+         (encode-register reg)
+       (maybe-emit-operand-size-override :gpr-64)
+       (emit-rex :b rex-b :w t)
+       (emit #x0F (+ #xC8 nr))
+       (return-from instruction t)))))

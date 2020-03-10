@@ -175,7 +175,15 @@
    #:add-find-definitions-hook
    #:remove-find-definitions-hook
    #:find-definitions-hooks
-   #:find-definitions))
+   #:find-definitions
+
+   ;; cl-nibbles-like accessors
+   #:ub16ref/be #:ub16ref/le
+   #:sb16ref/be #:sb16ref/le
+   #:ub32ref/be #:ub32ref/le
+   #:sb32ref/be #:sb32ref/le
+   #:ub64ref/be #:ub64ref/le
+   #:sb64ref/be #:sb64ref/le))
 
 (defpackage :mezzano.debug
   (:use :cl)

@@ -1064,3 +1064,107 @@
     (emit (make-instance 'ir:box-double-float-instruction
                          :source result-unboxed
                          :destination result))))
+
+(define-builtin mezzano.internals::%%swap-endian-unsigned ((value width) result :has-wrapper nil)
+  (when (not (constant-value-p width '(member 16 32 64)))
+    (give-up))
+  (let ((temp (make-instance 'ir:virtual-register :kind :integer))
+        (result-unboxed (make-instance 'ir:virtual-register :kind :integer))
+        (actual-width (fetch-constant-value width)))
+    ;; Always unbox as a ub-64, the value is an arbitrary integer not a fixnum
+    (emit (make-instance 'ir:unbox-unsigned-byte-64-instruction
+                         :source value
+                         :destination temp))
+    (emit (make-instance 'ir:move-instruction
+                         :source temp
+                         :destination :rax))
+    (ecase actual-width
+      (16
+       ;; BSWAP does not support 16-bit operands
+       (emit (make-instance 'x86-instruction
+                            :opcode 'lap:xchg8
+                            :operands (list :al :ah)
+                            :inputs (list :rax)
+                            :outputs (list :rax)))
+       (emit (make-instance 'x86-instruction
+                            :opcode 'lap:movzx16
+                            :operands (list result-unboxed :ax)
+                            :inputs (list :rax)
+                            :outputs (list result-unboxed))))
+      (32
+       (emit (make-instance 'x86-instruction
+                            :opcode 'lap:bswap
+                            :operands (list :eax)
+                            :inputs (list :rax)
+                            :outputs (list :rax)))
+       (emit (make-instance 'x86-instruction
+                            :opcode 'lap:movzx32
+                            :operands (list result-unboxed :eax)
+                            :inputs (list :rax)
+                            :outputs (list result-unboxed))))
+      (64
+       (emit (make-instance 'x86-instruction
+                            :opcode 'lap:bswap
+                            :operands (list :rax)
+                            :inputs (list :rax)
+                            :outputs (list :rax)))
+       (emit (make-instance 'ir:move-instruction
+                            :source :rax
+                            :destination result-unboxed))))
+    (emit (make-instance (if (eql actual-width 64)
+                             'ir:box-unsigned-byte-64-instruction
+                             'ir:box-fixnum-instruction)
+                         :source result-unboxed
+                         :destination result))))
+
+(define-builtin mezzano.internals::%%swap-endian-signed ((value width) result :has-wrapper nil)
+  (when (not (constant-value-p width '(member 16 32 64)))
+    (give-up))
+  (let ((temp (make-instance 'ir:virtual-register :kind :integer))
+        (result-unboxed (make-instance 'ir:virtual-register :kind :integer))
+        (actual-width (fetch-constant-value width)))
+    ;; Always unbox as a ub-64, the value is an arbitrary integer not a fixnum
+    (emit (make-instance 'ir:unbox-unsigned-byte-64-instruction
+                         :source value
+                         :destination temp))
+    (emit (make-instance 'ir:move-instruction
+                         :source temp
+                         :destination :rax))
+    (ecase actual-width
+      (16
+       ;; BSWAP does not support 16-bit operands
+       (emit (make-instance 'x86-instruction
+                            :opcode 'lap:xchg8
+                            :operands (list :al :ah)
+                            :inputs (list :rax)
+                            :outputs (list :rax)))
+       (emit (make-instance 'x86-instruction
+                            :opcode 'lap:movsx16
+                            :operands (list result-unboxed :ax)
+                            :inputs (list :rax)
+                            :outputs (list result-unboxed))))
+      (32
+       (emit (make-instance 'x86-instruction
+                            :opcode 'lap:bswap
+                            :operands (list :eax)
+                            :inputs (list :rax)
+                            :outputs (list :rax)))
+       (emit (make-instance 'x86-instruction
+                            :opcode 'lap:movsx32
+                            :operands (list result-unboxed :eax)
+                            :inputs (list :rax)
+                            :outputs (list result-unboxed))))
+      (64
+       (emit (make-instance 'x86-instruction
+                            :opcode 'lap:bswap
+                            :operands (list :rax)
+                            :inputs (list :rax)
+                            :outputs (list :rax)))
+       (emit (make-instance 'ir:move-instruction
+                            :source :rax
+                            :destination result-unboxed))))
+    (emit (make-instance (if (eql actual-width 64)
+                             'ir:box-signed-byte-64-instruction
+                             'ir:box-fixnum-instruction)
+                         :source result-unboxed
+                         :destination result))))

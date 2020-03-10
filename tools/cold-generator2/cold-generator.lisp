@@ -198,6 +198,7 @@
     "compiler/backend/arm64/object.lisp"
     "compiler/backend/arm64/number.lisp"
     ("runtime/simd.lisp" :x86-64)
+    "system/nibbles.lisp"
     "system/file-compiler.lisp"
     "system/clos/constructor.lisp"
     "system/xp-package.lisp"
@@ -583,6 +584,7 @@
     "runtime/symbol.lisp"
     "system/stuff.lisp"
     "system/sync.lisp"
+    "system/nibbles.lisp"
 )
   "These files are loaded into the compiler environment so other source
 files will be compiled correctly.")

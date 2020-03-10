@@ -398,13 +398,6 @@
      lo))
   #-sbcl (error "Not supported on this platform."))
 
-(macrolet ((x (nib int)
-             `(progn (defun ,int (vec index) (,nib vec index))
-                     (defun (setf ,int) (val vec index) (setf (,nib vec index) val)))))
-   (x nibbles:ub16ref/le sys.int::ub16ref/le)
-   (x nibbles:ub32ref/le sys.int::ub32ref/le)
-   (x nibbles:ub64ref/le sys.int::ub64ref/le))
-
 (defun sys.int::binary-= (x y) (= x y))
 (defun sys.int::binary-< (x y) (< x y))
 (defun sys.int::binary-<= (x y) (<= x y))

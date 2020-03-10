@@ -61,8 +61,12 @@
           (typecase inst
             (unbox-instruction
              (let ((def (first (gethash (unbox-source inst) defs))))
-               (when (and (typep def 'box-instruction)
-                          (eql (box-type inst) (box-type def)))
+               (when (or (and (typep def 'box-instruction)
+                              (eql (box-type inst) (box-type def)))
+                         ;; Special case boxing various integer pairs.
+                         (and (typep inst 'unbox-unsigned-byte-64-instruction)
+                              (or (typep def 'box-fixnum-instruction)
+                                  (typep def 'box-signed-byte-64-instruction))))
                  (frob (unbox-destination inst) (box-source def)))))
             (box-instruction
              (let ((def (first (gethash (box-source inst) defs))))
