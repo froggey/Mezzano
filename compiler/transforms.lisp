@@ -769,6 +769,66 @@
   (def 3)
   (def 4))
 
+;;; ARRAY-TOTAL-SIZE transforms.
+(macrolet ((def (n)
+             `(progn
+                ;; Unsafe transform.
+                (define-transform array-total-size ((array (array * ,(make-list n :initial-element '*))))
+                    ((:optimize (= safety 0) (= speed 3)))
+                  ,(if (zerop n)
+                       '''1
+                       (loop
+                          with current = ``(call array-dimension ,array '0)
+                          for dim from 1 below n
+                          do
+                            (setf current ``(the fixnum
+                                                 (call %fast-fixnum-*
+                                                       ,,current
+                                                       (call array-dimension ,array ',',dim))))
+                          finally
+                            (return current))))
+                ;; Safe and type-checked transform.
+                ;; There are separate transforms for ARRAY and SIMPLE-ARRAY to simplify the array type-check.
+                (define-transform array-total-size ((array (simple-array * ,(make-list n :initial-element '*)) array-type))
+                    ((:optimize (/= safety 0) (= speed 3)))
+                  `(progn
+                     ,(insert-type-check array array-type `(simple-array * ,',(make-list n :initial-element '*)))
+                     ,,(if (zerop n)
+                           '''1
+                           (loop
+                              with current = ``(call-optimize array-dimension (speed 3 safety 0) ,array '0)
+                              for dim from 1 below n
+                              do
+                                (setf current ``(the fixnum
+                                                     (call %fast-fixnum-*
+                                                           ,,current
+                                                           (call-optimize array-dimension (speed 3 safety 0) ,array ',',dim))))
+                              finally
+                                (return current)))))
+                (define-transform array-total-size ((array (and (array * ,(make-list n :initial-element '*))
+                                                                (not simple-array))
+                                                           array-type))
+                    ((:optimize (/= safety 0) (= speed 3)))
+                  `(progn
+                     ,(insert-type-check array array-type `(array * ,',(make-list n :initial-element '*)))
+                     ,,(if (zerop n)
+                           '''1
+                           (loop
+                              with current = ``(call-optimize array-dimension (speed 3 safety 0) ,array '0)
+                              for dim from 1 below n
+                              do
+                                (setf current ``(the fixnum
+                                                     (call %fast-fixnum-*
+                                                           ,,current
+                                                           (call-optimize array-dimension (speed 3 safety 0) ,array ',',dim))))
+                              finally
+                                (return current))))))))
+  (def 0)
+  (def 1)
+  (def 2)
+  (def 3)
+  (def 4))
+
 (define-transform length ((sequence (and (simple-array * (*))
                                          (not (simple-array character (*))))))
     ((:optimize (= safety 0) (= speed 3)))
