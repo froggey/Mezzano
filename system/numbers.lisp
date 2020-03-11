@@ -13,8 +13,14 @@
 (defconstant single-float-negative-epsilon (%integer-as-single-float #x33000001))
 (defconstant single-float-negative-infinity (%integer-as-single-float #xFF800000))
 (defconstant single-float-positive-infinity (%integer-as-single-float #x7F800000))
-(defconstant most-positive-fixnum-single-float (%integer-as-single-float #x5E7FFFFF))
-(defconstant most-negative-fixnum-single-float (%integer-as-single-float #xDE800000))
+(defconstant single-float-nan (%integer-as-single-float #x7FC00000)
+  "A single-float quiet NaN value.")
+(defconstant single-float-trapping-nan (%integer-as-single-float #x7F800001)
+  "A single-float trapping NaN value.")
+(defconstant most-positive-fixnum-single-float (%integer-as-single-float #x5E7FFFFF)
+  "The largest fixnum that can be represented exactly by a single-float, as a single-float.")
+(defconstant most-negative-fixnum-single-float (%integer-as-single-float #xDE800000)
+  "The smallest fixnum that can be represented exactly by a single-float, as a single-float.")
 
 (defconstant most-negative-double-float (%integer-as-double-float #xFFEFFFFFFFFFFFFF))
 (defconstant least-negative-double-float (%integer-as-double-float #x8000000000000001))
@@ -26,8 +32,14 @@
 (defconstant double-float-negative-epsilon (%integer-as-double-float #x3C90000000000001))
 (defconstant double-float-negative-infinity (%integer-as-double-float #xFFF0000000000000))
 (defconstant double-float-positive-infinity (%integer-as-double-float #x7FF0000000000000))
-(defconstant most-positive-fixnum-double-float (%integer-as-double-float #x43CFFFFFFFFFFFFF))
-(defconstant most-negative-fixnum-double-float (%integer-as-double-float #xC3D0000000000000))
+(defconstant double-float-nan (%integer-as-double-float #x7FF8000000000000)
+  "A double-float quiet NaN value.")
+(defconstant double-float-trapping-nan (%integer-as-double-float #x7FF0000000000001)
+  "A double-float trapping NaN value.")
+(defconstant most-positive-fixnum-double-float (%integer-as-double-float #x43CFFFFFFFFFFFFF)
+  "The largest fixnum that can be represented exactly by a double-float, as a double-float.")
+(defconstant most-negative-fixnum-double-float (%integer-as-double-float #xC3D0000000000000)
+  "The smallest fixnum that can be represented exactly by a double-float, as a double-float.")
 
 (defconstant most-negative-short-float most-negative-single-float)
 (defconstant least-negative-short-float least-negative-single-float)
@@ -39,8 +51,14 @@
 (defconstant short-float-negative-epsilon single-float-negative-epsilon)
 (defconstant short-float-negative-infinity single-float-negative-infinity)
 (defconstant short-float-positive-infinity single-float-positive-infinity)
-(defconstant most-positive-fixnum-short-float most-positive-fixnum-single-float)
-(defconstant most-negative-fixnum-short-float most-negative-fixnum-single-float)
+(defconstant short-float-nan single-float-nan
+  "A short-float quiet NaN value.")
+(defconstant short-float-trapping-nan single-float-trapping-nan
+  "A short-float trapping NaN value.")
+(defconstant most-positive-fixnum-short-float most-positive-fixnum-single-float
+  "The largest fixnum that can be represented exactly by a short-float, as a short-float.")
+(defconstant most-negative-fixnum-short-float most-negative-fixnum-single-float
+  "The smallest fixnum that can be represented exactly by a short-float, as a short-float.")
 
 (defconstant most-negative-long-float most-negative-double-float)
 (defconstant least-negative-long-float least-negative-double-float)
@@ -52,9 +70,14 @@
 (defconstant long-float-negative-epsilon double-float-negative-epsilon)
 (defconstant long-float-negative-infinity double-float-negative-infinity)
 (defconstant long-float-positive-infinity double-float-positive-infinity)
-(defconstant most-positive-fixnum-long-float most-positive-fixnum-double-float)
-(defconstant most-negative-fixnum-long-float most-negative-fixnum-double-float)
-
+(defconstant long-float-nan double-float-nan
+  "A long-float quiet NaN value.")
+(defconstant long-float-trapping-nan double-float-trapping-nan
+  "A long-float trapping NaN value.")
+(defconstant most-positive-fixnum-long-float most-positive-fixnum-double-float
+  "The largest fixnum that can be represented exactly by a long-float, as a long-float.")
+(defconstant most-negative-fixnum-long-float most-negative-fixnum-double-float
+  "The smallest fixnum that can be represented exactly by a long-float, as a long-float.")
 
 (defmacro define-commutative-arithmetic-operator (name base identity)
   `(progn (defun ,name (&rest numbers)

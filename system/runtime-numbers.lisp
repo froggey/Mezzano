@@ -1288,3 +1288,28 @@
 
 (defun rationalize (number)
   (rational number))
+
+(defun single-float-to-ieee-binary32 (single-float)
+  "Reinterpret SINGLE-FLOAT as an (unsigned-byte 32).
+This returns the raw IEEE binary representation of the float as an integer.
+0.0 => #x00000000, 1.0 => #x3F800000, etc."
+  (check-type single-float single-float)
+  (%single-float-as-integer single-float))
+
+(defun ieee-binary32-to-single-float (ieee-binary32)
+  "Reinterpret the (unsigned-byte 32) IEEE-BINARY32 as a single-float.
+This converts the raw IEEE binary representation to a float.
+#x00000000 => 0.0d0, #x3FF0000000000000 => 1.0d0, etc."
+  (check-type ieee-binary32 (unsigned-byte 32))
+  (%integer-as-single-float ieee-binary32))
+
+(defun double-float-to-ieee-binary64 (double-float)
+  (check-type double-float double-float)
+  (%double-float-as-integer double-float))
+
+(defun ieee-binary64-to-double-float (ieee-binary64)
+  "Reinterpret the (unsigned-byte 64) IEEE-BINARY64 as a double-float.
+This converts the raw IEEE binary representation to a float.
+#x0000000000000000 => 0.0d0, #x3FF0000000000000 => 1.0d0, etc."
+  (check-type ieee-binary64 (unsigned-byte 64))
+  (%integer-as-double-float ieee-binary64))

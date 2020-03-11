@@ -78,6 +78,7 @@
                                        (double-float 'double-float))))))
 
 (defun sys.int::float-nan-p (float)
+  "Returns true if FLOAT is a trapping NaN or a quiet NaN."
   (etypecase float
     (single-float
      (let* ((bits (sys.int::%single-float-as-integer float))
@@ -93,6 +94,7 @@
             (not (zerop sig)))))))
 
 (defun sys.int::float-trapping-nan-p (float)
+  "Returns true if FLOAT is a trapping NaN."
   (etypecase float
     (single-float
      (let* ((bits (sys.int::%single-float-as-integer float))
@@ -110,6 +112,7 @@
             (not (logbitp 51 sig)))))))
 
 (defun sys.int::float-infinity-p (float)
+  "Returns true if FLOAT is positive or negative infinity."
   (etypecase float
     (single-float
      (let* ((bits (sys.int::%single-float-as-integer float))

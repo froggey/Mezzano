@@ -183,7 +183,40 @@
    #:ub32ref/be #:ub32ref/le
    #:sb32ref/be #:sb32ref/le
    #:ub64ref/be #:ub64ref/le
-   #:sb64ref/be #:sb64ref/le))
+   #:sb64ref/be #:sb64ref/le
+
+   ;; Float extensions
+   #:single-float-to-ieee-binary32
+   #:ieee-binary32-to-single-float
+   #:double-float-to-ieee-binary64
+   #:ieee-binary64-to-double-float
+   #:float-nan-p
+   #:float-trapping-nan-p
+   #:float-infinity-p
+   #:short-float-positive-infinity
+   #:short-float-negative-infinity
+   #:short-float-nan
+   #:short-float-trapping-nan
+   #:most-positive-fixnum-short-float
+   #:most-negative-fixnum-short-float
+   #:single-float-positive-infinity
+   #:single-float-negative-infinity
+   #:single-float-nan
+   #:single-float-trapping-nan
+   #:most-positive-fixnum-single-float
+   #:most-negative-fixnum-single-float
+   #:double-float-positive-infinity
+   #:double-float-negative-infinity
+   #:double-float-nan
+   #:double-float-trapping-nan
+   #:most-positive-fixnum-double-float
+   #:most-negative-fixnum-double-float
+   #:long-float-positive-infinity
+   #:long-float-negative-infinity
+   #:long-float-nan
+   #:long-float-trapping-nan
+   #:most-positive-fixnum-long-float
+   #:most-negative-fixnum-long-float))
 
 (defpackage :mezzano.debug
   (:use :cl)
