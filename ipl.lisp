@@ -22,22 +22,24 @@
       (logical-pathname-translations "SYS"))
 
 (defun sys.int::check-connectivity ()
-  ;; Make sure that there's one network card.
-  (loop
-     with timeout = 30.0
-     do
-       (when (or mezzano.network.ip::*ipv4-interfaces*
-                 (minusp timeout))
-         (return))
-       (sleep 0.1)
-       (decf timeout 0.1))
-  (when (null mezzano.network.ip::*ipv4-interfaces*)
-    (format t "No network cards detected!~%~
+  ;; Make sure that there's one network card, excluding the loopback adapter.
+  (flet ((known-interfaces ()
+           (remove-if (lambda (x) (typep (first x) 'mezzano.network::loopback-interface))
+                      mezzano.network.ip::*ipv4-interfaces*)))
+    (loop
+       with timeout = 30.0
+       do
+         (when (known-interfaces)
+           (return))
+         (when (minusp timeout)
+           (format t "No network cards detected!~%~
 Make sure there is a virtio-net NIC attached.~%")
-    (return-from sys.int::check-connectivity))
-  (when (not (null (rest mezzano.network.ip::*ipv4-interfaces*)))
-    (format t "Multiple network cards detected! Not supported, but trying anyway.~%"))
-  (format t "Using network card ~S.~%" (first (first mezzano.network.ip::*ipv4-interfaces*)))
+           (return-from sys.int::check-connectivity))
+         (sleep 0.1)
+         (decf timeout 0.1))
+    (when (not (null (rest (known-interfaces))))
+      (format t "Multiple network cards detected! Not supported, but trying anyway.~%"))
+    (format t "Using network card ~S.~%" (first (first (known-interfaces)))))
   ;; Check connectivity to the file-server.
   (let ((fs-address (mezzano.network.ip:make-ipv4-address sys.int::*file-server-host-ip*)))
     (format t "File server has address ~A, port ~D.~%" fs-address mezzano.file-system.remote::*default-remote-file-port*)
