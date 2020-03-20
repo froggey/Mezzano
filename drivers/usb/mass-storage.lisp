@@ -115,6 +115,7 @@
 (defstruct mass-storage
   usbd
   device
+  interface
   event
   bulk-in-endpt-num
   bulk-out-endpt-num
@@ -143,6 +144,17 @@
     (if (and (not (sup:event-state event)) (sup:timer-expired-p timer))
         :timeout
         :complete)))
+
+;;======================================================================
+;;======================================================================
+(define-condition timeout-retry ()
+  ((%endpoint        :initarg :endpoint        :reader timeout-endpoint)
+   (%enqueued-buf    :initarg :enqueued-buf    :reader timeout-enqueued-buf)))
+
+(defun retry-operation (c)
+  (invoke-restart 'retry-operation
+                  (timeout-endpoint c)
+                  (timeout-enqueued-buf c)))
 
 ;;======================================================================
 ;;======================================================================
@@ -229,43 +241,31 @@
 ;;======================================================================
 ;;======================================================================
 
+(defun send-buf (usbd device mass-storage endpoint buf length)
+  (let((event (mass-storage-event mass-storage)))
+    (setf (sup:event-state event) nil)
+    (bulk-enqueue-buf usbd device endpoint buf length)
+    (when (eq (timed-wait event 0.500) :timeout)
+      (sup:debug-print-line "send-buf timeout")
+      (signal 'timeout-retry :endpoint endpoint :enqueued-buf buf))))
+
 (defun %read-sector (usbd device mass-storage lba buf offset)
   (enter-function "%read-sector")
   (let ((data-length (mass-storage-block-size mass-storage))
-        (event (mass-storage-event mass-storage)))
+        (out-endpoint (mass-storage-bulk-out-endpt-num mass-storage))
+        (in-endpoint (mass-storage-bulk-in-endpt-num mass-storage)))
     (with-buffers ((buf-pool usbd) ((cmd-buf /8 31)
                                     (data-buf /8 data-length)
                                     (status-buf /8 13)))
       (encode-cbw mass-storage cmd-buf 0 data-length T 0)
       (encode-scsi-read/10 cmd-buf 0 lba 1)
-      (setf (sup:event-state event) nil)
-      (bulk-enqueue-buf usbd
-                        device
-                        (mass-storage-bulk-out-endpt-num mass-storage)
-                        cmd-buf
-                        31)
-      (with-trace-level (4)
-        (sup:debug-print-line "%read-sector command buffer:")
-        (print-buffer sys.int::*cold-stream* cmd-buf :indent "  "))
-
-      (when (eq (timed-wait event 1.0) :timeout)
-        ;; TODO need better error message here
-        (error "Mass storage read sector command timeout"))
+      (send-buf usbd device mass-storage out-endpoint cmd-buf 31)
 
       (with-trace-level (4)
         (sup:debug-print-line "%read-sector command status "
                               (mass-storage-status mass-storage)))
 
-      (setf (sup:event-state event) nil)
-      (bulk-enqueue-buf usbd
-                        device
-                        (mass-storage-bulk-in-endpt-num mass-storage)
-                        data-buf
-                        data-length)
-
-      (when (eq (timed-wait event 1.0) :timeout)
-        ;; TODO need better error message here
-        (error "Mass storage read sector data timeout"))
+      (send-buf usbd device mass-storage in-endpoint data-buf data-length)
 
       (with-trace-level (3)
         (sup:debug-print-line "read sector data buffer:")
@@ -273,20 +273,7 @@
         (sup:debug-print-line "read sector data status "
                               (mass-storage-status mass-storage)))
 
-      (setf (sup:event-state event) nil)
-      (bulk-enqueue-buf usbd
-                        device
-                        (mass-storage-bulk-in-endpt-num mass-storage)
-                        status-buf
-                        13)
-
-      ;; Copy the buffer while waiting for the status to come back
-      (dotimes (i data-length)
-        (setf (aref buf (+ offset i)) (aref data-buf i)))
-
-      (when (eq (timed-wait event 1.0) :timeout)
-        ;; TODO need better error message here
-        (error "Mass storage read sector status timeout"))
+      (send-buf usbd device mass-storage in-endpoint status-buf 13)
 
       (with-trace-level (4)
         (sup:debug-print-line "%read-sector status buffer:")
@@ -295,8 +282,9 @@
                               (mass-storage-status mass-storage)))
 
       (cond ((= (aref status-buf 12) 0)
-             ;; Nothing else to do
-             )
+             ;; Copy buffer
+             (dotimes (i data-length)
+               (setf (aref buf (+ offset i)) (aref data-buf i))))
             ((= (aref status-buf 12) 1)
              ;; Command failed
              (error "%read-sector failed"))
@@ -306,20 +294,38 @@
              (error "%read-sector failed with unknown error ~D"
                     (aref status-buf 12)))))))
 
+(defun %block-device-read (mass-storage lba n-sectors buf offset)
+  (enter-function "%block-device-read")
+  (handler-bind
+      ((timeout-retry #'retry-operation))
+    (loop
+       with usbd = (mass-storage-usbd mass-storage)
+       with device = (mass-storage-device mass-storage)
+       with sector-size = (mass-storage-block-size mass-storage)
+       with retry-count = 0
+       do
+         (restart-case
+             (progn
+               (when (<= n-sectors 0)
+                 (return))
+               (%read-sector usbd device mass-storage lba buf offset)
+               (incf lba)
+               (incf offset sector-size)
+               (decf n-sectors))
+           (retry-operation (endpoint enqueued-buf)
+             (sup:debug-print-line "timeout on read lba: " lba)
+             ;; clean up
+             (bulk-dequeue-buf usbd device endpoint enqueued-buf)
+             (reset-recovery usbd device mass-storage)
+             ;; if too many retries, give up
+             (incf retry-count)
+             (when (= retry-count 5)
+               (error "Mass storage timeout on read")))))))
+
 (defmethod block-device-read
     ((disk usb-ms-disk) lba n-sectors buf &key (offset 0))
   (enter-function "block-device-read (mass-storage)")
-
-  (loop
-     with mass-storage = (disk-mass-storage disk)
-     with sector-size = (mass-storage-block-size mass-storage)
-     with usbd = (mass-storage-usbd mass-storage)
-     with device = (mass-storage-device mass-storage)
-     for addr = lba then (1+ addr)
-     for base-offset = offset then (+ base-offset sector-size)
-     repeat n-sectors
-     do
-       (%read-sector usbd device mass-storage addr buf base-offset)))
+  (%block-device-read (disk-mass-storage disk) lba n-sectors buf offset))
 
 (defmethod block-device-read
     ((partition usb-ms-partition) lba n-sectors buf &key (offset 0))
@@ -330,16 +336,11 @@
             LBA: ~D, read size ~D, partition size ~D"
            lba n-sectors (dp-size partition)))
 
-  (loop
-     with mass-storage = (dp-mass-storage partition)
-     with sector-size = (mass-storage-block-size mass-storage)
-     with usbd = (mass-storage-usbd mass-storage)
-     with device = (mass-storage-device mass-storage)
-     for addr = (+ lba (dp-start-lba partition)) then (1+ addr)
-     for base-offset = offset then (+ base-offset sector-size)
-     repeat n-sectors
-     do
-       (%read-sector usbd device mass-storage addr buf base-offset)))
+  (%block-device-read (dp-mass-storage partition)
+                      (+ lba (dp-start-lba partition))
+                      n-sectors
+                      buf
+                      offset))
 
 ;;======================================================================
 ;;======================================================================
@@ -347,59 +348,24 @@
 (defun %write-sector (usbd device mass-storage lba buf offset)
   (enter-function "%write-sector")
   (let ((data-length (mass-storage-block-size mass-storage))
-        (event (mass-storage-event mass-storage)))
+        (out-endpoint (mass-storage-bulk-out-endpt-num mass-storage))
+        (in-endpoint (mass-storage-bulk-in-endpt-num mass-storage)))
     (with-buffers ((buf-pool usbd) ((cmd-buf /8 31)
                                     (data-buf /8 data-length)
                                     (status-buf /8 13)))
       (encode-cbw mass-storage cmd-buf 0 data-length NIL 0)
       (encode-scsi-write/10 cmd-buf 0 lba 1)
-      (setf (sup:event-state event) nil)
-      (bulk-enqueue-buf usbd
-                        device
-                        (mass-storage-bulk-out-endpt-num mass-storage)
-                        cmd-buf
-                        31)
-      (with-trace-level (4)
-        (sup:debug-print-line "%write-sector command buffer:")
-        (print-buffer sys.int::*cold-stream* cmd-buf :indent "  "))
+      (send-buf usbd device mass-storage out-endpoint cmd-buf 31)
 
-      ;; Copy buffer while waiting for the command to go out
+      ;; Copy buffer
       (dotimes (i data-length)
         (setf (aref data-buf i) (aref buf (+ offset i))))
-
-      (when (eq (timed-wait event 1.0) :timeout)
-        ;; TODO need better error message here
-        (error "Mass storage write sector command timeout"))
 
       (with-trace-level (4)
         (sup:debug-print-line "%write-sector command status "
                               (mass-storage-status mass-storage)))
 
-      (setf (sup:event-state event) nil)
-      (bulk-enqueue-buf usbd
-                        device
-                        (mass-storage-bulk-out-endpt-num mass-storage)
-                        data-buf
-                        data-length)
-
-      #+nil
-      (mezzano.driver.usb.ohci::print-ohci
-       sys.int::*cold-stream*
-       mezzano.driver.usb.ohci::*ohci*)
-
-      #+nil
-      (dotimes (i 3)
-        (sleep 0.01)
-
-        (sup:debug-print-line "")
-        (sup:debug-print-line "")
-        (mezzano.driver.usb.ohci::print-ohci
-         sys.int::*cold-stream*
-         mezzano.driver.usb.ohci::*ohci*))
-
-      (when (eq (timed-wait event 1.0) :timeout)
-        ;; TODO need better error message here
-        (error "Mass storage read sector data timeout"))
+      (send-buf usbd device mass-storage out-endpoint data-buf data-length)
 
       (with-trace-level (3)
         (sup:debug-print-line "write sector data buffer:")
@@ -407,16 +373,7 @@
         (sup:debug-print-line "write sector data status "
                               (mass-storage-status mass-storage)))
 
-      (setf (sup:event-state event) nil)
-      (bulk-enqueue-buf usbd
-                        device
-                        (mass-storage-bulk-in-endpt-num mass-storage)
-                        status-buf
-                        13)
-
-      (when (eq (timed-wait event 1.0) :timeout)
-        ;; TODO need better error message here
-        (error "Mass storage read sector status timeout"))
+      (send-buf usbd device mass-storage in-endpoint status-buf 13)
 
       (with-trace-level (4)
         (sup:debug-print-line "%write-sector status buffer:")
@@ -436,40 +393,53 @@
              (error "%write-sector failed with unknown error ~D"
                     (aref status-buf 12)))))))
 
+(defun %block-device-write (mass-storage lba n-sectors buf offset)
+  (enter-function "block-device-write")
+  (handler-bind
+      ((timeout-retry #'retry-operation))
+    (loop
+       with usbd = (mass-storage-usbd mass-storage)
+       with device = (mass-storage-device mass-storage)
+       with sector-size = (mass-storage-block-size mass-storage)
+       with retry-count = 0
+       do
+         (restart-case
+             (progn
+               (when (<= n-sectors 0)
+                 (return))
+               (%write-sector usbd device mass-storage lba buf offset)
+               (incf lba)
+               (incf offset sector-size)
+               (decf n-sectors))
+           (retry-operation (endpoint enqueued-buf)
+             (sup:debug-print-line "timeout on write lba: " lba)
+             ;; clean up
+             (bulk-dequeue-buf usbd device endpoint enqueued-buf)
+             (reset-recovery usbd device mass-storage)
+             ;; if too many retries, give up
+             (incf retry-count)
+             (when (= retry-count 5)
+               (error "Mass storage timeout on write")))))))
+
 (defmethod block-device-write
     ((disk usb-ms-disk) lba n-sectors buf &key (offset 0))
-  (enter-function "block-device-write")
-
-  (loop
-     with mass-storage = (disk-mass-storage disk)
-     with sector-size = (mass-storage-block-size mass-storage)
-     with usbd = (mass-storage-usbd mass-storage)
-     with device = (mass-storage-device mass-storage)
-     for addr = lba then (1+ addr)
-     for base-offset = offset then (+ base-offset sector-size)
-     repeat n-sectors
-     do
-       (%write-sector usbd device mass-storage addr buf base-offset)))
+  (enter-function "block-device-write (disk)")
+  (%block-device-write (disk-mass-storage disk) lba n-sectors buf offset))
 
 (defmethod block-device-write
     ((partition usb-ms-partition) lba n-sectors buf &key (offset 0))
-  (enter-function "block-device-write")
+  (enter-function "block-device-write (partition)")
 
   (when (> (+ lba n-sectors) (dp-size partition))
     (error "Attempt to write past end of partition, ~
             LBA: ~D, write size ~D, partition size ~D"
            lba n-sectors (dp-size partition)))
 
-  (loop
-     with mass-storage = (dp-mass-storage partition)
-     with sector-size = (mass-storage-block-size mass-storage)
-     with usbd = (mass-storage-usbd mass-storage)
-     with device = (mass-storage-device mass-storage)
-     for addr = (+ lba (dp-start-lba partition)) then (1+ addr)
-     for base-offset = offset then (+ base-offset sector-size)
-     repeat n-sectors
-     do
-       (%write-sector usbd device mass-storage addr buf base-offset)))
+  (%block-device-write (dp-mass-storage partition)
+                       (+ lba (dp-start-lba partition))
+                       n-sectors
+                       buf
+                       offset))
 
 ;;======================================================================
 ;;======================================================================
@@ -706,6 +676,7 @@
   (let ((mass-storage (make-mass-storage
                        :usbd usbd
                        :device device
+                       :interface (aref iface-desc +id-number+)
                        :event  (sup:make-event
                                 :name "Mass Storage Event")
                        :bulk-in-endpt-num nil
@@ -793,3 +764,54 @@
                       "Interrupt status ~A on unknown endpoint number ~D~%"
                       status endpoint-num)))
     (free-buffer buf)))
+
+
+(defun reset-recovery (usbd device mass-storage)
+  (with-trace-level (0)
+    (sup:debug-print-line "reset-recovery"))
+  (with-buffers ((buf-pool usbd) (buf /8 1)) ;; don't want 0 length buf
+    (control-receive-data usbd
+                          device
+                          #b00100001   ;; Class, Interface, host to device
+                          #xFF
+                          0
+                          (mass-storage-interface mass-storage)
+                          0
+                          buf)
+    (control-receive-data usbd
+                          device
+                          (encode-request-type +rt-dir-host-to-device+
+                                               +rt-type-standard+
+                                               +rt-rec-endpoint+)
+                          +dev-req-clear-feature+
+                          +feature-endpoint-halt+
+                          (mass-storage-bulk-in-endpt-num mass-storage)
+                          0
+                          buf)
+    (control-receive-data usbd
+                          device
+                          (encode-request-type +rt-dir-host-to-device+
+                                               +rt-type-standard+
+                                               +rt-rec-endpoint+)
+                          +dev-req-clear-feature+
+                          +feature-endpoint-halt+
+                          (mass-storage-bulk-out-endpt-num mass-storage)
+                          0
+                          buf)))
+
+#+nil
+(mezzano.driver.usb.ehci.intel::enable-async hcd)
+
+#+nil
+(mezzano.driver.usb.ehci.intel::disable-async hcd)
+
+#+nil
+(progn
+ (require :mezzano-usb)
+ (require :mezzano-usb/class-drivers)
+ (require :mezzano-usb/ohci)
+ (require :mezzano-usb/ehci)
+ (require :mezzano-usb/mass-storage/debug)
+ (require :fs-test)
+ (swank:set-package "COM.FITTESTBITS.FS-TEST")
+ )

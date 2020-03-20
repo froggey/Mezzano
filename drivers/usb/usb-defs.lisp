@@ -105,6 +105,13 @@
 (define-constant +dev-req-get-interface+     10)
 (define-constant +dev-req-set-interface+     12)
 
+;;======================================================================
+;; Standard Feature Selectors from USB Spec 1.1 Sec 9.6
+;;======================================================================
+
+(define-constant +feature-device-remote-wakeup+    1)
+
+(define-constant +feature-endpoint-halt+           0)
 
 ;;======================================================================
 ;; Function for encoding a standard request

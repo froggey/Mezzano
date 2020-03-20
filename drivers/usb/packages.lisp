@@ -54,6 +54,7 @@
    :create-bulk-endpt
    :delete-bulk-endpt
    :bulk-enqueue-buf
+   :bulk-dequeue-buf
    :create-isochronous-endpt
    :delete-isochronous-endpt
 
