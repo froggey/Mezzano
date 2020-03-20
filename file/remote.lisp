@@ -205,8 +205,9 @@ the server instead of reconnecting for each operation.")
                       :timeout *connection-idle-timeout*)))
              (restart-bind
                  ((retry (lambda ()
-                           (close (remote-host-connection host))
-                           (setf (remote-host-connection host) nil)
+                           (when (remote-host-connection host)
+                             (close (remote-host-connection host))
+                             (setf (remote-host-connection host) nil))
                            (go RETRY))
                     :report-function (lambda (stream)
                                        (format stream "Retry connecting to the file server"))))
@@ -215,8 +216,12 @@ the server instead of reconnecting for each operation.")
                              ;; If an error occurs, then close the current
                              ;; connection and force the next operation to re-open.
                              ;; Just in case the connection gets into a bad state.
-                             (close (remote-host-connection host))
-                             (setf (remote-host-connection host) nil)
+                             ;; Due to unwind-protect forms and this being a handler-bind, not a handler-case
+                             ;; it is possible for this handler to be recursively reentered along the error
+                             ;; path. Avoid closing the connection twice when this happens.
+                             (when (remote-host-connection host)
+                               (close (remote-host-connection host))
+                               (setf (remote-host-connection host) nil))
                              (when (and (typep c 'mezzano.network.tcp:connection-error)
                                         auto-restart)
                                (setf auto-restart nil)
