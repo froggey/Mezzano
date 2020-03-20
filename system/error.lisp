@@ -474,3 +474,11 @@
   (:report (lambda (condition stream)
              (format stream "Unknown prompt tag ~S."
                      (unknown-prompt-tag-tag condition)))))
+
+(in-package :mezzano.clos)
+
+(define-condition unknown-class (cell-error)
+  ()
+  (:report (lambda (condition stream)
+             (format stream "No class named ~S"
+                     (cell-error-name condition)))))

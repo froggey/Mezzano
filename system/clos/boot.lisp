@@ -49,7 +49,7 @@
 (defun find-class-in-reference (reference &optional (errorp t))
   (or (class-reference-class reference)
       (and errorp
-           (error "No class named ~S." (class-reference-name reference)))))
+           (error 'unknown-class :name (class-reference-name reference)))))
 
 (defun find-class (symbol &optional (errorp t) environment)
   (declare (ignore environment))
