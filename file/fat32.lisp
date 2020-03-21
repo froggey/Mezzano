@@ -883,10 +883,11 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
   (setf (aref directory start) #xE5))
 
 (defun deallocate-file (ffs fat directory offset)
-  (do ((cluster-n (read-first-cluster directory offset)
-                  (fat-value fat cluster-n)))
+  (do ((cluster-n (read-first-cluster directory offset) next-cluster-n)
+       (next-cluster-n))
       ((>= cluster-n (last-cluster-value ffs)))
-    (setf (fat-value ffs fat cluster-n) 0)))
+    (setf next-cluster-n (fat-value fat cluster-n)
+          (fat-value ffs fat cluster-n) 0)))
 
 (defun remove-file (directory start disk cluster-n ffs fat)
   ;; Update FAT
