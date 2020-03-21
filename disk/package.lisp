@@ -4,7 +4,7 @@
 (defpackage :mezzano.disk
   (:use :cl)
   (:local-nicknames (:sup :mezzano.supervisor)
-                    (:sys :mezzano.internals))
+                    (:ext :mezzano.extensions))
   (:export
    ;; APIs
    :block-device-sector-size

@@ -31,24 +31,24 @@
        (defun ,acc-name (buf &optional (base 0))
          ,(case size
             (1 `(aref buf (+ ,offset base)))
-            (2 `(sys::ub16ref/le buf (+ ,offset base)))
-            (4 `(sys::ub32ref/le buf (+ ,offset base)))
-            (8 `(sys::ub64ref/le buf (+ ,offset base)))
+            (2 `(ext:ub16ref/le buf (+ ,offset base)))
+            (4 `(ext:ub32ref/le buf (+ ,offset base)))
+            (8 `(ext:ub64ref/le buf (+ ,offset base)))
             (16 `(let ((idx (+ ,offset base)))
                    (logior
-                    (sys::ub64ref/le buf idx)
-                    (ash (sys::ub64ref/le buf (+ idx 8)) 64))))
+                    (ext:ub64ref/le buf idx)
+                    (ash (ext:ub64ref/le buf (+ idx 8)) 64))))
             (T (error "def-accessor: invalid field ~A~%" name ))))
        (defun (setf ,acc-name) (value buf &optional (base 0))
          ,(case size
             (1 `(setf (aref buf (+ ,offset base)) value))
-            (2 `(setf (sys::ub16ref/le buf (+ ,offset base)) value))
-            (4 `(setf (sys::ub32ref/le buf (+ ,offset base)) value))
-            (8 `(setf (sys::ub64ref/le buf (+ ,offset base)) value))
+            (2 `(setf (ext:ub16ref/le buf (+ ,offset base)) value))
+            (4 `(setf (ext:ub32ref/le buf (+ ,offset base)) value))
+            (8 `(setf (ext:ub64ref/le buf (+ ,offset base)) value))
             (16 `(let ((idx (+ ,offset base)))
                    (setf
-                    (sys::ub64ref/le buf idx) value
-                    (sys::ub64ref/le buf (+ idx 8)) (ldb (byte 64 64) value)))))
+                    (ext:ub64ref/le buf idx) value
+                    (ext:ub64ref/le buf (+ idx 8)) (ldb (byte 64 64) value)))))
          value))))
 
 ;;======================================================================
