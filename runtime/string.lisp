@@ -67,34 +67,38 @@
            (setf (sys.int::%object-ref-unsigned-byte-32 new-storage i) val)))))
     new-storage))
 
+(defun ensure-string-wide-enough (character string)
+  (let* ((int-value (char-int character))
+         (min-len (cond ((<= int-value #xFF)
+                         sys.int::+object-tag-array-unsigned-byte-8+)
+                        ((<= int-value #xFFFF)
+                         sys.int::+object-tag-array-unsigned-byte-16+)
+                        (t
+                         sys.int::+object-tag-array-unsigned-byte-32+)))
+         (backing-type (sys.int::%object-tag (sys.int::%complex-array-storage string))))
+    (when (< backing-type min-len)
+      ;; Promote the storage array to fit the character.
+      (setf (sys.int::%complex-array-storage string)
+            (resize-string-storage (sys.int::%complex-array-storage string)
+                                   min-len)))))
+
 (defun (setf char) (value string index)
   (check-type index integer)
   (check-type value character)
   (cond ((sys.int::character-array-p string)
-         (let* ((int-value (char-int value))
-                (min-len (cond ((<= int-value #xFF)
-                                sys.int::+object-tag-array-unsigned-byte-8+)
-                               ((<= int-value #xFFFF)
-                                sys.int::+object-tag-array-unsigned-byte-16+)
-                               (t
-                                sys.int::+object-tag-array-unsigned-byte-32+)))
-                (backing-type (sys.int::%object-tag (sys.int::%complex-array-storage string))))
-           (when (< backing-type min-len)
-             ;; Promote the storage array to fit the character.
-             (setf (sys.int::%complex-array-storage string)
-                   (resize-string-storage (sys.int::%complex-array-storage string)
-                                          min-len)))
-           (let ((data (sys.int::%complex-array-storage string)))
-             (assert (and (<= 0 index)
-                          (< index (sys.int::%object-header-data data)))
-                     (string index))
-             (ecase (sys.int::%object-tag data)
-               (#.sys.int::+object-tag-array-unsigned-byte-8+
-                (setf (sys.int::%object-ref-unsigned-byte-8 data index) int-value))
-               (#.sys.int::+object-tag-array-unsigned-byte-16+
-                (setf (sys.int::%object-ref-unsigned-byte-16 data index) int-value))
-               (#.sys.int::+object-tag-array-unsigned-byte-32+
-                (setf (sys.int::%object-ref-unsigned-byte-32 data index) int-value))))
+         (ensure-string-wide-enough value string)
+         (let ((int-value (char-int value))
+               (data (sys.int::%complex-array-storage string)))
+           (assert (and (<= 0 index)
+                        (< index (sys.int::%object-header-data data)))
+                   (string index))
+           (ecase (sys.int::%object-tag data)
+             (#.sys.int::+object-tag-array-unsigned-byte-8+
+              (setf (sys.int::%object-ref-unsigned-byte-8 data index) int-value))
+             (#.sys.int::+object-tag-array-unsigned-byte-16+
+              (setf (sys.int::%object-ref-unsigned-byte-16 data index) int-value))
+             (#.sys.int::+object-tag-array-unsigned-byte-32+
+              (setf (sys.int::%object-ref-unsigned-byte-32 data index) int-value)))
          value))
         (t
          ;; Possibly a displaced string.
