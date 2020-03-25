@@ -477,8 +477,19 @@ second element."
                      (when location
                        (frob-fn `(defgeneric ,name) location)))
                    (dolist (m (mezzano.clos:generic-function-methods fn))
-                     (frob-fn (method-definition-name name m)
-                              (mezzano.clos:method-function m))))
+                     (cond ((typep m 'mezzano.clos:standard-reader-method)
+                            (let* ((class (first (mezzano.clos:method-specializers m)))
+                                   (loc (slot-value class 'mezzano.clos::source-location)))
+                              (when loc
+                                (frob-fn (method-definition-name name m) loc))))
+                           ((typep m 'mezzano.clos:standard-writer-method)
+                            (let* ((class (second (mezzano.clos:method-specializers m)))
+                                   (loc (slot-value class 'mezzano.clos::source-location)))
+                              (when loc
+                                (frob-fn (method-definition-name name m) loc))))
+                           (t
+                            (frob-fn (method-definition-name name m)
+                                     (mezzano.clos:method-function m))))))
                   (t
                    (frob-fn `(defun ,name) fn)))))
         (let ((compiler-macro (compiler-macro-function name)))

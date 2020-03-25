@@ -363,6 +363,10 @@
 
            #:standard-instance-access
            #:funcallable-standard-instance-access
+
+           #:standard-accessor-method
+           #:standard-reader-method
+           #:standard-writer-method
            ))
 
 ;;; Supervisor manages the hardware, doing paging and memory management.
