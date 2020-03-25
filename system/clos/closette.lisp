@@ -3381,7 +3381,10 @@ always match."
                                      &rest all-keys
                                      &key (metaclass 'standard-class) &allow-other-keys)
   (assert (eql name (safe-class-name class)))
-  (assert (eql (class-of class) (find-class metaclass)))
+  (when (symbolp metaclass)
+    (setf metaclass (find-class metaclass)))
+  (check-type metaclass class)
+  (assert (eql (class-of class) metaclass))
   (apply #'reinitialize-instance class (compute-class-initialization-arguments all-keys))
   (setf (find-class name) class)
   class)
@@ -3390,6 +3393,9 @@ always match."
                                      &rest all-keys
                                      &key (metaclass 'standard-class) &allow-other-keys)
   (assert (eql name (safe-class-name class)))
+  (when (symbolp metaclass)
+    (setf metaclass (find-class metaclass)))
+  (check-type metaclass class)
   (let ((initargs (compute-class-initialization-arguments all-keys)))
     (apply #'change-class class metaclass initargs)
     (apply #'reinitialize-instance class initargs))
@@ -3399,6 +3405,9 @@ always match."
 (defmethod ensure-class-using-class ((class null) name
                                      &rest all-keys
                                      &key (metaclass 'standard-class) &allow-other-keys)
+  (when (symbolp metaclass)
+    (setf metaclass (find-class metaclass)))
+  (check-type metaclass class)
   (let ((class (apply #'make-instance metaclass
                       :name name
                       (compute-class-initialization-arguments all-keys))))
