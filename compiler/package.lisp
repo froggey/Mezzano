@@ -441,6 +441,9 @@
            #:thread-yield
            #:all-threads
            #:without-footholds
+           #:with-footholds
+           #:with-local-footholds
+           #:allow-with-footholds
            #:establish-thread-foothold
            #:terminate-thread
            #:thread-join
