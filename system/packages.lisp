@@ -22,20 +22,22 @@
 (defun call-with-package-system-lock (thunk)
    (if (mezzano.supervisor:mutex-held-p *package-system-lock*)
        (funcall thunk)
-       (mezzano.supervisor:with-mutex (*package-system-lock*)
-         (handler-bind
-             ;; Release the mutex when errors are signalled. This way the
-             ;; debugger will run with the lock unheld but restarts will
-             ;; properly reacquire it.
-             ;; This is required when the debugger may span multiple threads,
-             ;; like slime/swank's does.
-             ((error (lambda (c)
-                       (when (mezzano.supervisor:mutex-held-p *package-system-lock*)
-                         (mezzano.supervisor:release-mutex *package-system-lock*)
-                         (unwind-protect
-                              (error c)
-                           (mezzano.supervisor:acquire-mutex *package-system-lock*))))))
-           (funcall thunk)))))
+       (mezzano.supervisor:without-footholds
+         (mezzano.supervisor:with-mutex (*package-system-lock*)
+           (handler-bind
+               ;; Release the mutex when errors are signalled. This way the
+               ;; debugger will run with the lock unheld but restarts will
+               ;; properly reacquire it.
+               ;; This is required when the debugger may span multiple threads,
+               ;; like slime/swank's does.
+               ((error (lambda (c)
+                         (when (mezzano.supervisor:mutex-held-p *package-system-lock*)
+                           (mezzano.supervisor:release-mutex *package-system-lock*)
+                           (unwind-protect
+                                (mezzano.supervisor:with-local-footholds
+                                  (error c))
+                             (mezzano.supervisor:acquire-mutex *package-system-lock*))))))
+             (funcall thunk))))))
 
 (defmacro with-package-system-lock ((&key) &body body)
   `(call-with-package-system-lock (lambda () ,@body)))
