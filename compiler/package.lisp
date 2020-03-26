@@ -367,6 +367,8 @@
            #:standard-accessor-method
            #:standard-reader-method
            #:standard-writer-method
+
+           #:find-method-combination
            ))
 
 ;;; Supervisor manages the hardware, doing paging and memory management.

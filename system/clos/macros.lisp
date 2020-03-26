@@ -218,6 +218,9 @@
      `(:declarations ',(rest option)))
     (:method-combination
      `(:method-combination
+       ;; FIXME: This should eventually call FIND-METHOD-COMBINATION with
+       ;; maybe the class-prototype for the GF class. Tricky to arrange
+       ;; from here...
        (resolve-method-combination ',(second option) ,@(cddr option))))
     (:argument-precedence-order
      `(:argument-precedence-order ',(rest option)))

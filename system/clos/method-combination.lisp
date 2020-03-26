@@ -24,16 +24,29 @@
 (defun method-combination-object-arguments (method-combination-object)
   (rest method-combination-object))
 
+(defgeneric find-method-combination (generic-function
+                                     method-combination-type-name
+                                     method-combination-options))
+
+(defmethod find-method-combination ((generic-function standard-generic-function)
+                                    (method-combination-type-name (eql 'standard))
+                                    method-combination-options)
+  (assert (endp method-combination-options) (method-combination-options)
+          "The STANDARD method combination accepts no arguments.")
+  nil)
+
+(defmethod find-method-combination ((generic-function standard-generic-function)
+                                    method-combination-type-name
+                                    method-combination-options)
+  (let ((mc (gethash method-combination-type-name *method-combinations*)))
+    (when (not mc)
+      (error "Unknown method combination ~S"
+             method-combination-type-name))
+    (list* mc method-combination-options)))
+
 (defun resolve-method-combination (name &rest args)
-  (cond ((eql name 'standard)
-         (assert (endp args) (args)
-                 "The STANDARD method combination accepts no arguments.")
-         nil)
-        (t
-         (let ((mc (gethash name *method-combinations*)))
-           (when (not mc)
-             (error "Unknown method combination ~S." name))
-           (list* mc args)))))
+  ;; FIXME: Needs to use an appropriate instance of the generic function
+  (find-method-combination #'class-name name args))
 
 (defmacro define-method-combination (name &rest args)
   (cond ((and args
