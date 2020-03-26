@@ -992,17 +992,18 @@
                     (not (stringp object)) (not (bit-vector-p object))
                     (not (structure-type-p (type-of object))))
                (pretty-array xp object))
-              (T (let ((stuff
-                         (with-output-to-string (s)
-                           (non-pretty-print object s))))
-                   (write-string+ stuff xp 0 (length stuff)))))))))
+              (T
+               (non-pretty-print object xp)))))))
 
 (defun non-pretty-print (object s)
-  (write object
-         :level (if *print-level*
-                    (- *print-level* *current-level*))
-         :pretty nil
-         :stream s))
+  (let ((*print-level* (if *print-level*
+                           (- *print-level* *current-level*)))
+        ;; The original behaviour was to rebind *print-pretty* to nil,
+        ;; but that seemed to be so that the non-pretty-printer would be
+        ;; invoked. Now it is invoked directly and we we don't actually
+        ;; want to disable pretty printing, so leave *print-pretty* alone.
+        #++ (*print-pretty* nil))
+    (mezzano.internals::write-object object s)))
 
 ;It is vital that this function be called EXACTLY once for each occurrence of
 ;  each thing in something being printed.
