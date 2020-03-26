@@ -39,50 +39,95 @@
 (defun utf-8-continuation-byte-p (byte)
   (eql (logand byte #b11000000) #b10000000))
 
-(defun encode-utf-8-string (sequence &key (start 0) end (eol-style :crlf) nul-terminate)
+(defun size-encoded-utf-8-string (sequence &key (start 0) end (eol-style :crlf) nul-terminate)
   (setf end (or end (length sequence)))
-  (let ((bytes (make-array (- end start)
-                           :element-type '(unsigned-byte 8)
-                           :adjustable t
-                           :fill-pointer 0)))
+  (let ((n-bytes 0)
+        (eol-size (ecase eol-style
+                    ((:crlf :lfcr) 2)
+                    ((:lf :lf-ignore-cr :cr) 1))))
     (dotimes (i (- end start))
       (let ((c (char sequence (+ start i))))
         (cond
           ((eql c #\Newline)
-           (ecase eol-style
-             (:crlf
-              (vector-push-extend #x0D bytes)
-              (vector-push-extend #x0A bytes))
-             (:lfcr
-              (vector-push-extend #x0A bytes)
-              (vector-push-extend #x0D bytes))
-             ((:lf :lf-ignore-cr)
-              (vector-push-extend #x0A bytes))
-             (:cr
-              (vector-push-extend #x0D bytes))))
-          (t (let ((code (char-code c)))
-               (unless (zerop (sys.int::char-bits c))
-                 (setf code (char-code #\REPLACEMENT_CHARACTER)))
-               (unless (and (<= 0 code #x1FFFFF)
-                            (not (<= #xD800 code #xDFFF)))
-                 (setf code (char-code #\REPLACEMENT_CHARACTER)))
-               (cond ((<= code #x7F)
-                      (vector-push-extend code bytes))
-                     ((<= #x80 code #x7FF)
-                      (vector-push-extend (logior (ash (logand code #x7C0) -6) #xC0) bytes)
-                      (vector-push-extend (logior (logand code #x3F) #x80) bytes))
-                     ((or (<= #x800 code #xD7FF)
-                          (<= #xE000 code #xFFFF))
-                      (vector-push-extend (logior (ash (logand code #xF000) -12) #xE0) bytes)
-                      (vector-push-extend (logior (ash (logand code #xFC0) -6) #x80) bytes)
-                      (vector-push-extend (logior (logand code #x3F) #x80) bytes))
-                     ((<= #x10000 code #x10FFFF)
-                      (vector-push-extend (logior (ash (logand code #x1C0000) -18) #xF0) bytes)
-                      (vector-push-extend (logior (ash (logand code #x3F000) -12) #x80) bytes)
-                      (vector-push-extend (logior (ash (logand code #xFC0) -6) #x80) bytes)
-                      (vector-push-extend (logior (logand code #x3F) #x80) bytes))))))))
+           (incf n-bytes eol-size))
+          (t
+           (let ((code (char-code c)))
+             (unless (zerop (sys.int::char-bits c))
+               (setf code (char-code #\REPLACEMENT_CHARACTER)))
+             (unless (and (<= 0 code #x1FFFFF)
+                          (not (<= #xD800 code #xDFFF)))
+               (setf code (char-code #\REPLACEMENT_CHARACTER)))
+             (cond ((<= code #x7F)
+                    (incf n-bytes 1))
+                   ((<= #x80 code #x7FF)
+                    (incf n-bytes 2))
+                   ((or (<= #x800 code #xD7FF)
+                        (<= #xE000 code #xFFFF))
+                    (incf n-bytes 3))
+                   ((<= #x10000 code #x10FFFF)
+                    (incf n-bytes 4))))))))
     (when nul-terminate
-      (vector-push-extend 0 bytes))
+      (incf n-bytes))
+    n-bytes))
+
+(defun encode-utf-8-string (sequence &key (start 0) end (eol-style :crlf) nul-terminate)
+  (setf end (or end (length sequence)))
+  ;; Precompute the size of the resulting vector to avoid having to resize it.
+  (let ((bytes (make-array (size-encoded-utf-8-string
+                            sequence
+                            :start start
+                            :end end
+                            :eol-style eol-style
+                            :nul-terminate nul-terminate)
+                           :element-type '(unsigned-byte 8)))
+        (offset 0))
+    (declare (optimize speed)
+             (type string sequence)
+             (type (simple-array (unsigned-byte 8) (*)) bytes)
+             (type fixnum offset))
+    (flet ((out (byte)
+             (setf (aref bytes offset) byte)
+             (incf offset)))
+      (loop
+         for i fixnum from start below end
+         for c = (char sequence i)
+         do
+           (cond
+             ((eql c #\Newline)
+              (ecase eol-style
+                (:crlf
+                 (out #x0D)
+                 (out #x0A))
+                (:lfcr
+                 (out #x0A)
+                 (out #x0D))
+                ((:lf :lf-ignore-cr)
+                 (out #x0A))
+                (:cr
+                 (out #x0D))))
+             (t (let ((code (char-code c)))
+                  (unless (zerop (sys.int::char-bits c))
+                    (setf code (char-code #\REPLACEMENT_CHARACTER)))
+                  (unless (and (<= 0 code #x1FFFFF)
+                               (not (<= #xD800 code #xDFFF)))
+                    (setf code (char-code #\REPLACEMENT_CHARACTER)))
+                  (cond ((<= code #x7F)
+                         (out code))
+                        ((<= #x80 code #x7FF)
+                         (out (logior (ash (logand code #x7C0) -6) #xC0))
+                         (out (logior (logand code #x3F) #x80)))
+                        ((or (<= #x800 code #xD7FF)
+                             (<= #xE000 code #xFFFF))
+                         (out (logior (ash (logand code #xF000) -12) #xE0))
+                         (out (logior (ash (logand code #xFC0) -6) #x80))
+                         (out (logior (logand code #x3F) #x80)))
+                        ((<= #x10000 code #x10FFFF)
+                         (out (logior (ash (logand code #x1C0000) -18) #xF0))
+                         (out (logior (ash (logand code #x3F000) -12) #x80))
+                         (out (logior (ash (logand code #xFC0) -6) #x80))
+                         (out (logior (logand code #x3F) #x80))))))))
+      (when nul-terminate
+        (out 0)))
     bytes))
 
 (defun decode-utf-8-string (sequence &key (start 0) end (eol-style :crlf) nul-terminate)
