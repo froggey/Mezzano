@@ -893,14 +893,24 @@
          :format-control "Illegal syntax #~A."
          :format-arguments (list ch)))
 
+(defstruct read-lookahead-proxy
+  (used-p nil))
+
 (defun read-#-equal-sign (stream ch p)
   (declare (ignore ch))
-  (let ((value (read stream t nil t)))
-    (cond (*read-suppress*
-           (values))
-          (t
-           (setf (gethash p *read-lookahead-table*) value)
-           value))))
+  (cond (*read-suppress*
+         (read stream t nil t)
+         (values))
+        (t
+         (let ((proxy (make-read-lookahead-proxy)))
+           (setf (gethash p *read-lookahead-table*) proxy)
+           (let ((value (read stream t nil t)))
+             (when (read-lookahead-proxy-used-p proxy)
+               (when (eql value proxy)
+                 (error "Tried to read nothing with #=."))
+               (read-lookahead-substitute value proxy))
+             (setf (gethash p *read-lookahead-table*) value)
+             value)))))
 
 (defun read-#-sharp-sign (stream ch p)
   (declare (ignore stream ch))
@@ -911,6 +921,8 @@
              (gethash p *read-lookahead-table*)
            (when (not existsp)
              (cerror "Read NIL" "Unknown read ## value ~D" p))
+           (when (read-lookahead-proxy-p value)
+             (setf (read-lookahead-proxy-used-p value) t))
            value))))
 
 (defun read-common (stream eof-error-p eof-value recursive-p)
