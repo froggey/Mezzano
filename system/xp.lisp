@@ -1038,7 +1038,7 @@
                  (setf (gethash object *circularity-hash-table*) 0)
                  nil)
                 ((zerop id) ;possible second occurrence
-                 (cond ((or (null *parents*) (member object *parents*))
+                 (cond (t #++(or (null *parents*) (member object *parents*))
                         (setf (gethash object *circularity-hash-table*)
                               (incf *locating-circularities*))
                         :subsequent)
