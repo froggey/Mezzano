@@ -489,7 +489,7 @@ second element."
                                 (frob-fn (method-definition-name name m) loc))))
                            (t
                             (frob-fn (method-definition-name name m)
-                                     (mezzano.clos:method-function m))))))
+                                     (mezzano.clos::method-fast-function m))))))
                   (t
                    (frob-fn `(defun ,name) fn)))))
         (let ((compiler-macro (compiler-macro-function name)))

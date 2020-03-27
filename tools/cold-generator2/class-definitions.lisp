@@ -54,6 +54,7 @@
    (specializers :initarg :specializers)
    (generic-function :initform nil)
    (function :initarg :function)
+   (fast-function :initarg :fast-function)
    (documentation :initform nil :initarg :documentation))
   (:default-initargs
    :qualifiers '()

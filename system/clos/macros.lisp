@@ -242,7 +242,7 @@
        :lambda-list ',lambda-list
        :qualifiers ',qualifiers
        :specializers ,(canonicalize-specializers specializers)
-       :function #',function)))
+       :fast-function #',function)))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 
