@@ -1002,9 +1002,9 @@
     (loop
        for prev-td = NIL then td
        for td-phys-addr = (logandc2 (ed-tdq-head ed) #x0F) then (td-next-td td)
-       for td = (phys-array->array td-phys-addr)
+       for td = (phys-addr->array td-phys-addr)
        for msg-xfer-info = (gethash td td->xfer-info)
-       when (= buf (xfer-info-buf msg-xfer-info)) do
+       when (eq buf (xfer-info-buf msg-xfer-info)) do
        ;; remove td from list
          (if prev-td
              (setf (td-next-td prev-td) (td-next-td td))
