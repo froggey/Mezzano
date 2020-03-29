@@ -60,6 +60,11 @@
   :serial t
   :components ((:file "ohci")))
 
+(defsystem "mezzano-usb/ehci"
+  :description "EHCI Drivers"
+  :depends-on ("mezzano-usb")
+  :components ((:file "ehci-intel")))
+
 #+nil ;; currently no vendor specific drivers
 (defsystem "mezzano-usb/vendor-drivers"
   :description "Vendor specific drivers"
@@ -75,11 +80,12 @@
 
 (defsystem "mezzano-usb/debug"
   :description "Debug support for USB drivers"
-  :depends-on ("mezzano-usb" "mezzano-usb/ohci")
+  :depends-on ("mezzano-usb" "mezzano-usb/ohci" "mezzano-usb/ehci")
   :serial t
   :components ((:file "usb-debug")
                (:file "ohci-debug")
-               (:file "ohci-test")))
+               (:file "ohci-test")
+               (:file "ehci-intel-debug")))
 
 (defsystem "mezzano-usb/hid/debug"
   :description "Debug and test support for HID driver"
