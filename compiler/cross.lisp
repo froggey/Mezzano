@@ -101,6 +101,7 @@
            :with-standard-io-syntax
            :name-char
            :make-hash-table
+           :with-compilation-unit
 )
   (:export . #.(let ((symbols '()))
                  (do-external-symbols (sym :cl symbols)
