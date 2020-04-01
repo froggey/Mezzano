@@ -743,27 +743,7 @@
 
 (defun mass-storage-int-callback (mass-storage endpoint-num status length buf)
   (setf (mass-storage-status mass-storage) status
-        (sup:event-state (mass-storage-event mass-storage)) T)
-
-  #+nil
-  (unwind-protect
-       (cond ((eql endpoint-num (mass-storage-bulk-in-endpt-num mass-storage))
-              (cond ((eq status :success)
-                     (format sys.int::*cold-stream* "ms callback ~D~%" length)
-                     (print-buffer sys.int::*cold-stream* buf :indent "  "))
-                    (T
-                     (format sys.int::*cold-stream*
-                             "Interrupt error ~A on input endpoint~%"
-                             status))))
-             ((eql endpoint-num (mass-storage-bulk-out-endpt-num mass-storage))
-              (format sys.int::*cold-stream*
-                      "Interrupt error ~A on output endpoint~%"
-                      status))
-             (T
-              (format sys.int::*cold-stream*
-                      "Interrupt status ~A on unknown endpoint number ~D~%"
-                      status endpoint-num)))
-    (free-buffer buf)))
+        (sup:event-state (mass-storage-event mass-storage)) T))
 
 
 (defun reset-recovery (usbd device mass-storage)
@@ -798,20 +778,3 @@
                           (mass-storage-bulk-out-endpt-num mass-storage)
                           0
                           buf)))
-
-#+nil
-(mezzano.driver.usb.ehci.intel::enable-async hcd)
-
-#+nil
-(mezzano.driver.usb.ehci.intel::disable-async hcd)
-
-#+nil
-(progn
- (require :mezzano-usb)
- (require :mezzano-usb/class-drivers)
- (require :mezzano-usb/ohci)
- (require :mezzano-usb/ehci)
- (require :mezzano-usb/mass-storage/debug)
- (require :fs-test)
- (swank:set-package "COM.FITTESTBITS.FS-TEST")
- )
