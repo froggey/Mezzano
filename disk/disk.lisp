@@ -80,3 +80,25 @@
 
 (defun block-device-write-sector (disk start-sector array n-sectors)
   (block-device-write disk start-sector n-sectors array))
+
+;;======================================================================
+;; Code to maintain a list of devices that support the block device
+;; interface. All of the disks and partition that use the supervisor
+;; driver support the block device interface, because that interface
+;; is defined above.
+;; ======================================================================
+
+(defvar *block-devices-lock* (sup:make-mutex "Lock for *block-devices*"))
+(defvar *block-devices* NIL)
+
+(defun all-block-devices ()
+  (sup:with-mutex (*block-devices-lock*)
+    (append *block-devices* (mezzano.supervisor:all-disks))))
+
+(defun register-block-device (device)
+  (sup:with-mutex (*block-devices-lock*)
+      (push device *block-devices*)))
+
+(defun unregister-block-device (device)
+  (sup:with-mutex (*block-devices-lock*)
+    (setf *block-devices* (delete device *block-devices*))))

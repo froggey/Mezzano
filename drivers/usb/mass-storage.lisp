@@ -482,7 +482,9 @@
   ;; Device has disconnected - clean up
   ;; terminate and transfers in progress
   ;; unmount device - deregister-disk? It's already gone so no operations allowed
-  )
+  (unregister-block-device (mass-storage-disk mass-storage))
+  (dolist (part (mass-storage-partitions mass-storage))
+    (unregister-block-device part)))
 
 (defun parse-inquiry (usbd device mass-storage)
   (enter-function "parse-inquiry")
@@ -712,16 +714,9 @@
                              part-info))
                   (parse-partition-table (mass-storage-disk mass-storage))))
 
-    #+nil
-    (sup:register-disk mass-storage
-                       :writable-p
-                       :n-sectors
-                       :sector-size
-                       :max-transfer
-                       'mass-storage-read
-                       'mass-storage-write
-                       'mass-storate-flush
-                       :name)
+    (register-block-device (mass-storage-disk mass-storage))
+    (dolist (part (mass-storage-partitions mass-storage))
+      (register-block-device part))
 
     (setf *mass-storage* mass-storage)
 
