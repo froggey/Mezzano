@@ -992,6 +992,29 @@
           (dpb 1 +command-bulk-list-filled+ 0))
     (values)))
 
+(defmethod bulk-dequeue-buf ((ohci ohci) device endpt-num buf)
+  (with-trace-level (1)
+    (sup:debug-print-line "bulk-dequeue-buf"))
+  ;; TODO stop this queue ...
+  (let* ((endpoint (aref (usb-device-endpoints device) endpt-num))
+         (ed (ohci-endpoint-ed endpoint))
+         (td->xfer-info (td->xfer-info ohci)))
+    (loop
+       for prev-td = NIL then td
+       for td-phys-addr = (logandc2 (ed-tdq-head ed) #x0F) then (td-next-td td)
+       for td = (phys-addr->array td-phys-addr)
+       for msg-xfer-info = (gethash td td->xfer-info)
+       when (eq buf (xfer-info-buf msg-xfer-info)) do
+       ;; remove td from list
+         (if prev-td
+             (setf (td-next-td prev-td) (td-next-td td))
+             (setf (ed-tdq-head ed) (td-next-td td)))
+         (free-td ohci td)
+         (return T)
+       when (= td-phys-addr (ed-tdq-tail ed)) do
+         ;; td not found
+         (return NIL))))
+
 (defun handle-bulk-endpt (ohci xfer-info td)
   (with-trace-level (1)
     (sup:debug-print-line "handle-bulk-endpt"))

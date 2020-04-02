@@ -513,6 +513,15 @@
     (error "debounce-port not defined for ~A. Error signaled, but ignored."
            hcd)))
 
+(defgeneric reset-port (hcd port-num)
+  (:method (hcd port-num)
+    (error "reset-port not defined for ~A. Error signaled, but ignored." hcd)))
+
+(defgeneric set-device-address (hcd device address)
+  (:method (hcd device address)
+    (error
+     "set-device-address not defined for ~A. Error ignored." hcd)))
+
 (defgeneric create-interrupt-endpt
     (hcd device driver endpt-num num-bufs buf-size event-type interval)
   (:method (hcd device driver endpt-num num-bufs buf-size event-type interval)
@@ -537,6 +546,10 @@
   (:method (hcd device endpt-num buf num-bytes)
     (error "bulk-enqueue-buf not defined for ~A. Error ignored" hcd)))
 
+(defgeneric bulk-dequeue-buf (hcd device endpt-num buf)
+  (:method (hcd device endpt=num buf)
+    (error "bulk-dequeue-buf not defined for ~A. Error ignored" hcd)))
+
 (defgeneric create-isochronous-endpt
     (hcd device driver endpt-num in-p event-type)
   (:method (hcd device driver endpt-num in-p event-type)
@@ -545,12 +558,3 @@
 (defgeneric delete-isochronous-endpt (hcd device endpt-num)
   (:method (hcd device endpt-num)
     (error "delete-isochronous-endpt not defined for ~A. Error ignored" hcd)))
-
-(defgeneric set-device-address (hcd device address)
-  (:method (hcd device address)
-    (error
-     "set-device-address not defined for ~A. Error ignored." hcd)))
-
-(defgeneric reset-port (hcd port-num)
-  (:method (hcd port-num)
-    (error "reset-port not defined for ~A. Error signaled, but ignored." hcd)))

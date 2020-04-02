@@ -54,6 +54,7 @@
    :create-bulk-endpt
    :delete-bulk-endpt
    :bulk-enqueue-buf
+   :bulk-dequeue-buf
    :create-isochronous-endpt
    :delete-isochronous-endpt
 
@@ -123,8 +124,9 @@
                     (:sync :mezzano.sync)
                     (:sys.int :mezzano.internals)))
 
-(defpackage :mezzano.driver.usb.ehci
+(defpackage :mezzano.driver.usb.ehci.intel
   (:use :cl :mezzano.driver.usb)
   (:local-nicknames (:sup :mezzano.supervisor)
                     (:pci :mezzano.supervisor.pci)
-                    (:sync :mezzano.sync)))
+                    (:sync :mezzano.sync)
+                    (:sys.int :mezzano.internals)))
