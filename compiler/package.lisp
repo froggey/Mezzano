@@ -519,6 +519,7 @@
            #:safe-without-interrupts
            #:with-symbol-spinlock
            #:map-physical-memory
+           #:map-physical-memory-early
            #:add-deferred-boot-action
            #:logical-core-count
            #:get-high-precision-timer

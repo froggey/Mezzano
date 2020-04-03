@@ -815,7 +815,7 @@ mapped, then the entry will be NIL."
   t)
 
 ;; Fast path, called from the page-fault handler.
-;; If the *VM-LOCK* is not taken,
+;; If the *VM-LOCK* is not write-taken,
 ;; and the page tables for the address have already been allocated,
 ;; and the page for the address is a zero-page,
 ;; and there is a free page frame
@@ -955,22 +955,32 @@ It will put the thread to sleep, while it waits for the page."
     (restore-page-fault-ist ist-state)
     (%reschedule-via-interrupt interrupt-frame)))
 
-(defun map-physical-memory (base size name)
+(defun map-physical-memory-in-pager (base size name)
   (declare (ignore name))
+  ;; Page alignment required.
+  (ensure (page-aligned-p base))
+  (ensure (page-aligned-p size))
+  (with-rw-lock-write (*vm-lock*)
+    (dotimes (i (truncate size #x1000))
+      (let ((pte (get-pte-for-address (convert-to-pmap-address (+ base (* i #x1000))))))
+        (when (not (page-present-p pte 0))
+          (setf (page-table-entry pte 0) (make-pte (+ (truncate base #x1000) i)
+                                                   :writable t
+                                                   :wired t
+                                                   :cache-mode :uncached)))))))
+
+(defun map-physical-memory-early (base size name)
+  ;; TODO: Check that this really is being called early.
   ;; Page alignment required.
   (assert (page-aligned-p base))
   (assert (page-aligned-p size))
-  ;; Take *VM-LOCK* with the snapshot inhibited so we don't get caught
-  ;; holding it. It gets recreated each boot.
-  (with-snapshot-inhibited ()
-    (with-rw-lock-write (*vm-lock*)
-      (dotimes (i (truncate size #x1000))
-        (let ((pte (get-pte-for-address (convert-to-pmap-address (+ base (* i #x1000))))))
-          (when (not (page-present-p pte 0))
-            (setf (page-table-entry pte 0) (make-pte (+ (truncate base #x1000) i)
-                                                     :writable t
-                                                     :wired t
-                                                     :cache-mode :uncached))))))))
+  (map-physical-memory-in-pager base size name))
+
+(defun map-physical-memory (base size name)
+  ;; Page alignment required.
+  (assert (page-aligned-p base))
+  (assert (page-aligned-p size))
+  (pager-rpc 'map-physical-memory-in-pager base size name))
 
 (defun initialize-pager ()
   (when (not (boundp '*pager-waiting-threads*))
