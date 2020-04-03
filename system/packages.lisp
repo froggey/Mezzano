@@ -551,11 +551,11 @@
                            ((:shadowing-imports shadow-import-list))
                            local-nicknames)
   (with-package-system-lock ()
-    (let ((p (find-package name)))
+    (let ((p (find-global-package name)))
       (cond (p ;; Add nicknames.
              (dolist (n nicknames)
-               (when (and (find-package n)
-                          (not (eql (find-package n) p)))
+               (when (and (find-global-package n)
+                          (not (eql (find-global-package n) p)))
                  (error 'simple-package-error
                         :package p
                         :format-control "A package named ~S already exists."
