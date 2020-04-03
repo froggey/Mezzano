@@ -355,7 +355,7 @@ Returns NIL if the function captures no variables."
            (*standard-output* *debug-io*)
            (debug-level *debugger-depth*)
            (*debugger-depth* (1+ *debugger-depth*))
-           (restarts (compute-restarts))
+           (restarts (compute-restarts condition))
            (restart-count (length restarts))
            (*debugger-condition* condition)
            (frames nil)
