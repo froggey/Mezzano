@@ -268,6 +268,24 @@ FN will be called with the world stopped, it must not allocate."
       (:general (%walk-general-area fn))
       (:cons (%walk-cons-area fn)))))
 
+(defun area-usage (area)
+  "Returns words used and committed."
+  (ecase area
+    (:pinned
+     (values *pinned-area-usage* (/ (- *pinned-area-bump* *pinned-area-base*) 8)))
+    (:wired
+     (values *wired-area-usage* (/ (- *wired-area-bump* *wired-area-base*) 8)))
+    (:wired-function
+     (values *wired-function-area-usage* (/ (- *function-area-base* *wired-function-area-limit*) 8)))
+    (:function
+     (values *function-area-usage* (/ (- *function-area-limit* *function-area-base*) 8)))
+    (:general
+     (values (/ (+ *general-area-old-gen-bump* *general-area-young-gen-bump*) 8)
+             (/ (+ *general-area-old-gen-limit* *general-area-young-gen-limit*) 8)))
+    (:cons
+     (values (/ (+ *cons-area-old-gen-bump* *cons-area-young-gen-bump*) 8)
+             (/ (+ *cons-area-old-gen-limit* *cons-area-young-gen-limit*) 8)))))
+
 (defun area-info (area)
   (let ((largest-free-space 0)
         (allocated-words 0)

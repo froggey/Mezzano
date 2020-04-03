@@ -8,9 +8,11 @@
 (sys.int::defglobal sys.int::*wired-area-base*)
 (sys.int::defglobal sys.int::*wired-area-bump*)
 (sys.int::defglobal sys.int::*wired-area-free-bins*)
+(sys.int::defglobal sys.int::*wired-area-usage*)
 (sys.int::defglobal sys.int::*pinned-area-base*)
 (sys.int::defglobal sys.int::*pinned-area-bump*)
 (sys.int::defglobal sys.int::*pinned-area-free-bins*)
+(sys.int::defglobal sys.int::*pinned-area-usage*)
 
 (sys.int::defglobal sys.int::*bytes-allocated-to-stacks*)
 (sys.int::defglobal sys.int::*wired-stack-area-bump*)
@@ -28,8 +30,10 @@
 (sys.int::defglobal sys.int::*function-area-base*)
 (sys.int::defglobal sys.int::*wired-function-area-limit*)
 (sys.int::defglobal sys.int::*wired-function-area-free-bins*)
+(sys.int::defglobal sys.int::*wired-function-area-usage*)
 (sys.int::defglobal sys.int::*function-area-limit*)
 (sys.int::defglobal sys.int::*function-area-free-bins*)
+(sys.int::defglobal sys.int::*function-area-usage* 0)
 
 ;; A major GC will be performed when the old generation
 ;; is this much larger than the young generation.
@@ -160,6 +164,7 @@
         (mezzano.supervisor:with-pseudo-atomic
           (let ((address (%allocate-from-freelist-area tag data words sys.int::*pinned-area-free-bins*)))
             (when address
+              (incf sys.int::*pinned-area-usage* words)
               (sys.int::%%assemble-value address sys.int::+tag-object+))))))))
 
 (defun finish-expand-freelist-area (grow-by limit-sym bins)
@@ -261,6 +266,7 @@
 (defun %allocate-from-wired-area-unlocked (tag data words)
   (let ((address (%allocate-from-freelist-area tag data words sys.int::*wired-area-free-bins*)))
     (when address
+      (incf sys.int::*wired-area-usage* words)
       (sys.int::%%assemble-value address sys.int::+tag-object+))))
 
 (defun %allocate-from-wired-area-1 (tag data words)
@@ -636,6 +642,9 @@
                               sys.int::*wired-function-area-free-bins*
                               sys.int::*function-area-free-bins*))))
             (when address
+              (if wiredp
+                  (incf sys.int::*wired-function-area-usage* words)
+                  (incf sys.int::*function-area-usage* words))
               (sys.int::%%assemble-value address sys.int::+tag-object+))))))))
 
 ;; Also used for allocating function-references

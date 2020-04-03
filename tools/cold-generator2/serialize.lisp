@@ -791,8 +791,10 @@ Must not call SERIALIZE-OBJECT."))
                    sys.int::*pinned-area-free-bins*
                    sys.int::*wired-area-base*
                    sys.int::*wired-area-bump*
+                   sys.int::*wired-area-usage*
                    sys.int::*pinned-area-base*
                    sys.int::*pinned-area-bump*
+                   sys.int::*pinned-area-usage*
                    sys.int::*general-area-old-gen-bump*
                    sys.int::*general-area-old-gen-limit*
                    sys.int::*cons-area-old-gen-bump*
@@ -803,8 +805,10 @@ Must not call SERIALIZE-OBJECT."))
                    sys.int::*function-area-base*
                    sys.int::*wired-function-area-limit*
                    sys.int::*wired-function-area-free-bins*
+                   sys.int::*wired-function-area-usage*
                    sys.int::*function-area-limit*
-                   sys.int::*function-area-free-bins*))
+                   sys.int::*function-area-free-bins*
+                   sys.int::*function-area-usage*))
       ;; This will fail if they're missing.
       (serialize-object (env:translate-symbol environment sym) image environment))
     ;; Better hope we got this right first try.
@@ -829,11 +833,12 @@ Must not call SERIALIZE-OBJECT."))
                    (length (area-data (image-function-area image))))
                 +function-area-total-size-limit+))
     ;; Initialize the wired/pinned area freelist bins.
-    (flet ((init-freelist (bins area area-bump sym)
+    (flet ((init-freelist (bins area area-bump sym usage-sym)
              (initialize-object-header image bins sys.int::+object-tag-array-t+ 64)
              (dotimes (i 64)
                (setf (object-slot image bins i) (serialize-object nil image environment)))
              (setf (image-symbol-value image environment sym) bins)
+             (setf (image-symbol-value image environment usage-sym) area-bump)
              (let* ((area-end (length (area-data area)))
                     (n-free-words (truncate (- area-end area-bump) 8)))
                ;; Write freelist entry.
@@ -845,10 +850,10 @@ Must not call SERIALIZE-OBJECT."))
                (setf (object-slot image bins (integer-length n-free-words))
                      (ash (+ (area-base area) area-bump)
                           sys.int::+n-fixnum-bits+)))))
-      (init-freelist wired-free-bins (image-wired-area image) wired-area-bump 'sys.int::*wired-area-free-bins*)
-      (init-freelist pinned-free-bins (image-pinned-area image) pinned-area-bump 'sys.int::*pinned-area-free-bins*)
-      (init-freelist wired-function-free-bins (image-wired-function-area image) wired-function-area-bump 'sys.int::*wired-function-area-free-bins*)
-      (init-freelist function-free-bins (image-function-area image) function-area-bump 'sys.int::*function-area-free-bins*))
+      (init-freelist wired-free-bins (image-wired-area image) wired-area-bump 'sys.int::*wired-area-free-bins* 'sys.int::*wired-area-usage*)
+      (init-freelist pinned-free-bins (image-pinned-area image) pinned-area-bump 'sys.int::*pinned-area-free-bins* 'sys.int::*pinned-area-usage*)
+      (init-freelist wired-function-free-bins (image-wired-function-area image) wired-function-area-bump 'sys.int::*wired-function-area-free-bins* 'sys.int::*wired-function-area-usage*)
+      (init-freelist function-free-bins (image-function-area image) function-area-bump 'sys.int::*function-area-free-bins* 'sys.int::*function-area-usage*))
     ;; Assign GC variables.
     ;; Wired/pinned area bumps are the total size of the area including free parts
     ;; They also count from address 0, not the area start.
