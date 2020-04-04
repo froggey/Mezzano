@@ -313,7 +313,7 @@
                       (if (irq-attachment-pending-eoi a) " EOI pending" ""))))
 
 (defun debug-dump-threads ()
-  (debug-print-line "Local CPU is " (local-cpu-info))
+  (debug-print-line "Local CPU is " (local-cpu))
   (dump-run-queues)
   (map-platform-irqs #'dump-irq)
   (dump-active-timers)

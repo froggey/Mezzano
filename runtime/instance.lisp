@@ -71,6 +71,7 @@
   "Return the location offset scaled appropriately for %object-ref-t"
   (ash location -7))
 
+(declaim (inline location-offset))
 (defun location-offset (location)
   (ash location -4))
 

@@ -54,7 +54,7 @@ RETURN-FROM/GO must not be used to leave this form."
         (old-value (gensym)))
     (multiple-value-bind (vars vals old-sym new-sym cas-form read-form)
         (sys.int::get-cas-expansion place environment)
-      `(let ((,self (local-cpu-info))
+      `(let ((,self (local-cpu))
              ,@(mapcar #'list vars vals))
          (ensure-interrupts-disabled)
          (block nil
@@ -66,7 +66,7 @@ RETURN-FROM/GO must not be used to leave this form."
                ;; Prev value was :unlocked, have locked the lock.
                (return))
              (when (eq ,old-value ,self)
-               (panic "Spinlock " ',place " held by self. " ,self " " (local-cpu-object))))
+               (panic "Spinlock " ',place " held by self. " ,self " " (local-cpu))))
            ;; Loop until acquired.
            (loop
               ;; Read (don't CAS) the place until it goes back to :unlocked.
@@ -97,7 +97,7 @@ RETURN-FROM/GO must not be used to leave this form."
 (defmacro ensure-place-spinlock-held (place)
   (let ((holder (gensym)))
     `(let ((,holder ,place))
-       (ensure (eql ,holder (local-cpu-info)) "Expected lock " ',place " to be held by " (local-cpu-info) " but is held by " ,holder))))
+       (ensure (eql ,holder (local-cpu)) "Expected lock " ',place " to be held by " (local-cpu-info) " but is held by " ,holder))))
 
 (defmacro acquire-symbol-spinlock (lock)
   (check-type lock symbol)
