@@ -477,15 +477,20 @@
 (defun find-all-symbols (string)
   (setf string (string string))
   (with-package-system-lock ()
-    (let ((symbols '()))
+    (let ((symbols '())
+          (dedup (make-hash-table)))
       (dolist (p (list-all-packages))
         (multiple-value-bind (sym foundp)
             (gethash string (package-%internal-symbols p))
-          (when foundp
-            (pushnew sym symbols)))
+          (when (and foundp
+                     (not (gethash sym dedup)))
+            (setf (gethash sym dedup) t)
+            (push sym symbols)))
         (multiple-value-bind (sym foundp)
             (gethash string (package-%external-symbols p))
-          (when foundp
+          (when (and foundp
+                     (not (gethash sym dedup)))
+            (setf (gethash sym dedup) t)
             (pushnew sym symbols))))
       symbols)))
 
