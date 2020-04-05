@@ -421,6 +421,13 @@
   ;; This is currently worked around with a hack in FUNCTION-FROM-FRAME.
   (restart-case
       (error 'invalid-argument-error :function function :arguments args)
+    (specify-arguments (new-arguments)
+      :interactive (lambda ()
+                     (format *query-io* "Enter a list of arguments to call ~S with (evaluated): " function)
+                     (finish-output *query-io*)
+                     (list (eval (read *query-io*))))
+      :report "Supply new arguments."
+      (apply function new-arguments))
     (use-value (&rest values)
       :interactive (lambda ()
                      (format *query-io* "Enter a value to return (evaluated): ")
