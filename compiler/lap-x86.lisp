@@ -1145,6 +1145,15 @@ Remaining values describe the effective address: base index scale disp rip-relat
 (define-instruction idiv64 (rhs)
   (modrm-single :gpr-64 rhs #xF7 7))
 
+(define-instruction div8 (rhs)
+  (modrm-single :gpr-8 rhs #xF6 6))
+(define-instruction div16 (rhs)
+  (modrm-single :gpr-16 rhs #xF7 6))
+(define-instruction div32 (rhs)
+  (modrm-single :gpr-32 rhs #xF7 6))
+(define-instruction div64 (rhs)
+  (modrm-single :gpr-64 rhs #xF7 6))
+
 (define-instruction imul8 (rhs)
   (modrm-single :gpr-8 rhs #xF6 5))
 
