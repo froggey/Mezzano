@@ -319,9 +319,11 @@
            (when (or const-args (not nonconst-args))
              (setf value (apply folder const-args))
              (if nonconst-args
+                 ;; Leave the constant value as the rightmost operand.
+                 ;; The rest of the compiler expects this.
                  (ast `(call ,function
-                             (quote ,value)
-                             ,@nonconst-args)
+                             ,@nonconst-args
+                             (quote ,value))
                       form)
                  (ast `(quote ,value)
                       form)))))

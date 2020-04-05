@@ -248,9 +248,7 @@
 
 (defun match-transform (call result-type target-architecture)
   (let ((name (ast-name call)))
-    (when (or (eql name 'sys.int::binary-logand)
-              (eql name 'sys.int::binary-+)
-              (not (eql (second (assoc name (ast-inline-declarations call))) 'notinline)))
+    (when (not (eql (second (assoc name (ast-inline-declarations call))) 'notinline))
       (dolist (transform (get-transforms name) nil)
         (when (match-one-transform transform call result-type target-architecture)
           (return transform))))))
