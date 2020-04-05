@@ -667,7 +667,7 @@
 
 (define-fast-array-transform t sys.int::%object-ref-t)
 (define-fast-array-transform fixnum sys.int::%object-ref-t)
-(define-fast-array-transform (unsigned-byte 64) sys.int::%object-ref-unsigned-byte-64)
+(define-fast-array-transform (unsigned-byte 64) sys.int::%%object-ref-unsigned-byte-64)
 (define-fast-array-transform (unsigned-byte 32) sys.int::%%object-ref-unsigned-byte-32)
 (define-fast-array-transform (unsigned-byte 16) sys.int::%%object-ref-unsigned-byte-16)
 (define-fast-array-transform (unsigned-byte 8) sys.int::%%object-ref-unsigned-byte-8)
@@ -888,6 +888,10 @@
 
 (define-type-predicate-transform consp cons)
 (define-type-predicate-transform vectorp vector)
+
+(define-transform sys.int::unsigned-byte-64-p ((object (unsigned-byte 64)))
+    ((:optimize (= safety 0) (= speed 3)))
+  `'t)
 
 (define-transform sys.int::fixnump ((object fixnum))
     ((:optimize (= safety 0) (= speed 3)))

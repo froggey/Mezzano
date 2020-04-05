@@ -875,3 +875,9 @@
   (if (sys.int::fixnump integer)
       (%fixnum-logxor integer -1)
       (sys.int::generic-lognot integer)))
+
+(defun sys.int::unsigned-byte-64-p (object)
+  (or (and (sys.int::fixnump object)
+           (<= 0 object))
+      (and (sys.int::bignump object)
+           (<= 0 object (1- (expt 2 64))))))
