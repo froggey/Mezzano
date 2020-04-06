@@ -373,6 +373,46 @@
     ((:optimize (= safety 0) (= speed 3)))
   `(call not (call mezzano.runtime::%ub64-< ,rhs ,lhs)))
 
+;;; Unboxed (Signed-Byte 64) arithmetic.
+;;; These only apply at safety 0 as they can produce invalid values which
+;;; can damage the system if the type declarations are incorrect;.
+
+(defmacro define-fast-sb64-transform-arith-two-arg (binary-fn fast-fn &key (result '(signed-byte 64)))
+  `(define-transform ,binary-fn ((lhs (signed-byte 64)) (rhs (signed-byte 64)))
+      ((:result-type ,result)
+       (:optimize (= safety 0) (= speed 3)))
+     `(the (signed-byte 64) (call ,',fast-fn ,lhs ,rhs))))
+
+(define-fast-sb64-transform-arith-two-arg sys.int::binary-+ mezzano.runtime::%fast-sb64-+)
+(define-fast-sb64-transform-arith-two-arg sys.int::binary-- mezzano.runtime::%fast-sb64--)
+(define-fast-sb64-transform-arith-two-arg sys.int::binary-* mezzano.runtime::%fast-sb64-*)
+(define-fast-sb64-transform-arith-two-arg sys.int::%truncate mezzano.runtime::%fast-sb64-truncate)
+(define-fast-sb64-transform-arith-two-arg sys.int::binary-logior mezzano.runtime::%fast-sb64-logior :result t)
+(define-fast-sb64-transform-arith-two-arg sys.int::binary-logxor mezzano.runtime::%fast-sb64-logxor :result t)
+(define-fast-sb64-transform-arith-two-arg sys.int::binary-logand mezzano.runtime::%fast-sb64-logand :result t)
+
+;;; (Signed-Byte 64) comparisons.
+
+(define-transform sys.int::binary-= ((lhs (signed-byte 64)) (rhs (signed-byte 64)))
+    ((:optimize (= safety 0) (= speed 3)))
+  `(call mezzano.runtime::%sb64-= ,lhs ,rhs))
+
+(define-transform sys.int::binary-< ((lhs (signed-byte 64)) (rhs (signed-byte 64)))
+    ((:optimize (= safety 0) (= speed 3)))
+  `(call mezzano.runtime::%sb64-< ,lhs ,rhs))
+
+(define-transform sys.int::binary->= ((lhs (signed-byte 64)) (rhs (signed-byte 64)))
+    ((:optimize (= safety 0) (= speed 3)))
+  `(call not (call mezzano.runtime::%sb64-< ,lhs ,rhs)))
+
+(define-transform sys.int::binary-> ((lhs (signed-byte 64)) (rhs (signed-byte 64)))
+    ((:optimize (= safety 0) (= speed 3)))
+  `(call mezzano.runtime::%sb64-< ,rhs ,lhs))
+
+(define-transform sys.int::binary-<= ((lhs (signed-byte 64)) (rhs (signed-byte 64)))
+    ((:optimize (= safety 0) (= speed 3)))
+  `(call not (call mezzano.runtime::%sb64-< ,rhs ,lhs)))
+
 ;;; Single-Float arithmetic.
 
 (defmacro define-fast-single-float-transform-arith-two-arg (binary-fn generic-fn fast-fn)
