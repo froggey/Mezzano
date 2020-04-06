@@ -835,6 +835,42 @@
                          :source result-unboxed
                          :destination result))))
 
+(define-builtin mezzano.runtime::%ub64-right-shift-in-limits ((integer count) result)
+  (when (constant-value-p count '(eql 0))
+    ;; Not shifting by anything.
+    (emit (make-instance 'ir:move-instruction
+                         :source integer
+                         :destination result))
+    (finish))
+  (let ((integer-unboxed (make-instance 'ir:virtual-register :kind :integer))
+        (result-unboxed (make-instance 'ir:virtual-register :kind :integer)))
+    (emit (make-instance 'ir:unbox-unsigned-byte-64-instruction
+                         :source integer
+                         :destination integer-unboxed))
+    (cond ((constant-value-p count '(unsigned-byte 6))
+           ;; The perfect size to use as a shift constant.
+           (emit (make-instance 'x86-fake-three-operand-instruction
+                                :opcode 'lap:shr64
+                                :result result-unboxed
+                                :lhs integer-unboxed
+                                :rhs (fetch-constant-value count))))
+          (t
+           (let ((count-unboxed (make-instance 'ir:virtual-register :kind :integer)))
+             (emit (make-instance 'ir:unbox-unsigned-byte-64-instruction
+                                  :source count
+                                  :destination count-unboxed))
+             (emit (make-instance 'ir:move-instruction
+                                  :source count-unboxed
+                                  :destination :rcx))
+             (emit (make-instance 'x86-fake-three-operand-instruction
+                                  :opcode 'lap:shr64
+                                  :result result-unboxed
+                                  :lhs integer-unboxed
+                                  :rhs :rcx)))))
+    (emit (make-instance 'ir:box-unsigned-byte-64-instruction
+                         :source result-unboxed
+                         :destination result))))
+
 (define-builtin mezzano.runtime::%ub64-= ((lhs rhs) :e)
   (let ((lhs-unboxed (make-instance 'ir:virtual-register :kind :integer)))
     (emit (make-instance 'ir:unbox-unsigned-byte-64-instruction

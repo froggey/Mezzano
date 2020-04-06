@@ -719,8 +719,6 @@
          (sys.int::%bignum-integer-length integer))
         (t (error 'type-error :expected-type 'integer :datum integer))))
 
-(declaim (inline left-shift right-shift))
-
 (defun left-shift (integer count)
   (cond ((and (sys.int::fixnump integer)
               (sys.int::fixnump count))

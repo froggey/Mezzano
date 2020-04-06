@@ -273,66 +273,6 @@
              inherit)
         nil)))
 
-;;; Unboxed fixnum arithmetic.
-;;; These only apply at safety 0 as they can produce invalid values which
-;;; can damage the system if the type declarations are incorrect;.
-
-(defmacro define-fast-fixnum-transform-arith-two-arg (binary-fn fast-fn &key (result 'fixnum))
-  `(define-transform ,binary-fn ((lhs fixnum) (rhs fixnum))
-      ((:result-type ,result)
-       (:optimize (= safety 0) (= speed 3)))
-     `(the fixnum (call ,',fast-fn ,lhs ,rhs))))
-
-(define-fast-fixnum-transform-arith-two-arg sys.int::binary-+ %fast-fixnum-+)
-(define-fast-fixnum-transform-arith-two-arg mezzano.runtime::%fixnum-+ %fast-fixnum-+)
-(define-fast-fixnum-transform-arith-two-arg sys.int::binary-- %fast-fixnum--)
-(define-fast-fixnum-transform-arith-two-arg mezzano.runtime::%fixnum-- %fast-fixnum--)
-(define-fast-fixnum-transform-arith-two-arg sys.int::binary-* %fast-fixnum-*)
-(define-fast-fixnum-transform-arith-two-arg mezzano.runtime::%fixnum-* %fast-fixnum-*)
-(define-fast-fixnum-transform-arith-two-arg sys.int::%truncate mezzano.runtime::%fixnum-truncate)
-(define-fast-fixnum-transform-arith-two-arg sys.int::binary-logior %fast-fixnum-logior :result t)
-(define-fast-fixnum-transform-arith-two-arg sys.int::binary-logxor %fast-fixnum-logxor :result t)
-(define-fast-fixnum-transform-arith-two-arg sys.int::binary-logand %fast-fixnum-logand :result t)
-(define-fast-fixnum-transform-arith-two-arg mezzano.runtime::%fixnum-left-shift %fast-fixnum-left-shift)
-
-(define-transform mezzano.runtime::%fixnum-right-shift (lhs (rhs (eql 0)))
-    ((:optimize (= safety 0) (= speed 3)))
-  lhs)
-
-(define-transform mezzano.runtime::generic-right-shift (lhs (rhs (eql 0)))
-    ((:optimize (= safety 0) (= speed 3)))
-  lhs)
-
-(define-transform sys.int::%truncate (number (divisor (eql 1)))
-    ()
-  `(call sys.int::%one-arg-truncate ,number))
-
-(define-transform sys.int::%round (number (divisor (eql 1)))
-    ()
-  `(call sys.int::%one-arg-round ,number))
-
-;;; Fixnum comparisons.
-
-(define-transform sys.int::binary-= ((lhs fixnum) (rhs fixnum))
-    ((:optimize (= safety 0) (= speed 3)))
-  `(call eq ,lhs ,rhs))
-
-(define-transform sys.int::binary-< ((lhs fixnum) (rhs fixnum))
-    ((:optimize (= safety 0) (= speed 3)))
-  `(call mezzano.runtime::%fixnum-< ,lhs ,rhs))
-
-(define-transform sys.int::binary->= ((lhs fixnum) (rhs fixnum))
-    ((:optimize (= safety 0) (= speed 3)))
-  `(call not (call mezzano.runtime::%fixnum-< ,lhs ,rhs)))
-
-(define-transform sys.int::binary-> ((lhs fixnum) (rhs fixnum))
-    ((:optimize (= safety 0) (= speed 3)))
-  `(call mezzano.runtime::%fixnum-< ,rhs ,lhs))
-
-(define-transform sys.int::binary-<= ((lhs fixnum) (rhs fixnum))
-    ((:optimize (= safety 0) (= speed 3)))
-  `(call not (call mezzano.runtime::%fixnum-< ,rhs ,lhs)))
-
 ;;; Unboxed (Unsigned-Byte 64) arithmetic.
 ;;; These only apply at safety 0 as they can produce invalid values which
 ;;; can damage the system if the type declarations are incorrect;.
@@ -351,7 +291,18 @@
 (define-fast-ub64-transform-arith-two-arg sys.int::binary-logxor mezzano.runtime::%fast-ub64-logxor :result t)
 (define-fast-ub64-transform-arith-two-arg sys.int::binary-logand mezzano.runtime::%fast-ub64-logand :result t)
 
+;; The limit on COUNT ensures that the shift count is small enough not to need
+;; masking.
+(define-transform mezzano.runtime::right-shift ((integer (unsigned-byte 64)) (count (unsigned-byte 6)))
+    ((:optimize (= safety 0) (= speed 3)))
+  `(the (unsigned-byte 64)
+        (call mezzano.runtime::%ub64-right-shift-in-limits ,integer ,count)))
+
 ;;; (Unsigned-Byte 64) comparisons.
+
+(define-transform eql ((lhs (unsigned-byte 64)) (rhs (unsigned-byte 64)))
+    ((:optimize (= safety 0) (= speed 3)))
+  `(call mezzano.runtime::%ub64-= ,lhs ,rhs))
 
 (define-transform sys.int::binary-= ((lhs (unsigned-byte 64)) (rhs (unsigned-byte 64)))
     ((:optimize (= safety 0) (= speed 3)))
@@ -412,6 +363,72 @@
 (define-transform sys.int::binary-<= ((lhs (signed-byte 64)) (rhs (signed-byte 64)))
     ((:optimize (= safety 0) (= speed 3)))
   `(call not (call mezzano.runtime::%sb64-< ,rhs ,lhs)))
+
+
+;;; Unboxed fixnum arithmetic.
+;;; Must come after the UB64/SB64 transforms.
+;;; These only apply at safety 0 as they can produce invalid values which
+;;; can damage the system if the type declarations are incorrect;.
+
+(defmacro define-fast-fixnum-transform-arith-two-arg (binary-fn fast-fn &key (result 'fixnum))
+  `(define-transform ,binary-fn ((lhs fixnum) (rhs fixnum))
+      ((:result-type ,result)
+       (:optimize (= safety 0) (= speed 3)))
+     `(the fixnum (call ,',fast-fn ,lhs ,rhs))))
+
+(define-fast-fixnum-transform-arith-two-arg sys.int::binary-+ %fast-fixnum-+)
+(define-fast-fixnum-transform-arith-two-arg mezzano.runtime::%fixnum-+ %fast-fixnum-+)
+(define-fast-fixnum-transform-arith-two-arg sys.int::binary-- %fast-fixnum--)
+(define-fast-fixnum-transform-arith-two-arg mezzano.runtime::%fixnum-- %fast-fixnum--)
+(define-fast-fixnum-transform-arith-two-arg sys.int::binary-* %fast-fixnum-*)
+(define-fast-fixnum-transform-arith-two-arg mezzano.runtime::%fixnum-* %fast-fixnum-*)
+(define-fast-fixnum-transform-arith-two-arg sys.int::%truncate mezzano.runtime::%fixnum-truncate)
+(define-fast-fixnum-transform-arith-two-arg sys.int::binary-logior %fast-fixnum-logior :result t)
+(define-fast-fixnum-transform-arith-two-arg sys.int::binary-logxor %fast-fixnum-logxor :result t)
+(define-fast-fixnum-transform-arith-two-arg sys.int::binary-logand %fast-fixnum-logand :result t)
+(define-fast-fixnum-transform-arith-two-arg mezzano.runtime::%fixnum-left-shift %fast-fixnum-left-shift)
+
+(define-transform mezzano.runtime::%fixnum-right-shift (lhs (rhs (eql 0)))
+    ((:optimize (= safety 0) (= speed 3)))
+  lhs)
+
+(define-transform mezzano.runtime::generic-right-shift (lhs (rhs (eql 0)))
+    ((:optimize (= safety 0) (= speed 3)))
+  lhs)
+
+(define-transform sys.int::%truncate (number (divisor (eql 1)))
+    ()
+  `(call sys.int::%one-arg-truncate ,number))
+
+(define-transform sys.int::%round (number (divisor (eql 1)))
+    ()
+  `(call sys.int::%one-arg-round ,number))
+
+;;; Fixnum comparisons.
+
+(define-transform eql ((lhs fixnum) (rhs fixnum))
+    ((:optimize (= safety 0) (= speed 3)))
+  `(call eq ,lhs ,rhs))
+
+(define-transform sys.int::binary-= ((lhs fixnum) (rhs fixnum))
+    ((:optimize (= safety 0) (= speed 3)))
+  `(call eq ,lhs ,rhs))
+
+(define-transform sys.int::binary-< ((lhs fixnum) (rhs fixnum))
+    ((:optimize (= safety 0) (= speed 3)))
+  `(call mezzano.runtime::%fixnum-< ,lhs ,rhs))
+
+(define-transform sys.int::binary->= ((lhs fixnum) (rhs fixnum))
+    ((:optimize (= safety 0) (= speed 3)))
+  `(call not (call mezzano.runtime::%fixnum-< ,lhs ,rhs)))
+
+(define-transform sys.int::binary-> ((lhs fixnum) (rhs fixnum))
+    ((:optimize (= safety 0) (= speed 3)))
+  `(call mezzano.runtime::%fixnum-< ,rhs ,lhs))
+
+(define-transform sys.int::binary-<= ((lhs fixnum) (rhs fixnum))
+    ((:optimize (= safety 0) (= speed 3)))
+  `(call not (call mezzano.runtime::%fixnum-< ,rhs ,lhs)))
 
 ;;; Single-Float arithmetic.
 
