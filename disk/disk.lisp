@@ -102,3 +102,13 @@
 (defun unregister-block-device (device)
   (sup:with-mutex (*block-devices-lock*)
     (setf *block-devices* (delete device *block-devices*))))
+
+(defgeneric probe-block-device (host-class block-device))
+
+(defun find-local-block-device (host-class uuid)
+  (loop
+     for block-device in (all-block-devices)
+     for id = (probe-block-device host-class block-device)
+     when (and id (= id uuid)) do
+       (return block-device)
+     finally NIL))

@@ -597,7 +597,7 @@
 
 ;;; Host integration
 
-(defclass ext4-host ()
+(defclass ext4-host (file-host-mount-mixin)
   ((%name :initarg :name
           :reader host-name)
    (%lock :initarg :lock
@@ -622,6 +622,9 @@
                  :partition partition))
 
 (defmethod host-default-device ((host ext4-host))
+  nil)
+
+(defmethod mount ((host ext4-host))
   nil)
 
 (defun parse-simple-file-path (host namestring)

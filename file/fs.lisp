@@ -28,7 +28,10 @@
            #:stream-truename
            #:truename-using-host
            #:no-namestring-error
-           #:tmpdir-pathname))
+           #:tmpdir-pathname
+           #:file-host-mount-mixin
+           #:file-host-mount-args
+           #:mount))
 
 (in-package :mezzano.file-system)
 
@@ -689,9 +692,29 @@ NAMESTRING as the second."
                                     :directory '(:relative "tmp"))
                      home)))
 
+;;; Mount Mixin - used on boot to re-associate host with block device
+;;;     Only hosts associated with block devices need to implement the
+;;;     mount method.
+
+(defclass file-host-mount-mixin ()
+  ((%mount-args    :initarg :mount-args :accessor file-host-mount-args))
+  (:default-initargs :mount-args nil))
+
+(defgeneric mount (host))
+
+(defmethod mount (host)
+  ;; default mount method for hosts that do not need an implementation
+  T)
+
+(defun mount-file-systems ()
+  (setf *host-alist*
+        (remove-if-not #'(lambda (pair) (mount (cadr pair))) *host-alist*)))
+
+(mezzano.supervisor:add-boot-hook 'mount-file-systems :early)
+
 ;;; Logical pathnames.
 
-(defclass logical-host ()
+(defclass logical-host (file-host-mount-mixin)
   ((%name :initarg :name :reader host-name)
    (%translations :initform '() :accessor logical-host-translations)))
 

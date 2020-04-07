@@ -1089,23 +1089,35 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
 
 ;;; Host integration
 
-(defclass fat-host ()
+(defclass fat-host (file-host-mount-mixin)
   ((%name :initarg :name
           :reader host-name)
    (%lock :initarg :lock
           :reader fat-host-lock)
    (partition :initarg :partition
-              :reader partition)
+              :accessor partition)
    (fat-structure :initarg :fat-structure
-                  :reader fat-structure)
+                  :accessor fat-structure)
    (fat32-info :initarg :fat32-info
                :reader fat32-info)
    (fat :initarg :fat
-        :reader fat))
+        :accessor fat))
   (:default-initargs :lock (mezzano.supervisor:make-mutex "Local File Host lock")))
 
 (defmethod host-default-device ((host fat-host))
   nil)
+
+(defmethod mount ((host fat-host))
+  (let ((partition (find-local-block-device 'fat-host
+                                            (file-host-mount-args host))))
+    (when partition
+      (setf (fat-structure host) (case (type-of (fat-structure host))
+                                   (fat12 (read-fat12-structure partition))
+                                   (fat16 (read-fat16-structure partition))
+                                   (fat32 (read-fat32-structure partition)))
+            (partition host) partition
+            (fat host) (read-fat partition (fat-structure host)))
+      T)))
 
 ;; According to jdebp (Jonathan de Boyne Pollard)'s Frequently Given
 ;; Answers, the question of how to determine if a partition contains a
@@ -1161,43 +1173,44 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                              root-dir-sectors))))
     (floor data-sectors (aref buffer 13))))
 
-(defmethod probe-disk ((class (eql 'fat-host)) partition)
-  "If the partition contains a FAT file system, return the Volume ID otherwise NIL"
+(defmethod probe-block-device ((class (eql 'fat-host)) block-device)
+  "If the block-device contains a FAT file system, return the Volume ID otherwise NIL"
   ;; read first sector and check for FAT file system
-  (let* ((sector-size (block-device-sector-size partition))
+  (let* ((sector-size (block-device-sector-size block-device))
          (buffer (make-array sector-size :element-type '(unsigned-byte 8))))
-    (block-device-read partition 0 1 buffer)
+    (block-device-read block-device 0 1 buffer)
     (cond ((bpb-v7-p buffer)      ;; Check for version 7.0 BPB
            (sys.int::ub32ref/le buffer 67))
           ((bpb-v4-p buffer)      ;; Check for version 4.0 BPB
            (sys.int::ub32ref/le buffer 39)))))
 
-(defun mount-fat (partition host-name)
-  "If the partition contains a FAT file system, register an appropriate host using the host-name. Returns the host-name."
-  (let* ((sector-size (block-device-sector-size partition))
+(defun mount-fat (block-device host-name uuid)
+  "If the block-device contains a FAT file system, register an appropriate host using the host-name. Returns the host-name."
+  (let* ((sector-size (block-device-sector-size block-device))
          (buffer (make-array sector-size :element-type '(unsigned-byte 8))))
-    (block-device-read partition 0 1 buffer)
+    (block-device-read block-device 0 1 buffer)
     (when (not (or (bpb-v7-p buffer) (bpb-v4-p buffer)))
-      (error "partition ~A does not contain a FAT file system" partition))
+      (error "block-device ~A does not contain a FAT file system" block-device))
     (let* ((cluster-count (compute-cluster-count buffer))
            ;; In code below, <, 4085 and 65525 are correct see Microsoft Doc.
            (ffs (cond ((< cluster-count 4085)
                        ;; FAT12
-                       (read-fat12-structure partition))
+                       (read-fat12-structure block-device))
                       ((< cluster-count 65525)
                        ;; FAT16
-                       (read-fat16-structure partition))
+                       (read-fat16-structure block-device))
                       (T
                        ;; FAT32
-                       (read-fat32-structure partition))))
-           (fat (read-fat partition ffs)))
+                       (read-fat32-structure block-device))))
+           (fat (read-fat block-device ffs)))
       (setf (mezzano.file-system:find-host host-name)
             (make-instance 'fat-host
                            :name host-name
-                           :partition partition
+                           :partition block-device
                            :fat-structure ffs
                            :fat32-info nil
-                           :fat fat))
+                           :fat fat
+                           :mount-args uuid))
       host-name)))
 
 (defun parse-simple-file-path (host namestring)
