@@ -613,9 +613,7 @@
           ((zerop adjust)
            `(call sys.int::%bounds-check ,array ,index))
           (t
-           ;; FIXME: This isn't quite right, it'll miss cases where INDEX
-           ;; is slightly negative.
-           `(call sys.int::%bounds-check ,array (call %fast-fixnum-+ ,index ',adjust))))))
+           `(call sys.int::%bounds-check-range ,array ,index ',adjust)))))
 
 (defun insert-type-check (object type &optional (expected-type type))
   `(let ((object ,object)) ; needed to make source-fragment work

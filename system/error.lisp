@@ -442,6 +442,11 @@
 (defun raise-bounds-error (array index)
   (error "Index ~D out of bounds for array ~S." index array))
 
+(defun raise-bounds-range-error (array index range)
+  (error "Index ~D out of bounds for array ~S. Should be non-negative and less than ~S."
+         index array
+         (- (array-dimension array 0) range)))
+
 (defun raise-complex-bounds-error (array index dim axis)
   (error "Subscript ~S is invalid for array ~S axis ~D, should be non-negative and less than ~S."
          index array axis dim))
