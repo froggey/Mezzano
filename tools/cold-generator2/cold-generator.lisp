@@ -522,6 +522,7 @@
                 (write:image-header-entry-fref image-header)
                 (+ (write:image-header-entry-fref image-header) 23))
         (format t ";; Initial-Thread at ~X~%" (write:image-header-initial-thread image-header))
+        (format t ";; Initial stack pointer is ~X~%" (ser:image-initial-stack-pointer image))
         (cond ((streamp image-name)
                (write:write-image image image-name image-header
                                  :disk-header-path header-path

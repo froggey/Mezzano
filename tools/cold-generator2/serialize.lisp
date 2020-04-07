@@ -20,6 +20,7 @@
            #:image-cons-area
            #:image-wired-function-area
            #:image-function-area
+           #:image-initial-stack-pointer
            #:do-image-stacks
            #:write-map-file
            #:write-symbol-table
@@ -79,7 +80,7 @@
    (%stack-total :initform 0 :accessor image-stack-total)
    (%stack-bases :initform (make-hash-table) :reader image-stack-bases)
    (%finalizedp :initform nil :reader image-finalized-p)
-   ))
+   (%initial-stack-pointer :reader image-initial-stack-pointer)))
 
 (defmacro do-image-stacks ((base size image &optional result) &body body)
   (let ((stack (gensym "STACK"))
@@ -909,11 +910,10 @@ Must not call SERIALIZE-OBJECT."))
     (setf (image-symbol-value image environment 'sys.int::*function-area-base*)
           (serialize-object +function-area-base+
                             image environment))
-    ;; Update the initial thread's initial stack pointer value.
+    ;; Update the image's initial stack pointer value.
     (let* ((initial-thread (env:symbol-global-value environment (env:translate-symbol environment 'sys.int::*initial-thread*)))
-           (initial-thread-value (serialize-object initial-thread image environment))
            (stack (env:structure-slot-value environment initial-thread 'mezzano.supervisor::stack)))
-      (setf (object-slot image initial-thread-value 4) ; initial stack pointer/bootloader magic.
+      (setf (slot-value image '%initial-stack-pointer)
             (+ (gethash stack (image-stack-bases image))
                (env:stack-size stack))))
     (values)))

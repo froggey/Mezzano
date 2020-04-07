@@ -68,8 +68,6 @@
   ;; When waiting for paging to complete, this will be the faulting address.
   ;; When waiting for a pager-request, this will be the called function.
   (wait-item nil)
-  ;; Magic field used by the bootloader, must be the 4th slot
-  (magic-bootloader-field nil)
   ;; The thread's current special stack pointer.
   (special-stack-pointer nil)
   ;; When true, all registers are saved in the the thread's state save area.
