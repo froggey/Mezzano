@@ -221,6 +221,7 @@
 (defpackage :mezzano.debug
   (:use :cl)
   (:export
+   #:*global-debugger*
    ;; Backtraces & frames.
    #:backtrace
    #:map-backtrace
