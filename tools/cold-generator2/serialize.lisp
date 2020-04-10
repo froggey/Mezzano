@@ -683,11 +683,13 @@ Must not call SERIALIZE-OBJECT."))
   (incf (image-stack-bump image) #x200000)
   (let ((address (logior (ash sys.int::+address-tag-stack+
                               sys.int::+address-tag-shift+)
-                         (image-stack-bump image))))
-    (incf (image-stack-bump image) (env:stack-size object))
+                         (image-stack-bump image)))
+        (true-size (+ mezzano.supervisor::+thread-stack-soft-guard-size+
+                      (env:stack-size object))))
+    (incf (image-stack-bump image) true-size)
     (setf (image-stack-bump image) (util:align-up (image-stack-bump image) #x200000))
-    (setf (gethash object (image-stack-bases image)) address))
-  (incf (image-stack-total image) (env:stack-size object))
+    (setf (gethash object (image-stack-bases image)) address)
+    (incf (image-stack-total image) true-size))
   ;; A wired cons.
   (let ((value (allocate 4 image :wired sys.int::+tag-object+)))
     (initialize-object-header image value sys.int::+object-tag-cons+ 0)

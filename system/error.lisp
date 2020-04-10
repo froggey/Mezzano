@@ -457,6 +457,13 @@
 (defun raise-bad-block (name)
   (error 'unavailable-block-error :tag name))
 
+(define-condition stack-overflow (storage-condition)
+  ()
+  (:report "Stack overflow"))
+
+(defun raise-stack-overflow ()
+  (error 'stack-overflow))
+
 (in-package :mezzano.delimited-continuations)
 
 (define-condition consumed-continuation-resumed (control-error)

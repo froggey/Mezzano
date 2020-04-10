@@ -183,6 +183,13 @@
   (:gc :no-frame :interrupt t)
   (sys.lap-x86:iret))
 
+(defun stack-space-required-for-force-call-on-thread (thread)
+  (declare (ignore thread))
+  (+ 16 ; Return address and more alignment
+     (* +thread-mv-slots-size+ 8) ; Saved MV area.
+     512 ; FPU state
+     (* 20 8))) ; GPRs
+
 (defun convert-thread-to-partial-save (thread)
   (when (thread-full-save-p thread)
     ;; Push the current full save state on the stack and create an interrupt frame.

@@ -866,7 +866,9 @@
   base
   size)
 
-(defconstant +stack-guard-size+ #x200000)
+(defconstant +stack-guard-size+ #x200000
+  "Size of the hard guard area.
+This area exists below the stack and is never allocated or mapped.")
 (defconstant +stack-region-alignment+ #x200000)
 
 ;; TODO: Actually allocate virtual memory.

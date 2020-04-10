@@ -42,6 +42,18 @@
 ;; Must be a power of two.
 (defconstant +thread-symbol-cache-size+ 128)
 
+(defconstant +thread-stack-soft-guard-size+ #x10000
+  "Size of the soft guard area.
+This area is normally access-protected and is only made accessible
+when a stack overflow occurs. It is automatically re-protected after the
+thread stops using it.")
+
+(defconstant +thread-stack-guard-return-size+ #x1000
+  "Size of the guard return area.
+This area is made read-only when the soft guard is triggered and
+is used to catch when the thread has left the guard region so that it
+can be reprotected.")
+
 (defstruct (thread
              (:area :wired)
              (:constructor %make-thread (%name))
@@ -60,10 +72,13 @@
   ;;   :stopped   - the thread has been stopped for inspection by a debugger.
   ;;   0 - Thread has not been initialized completely
   (state 0 :type (member :active :runnable :sleeping :dead
-                         :waiting-for-page :pager-request
+                         :waiting-for-page-read :waiting-for-page-write
+                         :pager-request
                          :stopped 0))
   ;; Stack object for the stack.
   stack
+  ;; State of the stack guard page.
+  stack-guard-page-state
   ;; If a thread is sleeping, waiting for page or performing a pager-request, this will describe what it's waiting for.
   ;; When waiting for paging to complete, this will be the faulting address.
   ;; When waiting for a pager-request, this will be the called function.
@@ -446,12 +461,15 @@ Interrupts must be off and the global thread lock must be held."
   (check-type function (or function symbol))
   (check-type priority (member :supervisor :high :normal :low))
   (setf name (copy-name-to-wired-area name))
+  (setf stack-size (align-up stack-size #x1000))
   (let* ((thread (%make-thread name))
-         (stack (%allocate-stack stack-size)))
+         (stack (%allocate-stack (+ stack-size +thread-stack-soft-guard-size+))))
     (setf (thread-stack thread) stack
           (thread-self thread) thread
           (thread-priority thread) priority
           (thread-join-event thread) (make-event :name thread))
+    ;; Protect the guard area, making it fully inaccessible.
+    (protect-memory-range (stack-base stack) +thread-stack-soft-guard-size+ 0)
     ;; Perform initial bindings.
     (when initial-bindings
       (let ((symbols (mapcar #'first initial-bindings))

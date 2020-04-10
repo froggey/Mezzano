@@ -731,88 +731,95 @@ mapped, then the entry will be NIL."
   (when (physical-page-frame-prev frame)
     (setf (physical-page-frame-next (physical-page-frame-prev frame)) (physical-page-frame-next frame))))
 
-(defun wait-for-page (address)
-  (with-rw-lock-write (*vm-lock*)
-    (let ((pte (get-pte-for-address address))
-          (block-info (block-info-for-virtual-address address)))
-      #+(or)(debug-print-line "WFP " address " block " block-info)
-      ;; Examine the page table, if there's a present entry then the page
-      ;; was mapped while acquiring the VM lock. Just return.
-      (when (page-present-p pte)
-        (when (and block-info
-                   (block-info-track-dirty-p block-info))
-          ;; Probably a write fault. Set the dirty flag in the card table.
-          ;; Leave the page read-only and the track bit set until after
-          ;; clone-cow has finished.
-          (setf (sys.int::card-table-dirty-gen address) 0))
-        (when (page-copy-on-write-p pte)
-          (pager-log "Copying page " address " in WFP.")
-          (snapshot-clone-cow-page (pager-allocate-page) address))
-        (when (and block-info
-                   (block-info-track-dirty-p block-info))
-          ;; Wipe the track flag.
-          (set-address-flags address (logand block-info
-                                             sys.int::+block-map-flag-mask+
-                                             (lognot sys.int::+block-map-track-dirty+)))
-          ;; Remap page read/write.
-          (begin-tlb-shootdown)
-          (setf (page-table-entry pte) (make-pte (ash (pte-physical-address (page-table-entry pte)) -12)
-                                                 :writable (block-info-writable-p block-info)))
-          (flush-tlb-single address)
-          (tlb-shootdown-single address)
-          (finish-tlb-shootdown))
-        #+(or)(debug-print-line "WFP " address " block " block-info " already mapped " (page-table-entry pte 0))
-        (return-from wait-for-page t))
-      ;; Note that this test is done after the pte test. this is a hack to make
-      ;; runtime-allocated stacks work before allocate-stack actually modifies the
-      ;; block map.
-      ;; ### must investigate if allocate-stack still needs this behaviour & why.
-      (when (or (not block-info)
-                (not (block-info-present-p block-info)))
-        #+(or)(debug-print-line "WFP " address " not present")
-        (return-from wait-for-page nil))
-      ;; No page allocated. Allocate a page and read the data.
-      (let* ((frame (pager-allocate-page))
-             (addr (convert-to-pmap-address (ash frame 12)))
-             (is-zero-page nil))
-        (setf (physical-page-frame-block-id frame) (block-info-block-id block-info)
-              (physical-page-virtual-address frame) (logand address (lognot (1- +4k-page-size+))))
-        (when t;(not *page-replacement-list-head*)
-          (pager-log "addr " address " vaddr " (physical-page-virtual-address frame) " frame " frame " pteA " (get-pte-for-address address #+(or)(physical-page-virtual-address frame) nil) " pteB " (get-pte-for-address (physical-page-virtual-address frame) nil)))
-        (append-to-page-replacement-list frame)
-        (cond ((block-info-zero-fill-p block-info)
-               ;; Block is zero-filled.
-               (setf is-zero-page t)
-               (zeroize-page addr)
-               ;; Clear the zero-fill flag.
-               (set-address-flags address (logand block-info
-                                                  sys.int::+block-map-flag-mask+
-                                                  (lognot sys.int::+block-map-zero-fill+))))
-              (t ;; Block must be read from disk.
-               (when (eql *paging-disk* :freestanding)
-                 (panic "Unable to satisfy paging request for page " address " while running freestanding"))
-               (disk-submit-request *pager-disk-request*
-                                    *paging-disk*
-                                    :read
-                                    (* (block-info-block-id block-info)
-                                       (ceiling +4k-page-size+ (disk-sector-size *paging-disk*)))
-                                    (ceiling +4k-page-size+ (disk-sector-size *paging-disk*))
-                                    addr)
-               (unless (disk-await-request *pager-disk-request*)
-                 (panic "Unable to read page from disk"))))
+(defun wait-for-page-unlocked (address writep)
+  (let ((pte (get-pte-for-address address))
+        (block-info (block-info-for-virtual-address address)))
+    #+(or)(debug-print-line "WFP " address " block " block-info)
+    (when (and writep
+               (not (block-info-writable-p block-info)))
+      (debug-print-line "Write to read-only page " address)
+      (return-from wait-for-page-unlocked nil))
+    ;; Examine the page table, if there's a present entry then the page
+    ;; was mapped while acquiring the VM lock. Just return.
+    (when (page-present-p pte)
+      (when (and block-info
+                 (block-info-track-dirty-p block-info))
+        ;; Probably a write fault. Set the dirty flag in the card table.
+        ;; Leave the page read-only and the track bit set until after
+        ;; clone-cow has finished.
+        (setf (sys.int::card-table-dirty-gen address) 0))
+      (when (page-copy-on-write-p pte)
+        (pager-log "Copying page " address " in WFP.")
+        (snapshot-clone-cow-page (pager-allocate-page) address))
+      (when (and block-info
+                 (block-info-track-dirty-p block-info))
+        ;; Wipe the track flag.
+        (set-address-flags address (logand block-info
+                                           sys.int::+block-map-flag-mask+
+                                           (lognot sys.int::+block-map-track-dirty+)))
+        ;; Remap page read/write.
         (begin-tlb-shootdown)
-        (setf (page-table-entry pte) (make-pte frame
-                                               :writable (and (block-info-writable-p block-info)
-                                                              (not (block-info-track-dirty-p block-info)))
-                                               ;; Mark the page dirty to make sure the snapshotter & swap code know to swap it out.
-                                               ;; The zero fill flag in the block map was cleared, but the on-disk data doesn't reflect that.
-                                               :dirty is-zero-page))
+        (setf (page-table-entry pte) (make-pte (ash (pte-physical-address (page-table-entry pte)) -12)
+                                               :writable (block-info-writable-p block-info)))
         (flush-tlb-single address)
         (tlb-shootdown-single address)
-        (finish-tlb-shootdown)
-        #+(or)
-        (debug-print-line "WFP " address " block " block-info " mapped to " (page-table-entry pte 0)))))
+        (finish-tlb-shootdown))
+      #+(or)(debug-print-line "WFP " address " block " block-info " already mapped " (page-table-entry pte 0))
+      (return-from wait-for-page-unlocked t))
+    ;; Note that this test is done after the pte test. this is a hack to make
+    ;; runtime-allocated stacks work before allocate-stack actually modifies the
+    ;; block map.
+    ;; ### must investigate if allocate-stack still needs this behaviour & why.
+    (when (or (not block-info)
+              (not (block-info-present-p block-info)))
+      #+(or)(debug-print-line "WFP " address " not present")
+      (return-from wait-for-page-unlocked nil))
+    ;; No page allocated. Allocate a page and read the data.
+    (let* ((frame (pager-allocate-page))
+           (addr (convert-to-pmap-address (ash frame 12)))
+           (is-zero-page nil))
+      (setf (physical-page-frame-block-id frame) (block-info-block-id block-info)
+            (physical-page-virtual-address frame) (logand address (lognot (1- +4k-page-size+))))
+      (when t;(not *page-replacement-list-head*)
+        (pager-log "addr " address " vaddr " (physical-page-virtual-address frame) " frame " frame " pteA " (get-pte-for-address address #+(or)(physical-page-virtual-address frame) nil) " pteB " (get-pte-for-address (physical-page-virtual-address frame) nil)))
+      (append-to-page-replacement-list frame)
+      (cond ((block-info-zero-fill-p block-info)
+             ;; Block is zero-filled.
+             (setf is-zero-page t)
+             (zeroize-page addr)
+             ;; Clear the zero-fill flag.
+             (set-address-flags address (logand block-info
+                                                sys.int::+block-map-flag-mask+
+                                                (lognot sys.int::+block-map-zero-fill+))))
+            (t ;; Block must be read from disk.
+             (when (eql *paging-disk* :freestanding)
+               (panic "Unable to satisfy paging request for page " address " while running freestanding"))
+             (disk-submit-request *pager-disk-request*
+                                  *paging-disk*
+                                  :read
+                                  (* (block-info-block-id block-info)
+                                     (ceiling +4k-page-size+ (disk-sector-size *paging-disk*)))
+                                  (ceiling +4k-page-size+ (disk-sector-size *paging-disk*))
+                                  addr)
+             (unless (disk-await-request *pager-disk-request*)
+               (panic "Unable to read page from disk"))))
+      (begin-tlb-shootdown)
+      (setf (page-table-entry pte) (make-pte frame
+                                             :writable (and (block-info-writable-p block-info)
+                                                            (not (block-info-track-dirty-p block-info)))
+                                             ;; Mark the page dirty to make sure the snapshotter & swap code know to swap it out.
+                                             ;; The zero fill flag in the block map was cleared, but the on-disk data doesn't reflect that.
+                                             :dirty is-zero-page))
+      (flush-tlb-single address)
+      (tlb-shootdown-single address)
+      (finish-tlb-shootdown)
+      #+(or)
+      (debug-print-line "WFP " address " block " block-info " mapped to " (page-table-entry pte 0))))
   t)
+
+(defun wait-for-page (address writep)
+  (with-rw-lock-write (*vm-lock*)
+    (wait-for-page-unlocked address writep)))
 
 ;; Fast path, called from the page-fault handler.
 ;; If the *VM-LOCK* is not write-taken,
@@ -944,7 +951,9 @@ It will put the thread to sleep, while it waits for the page."
      '*pager-fast-path-misses* 1)
     (with-symbol-spinlock (*pager-lock*)
       (acquire-global-thread-lock)
-      (setf (thread-state self) :waiting-for-page
+      (setf (thread-state self) (if writep
+                                    :waiting-for-page-write
+                                    :waiting-for-page-read)
             (thread-wait-item self) address
             (thread-queue-next self) *pager-waiting-threads*
             *pager-waiting-threads* self)
@@ -1027,6 +1036,90 @@ It will put the thread to sleep, while it waits for the page."
                  (thread-pager-argument-3 *pager-current-thread*)))
   (wake-thread *pager-current-thread*))
 
+(defun pager-invoke-function-on-thread (thread function &optional (arg nil arg-p))
+  (with-rw-lock-write (*vm-lock*)
+    ;; Ensure that enough of the stack is paged in to form a full
+    ;; interrupt frame.
+    (let* ((current-sp (thread-state-rsp thread))
+           (target-sp (- current-sp (stack-space-required-for-force-call-on-thread thread))))
+      (loop
+         for address from (align-down target-sp #x1000) below (align-up current-sp #x1000) by #x1000
+         do (when (not (wait-for-page-unlocked address t))
+              (return-from pager-invoke-function-on-thread nil))))
+    (if arg-p
+        (force-call-on-thread thread function arg)
+        (force-call-on-thread thread function))
+    t))
+
+(defun %raise-stack-overflow ()
+  (sys.int::raise-stack-overflow))
+
+(defun handle-fault-in-pager (thread writep)
+  "Called when WAIT-FOR-PAGE is unable to handle a paging request."
+  (let ((faulting-address (thread-wait-item thread)))
+    (let* ((stack (thread-stack thread))
+           (stack-base (stack-base stack))
+           (stack-guard-top (+ stack-base +thread-stack-soft-guard-size+))
+           (stack-return-top (+ stack-guard-top +thread-stack-guard-return-size+)))
+      (when (and (<= stack-base faulting-address)
+                 (< faulting-address stack-guard-top))
+        (debug-print-line "Fault on soft stack guard page for thread " thread ", address " faulting-address)
+        (debug-print-line "  Unprotecting guard area " stack-base "-" stack-guard-top)
+        (protect-memory-range-in-pager
+         stack-base +thread-stack-soft-guard-size+
+         (logior sys.int::+block-map-present+
+                 sys.int::+block-map-writable+))
+        ;; Make the return area read-only. Writes to it will trigger a
+        ;; reprotection of the guard page.
+        (debug-print-line "  Protecting guard return area " stack-guard-top "-" stack-return-top)
+        (protect-memory-range-in-pager
+         stack-guard-top +thread-stack-guard-return-size+
+         sys.int::+block-map-present+)
+        (setf (thread-stack-guard-page-state thread) t)
+        ;; Arrange for the thread to call the support function.
+        (when (pager-invoke-function-on-thread thread #'%raise-stack-overflow)
+          (debug-print-line "Pager invoked stack overflow handler.")
+          ;; Return and let the thread redo the fault.
+          (wake-thread thread)
+          (return-from handle-fault-in-pager))
+        (debug-print-line "Unable to invoke stack overflow handler - insufficient stack space?"))
+      (when (and writep
+                 (<= stack-guard-top faulting-address)
+                 (< faulting-address stack-return-top))
+        (debug-print-line "Fault on stack guard return page for thread " thread ",  address " faulting-address)
+        ;; Write to the return area, make the guard area fully inaccessible
+        ;; and make the return region writable again.
+        (debug-print-line "  Protecting guard area " stack-base "-" stack-guard-top)
+        ;; FIXME: This shouldn't use +B-M-ZERO-FILL+, it blows away the contents
+        ;; of the old stack pages. Fixing this invokes modifying P-M-R and the
+        ;; rest of the pager so it supports a protection flag value of 0.
+        (protect-memory-range-in-pager
+         stack-base +thread-stack-soft-guard-size+
+         sys.int::+block-map-zero-fill+)
+        ;; Make the return area read-only. Writes to it will trigger a
+        ;; reprotection of the guard page.
+        (debug-print-line "  Unprotecting guard return area " stack-guard-top "-" stack-return-top)
+        (protect-memory-range-in-pager
+         stack-guard-top +thread-stack-guard-return-size+
+         (logior sys.int::+block-map-present+
+                 sys.int::+block-map-writable+))
+        (setf (thread-stack-guard-page-state thread) nil)
+        ;; Return and let the thread redo the fault.
+        (wake-thread thread)
+        (return-from handle-fault-in-pager)))
+    ;; TODO: Shouldn't panic at all, this should be dispatched to a debugger thread.
+    (cond ((or (not (boundp '*panic-on-unhandled-paging-requests*))
+               *panic-on-unhandled-paging-requests*)
+           (let ((message (list "page fault on unmapped page " faulting-address " in thread " *pager-current-thread*)))
+             (declare (dynamic-extent message))
+             (panic-1 message (lambda ()
+                                (dump-thread-saved-pc *pager-current-thread*)
+                                (panic-print-backtrace (thread-frame-pointer *pager-current-thread*))
+                                (debug-print-line "-------")))))
+          (t
+           (debug-print-line "Thread " *pager-current-thread* " faulted on address " faulting-address)
+           (panic-print-backtrace (thread-frame-pointer *pager-current-thread*))))))
+
 (defun pager-thread ()
   (loop
      ;; Select a thread.
@@ -1051,19 +1144,15 @@ It will put the thread to sleep, while it waits for the page."
      (cond ((eql (thread-state *pager-current-thread*) :pager-request)
             (handle-pager-request))
            ;; Page it in
-           ((wait-for-page (thread-wait-item *pager-current-thread*))
+           ((wait-for-page (thread-wait-item *pager-current-thread*)
+                           (ecase (thread-state *pager-current-thread*)
+                             (:waiting-for-page-read nil)
+                             (:waiting-for-page-write t)))
             ;; Release the thread.
             (wake-thread *pager-current-thread*))
-           ;; TODO: Shouldn't panic at all, this should be dispatched to a debugger thread.
-           ((or (not (boundp '*panic-on-unhandled-paging-requests*))
-                *panic-on-unhandled-paging-requests*)
-            (let ((message (list "page fault on unmapped page " (thread-wait-item *pager-current-thread*) " in thread " *pager-current-thread*)))
-              (declare (dynamic-extent message))
-              (panic-1 message (lambda ()
-                                 (dump-thread-saved-pc *pager-current-thread*)
-                                 (panic-print-backtrace (thread-frame-pointer *pager-current-thread*))
-                                 (debug-print-line "-------")))))
            (t
-            (debug-print-line "Thread " *pager-current-thread* " faulted on address " (thread-wait-item *pager-current-thread*))
-            (panic-print-backtrace (thread-frame-pointer *pager-current-thread*))))
+            (handle-fault-in-pager *pager-current-thread*
+                                   (ecase (thread-state *pager-current-thread*)
+                                     (:waiting-for-page-read nil)
+                                     (:waiting-for-page-write t)))))
      (setf *pager-current-thread* nil)))
