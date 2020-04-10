@@ -45,12 +45,11 @@ The function (setfable)
 
     mezzano.file-system:find-host (host-name &optional (errorp t)) => host
 
-maps a host name to a host object. There must be a mapping for each
-file system.  This mapping is used for converting name strings to/from
-pathname objects.  This allows the syntax of the name string to be
-host dependent. For example, the "REMOTE" host uses Unix style name
-strings: "REMOTE:/home/tom/abc.lisp" while the "LOCAL" host uses LispM
-style name strings: "LOCAL:>home>tom>abc.lisp".
+maps a host name to a host object. This mapping is used for converting
+name strings to/from pathname objects.  This allows the syntax of the
+name string to be host dependent. For example, the "REMOTE" host uses
+Unix style name strings: "REMOTE:/home/tom/abc.lisp" while the "LOCAL"
+host uses LispM style name strings: "LOCAL:>home>tom>abc.lisp".
 
 For a file system that resides on a local disk or disk partition, the
 host object must have a block device object so that read and write
@@ -107,7 +106,7 @@ appropriate block device object.
 
 However, if the system is saved, when the system is rebooted, the host
 object and host name mapping will still exist and the host will be
-associated with the block device via the following mechanism.
+re-associated with the block device via the following mechanism.
 
 There is a class "file-host-mount-mixin" which includes a "mount-args"
 slot which is accessed via an accessor function file-host-mount-args
@@ -122,8 +121,8 @@ All file system host classes include file-host-mount-mixin and when a
 file system host is created, the mount-args slot is set to a value
 that depends on both the host type and the file system associated with
 the host. For example, for a FAT32 host, the mount-args slot would be
-set to partition UUID, and for a nfs host, the mount-args slot might
-be set to the url of the nfs file system, e.g.,
+set to partition UUID, and for a NFS host, the mount-args slot might
+be set to the url of the NFS file system, e.g.,
 "nfs://nfs.lispm.net/export/home/tom".
 
 During the boot process, after the disks and partitions are
@@ -136,7 +135,8 @@ mezzano.file-system:find-host. This method should:
 with the host type and the mount-args;
   * associate the host with the new block device object returned; and,
   * set the host field in the read/write object to the host (this
-field does not currently exist in the disk object).
+field does not currently exist in the disk object - see
+[Future Work](#future-work) below).
 
 Local block devices are supported by using the function:
 
@@ -160,7 +160,7 @@ enough checks to verify that the device contains a file system of the
 appropriate type, then return the partition UUID (or equivalent).
 
 This approach can be expanded to handle other kinds of file systems by
-creating additional partition functions. For example, for nfs the
+creating additional partition functions. For example, for NFS the
 following function might be defined:
 
     find-nfs-partition (<nfs url>) => <nfs read/write object>
@@ -180,6 +180,8 @@ by a snapshot will **not** be available on reboot.
 
 ## Future Work
 
+Adding reboot support for ext4.
+
 Adding the host field to the block device object (or other read/write
 object) makes it easier for an application, e.g., the name space
 editor, to list block devices and their associated host objects. In
@@ -188,3 +190,17 @@ UUID instead of doing the match allows probe-block-device to be used
 to determine the file system type of a block device without knowing
 the partition UUID. For example, when a disk or partition is formatted
 but not yet associated with a host object.
+
+Create new generic function API in mezzano.file-system package:
+
+    mount-file-system (<class name> <host name> <block device>) => host
+
+which specializes on the class name argument, for example,
+mount-file-system('fat-host "HOME" <block device>). The function
+verifies that the block device contains a file system of the correct
+type, creates a host object and registers it using (setf
+(mezzano.file-system:find-host host-name) <host object>). This
+function would be useful in general, but also by the name space
+editor. Currently (6 April 2020), for FAT, this functionality is
+provided by mezzano.fat-file-system::mount-fat(block-device host-name
+uuid).
