@@ -55,10 +55,6 @@
 
 ;The companion file "XPDOC.TXT" contains brief documentation.
 
-;must do the following in common lisps not supporting *print-shared*
-
-(defvar *print-shared* nil)
-
 (defvar *print-pprint-dispatch* t ;see initialization at end of file.
   "controls pretty printing of output")
 (defvar *print-right-margin* nil
@@ -91,26 +87,14 @@
 (defun output-position (&optional (s *standard-output*))
   (mezzano.gray:stream-line-column s))
 
-(defvar *locating-circularities* nil
-  "Integer if making a first pass over things to identify circularities.
-   Integer used as counter for #n= syntax.")
-(defvar *parents* nil "used when *print-shared* is nil")
-
 (defvar *circularity-hash-table* nil
-  "Contains hash table used for locating circularities, or a stack.")
+  "Contains hash table used for locating circularities")
 ;When an entry is first made it is zero.
 ;If a duplicate is found, a positive integer tag is assigned.
 ;After the first time the object is printed out, the tag is negated.
 
-;; circularity-hash-tables cache freed because thread safety.
-
 (defun get-circularity-hash-table ()
   (make-hash-table :test 'eq))
-
-;If you call this, then the table gets efficiently recycled.
-
-(defun free-circularity-hash-table (table)
-  (declare (ignore table)))
 
 ;                       ---- DISPATCHING ----
 
@@ -398,7 +382,11 @@
    ;;this stores the suffixes that have to be printed to close of the current
    ;;open blocks.  For convenient in popping, the whole suffix
    ;;is stored in reverse order.
-   (suffix :accessor suffix)))
+   (suffix :accessor suffix)
+
+   ;; Integer if making a first pass over things to identify circularities.
+   ;; Integer used as counter for #n= syntax.
+   (locating-circularities :accessor locating-circularities :initarg :locating-circularities)))
 
 (defmethod print-object ((object xp-structure) stream)
   (print-unreadable-object (object stream :type t :identity t)
@@ -829,7 +817,7 @@
 ;this can only be called last!
 
 (defun flush (xp)
-  (unless *locating-circularities*
+  (unless (locating-circularities xp)
     (write-string
        (buffer xp) (base-stream xp) :end (buffer-ptr xp)))
   (incf (buffer-offset xp) (buffer-ptr xp))
@@ -855,7 +843,7 @@
       (setf *abbreviation-happened* '*print-lines*)
       (throw 'line-limit-abbreviation-exit T))
     (incf (line-no xp))
-    (unless *locating-circularities*
+    (unless (locating-circularities xp)
       (write-line
           (buffer xp) (base-stream xp) :end end))))
 
@@ -921,14 +909,10 @@
   (if (xp-structure-p stream)
       (apply fn stream args)
       (let ((*abbreviation-happened* nil)
-            (*locating-circularities* (if *print-circle* 0 nil))
             (*circularity-hash-table*
               (if *print-circle* (get-circularity-hash-table) nil))
-            (*parents* (when (not *print-shared*) (list nil)))
             (*result* nil))
         (xp-print fn (decode-stream-arg stream) args)
-        (if *circularity-hash-table*
-            (free-circularity-hash-table *circularity-hash-table*))
         (when *abbreviation-happened*
           (setf *last-abbreviated-printing*
                 (let ((current-package *package*)
@@ -940,60 +924,63 @@
         *result*)))
 
 (defun xp-print (fn stream args)
-  (setf *result* (do-xp-printing fn stream args))
-  (when *locating-circularities*
-    (setf *locating-circularities* nil)
-    (setf *abbreviation-happened* nil)
-    (setf *parents* nil)
-    (setf *result* (do-xp-printing fn stream args))))
+  (when *print-circle*
+    ;; First pass to locate circularities.
+    (setf *result* (do-xp-printing fn stream args 0))
+    (setf *abbreviation-happened* nil))
+  (setf *result* (do-xp-printing fn stream args nil)))
 
 (defun decode-stream-arg (stream)
   (cond ((eq stream T) *terminal-io*)
         ((null stream) *standard-output*)
         (T stream)))
 
-(defun do-xp-printing (fn stream args)
-  (let ((xp (make-instance 'xp-structure :base-stream stream))
+(defun do-xp-printing (fn stream args locating-circularities)
+  (let ((xp (make-instance 'xp-structure
+                           :base-stream stream
+                           :locating-circularities (if locating-circularities
+                                                       0
+                                                       nil)))
         (*current-level* 0)
         (result nil))
     (catch 'line-limit-abbreviation-exit
       (start-block xp nil nil nil)
       (setf result (apply fn xp args))
       (end-block xp nil))
-    (when (and *locating-circularities*
-               (zerop *locating-circularities*) ;No circularities.
+    #++ ; disabled, think this is a performance thing...
+    (when (and (locating-circularities xp)
+               (zerop (locating-circularities xp)) ;No circularities.
                (= (line-no xp) 1)               ;Didn't suppress line.
                (zerop (buffer-offset xp)))      ;Didn't suppress partial line.
-      (setf *locating-circularities* nil))      ;print what you have got.
+      (setf (locating-circularities xp) nil))      ;print what you have got.
     (when (catch 'line-limit-abbreviation-exit
             (attempt-to-output xp nil T) nil)
       (attempt-to-output xp T T))
     result))
 
 (defun write+ (object xp)
-  (let ((*parents* *parents*))
-    (unless (and *circularity-hash-table*
-                (eq (circularity-process xp object nil) :subsequent))
-      (when (and *circularity-hash-table* (consp object))
-        ;;avoid possible double check in handle-logical-block.
-        (setf object (cons (car object) (cdr object))))
-      (let ((printer (if *print-pretty* (get-printer object *print-pprint-dispatch*) nil))
+  (unless (and *circularity-hash-table*
+               (eq (circularity-process xp object nil) :subsequent))
+    (when (and *circularity-hash-table* (consp object))
+      ;;avoid possible double check in handle-logical-block.
+      (setf object (cons (car object) (cdr object))))
+    (let ((printer (if *print-pretty* (get-printer object *print-pprint-dispatch*) nil))
+          #+(or)
+          type)
+      (cond (printer (funcall printer xp object))
+            ((maybe-print-fast xp object))
             #+(or)
-            type)
-        (cond (printer (funcall printer xp object))
-              ((maybe-print-fast xp object))
-              #+(or)
-              ((and *print-pretty*
-                    (symbolp (setf type (type-of object)))
-                    (setf printer (get type 'structure-printer))
-                    (not (eq printer :none)))
-               (funcall printer xp object))
-              ((and *print-pretty* *print-array* (arrayp object)
-                    (not (stringp object)) (not (bit-vector-p object))
-                    (not (structure-type-p (type-of object))))
-               (pretty-array xp object))
-              (T
-               (non-pretty-print object xp)))))))
+            ((and *print-pretty*
+                  (symbolp (setf type (type-of object)))
+                  (setf printer (get type 'structure-printer))
+                  (not (eq printer :none)))
+             (funcall printer xp object))
+            ((and *print-pretty* *print-array* (arrayp object)
+                  (not (stringp object)) (not (bit-vector-p object))
+                  (not (structure-type-p (type-of object))))
+             (pretty-array xp object))
+            (T
+             (non-pretty-print object xp))))))
 
 (defun non-pretty-print (object s)
   (let ((*print-level* (if *print-level*
@@ -1032,17 +1019,14 @@
               (and (symbolp object)     ;Reader takes care of sharing.
                    (or (null *print-gensym*) (symbol-package object))))
     (let ((id (gethash object *circularity-hash-table*)))
-      (if *locating-circularities*
+      (if (locating-circularities xp)
           (cond ((null id)      ;never seen before
-                 (when *parents* (push object *parents*))
                  (setf (gethash object *circularity-hash-table*) 0)
                  nil)
                 ((zerop id) ;possible second occurrence
-                 (cond (t #++(or (null *parents*) (member object *parents*))
-                        (setf (gethash object *circularity-hash-table*)
-                              (incf *locating-circularities*))
-                        :subsequent)
-                       (T nil)))
+                 (setf (gethash object *circularity-hash-table*)
+                       (incf (locating-circularities xp)))
+                 :subsequent)
                 (T :subsequent));third or later occurrence
           (cond ((or (null id)  ;never seen before (note ~@* etc. conses)
                      (zerop id));no duplicates
@@ -1158,9 +1142,12 @@
   nil)
 
 (defmethod mezzano.gray:stream-clear-output ((stream xp-structure))
-  (let ((*locating-circularities* 0)) ;hack to prevent visible output
-    (attempt-to-output stream T T)
-    (clear-output (base-stream stream)))
+  (let ((old-l-c (locating-circularities xp)))
+    (unwind-protect
+         (progn (setf (locating-circularities xp) 0) ;hack to prevent visible output
+                (attempt-to-output stream T T)
+                (clear-output (base-stream stream)))
+      (setf (locating-circularities xp) old-l-c)))
   nil)
 
 ;note we are assuming that if a structure is defined using xp::defstruct,
@@ -1291,7 +1278,6 @@
      (setf circle-check? 'not-first-p))
   `(let ((*current-level* (1+ *current-level*))
          (*current-length* -1)
-         (*parents* *parents*)
          ,@(if (and circle-check? atsign?) `((not-first-p (plusp *current-length*)))))
      (unless (check-block-abbreviation ,var ,args ,circle-check?)
        (block logical-block
