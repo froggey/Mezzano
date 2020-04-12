@@ -555,6 +555,7 @@
            ;; Temporary drivers.
            #:ps/2-key-read
            #:ps/2-aux-read
+           #:*ps/2-mouse-device-id*
            #:current-framebuffer
            #:framebuffer-blit
            #:framebuffer-width
