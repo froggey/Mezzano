@@ -105,6 +105,8 @@
 (defconstant +pci-config-min-gnt+       #x3E)
 (defconstant +pci-config-max-lat+       #x3F)
 
+(defconstant +pci-standard-htype+           #x00)
+
 (defconstant +pci-bridge-htype+             #x01)
 (defconstant +pci-bridge-primary-bus+       #x18)
 (defconstant +pci-bridge-secondary-bus+     #x19)
@@ -455,12 +457,16 @@ Returns NIL if the BAR has an unknown type."
                   (pci-device-device-id device) device-id)
             (sup::push-wired device *pci-devices*)
             ;; Ensure memory associated with BARs is mapped.
-            (do ((bar 0 (1+ bar)))
-                ((>= bar 6))
+            (do ((n-bars (case header-type
+                           (#.+pci-standard-htype+ 6)
+                           (#.+pci-bridge-htype+ 2)
+                           (t 0)))
+                 (bar 0 (1+ bar)))
+                ((>= bar n-bars))
               (let* ((address (pci-bar device bar))
                      (type (decode-pci-bar-type address))
                      (size (pci-bar-size device bar)))
-                (when (member type '(:mmio-32 :mmio-64))
+                (when (and size (member type '(:mmio-32 :mmio-64)))
                   (let* ((base (logand address (lognot #b1111)))
                          (end (sup::align-up (+ base size) #x1000))
                          (aligned-base (logand base (lognot #xFFF)))
@@ -472,7 +478,7 @@ Returns NIL if the BAR has an unknown type."
                     (incf bar)))))
             (when (eql header-type +pci-bridge-htype+)
               ;; Bridge device, scan the other side.
-              (scan-bus (pci-config/8 device +pci-bridge-secondary-bus+)))))))))
+              (pci-scan-bus (pci-config/8 device +pci-bridge-secondary-bus+)))))))))
 
 (defun sup::pci-detect ()
   (setf (sys.int::io-port/32 +pci-config-address+) #x80000000)
