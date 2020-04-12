@@ -312,11 +312,7 @@
                       (if (irq-attachment-exclusive-p a) " [exclusive]" "")
                       (if (irq-attachment-pending-eoi a) " EOI pending" ""))))
 
-(defun debug-dump-threads ()
-  (debug-print-line "Local CPU is " (local-cpu))
-  (dump-run-queues)
-  (map-platform-irqs #'dump-irq)
-  (dump-active-timers)
+(defun dump-threads ()
   (dump-thread (current-thread) (sys.int::read-frame-pointer))
   (when (boundp '*all-threads*)
     (do ((thread *all-threads*
@@ -326,11 +322,27 @@
         (debug-print-line "----------")
         (dump-thread thread (thread-frame-pointer thread))))))
 
+(defun debug-dump ()
+  (debug-print-line "Local CPU is " (local-cpu))
+  (with-page-fault-hook
+      (()
+       (debug-print-line "<truncated>")
+       (abandon-page-fault))
+    (dump-run-queues))
+  (debug-print-line "IRQ state:")
+  (with-page-fault-hook
+      (()
+       (debug-print-line "<truncated>")
+       (abandon-page-fault))
+    (map-platform-irqs #'dump-irq))
+  (dump-active-timers)
+  (dump-threads))
+
 (defun debug-magic-button ()
   ;; Try to bring all the other CPUs to a complete stop before doing anything.
   (stop-other-cpus-for-debug-magic-button)
   (debug-print-line "---- Begin magic button dump ----")
-  (debug-dump-threads)
+  (debug-dump)
   (debug-print-line "---- End magic button dump ----")
   (resume-other-cpus-for-debug-magic-button))
 
@@ -355,7 +367,7 @@
       (debug-print-line-1 things)
       (when extra
         (funcall extra)))
-    (debug-dump-threads)
+    (debug-dump)
     (loop (%arch-panic-stop))))
 
 (defmacro ensure (condition &rest things)
