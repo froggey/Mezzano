@@ -18,13 +18,14 @@
   (let ((major (nibbles:ub16ref/le header 32))
         (minor (nibbles:ub16ref/le header 34)))
     (when (not (and (eql major 0)
-                    (eql minor 24)))
+                    (eql minor 26)))
       (error "Image has unsupported protocol version ~D.~D.~%" major minor))
     (let* ((uuid (subseq header 16 32))
            (entry-fref (nibbles:ub64ref/le header 40))
            (initial-thread (nibbles:ub64ref/le header 48))
            (nil-value (nibbles:ub64ref/le header 56))
-           (architecture (nibbles:ub32ref/le header 64))
+           (architecture (aref header 64))
+           (initial-stack-pointer (nibbles:ub64ref/le header 72))
            (bml4 (nibbles:ub64ref/le header 96))
            (freelist (nibbles:ub64ref/le header 104)))
       (list :uuid uuid
@@ -37,6 +38,7 @@
                             (1 :x86-64)
                             (2 :arm64)
                             (t `(:unknown ,architecture)))
+            :initial-stack-pointer initial-stack-pointer
             :bml4 bml4
             :freelist freelist))))
 
@@ -54,7 +56,8 @@
     (setf (nibbles:ub64ref/le data 40) (getf header :entry-fref))
     (setf (nibbles:ub64ref/le data 48) (getf header :initial-thread))
     (setf (nibbles:ub64ref/le data 56) (getf header :nil-value))
-    (setf (nibbles:ub32ref/le data 64) (encode-architecture (getf header :architecture)))
+    (setf (aref data 64) (encode-architecture (getf header :architecture)))
+    (setf (nibbles:ub64ref/le data 72) (getf header :initial-stack-pointer))
     (setf (nibbles:ub64ref/le data 96) (getf header :bml4))
     (setf (nibbles:ub64ref/le data 104) (getf header :freelist))
     data))
