@@ -2,31 +2,66 @@
 
 (in-package :mezzano.internals)
 
-(declaim (inline bignump
-                 %n-bignum-fragments
-                 %bignum-fragment
-                 (setf %bignum-fragment)))
-
+(declaim (inline bignump))
 (defun bignump (object)
   (%object-of-type-p object +object-tag-bignum+))
 
-(defun %n-bignum-fragments (bignum)
-  (%object-header-data bignum))
+(defconstant +bignum-fragment-width+ 64)
 
+(deftype bignum-fragment ()
+  `(unsigned-byte ,+bignum-fragment-width+))
+
+(deftype bignum-fragment-signed ()
+  `(signed-byte ,+bignum-fragment-width+))
+
+(defun %make-bignum (&rest fragments)
+  "Assemble a potentially non-canonical bignum from the supplied fragments."
+  (let* ((bignum (%make-bignum-of-length (length fragments))))
+    (loop
+       for i from 0
+       for fragment in fragments
+       do (setf (%bignum-fragment bignum i) fragment))
+    bignum))
+
+(declaim (inline %n-bignum-fragments))
+(defun %n-bignum-fragments (bignum)
+  (the array-index (%object-header-data bignum)))
+
+
+(declaim (inline %bignum-fragment
+                 (setf %bignum-fragment)))
 ;; Watch out - this can create another bignum to hold the fragment.
 (defun %bignum-fragment (bignum n)
-  (%object-ref-unsigned-byte-64 bignum n))
+  (the bignum-fragment (%object-ref-unsigned-byte-64 bignum n)))
 
 (defun (setf %bignum-fragment) (value bignum n)
-  (setf (%object-ref-unsigned-byte-64 bignum n) value))
+  (the bignum-fragment
+       (setf (%%object-ref-unsigned-byte-64 bignum n)
+             (the bignum-fragment value))))
+
+(declaim (inline %bignum-fragment-signed
+                 (setf %bignum-fragment-signed)))
+(defun %bignum-fragment-signed (bignum n)
+  (the bignum-fragment-signed (%object-ref-signed-byte-64 bignum n)))
+
+(defun (setf %bignum-fragment-signed) (value bignum n)
+  (the bignum-fragment-signed
+       (setf (%%object-ref-signed-byte-64 bignum n)
+             (the bignum-fragment-signed value))))
 
 (declaim (inline %bignum-negative-p))
 (defun %bignum-negative-p (bignum)
-  ;; Use a UB32 access to avoid creating an intermediate bignum.
-  (let ((sign-word (%object-ref-unsigned-byte-32
-                    bignum
-                    (1- (* (%object-header-data bignum) 2)))))
-    (logtest #x80000000 sign-word)))
+  (logbitp (1- +bignum-fragment-width+)
+           (%bignum-fragment
+            bignum
+            (the fixnum (1- (%n-bignum-fragments bignum))))))
+
+(declaim (inline %bignum-sign-fragment))
+(defun %bignum-sign-fragment (bignum)
+  "Return the sign bit of BIGNUM extended out to a whole fragment."
+  (if (%bignum-negative-p bignum)
+      (1- (ash 1 +bignum-fragment-width+))
+      0))
 
 (defun bignum-to-float (bignum float-zero digits)
   (let* ((negative (minusp bignum))

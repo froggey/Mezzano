@@ -51,6 +51,16 @@
 (defun write-unsigned-integer (x base stream)
   (cond ((fixnump x)
          (write-unsigned-integer-simple x base stream))
+        ;; Make sure small non-canonical bignums print properly.
+        ((and (bignump x)
+              (or (eql (%n-bignum-fragments x) 0)
+                  (and (eql (%n-bignum-fragments x) 1)
+                       (eql (%bignum-fragment x 0) 0))))
+         (write-char #\0 stream))
+        ((and (bignump x)
+              (eql (%n-bignum-fragments x) 1)
+              (< 0 (%bignum-fragment x 0) base))
+         (write-unsigned-integer-simple (%bignum-fragment x 0) base stream))
         (t
          (let ((digits (floor (log most-positive-fixnum base))))
            (write-unsigned-integer-outer x base

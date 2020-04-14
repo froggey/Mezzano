@@ -42,6 +42,18 @@
 ;; Must be a power of two.
 (defconstant +thread-symbol-cache-size+ 128)
 
+(defconstant +thread-stack-soft-guard-size+ #x10000
+  "Size of the soft guard area.
+This area is normally access-protected and is only made accessible
+when a stack overflow occurs. It is automatically re-protected after the
+thread stops using it.")
+
+(defconstant +thread-stack-guard-return-size+ #x1000
+  "Size of the guard return area.
+This area is made read-only when the soft guard is triggered and
+is used to catch when the thread has left the guard region so that it
+can be reprotected.")
+
 (defstruct (thread
              (:area :wired)
              (:constructor %make-thread (%name))
@@ -60,16 +72,17 @@
   ;;   :stopped   - the thread has been stopped for inspection by a debugger.
   ;;   0 - Thread has not been initialized completely
   (state 0 :type (member :active :runnable :sleeping :dead
-                         :waiting-for-page :pager-request
+                         :waiting-for-page-read :waiting-for-page-write
+                         :pager-request
                          :stopped 0))
   ;; Stack object for the stack.
   stack
+  ;; State of the stack guard page.
+  stack-guard-page-state
   ;; If a thread is sleeping, waiting for page or performing a pager-request, this will describe what it's waiting for.
   ;; When waiting for paging to complete, this will be the faulting address.
   ;; When waiting for a pager-request, this will be the called function.
   (wait-item nil)
-  ;; Magic field used by the bootloader, must be the 4th slot
-  (magic-bootloader-field nil)
   ;; The thread's current special stack pointer.
   (special-stack-pointer nil)
   ;; When true, all registers are saved in the the thread's state save area.
@@ -85,6 +98,8 @@
   ;; A non-negative fixnum, when 0 footholds are permitted to run.
   ;; When positive, they are deferred.
   (inhibit-footholds 1)
+  ;; Permit WITH-FOOTHOLDS to temporarily reenable footholds when true.
+  (allow-with-footholds t)
   ;; Next/previous links for the *all-threads* list.
   ;; This only contains live (not state = :dead) threads.
   global-next
@@ -446,12 +461,15 @@ Interrupts must be off and the global thread lock must be held."
   (check-type function (or function symbol))
   (check-type priority (member :supervisor :high :normal :low))
   (setf name (copy-name-to-wired-area name))
+  (setf stack-size (align-up stack-size #x1000))
   (let* ((thread (%make-thread name))
-         (stack (%allocate-stack stack-size)))
+         (stack (%allocate-stack (+ stack-size +thread-stack-soft-guard-size+))))
     (setf (thread-stack thread) stack
           (thread-self thread) thread
           (thread-priority thread) priority
           (thread-join-event thread) (make-event :name thread))
+    ;; Protect the guard area, making it fully inaccessible.
+    (protect-memory-range (stack-base stack) +thread-stack-soft-guard-size+ 0)
     ;; Perform initial bindings.
     (when initial-bindings
       (let ((symbols (mapcar #'first initial-bindings))
@@ -508,15 +526,13 @@ Interrupts must be off and the global thread lock must be held."
            (unwind-protect
                 ;; Footholds in a new thread are inhibited until the terminate-thread
                 ;; catch block is established, to guarantee that it's always available.
-                (let ((thread (current-thread)))
-                  (sys.int::%atomic-fixnum-add-object thread +thread-inhibit-footholds+ -1)
-                  (when (zerop (sys.int::%object-ref-t thread +thread-inhibit-footholds+))
-                    (dolist (fh (sys.int::%xchg-object thread +thread-pending-footholds+ nil))
-                      (funcall fh)))
+                (progn
+                  (when (eql (sys.int::%atomic-fixnum-add-object (current-thread) +thread-inhibit-footholds+ -1) 1)
+                    (run-pending-footholds))
                   (setf return-values (multiple-value-list (funcall function))))
              ;; Re-inhibit footholds when leaving. This way it is never possible
              ;; to foothold a thread after the TERMINATE-THREAD catch has exited.
-             ;; There's still a race here: If TERMINATE-THREAD is throw to while
+             ;; There's still a race here: If TERMINATE-THREAD is thrown to while
              ;; the unwind protect handler is executing (before inhibit footholds
              ;; has been incremented), then footholds will still be enabled.
              ;; The perils of asynchronous interrupts...
@@ -774,15 +790,61 @@ not and WAIT-P is false."
 ;;; Foothold management.
 
 (defmacro without-footholds (&body body)
-  (let ((thread (gensym)))
-    `(unwind-protect
-          (progn
-            (sys.int::%atomic-fixnum-add-object (current-thread) +thread-inhibit-footholds+ 1)
-            ,@body)
-       (let ((,thread (current-thread)))
-         (sys.int::%atomic-fixnum-add-object ,thread +thread-inhibit-footholds+ -1)
-         (when (zerop (sys.int::%object-ref-t ,thread +thread-inhibit-footholds+))
-           (run-pending-footholds))))))
+  (let ((thread (gensym))
+        (old-allow-with-footholds (gensym)))
+    ;; THREAD-INHIBIT-FOOTHOLDS is incremented before the UNWIND-PROTECT
+    ;; is established. Doing it the other way around would allow a race
+    ;; condition. The threads could be interrupted after the U-P is established
+    ;; but before footholds are inhibited, and the foothold could unwind.
+    ;; This would cause T-I-F to be decremented by the cleanup handler, even
+    ;; though it had never been incremented.
+    `(let ((,thread (current-thread)))
+       (sys.int::%atomic-fixnum-add-object ,thread +thread-inhibit-footholds+ 1)
+       (let ((,old-allow-with-footholds (thread-allow-with-footholds ,thread)))
+         (when ,old-allow-with-footholds
+           ;; The WHEN is a performance kludge, avoid touching thread slots as much as possible
+           ;; TODO: Restructure this to avoid fiddling with T-A-W-F at all
+           ;; if A-W-F isn't used.
+           (setf (thread-allow-with-footholds ,thread) nil))
+         (unwind-protect
+              (macrolet ((allow-with-footholds (&body allow-forms)
+                           `(unwind-protect
+                                 (progn
+                                   (setf (thread-allow-with-footholds ,',thread) ,',old-allow-with-footholds)
+                                   (locally ,@allow-forms))
+                              (setf (thread-allow-with-footholds ,',thread) nil)))
+                         (with-local-footholds (&body with-forms)
+                           `(allow-with-footholds
+                             (with-footholds ,@with-forms))))
+                ,@body)
+           (when ,old-allow-with-footholds
+             (setf (thread-allow-with-footholds ,thread) t))
+           (when (eql (sys.int::%atomic-fixnum-add-object ,thread +thread-inhibit-footholds+ -1) 1)
+             (run-pending-footholds)))))))
+
+(defmacro with-footholds (&body body)
+  "Enable footholds for the duration of BODY, if permitted by ALLOW-WITH-FOOTHOLDS.
+If thereis a matching ALLOW-WITH-FOOTHOLDS for every WITHOUT-FOOTHOLDS, then
+footholds will be reenabled, otherwise footholds will stay inhibited."
+  (let ((thread (gensym))
+        (old-inhibit-footholds (gensym)))
+    `(let* ((,thread (current-thread))
+            (,old-inhibit-footholds (thread-inhibit-footholds ,thread)))
+       (unwind-protect
+            (progn
+              (when (thread-allow-with-footholds ,thread)
+                (setf (thread-inhibit-footholds ,thread) 0)
+                (run-pending-footholds))
+              (locally ,@body))
+         (setf (thread-inhibit-footholds ,thread) ,old-inhibit-footholds)))))
+
+(defmacro allow-with-footholds (&body body)
+  (declare (ignore body))
+  (error "ALLOW-WITH-FOOTHOLDS not permitted outside WITHOUT-FOOTHOLDS"))
+
+(defmacro with-local-footholds (&body body)
+  (declare (ignore body))
+  (error "WITH-LOCAL-FOOTHOLDS not permitted outside WITHOUT-FOOTHOLDS"))
 
 (declaim (inline run-pending-footholds))
 (defun run-pending-footholds ()
@@ -817,7 +879,7 @@ not and WAIT-P is false."
                             (thread-unsleep-helper thread)
                             (thread-unsleep-helper-argument thread)))))
 
-(defun establish-thread-foothold (thread function &optional force)
+(defun establish-thread-foothold (thread function &key force)
   (check-type thread thread)
   (check-type function function)
   (assert (not (member (thread-priority thread) '(:idle :supervisor))))

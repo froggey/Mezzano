@@ -591,6 +591,18 @@ thread's stack if this function is called from normal code."
     (raise-bounds-error object slot)
     (sys.int::%%unreachable)))
 
+(declaim (inline %bounds-check-range))
+(defun %bounds-check-range (object slot range)
+  (unless (fixnump slot)
+    (raise-type-error slot 'fixnum)
+    (sys.int::%%unreachable))
+  (unless (and (not (mezzano.runtime::%fixnum-< slot 0))
+               (mezzano.runtime::%fixnum-< slot (mezzano.compiler::%fast-fixnum--
+                                                 (%object-header-data object)
+                                                 range)))
+    (raise-bounds-range-error object slot range)
+    (sys.int::%%unreachable)))
+
 (declaim (inline %complex-bounds-check))
 (defun %complex-bounds-check (array index dim axis)
   (unless (fixnump index)

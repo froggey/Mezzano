@@ -59,6 +59,23 @@
 (defmacro time (form)
   `(%time (lambda () (progn ,form))))
 
+(defun format-time (stream object &optional colon-p at-sign-p)
+  (declare (ignore at-sign-p))
+  (when (and colon-p
+             (>= object 60))
+    (format stream "~:D second~:P or " object))
+  (multiple-value-bind (minutes actual-seconds)
+      (truncate object 60)
+    (multiple-value-bind (hours actual-minutes)
+        (truncate minutes 60)
+      (when (not (zerop hours))
+        (format stream "~:D hour~:P, " hours))
+      (when (or (not (zerop hours))
+                (not (zerop actual-minutes)))
+        (format stream "~:D minute~:P, " actual-minutes))
+      (format stream "~:D second~:P" actual-seconds))))
+
+
 (defun %time (fn)
   (let* ((self (mezzano.supervisor:current-thread))
          (start-bytes-consed (mezzano.supervisor:thread-bytes-consed self))
@@ -80,8 +97,9 @@
              (finish-run-time (float (/ (- (mezzano.supervisor:thread-run-time self) start-run-time)
                                         internal-time-units-per-second))))
         (fresh-line *trace-output*)
-        (format *trace-output* "; Execution took ~:D seconds (~:D seconds of run time, ~:D seconds of GC time, ~:D allocation time).~%"
-                finish-time finish-run-time finish-gc-time finish-alloc-time)
+        (format *trace-output* "; Execution took ~:/mezzano.internals::format-time/.~%" finish-time)
+        (format *trace-output* "; ~:D seconds of run time, ~:D seconds of GC time, ~:D allocation time.~%"
+                finish-run-time finish-gc-time finish-alloc-time)
         (when (plusp finish-time)
           (format *trace-output* "; Pager ran for ~:D seconds.~%" finish-pager))
         (format *trace-output* "; Execution took ~:D cycles (~:D seconds).~%"

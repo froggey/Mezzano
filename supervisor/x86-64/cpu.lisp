@@ -64,15 +64,6 @@
 (sys.int::defglobal sys.int::*page-fault-stack*)
 (sys.int::defglobal sys.int::*bsp-info-vector*)
 
-(defconstant +cpu-info-self-offset+ 0)
-(defconstant +cpu-info-wired-stack-offset+ 1)
-(defconstant +cpu-info-idle-thread-offset+ 2)
-(defconstant +cpu-info-cpu-object-offset+ 3)
-(defconstant +cpu-info-gdt-offset+ 15)
-(defconstant +cpu-info-tss-offset+ 31)
-(defconstant +cpu-info-tss-size+ 104)
-(defconstant +cpu-info-idt-offset+ 511)
-
 (defconstant +tss-ist-1+ 36)
 (defconstant +tss-ist-2+ 44)
 (defconstant +tss-ist-3+ 52)
@@ -88,13 +79,38 @@
 (defconstant +ist-interrupt-stack+ 2)
 (defconstant +ist-page-fault-stack+ 3)
 
+(defconstant +tss-size+ 104)
+
 (defstruct (cpu
-             (:area :wired))
+             (:area :wired)
+             :slot-locations)
+  self
+  ;; The IDT. 32 bit entries are used here to prevent bignums.
+  (idt 0 :fixed-vector 1024 :type (unsigned-byte 32) :align 16)
+  ;; The GDT.
+  (gdt-null #x0000000000000000 :type (unsigned-byte 64))
+  (gdt-cs-r0 #x00209A0000000000 :type (unsigned-byte 64))
+  (gdt-tss-w0 #x0000000000000000 :type (unsigned-byte 32))
+  (gdt-tss-w1 #x0000000000000000 :type (unsigned-byte 32))
+  (gdt-tss-w2 #x0000000000000000 :type (unsigned-byte 32))
+  (gdt-tss-w3 #x0000000000000000 :type (unsigned-byte 32))
+  ;; The TSS.
+  ;; The prefix pad field is to deal with the odd alignment of the TSS.
+  (tss-prefix-pad 0 :type (unsigned-byte 32) :align 16)
+  (tss-reserved-1 0 :type (unsigned-byte 32)) ; Actual start
+  (tss-rsp0 0 :type (unsigned-byte 64))
+  (tss-rsp1 0 :type (unsigned-byte 64))
+  (tss-rsp2 0 :type (unsigned-byte 64))
+  (tss-reserved-2 0 :type (unsigned-byte 64))
+  (tss-ist 0 :fixed-vector 7 :type (unsigned-byte 64))
+  (tss-reserved-3 0 :type (unsigned-byte 64))
+  (tss-reserved-4 0 :type (unsigned-byte 16))
+  (tss-io-map-base 104 :type (unsigned-byte 16)) ; Past the end of the TSS limit.
   state
-  info-vector
   apic-id
   idle-thread
   wired-stack
+  (wired-stack-pointer 0 :type (signed-byte 64))
   exception-stack
   irq-stack
   page-fault-stack
@@ -120,28 +136,24 @@ The bootloader is loaded to #x7C00, so #x7000 should be safe.")
 (defconstant +magic-button-ipi-vector+ #x84
   "Sent to CPUs when the magic debug button is pressed.")
 
-(defun set-idt-entry (vector idt-index
+(defun set-idt-entry (cpu idt-index
                       &key (offset 0) (segment #x0008)
                         (present t) (dpl 0) (ist nil)
                         (interrupt-gate-p t))
   "Set an IDT entry in the CPU info vector."
   ;; Be careful and avoid bignums.
-  (setf (sys.int::%object-ref-unsigned-byte-32
-         vector (+ (* +cpu-info-idt-offset+ 2) (* idt-index 4) 0))
+  (setf (cpu-idt cpu (+ (* idt-index 4) 0))
         (logior (ldb (byte 16 0) offset)
                 (ash segment 16)))
-  (setf (sys.int::%object-ref-unsigned-byte-32
-         vector (+ (* +cpu-info-idt-offset+ 2) (* idt-index 4) 1))
+  (setf (cpu-idt cpu (+ (* idt-index 4) 1))
         (logior (or ist 0)
                 (ash (if interrupt-gate-p #b1110 #b1111) 8)
                 (ash dpl 13)
                 (if present (ash 1 15) 0)
                 (ash (ldb (byte 16 16) offset) 16)))
-  (setf (sys.int::%object-ref-unsigned-byte-32
-         vector (+ (* +cpu-info-idt-offset+ 2) (* idt-index 4) 2))
+  (setf (cpu-idt cpu (+ (* idt-index 4) 2))
         (ldb (byte 32 32) offset))
-  (setf (sys.int::%object-ref-unsigned-byte-32
-         vector (+ (* +cpu-info-idt-offset+ 2) (* idt-index 4) 3))
+  (setf (cpu-idt cpu (+ (* idt-index 4) 3))
         0)
   (values))
 
@@ -173,7 +185,7 @@ The bootloader is loaded to #x7C00, so #x7000 should be safe.")
       (dolist (cpu *cpus*)
         (when (and (eql (cpu-state cpu) :online)
                    (or including-self
-                       (not (eql cpu (local-cpu-object)))))
+                       (not (eql cpu (local-cpu)))))
           (send-ipi (cpu-apic-id cpu) type vector))))))
 
 (defun broadcast-wakeup-ipi ()
@@ -333,35 +345,23 @@ TLB shootdown must be protected by the VM lock."
   (sys.int::%atomic-fixnum-add-symbol '*busy-tlb-shootdown-cpus*
                                       -1))
 
-(sys.int::define-lap-function local-cpu-info (())
+(sys.int::define-lap-function local-cpu (())
   "Return the address of the local CPU's info vector."
   (:gc :no-frame :layout #*0)
   (sys.lap-x86:fs)
-  (sys.lap-x86:mov64 :r8 (:object nil #.+cpu-info-self-offset+))
+  (sys.lap-x86:mov64 :r8 (:object-location nil #.+cpu-self+))
   (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
   (sys.lap-x86:ret))
 
-(sys.int::define-lap-function local-cpu-idle-thread (())
+(defun local-cpu-idle-thread ()
   "Return the idle thread associated with the local CPU."
-  (:gc :no-frame :layout #*0)
-  (sys.lap-x86:fs)
-  (sys.lap-x86:mov64 :r8 (:object nil #.+cpu-info-idle-thread-offset+))
-  (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
-  (sys.lap-x86:ret))
-
-(sys.int::define-lap-function local-cpu-object (())
-  "Return the CPU struct associated with the local CPU."
-  (:gc :no-frame :layout #*0)
-  (sys.lap-x86:fs)
-  (sys.lap-x86:mov64 :r8 (:object nil #.+cpu-info-cpu-object-offset+))
-  (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
-  (sys.lap-x86:ret))
+  (cpu-idle-thread (local-cpu)))
 
 (defun local-cpu-page-fault-hook ()
-  (cpu-page-fault-hook (local-cpu-object)))
+  (cpu-page-fault-hook (local-cpu)))
 
 (defun (setf local-cpu-page-fault-hook) (value)
-  (setf (cpu-page-fault-hook (local-cpu-object)) value))
+  (setf (cpu-page-fault-hook (local-cpu)) value))
 
 (sys.int::define-lap-function %lgdt ((length address))
   "Load a new GDT."
@@ -427,7 +427,6 @@ TLB shootdown must be protected by the VM lock."
      (svref sys.int::*interrupt-service-routines* vector)))
 
 (defun populate-idt (vector)
-  ;; IDT completely fills the second page (256 * 16)
   (dotimes (i 256)
     (cond ((svref sys.int::*interrupt-service-routines* i)
            (set-idt-entry vector i
@@ -443,47 +442,45 @@ TLB shootdown must be protected by the VM lock."
           (t
            (set-idt-entry vector i :present nil)))))
 
-(defun populate-gdt (vector tss-base)
-  ;; GDT.
-  (setf (sys.int::%object-ref-unsigned-byte-64 vector (+ +cpu-info-gdt-offset+ 0)) 0 ; NULL seg.
-        (sys.int::%object-ref-unsigned-byte-64 vector (+ +cpu-info-gdt-offset+ 1)) #x00209A0000000000 ; Kernel CS64
-        ;; TSS low.
-        ;; Does not fit in a fixnum when treated as a 64-bit value, depending on where the info page
-        ;; was allocated. Use 32-bit accesses to work around.
-        (sys.int::%object-ref-unsigned-byte-32 vector (+ (* (+ +cpu-info-gdt-offset+ 2) 2) 0)) (logior (ldb (byte 16 0) +cpu-info-tss-size+)
-                                                                                                       (ash (ldb (byte 16 0) tss-base) 16))
-        (sys.int::%object-ref-unsigned-byte-32 vector (+ (* (+ +cpu-info-gdt-offset+ 2) 2) 1)) (logior (ldb (byte 8 16) tss-base)
-                                                                                                       (ash #x89 8)
-                                                                                                       (ash (ldb (byte 4 16) +cpu-info-tss-size+) 16)
-                                                                                                       (ash (ldb (byte 8 24) tss-base) 24))
-        ;; TSS high.
-        (sys.int::%object-ref-unsigned-byte-64 vector (+ +cpu-info-gdt-offset+ 3)) (ldb (byte 32 32) tss-base)))
-
-(defun populate-tss (tss-base exception-stack-pointer irq-stack-pointer page-fault-stack-pointer)
-  ;; TSS, Clear memory first.
-  (dotimes (i +cpu-info-tss-size+)
-    (setf (sys.int::memref-unsigned-byte-16 tss-base i) 0))
-  ;; IST1.
-  (setf (sys.int::memref-signed-byte-64 (+ tss-base +tss-ist-1+) 0) exception-stack-pointer)
-  ;; IST2.
-  (setf (sys.int::memref-signed-byte-64 (+ tss-base +tss-ist-2+) 0) irq-stack-pointer)
-  ;; IST3.
-  (setf (sys.int::memref-signed-byte-64 (+ tss-base +tss-ist-3+) 0) page-fault-stack-pointer)
-  ;; I/O Map Base Address, follows TSS body.
-  (setf (sys.int::memref-unsigned-byte-16 (+ tss-base +tss-io-map-base+) 0) +cpu-info-tss-size+))
-
-(defun populate-cpu-info-vector (vector wired-stack-pointer exception-stack-pointer irq-stack-pointer page-fault-stack-pointer idle-thread)
-  (let* ((addr (- (sys.int::lisp-object-address vector)
+(defun populate-gdt (cpu)
+  (let* ((addr (- (sys.int::lisp-object-address cpu)
                   sys.int::+tag-object+))
-         (tss-base (+ addr 8 (* +cpu-info-tss-offset+ 8))))
-    (populate-idt vector)
-    (populate-gdt vector tss-base)
-    (populate-tss tss-base exception-stack-pointer irq-stack-pointer page-fault-stack-pointer)
-    ;; Other stuff.
-    (setf (sys.int::%object-ref-t vector +cpu-info-self-offset+) vector)
-    (setf (sys.int::%object-ref-signed-byte-64 vector +cpu-info-wired-stack-offset+)
-          wired-stack-pointer)
-    (setf (sys.int::%object-ref-t vector +cpu-info-idle-thread-offset+) idle-thread)))
+         (tss-base (+ addr 8 (mezzano.runtime::location-offset +cpu-tss-reserved-1+))))
+    ;; GDT.
+    (setf (cpu-gdt-null cpu) 0 ; NULL seg.
+          (cpu-gdt-cs-r0 cpu) #x00209A0000000000 ; Kernel CS64
+          ;; TSS low.
+          ;; Does not fit in a fixnum when treated as a 64-bit value, depending on where the info page
+          ;; was allocated. Use 32-bit accesses to work around.
+          (cpu-gdt-tss-w0 cpu) (logior (ldb (byte 16 0) +tss-size+)
+                                       (ash (ldb (byte 16 0) tss-base) 16))
+          (cpu-gdt-tss-w1 cpu) (logior (ldb (byte 8 16) tss-base)
+                                       (ash #x89 8)
+                                       (ash (ldb (byte 4 16) +tss-size+) 16)
+                                       (ash (ldb (byte 8 24) tss-base) 24))
+          ;; TSS high.
+          (cpu-gdt-tss-w2 cpu) (ldb (byte 32 32) tss-base)
+          (cpu-gdt-tss-w3 cpu) 0)))
+
+(defun populate-tss (cpu exception-stack-pointer irq-stack-pointer page-fault-stack-pointer)
+  ;; TSS.
+  ;; IST1.
+  (setf (cpu-tss-ist cpu (1- +ist-exception-stack+)) exception-stack-pointer)
+  ;; IST2.
+  (setf (cpu-tss-ist cpu (1- +ist-interrupt-stack+)) irq-stack-pointer)
+  ;; IST3.
+  (setf (cpu-tss-ist cpu (1- +ist-page-fault-stack+)) page-fault-stack-pointer)
+  ;; I/O Map Base Address, follows TSS body.
+  (setf (cpu-tss-io-map-base cpu) +tss-size+))
+
+(defun populate-cpu-info (cpu wired-stack-pointer exception-stack-pointer irq-stack-pointer page-fault-stack-pointer idle-thread)
+  (populate-idt cpu)
+  (populate-gdt cpu)
+  (populate-tss cpu exception-stack-pointer irq-stack-pointer page-fault-stack-pointer)
+  ;; Other stuff.
+  (setf (cpu-self cpu) cpu)
+  (setf (cpu-wired-stack-pointer cpu) wired-stack-pointer)
+  (setf (cpu-idle-thread cpu) idle-thread))
 
 (defun initialize-boot-cpu ()
   "Generate GDT, IDT and TSS for the boot CPU."
@@ -492,16 +489,17 @@ TLB shootdown must be protected by the VM lock."
     (setf *cpus* '()))
   (setf *debug-magic-button-hold-variable* nil)
   (setf *tlb-shootdown-in-progress* nil)
-  (populate-cpu-info-vector sys.int::*bsp-info-vector*
-                            (+ (car sys.int::*bsp-wired-stack*) (cdr sys.int::*bsp-wired-stack*))
-                            (+ (car sys.int::*exception-stack*) (cdr sys.int::*exception-stack*))
-                            (+ (car sys.int::*irq-stack*) (cdr sys.int::*irq-stack*))
-                            (+ (car sys.int::*page-fault-stack*) (cdr sys.int::*page-fault-stack*))
-                            sys.int::*bsp-idle-thread*)
+  (populate-cpu-info *bsp-cpu*
+                     (+ (car sys.int::*bsp-wired-stack*) (cdr sys.int::*bsp-wired-stack*))
+                     (+ (car sys.int::*exception-stack*) (cdr sys.int::*exception-stack*))
+                     (+ (car sys.int::*irq-stack*) (cdr sys.int::*irq-stack*))
+                     (+ (car sys.int::*page-fault-stack*) (cdr sys.int::*page-fault-stack*))
+                     sys.int::*bsp-idle-thread*)
+  (setf (cpu-state *bsp-cpu*) :online)
   ;; Load various bits.
   (setf (sys.int::msr +msr-ia32-fs-base+)
-        (sys.int::lisp-object-address sys.int::*bsp-info-vector*))
-  (load-cpu-bits sys.int::*bsp-info-vector*))
+        (sys.int::lisp-object-address *bsp-cpu*))
+  (load-cpu-bits *bsp-cpu*))
 
 (sys.int::defglobal *initial-pml4*)
 
@@ -642,7 +640,7 @@ TLB shootdown must be protected by the VM lock."
   (sys.lap-x86:movcr :cr3 :rax)
   ;; Load RSP with the wired stack.
   (sys.lap-x86:fs)
-  (sys.lap-x86:mov64 :rsp (:object nil #.+cpu-info-wired-stack-offset+))
+  (sys.lap-x86:mov64 :rsp (:object-location nil #.+cpu-wired-stack-pointer+))
   ;; And finally, call %%AP-ENTRY-POINT.
   (sys.lap-x86:mov64 :rax (:rbx #.+ap-bootstrap-ap-entry-point-offset+))
   ;; Fake return address
@@ -685,15 +683,14 @@ TLB shootdown must be protected by the VM lock."
 ;; CR4 configured to enable SSE.
 (defun %%ap-entry-point ()
   ;; CPU vector has been configured for us, just load the required bits.
-  (load-cpu-bits (local-cpu-info))
+  (load-cpu-bits (local-cpu))
   (lapic-setup)
   ;; Signal that this CPU has booted successfully.
-  (let ((old (sys.int::cas (cpu-state (local-cpu-object)) :offline :online)))
+  (let ((old (sys.int::cas (cpu-state (local-cpu)) :offline :online)))
     (when (not (eql old :offline))
       ;; The system decided that this CPU failed to come up for some reason.
       (loop
-         (%hlt))))
-  (incf *n-up-cpus*)
+         (sys.int::%hlt))))
   ;; Perform the initial thread switch to the idle thread.
   (let ((idle-thread (local-cpu-idle-thread)))
     (setf (sys.int::msr +msr-ia32-gs-base+) (sys.int::lisp-object-address idle-thread))
@@ -811,7 +808,7 @@ TLB shootdown must be protected by the VM lock."
 
 (defun lapic-timer-active ()
   ;; Preemption timers are per-CPU...
-  (cpu-lapic-timer-active (local-cpu-object)))
+  (cpu-lapic-timer-active (local-cpu)))
 
 (defun preemption-timer-reset (time-remaining)
   "Configure the preemption timer to go off after TIME-REMAINING internal time units.
@@ -825,10 +822,10 @@ This is a one-shot timer and must be reset after firing."
       (cond (time-remaining
              (setf (lapic-reg +lapic-reg-timer-initial-count+)
                    (max 1 (lapic-timer-convert-from-internal-time-units time-remaining)))
-             (setf (cpu-lapic-timer-active (local-cpu-object)) t))
+             (setf (cpu-lapic-timer-active (local-cpu)) t))
             (t
              (setf (lapic-reg +lapic-reg-timer-initial-count+) 0)
-             (setf (cpu-lapic-timer-active (local-cpu-object)) nil)))
+             (setf (cpu-lapic-timer-active (local-cpu)) nil)))
       old-remaining)))
 
 (defun preemption-timer-remaining ()
@@ -923,17 +920,12 @@ This is a one-shot timer and must be reset after firing."
 (defun initialize-cpu ()
   (setf *lapic-address* (logand (sys.int::msr +msr-ia32-apic-base+)
                                 (lognot #xFFF)))
-  (map-physical-memory *lapic-address* #x1000 "LAPIC")
+  (map-physical-memory-early *lapic-address* #x1000 "LAPIC")
   (lapic-setup)
   (lapic-dump)
-  (map-physical-memory +ap-trampoline-physical-address+ #x1000 "AP Bootstrap")
+  (map-physical-memory-early +ap-trampoline-physical-address+ #x1000 "AP Bootstrap")
   (setf *initial-pml4* (generate-initial-pml4))
   (copy-ap-trampoline #'%%ap-bootstrap '%%ap-entry-point +ap-trampoline-physical-address+ *initial-pml4*)
-  (when (not (boundp '*bsp-cpu*))
-    (setf *bsp-cpu* (make-cpu :info-vector sys.int::*bsp-info-vector*
-                              :idle-thread sys.int::*bsp-idle-thread*
-                              :state :online))
-    (setf (sys.int::%object-ref-t sys.int::*bsp-info-vector* +cpu-info-cpu-object-offset+) *bsp-cpu*))
   (setf (cpu-page-fault-hook *bsp-cpu*) nil)
   (setf (cpu-apic-id *bsp-cpu*) (ldb (byte 8 24) (lapic-reg +lapic-reg-id+)))
   (debug-print-line "BSP has LAPIC ID " (cpu-apic-id *bsp-cpu*))
@@ -949,35 +941,32 @@ This is a one-shot timer and must be reset after firing."
   (hook-user-interrupt +tlb-shootdown-ipi-vector+ 'tlb-shootdown-ipi-handler)
   (hook-user-interrupt +magic-button-ipi-vector+ 'magic-button-ipi-handler))
 
-(defun load-cpu-bits (vector)
-  (let* ((addr (- (sys.int::lisp-object-address vector)
+(defun load-cpu-bits (cpu)
+  (let* ((addr (- (sys.int::lisp-object-address cpu)
                   sys.int::+tag-object+)))
-    (%lgdt (1- (* 4 8)) (+ addr 8 (* +cpu-info-gdt-offset+ 8)))
-    (%lidt (1- (* 256 16)) (+ addr 8 (* +cpu-info-idt-offset+ 8)))
+    (%lgdt (1- (* 4 8)) (+ addr 8 (mezzano.runtime::location-offset +cpu-gdt-null+)))
+    (%lidt (1- (* 256 16)) (+ addr 8 (mezzano.runtime::location-offset +cpu-idt+)))
     (%ltr 16)
     (%load-cs 8)))
 
-(defun page-fault-idt-entry-flags (cpu-vec)
-  (sys.int::%object-ref-unsigned-byte-32
-   cpu-vec (+ (* +cpu-info-idt-offset+ 2) (* 14 4) 1)))
+(defun page-fault-idt-entry-flags (cpu)
+  (cpu-idt cpu (+ (* 14 4) 1)))
 
-(defun (setf page-fault-idt-entry-flags) (value cpu-vec)
-  (setf (sys.int::%object-ref-unsigned-byte-32
-         cpu-vec (+ (* +cpu-info-idt-offset+ 2) (* 14 4) 1))
-        value))
+(defun (setf page-fault-idt-entry-flags) (value cpu)
+  (setf (cpu-idt cpu (+ (* 14 4) 1)) value))
 
 (defun disable-page-fault-ist ()
-  (let* ((cpu-vec (local-cpu-info))
-         (current (page-fault-idt-entry-flags cpu-vec)))
-    (setf (page-fault-idt-entry-flags cpu-vec)
+  (let* ((cpu (local-cpu))
+         (current (page-fault-idt-entry-flags cpu)))
+    (setf (page-fault-idt-entry-flags cpu)
           (dpb +ist-disabled+ (byte 3 0) current))
     (not (eql (ldb (byte 3 0) current) +ist-disabled+))))
 
 (defun enable-page-fault-ist ()
-  (let* ((cpu-vec (local-cpu-info))
-         (current (page-fault-idt-entry-flags cpu-vec)))
+  (let* ((cpu (local-cpu))
+         (current (page-fault-idt-entry-flags cpu)))
     (ensure (eql (ldb (byte 3 0) current) +ist-disabled+) "page fault ist not disabled")
-    (setf (page-fault-idt-entry-flags cpu-vec)
+    (setf (page-fault-idt-entry-flags cpu)
           (dpb +ist-page-fault-stack+ (byte 3 0) current))))
 
 (defun restore-page-fault-ist (ist-state)
@@ -987,7 +976,7 @@ This is a one-shot timer and must be reset after firing."
 (defun arch-pre-panic ()
   ;; Disable all exception IST entries to make a token effort
   ;; at not clobbering any exception state if nested panics occur...
-  (let ((cpu-vec (local-cpu-info)))
+  (let ((cpu-vec (local-cpu)))
     (dotimes (i 32)
       (when (svref sys.int::*interrupt-service-routines* i)
         (set-idt-entry cpu-vec i
@@ -995,38 +984,31 @@ This is a one-shot timer and must be reset after firing."
                        :ist +ist-disabled+)))))
 
 (defun register-secondary-cpu (apic-id)
-  (let* ((info (mezzano.runtime::%allocate-object
-                sys.int::+object-tag-array-unsigned-byte-64+
-                1023 1023
-                :wired))
-         (idle-thread (make-ephemeral-thread #'idle-thread :runnable :name "AP Idle Thread" :priority :idle))
+  (let* ((idle-thread (make-ephemeral-thread #'idle-thread :runnable :name "AP Idle Thread" :priority :idle))
          (wired-stack (%allocate-stack (* 128 1024) t))
          (exception-stack (%allocate-stack (* 128 1024) t))
          (irq-stack (%allocate-stack (* 128 1024) t))
          (page-fault-stack (%allocate-stack (* 128 1024) t))
          (cpu (make-cpu :state :offline
-                        :info-vector info
                         :apic-id apic-id
                         :idle-thread idle-thread
                         :wired-stack wired-stack
                         :exception-stack exception-stack
                         :irq-stack irq-stack
                         :page-fault-stack page-fault-stack)))
-    (populate-cpu-info-vector info
-                              (+ (stack-base wired-stack) (stack-size wired-stack))
-                              (+ (stack-base exception-stack) (stack-size exception-stack))
-                              (+ (stack-base irq-stack) (stack-size irq-stack))
-                              (+ (stack-base page-fault-stack) (stack-size page-fault-stack))
-                              idle-thread)
-    (setf (sys.int::%object-ref-t info +cpu-info-cpu-object-offset+) cpu)
-    (debug-print-line "Registered new CPU " cpu " " info " " idle-thread " with APIC ID " apic-id)
+    (populate-cpu-info cpu
+                       (+ (stack-base wired-stack) (stack-size wired-stack))
+                       (+ (stack-base exception-stack) (stack-size exception-stack))
+                       (+ (stack-base irq-stack) (stack-size irq-stack))
+                       (+ (stack-base page-fault-stack) (stack-size page-fault-stack))
+                       idle-thread)
+    (debug-print-line "Registered new CPU " cpu " " idle-thread " with APIC ID " apic-id)
     (push-wired cpu *cpus*)))
 
 (defun boot-cpu (cpu)
-  (debug-print-line "Booting CPU " cpu "/" (cpu-apic-id cpu) " " (cpu-info-vector cpu))
+  (debug-print-line "Booting CPU " cpu "/" (cpu-apic-id cpu))
   (setf (physical-memref-t (+ +ap-trampoline-physical-address+ +ap-bootstrap-cpu-vector-offset+))
-        (cpu-info-vector cpu))
-  ;; FIXME: Delay after sending.
+        cpu)
   (let ((boot-vector (ash +ap-trampoline-physical-address+ -12)))
     (send-ipi (cpu-apic-id cpu) +ipi-type-init+ 0)
     (safe-sleep 0.01) ; 10ms
@@ -1041,10 +1023,11 @@ This is a one-shot timer and must be reset after firing."
          (return))
        (when (> (- (get-internal-run-time) start-time)
                 (* 5 internal-time-units-per-second))
-         (sys.int::cas (cpu-state (local-cpu-object)) :offline :timed-out)
+         (sys.int::cas (cpu-state (local-cpu)) :offline :timed-out)
          (return))))
-  (case (cpu-state (local-cpu-object))
+  (case (cpu-state cpu)
     (:online
+     (incf *n-up-cpus*)
      (debug-print-line "CPU " cpu "/" (cpu-apic-id cpu) " booted"))
     (t
      (debug-print-line "CPU " cpu "/" (cpu-apic-id cpu) " timed out"))))

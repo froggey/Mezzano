@@ -115,6 +115,8 @@
 ;; The code translates the scrolling wheel to buttons 4 and 5 using
 ;; just one bit of resolution instead of three
 
+(defconstant +ps/2-intellimouse-id+ #x03)
+
 (defun mouse-forwarder-thread ()
   ;; Read bytes from the mouse and turn them into HID events.
   (loop
@@ -124,7 +126,9 @@
          (when (logtest byte-1 #b00001000)
            (let* ((byte-2 (mezzano.supervisor:ps/2-aux-read))
                   (byte-3 (mezzano.supervisor:ps/2-aux-read))
-                  (byte-4 (mezzano.supervisor:ps/2-aux-read))
+                  (byte-4 (if (eql mezzano.supervisor:*ps/2-mouse-device-id* +ps/2-intellimouse-id+)
+                              (mezzano.supervisor:ps/2-aux-read)
+                              0))
                   (x-motion (logior byte-2 (if (logtest byte-1 #b00010000) -256 0)))
                   (y-motion (- (logior byte-3 (if (logtest byte-1 #b00100000) -256 0))))
                   (button-4 (if (> #x08 byte-4 #x00) #b01000 0))

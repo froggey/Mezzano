@@ -248,8 +248,7 @@
 
 (defun match-transform (call result-type target-architecture)
   (let ((name (ast-name call)))
-    (when (or (eql name 'sys.int::binary-logand)
-              (not (eql (second (assoc name (ast-inline-declarations call))) 'notinline)))
+    (when (not (eql (second (assoc name (ast-inline-declarations call))) 'notinline))
       (dolist (transform (get-transforms name) nil)
         (when (match-one-transform transform call result-type target-architecture)
           (return transform))))))
@@ -274,9 +273,102 @@
              inherit)
         nil)))
 
-;;; Unboxed fixnum arithmetic.
+;;; Unboxed (Unsigned-Byte 64) arithmetic.
 ;;; These only apply at safety 0 as they can produce invalid values which
-;;; can damage the system if the tpe declarations are incorrect;.
+;;; can damage the system if the type declarations are incorrect;.
+
+(defmacro define-fast-ub64-transform-arith-two-arg (binary-fn fast-fn &key (result '(unsigned-byte 64)))
+  `(define-transform ,binary-fn ((lhs (unsigned-byte 64)) (rhs (unsigned-byte 64)))
+      ((:result-type ,result)
+       (:optimize (= safety 0) (= speed 3)))
+     `(the (unsigned-byte 64) (call ,',fast-fn ,lhs ,rhs))))
+
+(define-fast-ub64-transform-arith-two-arg sys.int::binary-+ mezzano.runtime::%fast-ub64-+)
+(define-fast-ub64-transform-arith-two-arg sys.int::binary-- mezzano.runtime::%fast-ub64--)
+(define-fast-ub64-transform-arith-two-arg sys.int::binary-* mezzano.runtime::%fast-ub64-*)
+(define-fast-ub64-transform-arith-two-arg sys.int::%truncate mezzano.runtime::%fast-ub64-truncate)
+(define-fast-ub64-transform-arith-two-arg sys.int::binary-logior mezzano.runtime::%fast-ub64-logior :result t)
+(define-fast-ub64-transform-arith-two-arg sys.int::binary-logxor mezzano.runtime::%fast-ub64-logxor :result t)
+(define-fast-ub64-transform-arith-two-arg sys.int::binary-logand mezzano.runtime::%fast-ub64-logand :result t)
+
+;; The limit on COUNT ensures that the shift count is small enough not to need
+;; masking.
+(define-transform mezzano.runtime::right-shift ((integer (unsigned-byte 64)) (count (unsigned-byte 6)))
+    ((:optimize (= safety 0) (= speed 3)))
+  `(the (unsigned-byte 64)
+        (call mezzano.runtime::%ub64-right-shift-in-limits ,integer ,count)))
+
+;;; (Unsigned-Byte 64) comparisons.
+
+(define-transform eql ((lhs (unsigned-byte 64)) (rhs (unsigned-byte 64)))
+    ((:optimize (= safety 0) (= speed 3)))
+  `(call mezzano.runtime::%ub64-= ,lhs ,rhs))
+
+(define-transform sys.int::binary-= ((lhs (unsigned-byte 64)) (rhs (unsigned-byte 64)))
+    ((:optimize (= safety 0) (= speed 3)))
+  `(call mezzano.runtime::%ub64-= ,lhs ,rhs))
+
+(define-transform sys.int::binary-< ((lhs (unsigned-byte 64)) (rhs (unsigned-byte 64)))
+    ((:optimize (= safety 0) (= speed 3)))
+  `(call mezzano.runtime::%ub64-< ,lhs ,rhs))
+
+(define-transform sys.int::binary->= ((lhs (unsigned-byte 64)) (rhs (unsigned-byte 64)))
+    ((:optimize (= safety 0) (= speed 3)))
+  `(call not (call mezzano.runtime::%ub64-< ,lhs ,rhs)))
+
+(define-transform sys.int::binary-> ((lhs (unsigned-byte 64)) (rhs (unsigned-byte 64)))
+    ((:optimize (= safety 0) (= speed 3)))
+  `(call mezzano.runtime::%ub64-< ,rhs ,lhs))
+
+(define-transform sys.int::binary-<= ((lhs (unsigned-byte 64)) (rhs (unsigned-byte 64)))
+    ((:optimize (= safety 0) (= speed 3)))
+  `(call not (call mezzano.runtime::%ub64-< ,rhs ,lhs)))
+
+;;; Unboxed (Signed-Byte 64) arithmetic.
+;;; These only apply at safety 0 as they can produce invalid values which
+;;; can damage the system if the type declarations are incorrect;.
+
+(defmacro define-fast-sb64-transform-arith-two-arg (binary-fn fast-fn &key (result '(signed-byte 64)))
+  `(define-transform ,binary-fn ((lhs (signed-byte 64)) (rhs (signed-byte 64)))
+      ((:result-type ,result)
+       (:optimize (= safety 0) (= speed 3)))
+     `(the (signed-byte 64) (call ,',fast-fn ,lhs ,rhs))))
+
+(define-fast-sb64-transform-arith-two-arg sys.int::binary-+ mezzano.runtime::%fast-sb64-+)
+(define-fast-sb64-transform-arith-two-arg sys.int::binary-- mezzano.runtime::%fast-sb64--)
+(define-fast-sb64-transform-arith-two-arg sys.int::binary-* mezzano.runtime::%fast-sb64-*)
+(define-fast-sb64-transform-arith-two-arg sys.int::%truncate mezzano.runtime::%fast-sb64-truncate)
+(define-fast-sb64-transform-arith-two-arg sys.int::binary-logior mezzano.runtime::%fast-sb64-logior :result t)
+(define-fast-sb64-transform-arith-two-arg sys.int::binary-logxor mezzano.runtime::%fast-sb64-logxor :result t)
+(define-fast-sb64-transform-arith-two-arg sys.int::binary-logand mezzano.runtime::%fast-sb64-logand :result t)
+
+;;; (Signed-Byte 64) comparisons.
+
+(define-transform sys.int::binary-= ((lhs (signed-byte 64)) (rhs (signed-byte 64)))
+    ((:optimize (= safety 0) (= speed 3)))
+  `(call mezzano.runtime::%sb64-= ,lhs ,rhs))
+
+(define-transform sys.int::binary-< ((lhs (signed-byte 64)) (rhs (signed-byte 64)))
+    ((:optimize (= safety 0) (= speed 3)))
+  `(call mezzano.runtime::%sb64-< ,lhs ,rhs))
+
+(define-transform sys.int::binary->= ((lhs (signed-byte 64)) (rhs (signed-byte 64)))
+    ((:optimize (= safety 0) (= speed 3)))
+  `(call not (call mezzano.runtime::%sb64-< ,lhs ,rhs)))
+
+(define-transform sys.int::binary-> ((lhs (signed-byte 64)) (rhs (signed-byte 64)))
+    ((:optimize (= safety 0) (= speed 3)))
+  `(call mezzano.runtime::%sb64-< ,rhs ,lhs))
+
+(define-transform sys.int::binary-<= ((lhs (signed-byte 64)) (rhs (signed-byte 64)))
+    ((:optimize (= safety 0) (= speed 3)))
+  `(call not (call mezzano.runtime::%sb64-< ,rhs ,lhs)))
+
+
+;;; Unboxed fixnum arithmetic.
+;;; Must come after the UB64/SB64 transforms.
+;;; These only apply at safety 0 as they can produce invalid values which
+;;; can damage the system if the type declarations are incorrect;.
 
 (defmacro define-fast-fixnum-transform-arith-two-arg (binary-fn fast-fn &key (result 'fixnum))
   `(define-transform ,binary-fn ((lhs fixnum) (rhs fixnum))
@@ -313,6 +405,10 @@
   `(call sys.int::%one-arg-round ,number))
 
 ;;; Fixnum comparisons.
+
+(define-transform eql ((lhs fixnum) (rhs fixnum))
+    ((:optimize (= safety 0) (= speed 3)))
+  `(call eq ,lhs ,rhs))
 
 (define-transform sys.int::binary-= ((lhs fixnum) (rhs fixnum))
     ((:optimize (= safety 0) (= speed 3)))
@@ -517,9 +613,7 @@
           ((zerop adjust)
            `(call sys.int::%bounds-check ,array ,index))
           (t
-           ;; FIXME: This isn't quite right, it'll miss cases where INDEX
-           ;; is slightly negative.
-           `(call sys.int::%bounds-check ,array (call %fast-fixnum-+ ,index ',adjust))))))
+           `(call sys.int::%bounds-check-range ,array ,index ',adjust)))))
 
 (defun insert-type-check (object type &optional (expected-type type))
   `(let ((object ,object)) ; needed to make source-fragment work
@@ -626,7 +720,7 @@
 
 (define-fast-array-transform t sys.int::%object-ref-t)
 (define-fast-array-transform fixnum sys.int::%object-ref-t)
-(define-fast-array-transform (unsigned-byte 64) sys.int::%object-ref-unsigned-byte-64)
+(define-fast-array-transform (unsigned-byte 64) sys.int::%%object-ref-unsigned-byte-64)
 (define-fast-array-transform (unsigned-byte 32) sys.int::%%object-ref-unsigned-byte-32)
 (define-fast-array-transform (unsigned-byte 16) sys.int::%%object-ref-unsigned-byte-16)
 (define-fast-array-transform (unsigned-byte 8) sys.int::%%object-ref-unsigned-byte-8)
@@ -847,6 +941,10 @@
 
 (define-type-predicate-transform consp cons)
 (define-type-predicate-transform vectorp vector)
+
+(define-transform sys.int::unsigned-byte-64-p ((object (unsigned-byte 64)))
+    ((:optimize (= safety 0) (= speed 3)))
+  `'t)
 
 (define-transform sys.int::fixnump ((object fixnum))
     ((:optimize (= safety 0) (= speed 3)))

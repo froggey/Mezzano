@@ -441,11 +441,8 @@
         (env:make-stack environment (* 128 1024)))
   (setf (env:cross-symbol-value environment 'sys.int::*bsp-wired-stack*)
         (env:make-stack environment (* 128 1024)))
-  (setf (env:cross-symbol-value environment 'sys.int::*bsp-info-vector*)
-        (env:make-array environment (1- (/ (* 2 #x1000) 8))
-                        :element-type '(unsigned-byte 64)
-                        :initial-element 0
-                        :area :wired))
+  (setf (env:cross-symbol-value environment 'mezzano.supervisor::*bsp-cpu*)
+        (env:make-structure environment 'mezzano.supervisor::cpu))
   (env:add-special environment
                    :symbol-binding-cache-sentinel
                    (env:symbol-global-value-cell
@@ -525,6 +522,7 @@
                 (write:image-header-entry-fref image-header)
                 (+ (write:image-header-entry-fref image-header) 23))
         (format t ";; Initial-Thread at ~X~%" (write:image-header-initial-thread image-header))
+        (format t ";; Initial stack pointer is ~X~%" (ser:image-initial-stack-pointer image))
         (cond ((streamp image-name)
                (write:write-image image image-name image-header
                                  :disk-header-path header-path

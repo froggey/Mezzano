@@ -888,3 +888,28 @@ VALUE may be nil to make the fref unbound."
            (t nil)))
         (t
          :immediate)))
+
+(defun read-lookahead-substitute (value proxy)
+  "Traverse VALUE and subobjects, substituting uses of PROXY with VALUE."
+  (let ((seen-objects (make-hash-table)))
+    (labels ((frob (object)
+               ;; Avoid walking into objects that might pull in the entire heap.
+               (when (and (not (symbolp object))
+                          (not (function-reference-p object))
+                          (not (mezzano.runtime::symbol-value-cell-p object))
+                          (not (packagep object))
+                          (not (layout-p object)))
+                 (walk-object-references
+                  object
+                  (lambda (container inner-object index)
+                    (when (eql inner-object proxy)
+                      (cond ((eql index :car)
+                             (setf (car container) value))
+                            ((eql index :cdr)
+                             (setf (cdr container) value))
+                            (t
+                             (setf (%object-ref-t container index) value))))
+                    (when (not (gethash inner-object seen-objects))
+                      (setf (gethash inner-object seen-objects) t)
+                      (frob inner-object)))))))
+      (frob value))))

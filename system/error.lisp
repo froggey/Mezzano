@@ -421,6 +421,13 @@
   ;; This is currently worked around with a hack in FUNCTION-FROM-FRAME.
   (restart-case
       (error 'invalid-argument-error :function function :arguments args)
+    (specify-arguments (new-arguments)
+      :interactive (lambda ()
+                     (format *query-io* "Enter a list of arguments to call ~S with (evaluated): " function)
+                     (finish-output *query-io*)
+                     (list (eval (read *query-io*))))
+      :report "Supply new arguments."
+      (apply function new-arguments))
     (use-value (&rest values)
       :interactive (lambda ()
                      (format *query-io* "Enter a value to return (evaluated): ")
@@ -435,6 +442,11 @@
 (defun raise-bounds-error (array index)
   (error "Index ~D out of bounds for array ~S." index array))
 
+(defun raise-bounds-range-error (array index range)
+  (error "Index ~D out of bounds for array ~S. Should be non-negative and less than ~S."
+         index array
+         (- (array-dimension array 0) range)))
+
 (defun raise-complex-bounds-error (array index dim axis)
   (error "Subscript ~S is invalid for array ~S axis ~D, should be non-negative and less than ~S."
          index array axis dim))
@@ -444,6 +456,13 @@
 
 (defun raise-bad-block (name)
   (error 'unavailable-block-error :tag name))
+
+(define-condition stack-overflow (storage-condition)
+  ()
+  (:report "Stack overflow"))
+
+(defun raise-stack-overflow ()
+  (error 'stack-overflow))
 
 (in-package :mezzano.delimited-continuations)
 

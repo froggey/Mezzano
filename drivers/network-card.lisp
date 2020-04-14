@@ -108,6 +108,8 @@ All currently registered NICs will immediately be sent to ADD-MBOX."
 
 (defun device-received-packet (nic packet)
   "Helper function that should be called by NIC's driver when a packet is received."
+  (mezzano.supervisor::set-network-light t)
+  (mezzano.supervisor::set-network-light nil)
   (let ((prob *netmangler-receive-drop-probability*))
     (when (and prob (< (random 1.0) prob))
       (sys.int::atomic-incf *netmangler-receive-drop-count*)

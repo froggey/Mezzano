@@ -43,9 +43,9 @@ Can be :TOP to position them at the top of the screen, :BOTTOM to position them 
         (layout (ecase (boot-field +boot-information-framebuffer-layout+)
                   (1 :x8r8g8b8)
                   (5 :r8g8b8))))
-    (map-physical-memory (logand phys (lognot #xFFF))
-                         (logand (+ (* height pitch) (logand phys #xFFF) #xFFF) (lognot #xFFF))
-                         "System Framebuffer")
+    (map-physical-memory-early (logand phys (lognot #xFFF))
+                               (logand (+ (* height pitch) (logand phys #xFFF) #xFFF) (lognot #xFFF))
+                               "System Framebuffer")
     (video-set-framebuffer phys width height pitch layout)))
 
 (defun framebuffer-dummy-damage (x y w h in-unsafe-context-p)

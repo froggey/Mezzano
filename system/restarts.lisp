@@ -144,7 +144,7 @@
 
 )
 
-(defmacro restart-case (restartable-form &rest clauses)
+(defmacro restart-case (&environment env restartable-form &rest clauses)
   (let ((block-name (gensym))
         (arguments (gensym))
         (restart-bindings '())
@@ -155,12 +155,33 @@
         (push binding restart-bindings)
         (push label restart-bodies)
         (push body restart-bodies)))
-    `(block ,block-name
-       (let ((,arguments nil))
-         (tagbody
-            (restart-bind ,(reverse restart-bindings)
-              (return-from ,block-name ,restartable-form))
-            ,@(reverse restart-bodies))))))
+    (let ((expanded-restartable-form (macroexpand restartable-form env)))
+      (cond ((and (listp expanded-restartable-form)
+                  (member (first expanded-restartable-form)
+                          '(signal error cerror warn)))
+             (let ((condition (gensym "CONDITION")))
+               ;; TODO: Do this without the calls to FIND-RESTART.
+               ;; This'll require open-coding the RESTART-BIND.
+               `(let ((,condition (coerce-to-condition ',(ecase (first expanded-restartable-form)
+                                                           ((signal) 'simple-condition)
+                                                           ((error cerror) 'simple-error)
+                                                           ((warn) 'simple-warning))
+                                                       ,(second expanded-restartable-form)
+                                                       (list ,@(cddr expanded-restartable-form)))))
+                  (restart-case
+                      (with-condition-restarts ,condition
+                          (list ,@(loop
+                                     for clause in clauses
+                                     collect `(find-restart ',(first clause))))
+                        (,(first expanded-restartable-form) ,condition))
+                    ,@clauses))))
+            (t
+             `(block ,block-name
+                (let ((,arguments nil))
+                  (tagbody
+                     (restart-bind ,(reverse restart-bindings)
+                       (return-from ,block-name ,restartable-form))
+                     ,@(reverse restart-bodies)))))))))
 
 (defmacro with-simple-restart ((name format-control &rest format-arguments) &body forms)
   `(restart-case (progn ,@forms)

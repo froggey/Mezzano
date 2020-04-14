@@ -221,6 +221,7 @@
 (defpackage :mezzano.debug
   (:use :cl)
   (:export
+   #:*global-debugger*
    ;; Backtraces & frames.
    #:backtrace
    #:map-backtrace
@@ -363,6 +364,12 @@
 
            #:standard-instance-access
            #:funcallable-standard-instance-access
+
+           #:standard-accessor-method
+           #:standard-reader-method
+           #:standard-writer-method
+
+           #:find-method-combination
            ))
 
 ;;; Supervisor manages the hardware, doing paging and memory management.
@@ -437,6 +444,9 @@
            #:thread-yield
            #:all-threads
            #:without-footholds
+           #:with-footholds
+           #:with-local-footholds
+           #:allow-with-footholds
            #:establish-thread-foothold
            #:terminate-thread
            #:thread-join
@@ -510,6 +520,7 @@
            #:safe-without-interrupts
            #:with-symbol-spinlock
            #:map-physical-memory
+           #:map-physical-memory-early
            #:add-deferred-boot-action
            #:logical-core-count
            #:get-high-precision-timer
@@ -544,6 +555,7 @@
            ;; Temporary drivers.
            #:ps/2-key-read
            #:ps/2-aux-read
+           #:*ps/2-mouse-device-id*
            #:current-framebuffer
            #:framebuffer-blit
            #:framebuffer-width

@@ -640,10 +640,10 @@
     sys.int::binary-logior sys.int::binary-logxor sys.int::binary-logand
     mezzano.runtime::%fixnum-left-shift))
 
-(defun mod-n-transform-candidate-p (value mask)
+(defun mod-n-transform-candidate-p (value mask mask-type)
   ;; Mask must be a known positive power-of-two minus 1 fixnum.
   (when (not (and (typep mask 'ast-quote)
-                  (typep (ast-value mask) 'fixnum)
+                  (typep (ast-value mask) mask-type)
                   (> (ast-value mask) 0)
                   (zerop (logand (ast-value mask)
                                  (1+ (ast-value mask))))))
@@ -654,7 +654,7 @@
              (eql (length (arguments value)) 2)
              (match-transform-argument 'float (first (arguments value)))
              (match-transform-argument '(eql 1) (second (arguments value))))
-    ;; Conversion from single-float to integer.
+    ;; Conversion from float to integer.
     (return-from mod-n-transform-candidate-p
       t))
   (when (or (and (typep value 'ast-call)
@@ -675,8 +675,8 @@
   (when (not (and (typep value 'ast-call)
                   (member (name value) *mod-n-arithmetic-functions*)
                   (eql (length (arguments value)) 2)
-                  (match-transform-argument 'fixnum (first (arguments value)))
-                  (match-transform-argument 'fixnum (second (arguments value)))))
+                  (match-transform-argument mask-type (first (arguments value)))
+                  (match-transform-argument mask-type (second (arguments value)))))
     (return-from mod-n-transform-candidate-p
       nil))
   t)
@@ -691,15 +691,25 @@
 (defun simp-logand (form)
   (let ((lhs (first (arguments form)))
         (rhs (second (arguments form))))
-    (cond ((mod-n-transform-candidate-p rhs lhs)
+    (cond ((mod-n-transform-candidate-p rhs lhs 'fixnum)
            ;; Insert appropriate THE form.
            (change-made)
            (setf (second (arguments form)) (ast `(the fixnum ,rhs)
                                                 rhs)))
-          ((mod-n-transform-candidate-p lhs rhs)
+          ((mod-n-transform-candidate-p lhs rhs 'fixnum)
            ;; Insert appropriate THE form.
            (change-made)
            (setf (first (arguments form)) (ast `(the fixnum ,lhs)
+                                               lhs)))
+          ((mod-n-transform-candidate-p rhs lhs '(unsigned-byte 64))
+           ;; Insert appropriate THE form.
+           (change-made)
+           (setf (second (arguments form)) (ast `(the (unsigned-byte 64) ,rhs)
+                                                rhs)))
+          ((mod-n-transform-candidate-p lhs rhs '(unsigned-byte 64))
+           ;; Insert appropriate THE form.
+           (change-made)
+           (setf (first (arguments form)) (ast `(the (unsigned-byte 64) ,lhs)
                                                lhs))))
     form))
 
@@ -1111,6 +1121,20 @@ First return value is a list of elements, second is the final dotted component (
          (simp-eql form))
         ((eql (name form) 'ash)
          (simp-ash form))
+        ((and (eql (name form) 'eq)
+              (match-optimize-settings form '((= safety 0) (= speed 3)))
+              (eql (length (arguments form)) 2)
+              (typep (first (arguments form)) 'ast-the)
+              (compiler-type-equal-p (ast-the-type (first (arguments form)))
+                                     '(unsigned-byte 64))
+              (quoted-form-p (second (arguments form)))
+              (integerp (value (second (arguments form)))))
+         ;; Transform (EQ (THE UB64 val) 'INTEGER) to %UB64-=
+         (change-made)
+         (ast `(call mezzano.runtime::%ub64-=
+                     ,(first (arguments form))
+                     ,(second (arguments form)))
+              form))
         ((and (eql (name form) 'array-rank)
               (eql (length (arguments form)) 1)
               (match-optimize-settings form '((= safety 0) (= speed 3))))

@@ -22,20 +22,22 @@
 (defun call-with-package-system-lock (thunk)
    (if (mezzano.supervisor:mutex-held-p *package-system-lock*)
        (funcall thunk)
-       (mezzano.supervisor:with-mutex (*package-system-lock*)
-         (handler-bind
-             ;; Release the mutex when errors are signalled. This way the
-             ;; debugger will run with the lock unheld but restarts will
-             ;; properly reacquire it.
-             ;; This is required when the debugger may span multiple threads,
-             ;; like slime/swank's does.
-             ((error (lambda (c)
-                       (when (mezzano.supervisor:mutex-held-p *package-system-lock*)
-                         (mezzano.supervisor:release-mutex *package-system-lock*)
-                         (unwind-protect
-                              (error c)
-                           (mezzano.supervisor:acquire-mutex *package-system-lock*))))))
-           (funcall thunk)))))
+       (mezzano.supervisor:without-footholds
+         (mezzano.supervisor:with-mutex (*package-system-lock*)
+           (handler-bind
+               ;; Release the mutex when errors are signalled. This way the
+               ;; debugger will run with the lock unheld but restarts will
+               ;; properly reacquire it.
+               ;; This is required when the debugger may span multiple threads,
+               ;; like slime/swank's does.
+               ((error (lambda (c)
+                         (when (mezzano.supervisor:mutex-held-p *package-system-lock*)
+                           (mezzano.supervisor:release-mutex *package-system-lock*)
+                           (unwind-protect
+                                (mezzano.supervisor:with-local-footholds
+                                  (error c))
+                             (mezzano.supervisor:acquire-mutex *package-system-lock*))))))
+             (funcall thunk))))))
 
 (defmacro with-package-system-lock ((&key) &body body)
   `(call-with-package-system-lock (lambda () ,@body)))
@@ -475,15 +477,20 @@
 (defun find-all-symbols (string)
   (setf string (string string))
   (with-package-system-lock ()
-    (let ((symbols '()))
+    (let ((symbols '())
+          (dedup (make-hash-table)))
       (dolist (p (list-all-packages))
         (multiple-value-bind (sym foundp)
             (gethash string (package-%internal-symbols p))
-          (when foundp
-            (pushnew sym symbols)))
+          (when (and foundp
+                     (not (gethash sym dedup)))
+            (setf (gethash sym dedup) t)
+            (push sym symbols)))
         (multiple-value-bind (sym foundp)
             (gethash string (package-%external-symbols p))
-          (when foundp
+          (when (and foundp
+                     (not (gethash sym dedup)))
+            (setf (gethash sym dedup) t)
             (pushnew sym symbols))))
       symbols)))
 
@@ -549,11 +556,11 @@
                            ((:shadowing-imports shadow-import-list))
                            local-nicknames)
   (with-package-system-lock ()
-    (let ((p (find-package name)))
+    (let ((p (find-global-package name)))
       (cond (p ;; Add nicknames.
              (dolist (n nicknames)
-               (when (and (find-package n)
-                          (not (eql (find-package n) p)))
+               (when (and (find-global-package n)
+                          (not (eql (find-global-package n) p)))
                  (error 'simple-package-error
                         :package p
                         :format-control "A package named ~S already exists."

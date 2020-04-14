@@ -38,6 +38,18 @@ Currently disabled by default as it has a severe performance impact.")
        for sym in symbols
        collect (list sym (symbol-value sym)))))
 
+(defvar *compilation-unit-active* nil)
+
+(defun call-with-compilation-unit (thunk &key override)
+  (if (and (not override) *compilation-unit-active*)
+      (funcall thunk)
+      (let ((*compilation-unit-active* t))
+        (funcall thunk))))
+
+(defmacro with-compilation-unit ((&whole keys &key override) &body body)
+  (declare (ignore override))
+  `(call-with-compilation-unit (lambda () (progn ,@body)) ,@keys))
+
 (defclass target () ())
 (defclass x86-64-target (target) ())
 (defclass arm64-target (target) ())
@@ -104,32 +116,34 @@ Currently disabled by default as it has a severe performance impact.")
   `(quote ,(eval form)))
 
 (defun compile (name &optional definition)
-  (unless definition
-    (setf definition (or (when (symbolp name) (macro-function name))
-                         (fdefinition name))))
-  (when (functionp definition)
-    (when (or (compiled-function-p definition)
-              ;; ###: Should generic functions be compiled functions?
-              (typep definition 'generic-function))
-      (return-from compile
-        (values definition nil nil)))
-    (multiple-value-bind (lambda-expression env)
-        (function-lambda-expression definition)
-      (when (null lambda-expression)
-        (error "No source information available for ~S." definition))
-      (when env
-        (error "TODO: cannot compile functions defined outside the null lexical environment."))
-      (setf definition lambda-expression)))
-  (multiple-value-bind (fn warnings-p errors-p)
-      (let ((*load-time-value-hook* 'eval-load-time-value)
-            (*gensym-counter* 0))
-        (compile-lambda definition))
-    (cond (name
-           (if (and (symbolp name) (macro-function name))
-               (setf (macro-function name) fn)
-               (setf (fdefinition name) fn))
-           (values name warnings-p errors-p))
-          (t (values fn warnings-p errors-p)))))
+  (with-compilation-unit ()
+    (unless definition
+      (setf definition (or (when (symbolp name) (macro-function name))
+                           (fdefinition name))))
+    (when (functionp definition)
+      (when (or (compiled-function-p definition)
+                ;; ###: Should generic functions be compiled functions?
+                (typep definition 'generic-function))
+        (return-from compile
+          (values definition nil nil)))
+      (multiple-value-bind (lambda-expression env)
+          (function-lambda-expression definition)
+        (when (null lambda-expression)
+          (error "No source information available for ~S." definition))
+        (when env
+          (error "TODO: cannot compile functions defined outside the null lexical environment."))
+        (setf definition lambda-expression)))
+    (with-compilation-unit ()
+      (multiple-value-bind (fn warnings-p errors-p)
+          (let ((*load-time-value-hook* 'eval-load-time-value)
+                (*gensym-counter* 0))
+            (compile-lambda definition))
+        (cond (name
+               (if (and (symbolp name) (macro-function name))
+                   (setf (macro-function name) fn)
+                   (setf (fdefinition name) fn))
+               (values name warnings-p errors-p))
+              (t (values fn warnings-p errors-p)))))))
 
 (defvar *current-lambda* nil
   "A lambda-information struct for the lambda currently being translated.")

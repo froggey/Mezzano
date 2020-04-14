@@ -128,7 +128,7 @@
   (let ((inlined-form (expand-inline-function form (name form) (arguments form) architecture)))
     (cond (inlined-form
            (change-made)
-           inlined-form)
+           (il-form inlined-form architecture))
           (t form))))
 
 (defmethod il-form ((form lexical-variable) architecture)

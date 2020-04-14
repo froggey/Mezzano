@@ -12,6 +12,9 @@
 (deftype array-axis ()
   `(integer 0 (,array-rank-limit)))
 
+(deftype array-index ()
+  `(integer 0 (,array-dimension-limit)))
+
 (eval-when (:compile-toplevel :load-toplevel :execute)
 (defun compile-array-type-1 (object base-predicate element-type dimensions)
   `(and (,base-predicate ,object)

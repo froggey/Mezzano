@@ -264,20 +264,20 @@ the old or new values are expected to be unbound.")
                                        :lambda-list '(object)
                                        :qualifiers ()
                                        :specializers (list (find-class 'standard-object))
-                                       :function (lambda (method next-emfun)
-                                                   (declare (ignore method next-emfun))
-                                                   (lambda (object)
-                                                     (slot-value object slot-name)))
+                                       :fast-function (lambda (method next-emfun)
+                                                        (declare (ignore method next-emfun))
+                                                        (lambda (object)
+                                                          (slot-value object slot-name)))
                                        :slot-definition direct-slot))
         (std-add-method gf
                         (make-instance 'standard-reader-method
                                        :lambda-list '(object)
                                        :qualifiers ()
                                        :specializers (list (find-class 'structure-object))
-                                       :function (lambda (method next-emfun)
-                                                   (declare (ignore method next-emfun))
-                                                   (lambda (object)
-                                                     (slot-value object slot-name)))
+                                       :fast-function (lambda (method next-emfun)
+                                                        (declare (ignore method next-emfun))
+                                                        (lambda (object)
+                                                          (slot-value object slot-name)))
                                        :slot-definition direct-slot))
         (setf (gethash slot-name *fast-slot-value-readers*) gf)))
     gf))
@@ -335,20 +335,20 @@ the old or new values are expected to be unbound.")
                                        :lambda-list '(value object)
                                        :qualifiers ()
                                        :specializers (list *the-class-t* (find-class 'standard-object))
-                                       :function (lambda (method next-emfun)
-                                                   (declare (ignore method next-emfun))
-                                                   (lambda (value object)
-                                                     (setf (slot-value object slot-name) value)))
+                                       :fast-function (lambda (method next-emfun)
+                                                        (declare (ignore method next-emfun))
+                                                        (lambda (value object)
+                                                          (setf (slot-value object slot-name) value)))
                                        :slot-definition direct-slot))
         (std-add-method gf
                         (make-instance 'standard-writer-method
                                        :lambda-list '(value object)
                                        :qualifiers ()
                                        :specializers (list *the-class-t* (find-class 'structure-object))
-                                       :function (lambda (method next-emfun)
-                                                   (declare (ignore method next-emfun))
-                                                   (lambda (value object)
-                                                     (setf (slot-value object slot-name) value)))
+                                       :fast-function (lambda (method next-emfun)
+                                                        (declare (ignore method next-emfun))
+                                                        (lambda (value object)
+                                                          (setf (slot-value object slot-name) value)))
                                        :slot-definition direct-slot))
         (setf (gethash slot-name *fast-slot-value-writers*) gf)))
     gf))
@@ -786,6 +786,16 @@ Other arguments are included directly."
          (list (find-class 'funcallable-standard-object)))
         (t (error "Unsupported metaclass ~S." metaclass))))
 
+(declaim (inline instance-of-p))
+(defun instance-of-p (object layout)
+  (and (sys.int::instance-p object)
+       (eq (sys.int::%instance-layout object) layout)))
+
+(declaim (inline funcallable-instance-of-p))
+(defun funcallable-instance-of-p (object layout)
+  (and (sys.int::funcallable-instance-p object)
+       (eq (sys.int::%instance-layout object) layout)))
+
 (defun std-class-p (metaclass)
   "Returns true if METACLASS is either STANDARD-CLASS or FUNCALLABLE-STANDARD-CLASS."
   (or (eq metaclass *the-class-standard-class*)
@@ -797,28 +807,23 @@ Other arguments are included directly."
 
 (defun standard-class-instance-p (object)
   "Returns true if OBJECT is an up-to-date instance of exactly STANDARD-CLASS."
-  (and (sys.int::instance-p object)
-       (eq (sys.int::%instance-layout object) *the-layout-standard-class*)))
+  (instance-of-p object *the-layout-standard-class*))
 
 (defun funcallable-standard-class-instance-p (object)
   "Returns true if OBJECT is an up-to-date instance of exactly FUNCALLABLE-STANDARD-CLASS."
-  (and (sys.int::instance-p object)
-       (eq (sys.int::%instance-layout object) *the-layout-funcallable-standard-class*)))
+  (instance-of-p object *the-layout-funcallable-standard-class*))
 
 (defun built-in-class-instance-p (object)
   "Returns true if OBJECT is an up-to-date instance of exactly BUILT-IN-CLASS."
-  (and (sys.int::instance-p object)
-       (eq (sys.int::%instance-layout object) *the-layout-built-in-class*)))
+  (instance-of-p object *the-layout-built-in-class*))
 
 (defun standard-generic-function-instance-p (object)
   "Returns true if OBJECT is an up-to-date instance of exactly STANDARD-GENERIC-FUNCTION."
-  (and (sys.int::funcallable-instance-p object)
-       (eq (sys.int::%instance-layout object) *the-layout-standard-generic-function*)))
+  (funcallable-instance-of-p object *the-layout-standard-generic-function*))
 
 (defun standard-method-instance-p (object)
   "Returns true if OBJECT is an up-to-date instance of exactly STANDARD-METHOD."
-  (and (sys.int::instance-p object)
-       (eq (sys.int::%instance-layout object) *the-layout-standard-method*)))
+  (instance-of-p object *the-layout-standard-method*))
 
 (defun clos-class-p (metaclass)
   "Returns true if METACLASS is either STANDARD-CLASS, FUNCALLABLE-STANDARD-CLASS, or BUILT-IN-CLASS."
@@ -841,13 +846,11 @@ Other arguments are included directly."
 
 (defun standard-effective-slot-definition-instance-p (object)
   "Returns true if OBJECT is an up-to-date instance of exactly STANDARD-EFFECTIVE-SLOT-DEFINITION."
-  (and (sys.int::instance-p object)
-       (eq (sys.int::%instance-layout object) *the-layout-standard-effective-slot-definition*)))
+  (instance-of-p object *the-layout-standard-effective-slot-definition*))
 
 (defun standard-direct-slot-definition-instance-p (object)
   "Returns true if OBJECT is an up-to-date instance of exactly STANDARD-EFFECTIVE-SLOT-DEFINITION."
-  (and (sys.int::instance-p object)
-       (eq (sys.int::%instance-layout object) *the-layout-standard-direct-slot-definition*)))
+  (instance-of-p object *the-layout-standard-direct-slot-definition*))
 
 (defun standard-slot-definition-instance-p (object)
   (or (standard-effective-slot-definition-instance-p object)
@@ -1635,11 +1638,13 @@ has only has class specializer."
 ;;; be called until standard-method exists.
 
 (defun make-instance-standard-method (method-class
+                                      &rest args
                                       &key
                                         lambda-list
                                         qualifiers
                                         specializers
                                         function
+                                        fast-function
                                         documentation)
   (declare (ignore method-class))
   (let ((method (std-allocate-instance *the-class-standard-method*)))
@@ -1647,9 +1652,30 @@ has only has class specializer."
     (setf (safe-method-qualifiers method) qualifiers)
     (setf (safe-method-specializers method) specializers)
     (setf (safe-method-generic-function method) nil)
-    (setf (safe-method-function method) function)
+    (when function
+      (setf (safe-method-function method) function))
+    (when fast-function
+      (setf (std-slot-value method 'fast-function) fast-function))
     (setf (std-slot-value method 'documentation) documentation)
+    (apply #'std-after-initialization-for-methods method args)
     method))
+
+(defun std-after-initialization-for-methods (method &rest initargs)
+  (declare (ignore initargs))
+  (when (and (not (std-slot-boundp method 'function))
+             (std-slot-boundp method 'fast-function))
+    (setf (std-slot-value method 'function)
+          (lambda (args next-method-list)
+            (apply (method-fast-function
+                    method
+                    (if next-method-list
+                        (lambda (&rest args)
+                          (funcall (method-function (car next-method-list))
+                                   args
+                                   (cdr next-method-list)))
+                        nil)
+                    next-method-list)
+                   args)))))
 
 (defun check-method-lambda-list-congruence (gf method)
   "Ensure that the lambda lists of GF and METHOD are compatible."
@@ -1828,10 +1854,10 @@ has only has class specializer."
                      (initargs (list :lambda-list '(object)
                                      :qualifiers ()
                                      :specializers (list class)
-                                     :function (lambda (method next-emfun)
-                                                 (declare (ignore method next-emfun))
-                                                 (lambda (object)
-                                                   (slot-value object slot-name)))
+                                     :fast-function (lambda (method next-emfun)
+                                                      (declare (ignore method next-emfun))
+                                                      (lambda (object)
+                                                        (slot-value object slot-name)))
                                      :slot-definition direct-slot-definition)))
                 (apply #'make-instance
                        (apply #'reader-method-class class direct-slot-definition initargs)
@@ -1844,10 +1870,10 @@ has only has class specializer."
                     (initargs (list :lambda-list '(new-value object)
                                     :qualifiers ()
                                     :specializers (list (find-class 't) class)
-                                    :function (lambda (method next-emfun)
-                                                (declare (ignore method next-emfun))
-                                                (lambda (new-value object)
-                                                  (setf (slot-value object slot-name) new-value)))
+                                    :fast-function (lambda (method next-emfun)
+                                                     (declare (ignore method next-emfun))
+                                                     (lambda (new-value object)
+                                                       (setf (slot-value object slot-name) new-value)))
                                     :slot-definition direct-slot-definition)))
                 (apply #'make-instance
                        (apply #'writer-method-class class direct-slot-definition initargs)
@@ -2359,14 +2385,26 @@ always match."
 
 ;;; compute an effective method function from a list of primary methods:
 
-(defun method-fast-function (method next-emfun)
-  (funcall (safe-method-function method) method next-emfun))
+(defun method-fast-function (method next-emfun next-methods)
+  (declare (notinline slot-value))
+  (let ((fast-fn (cond ((standard-method-instance-p method)
+                        (and (std-slot-boundp method 'fast-function)
+                             (std-slot-value method 'fast-function)))
+                       ((typep method 'standard-method)
+                        (and (slot-boundp method 'fast-function)
+                             (slot-value method 'fast-function))))))
+    (cond (fast-fn
+           (funcall fast-fn method next-emfun))
+          (t
+           (let ((fn (safe-method-function method)))
+             (lambda (&rest args)
+               (funcall fn args next-methods)))))))
 
 (defun compute-primary-emfun (methods)
   (if (null methods)
       nil
       (let ((next-emfun (compute-primary-emfun (cdr methods))))
-        (method-fast-function (car methods) next-emfun))))
+        (method-fast-function (car methods) next-emfun (cdr methods)))))
 
 (defun applicable-methods-keywords (gf methods)
   (let* ((gf-lambda-list-info (analyze-lambda-list (safe-generic-function-lambda-list gf)))
@@ -2419,11 +2457,12 @@ always match."
         (let ((next-emfun
                 (std-compute-effective-method-function-with-standard-method-combination-1
                  gf (remove around methods))))
-          (method-fast-function around next-emfun))
+          ;; FIXME: Method list isn't sorted properly for this...
+          (method-fast-function around next-emfun (remove around methods)))
         (let ((primary (compute-primary-emfun primaries))
-              (befores (mapcar (lambda (m) (method-fast-function m nil))
+              (befores (mapcar (lambda (m) (method-fast-function m nil '()))
                                (remove-if-not #'before-method-p methods)))
-              (reverse-afters (mapcar (lambda (m) (method-fast-function m nil))
+              (reverse-afters (mapcar (lambda (m) (method-fast-function m nil '()))
                                       (reverse (remove-if-not #'after-method-p methods)))))
           (cond ((and befores reverse-afters)
                  (lambda (&rest args)
@@ -2470,13 +2509,25 @@ always match."
                              (assert (eql (length method) 2))
                              (second method))
                             (t
-                             `(apply (funcall ',(safe-method-function method)
-                                              ',method
-                                              ,(if next-method-list
-                                                   `(lambda (&rest ,',method-args)
-                                                      (call-method ,(first next-method-list)
-                                                                   ,(rest next-method-list)))
-                                                   nil))
+                             `(apply (method-fast-function
+                                      ',method
+                                      ,(if next-method-list
+                                           `(lambda (&rest ,',method-args)
+                                              (call-method ,(first next-method-list)
+                                                           ,(rest next-method-list)))
+                                           nil)
+                                      ;; Ugh.
+                                      (list ,@(loop
+                                                 for next in next-method-list
+                                                 collect (cond ((listp next)
+                                                                (assert (eql (first method) 'make-method))
+                                                                (assert (eql (length method) 2))
+                                                                ;; ???
+                                                                `(make-instance 'standard-method
+                                                                                :function (lambda (,',method-args .next-methods.)
+                                                                                            (declare (ignore .next-methods.))
+                                                                                            (progn ,(second method)))))
+                                                               (t `',next)))))
                                      ,',method-args))))
                     (make-method (form)
                       (declare (ignore form))
@@ -3339,6 +3390,10 @@ always match."
                     (safe-method-specializers method))))
   method)
 
+(defmethod initialize-instance :after ((method standard-method) &rest args &key lambda-list qualifiers specializers function fast-function documentation)
+  (declare (ignore lambda-list qualifiers specializers function fast-function documentation))
+  (apply #'std-after-initialization-for-methods method args))
+
 ;;;
 ;;; Methods having to do with generic function invocation.
 ;;;
@@ -3381,7 +3436,10 @@ always match."
                                      &rest all-keys
                                      &key (metaclass 'standard-class) &allow-other-keys)
   (assert (eql name (safe-class-name class)))
-  (assert (eql (class-of class) (find-class metaclass)))
+  (when (symbolp metaclass)
+    (setf metaclass (find-class metaclass)))
+  (check-type metaclass class)
+  (assert (eql (class-of class) metaclass))
   (apply #'reinitialize-instance class (compute-class-initialization-arguments all-keys))
   (setf (find-class name) class)
   class)
@@ -3390,6 +3448,9 @@ always match."
                                      &rest all-keys
                                      &key (metaclass 'standard-class) &allow-other-keys)
   (assert (eql name (safe-class-name class)))
+  (when (symbolp metaclass)
+    (setf metaclass (find-class metaclass)))
+  (check-type metaclass class)
   (let ((initargs (compute-class-initialization-arguments all-keys)))
     (apply #'change-class class metaclass initargs)
     (apply #'reinitialize-instance class initargs))
@@ -3399,6 +3460,9 @@ always match."
 (defmethod ensure-class-using-class ((class null) name
                                      &rest all-keys
                                      &key (metaclass 'standard-class) &allow-other-keys)
+  (when (symbolp metaclass)
+    (setf metaclass (find-class metaclass)))
+  (check-type metaclass class)
   (let ((class (apply #'make-instance metaclass
                       :name name
                       (compute-class-initialization-arguments all-keys))))

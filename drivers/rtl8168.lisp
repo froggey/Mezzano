@@ -11,6 +11,7 @@
 
 (in-package :mezzano.driver.rtl8168)
 
+;;; "Realtek Gigabit Ethernet Media Access Controller With Power Management RTL8169"
 ;;; http://www.iitg.ernet.in/asahu/cs421/RealTek.pdf
 
 ;;; Registers.
@@ -92,6 +93,19 @@
 (defconstant +rtl8168-TPPoll-NPQ+ 6 "Normal Priority Queue polling")
 (defconstant +rtl8168-TPPoll-FSWInt+ 0 "Forced Software Interrupt")
 
+;;; Bits in ISR/IMR.
+(defconstant +ISR-ROK+ 0 "Receive OK")
+(defconstant +ISR-RER+ 1 "Receive Error")
+(defconstant +ISR-TOK+ 2 "Transmit OK")
+(defconstant +ISR-TER+ 3 "Transmit Error")
+(defconstant +ISR-RDU+ 4 "Rx Descriptor Unavailable")
+(defconstant +ISR-PUN/LinkChg+ 5 "Packet Underrun/Link Changed")
+(defconstant +ISR-FOVW+ 6 "Rx FIFO Overflow")
+(defconstant +ISR-TDU+ 7 "Tx Descriptor Unavailable")
+(defconstant +ISR-SWInt+ 8 "Software Interrupt")
+(defconstant +ISR-TimeOut+ 14 "Time Out. TCTR reached TimerInt")
+(defconstant +ISR-SERR+ 15 "System Error")
+
 (defconstant +rtl8168-mtu+ 1536)
 (defconstant +rtl8168-descriptor-size+ 16)
 (defconstant +rtl8168-n-tx-descriptors+ 128)
@@ -131,6 +145,12 @@
    (%rx-bounce-phys :initarg :rx-bounce-phys :accessor rtl8168-rx-bounce-phys)
    (%rx-bounce-virt :initarg :rx-bounce-virt :accessor rtl8168-rx-bounce-virt)
    (%rx-current :initarg :rx-current :accessor rtl8168-rx-current)
+
+   ;; Stats
+   (%rx-octets :initform 0 :accessor rtl8168-rx-octets)
+   (%rx-count :initform 0 :accessor rtl8168-rx-count)
+   (%tx-octets :initform 0 :accessor rtl8168-tx-octets)
+   (%tx-count :initform 0 :accessor rtl8168-tx-count)
    ))
 
 (defun rtl8168-boot-id (nic)
@@ -207,28 +227,87 @@
 (defun (setf rtl8168-tx-desc-address) (value nic descriptor)
   (setf (rtl8168-descriptor-address (rtl8168-tx-ring-virt nic) descriptor) value))
 
+(defun rtl8168-reset (nic)
+  ;; Mask and ack interrupts.
+  (setf (rtl8168-reg/16 nic +rtl8168-register-IMR+) #x0000
+        (rtl8168-reg/16 nic +rtl8168-register-ISR+) #xFFFF)
+  ;; Soft reset NIC by setting the reset bit.
+  (setf (rtl8168-reg/8 nic +rtl8168-register-CR+) (ash 1 +rtl8168-CR-RST+))
+  ;; Check that the chip has finished the reset. It will automatically clear the reset bit.
+  (loop
+     repeat 100
+     do
+       (when (not (logbitp +rtl8168-CR-RST+ (rtl8168-reg/8 nic +rtl8168-register-CR+)))
+         (return))
+       (sleep 0.01)
+     finally
+       (debug-print-line "RTL8168 reset timed out!")
+       (return-from rtl8168-reset nil))
+  ;; FIXME: Verify that all buffers were allocated.
+  ;; Reset the TX ring.
+  (dotimes (i +rtl8168-n-tx-descriptors+)
+    (setf (rtl8168-tx-desc-flags nic i) 0
+          (rtl8168-tx-desc-vlan nic i) 0
+          (rtl8168-tx-desc-address nic i) (+ (rtl8168-tx-bounce-phys nic)
+                                             (* i (mezzano.supervisor::align-up +rtl8168-mtu+ 128)))))
+  (setf (rtl8168-tx-used-count nic) 0
+        (rtl8168-tx-current nic) 0
+        (rtl8168-tx-tail nic) 0)
+  ;; Reset the RX ring.
+  (dotimes (i +rtl8168-n-rx-descriptors+)
+    (setf (rtl8168-rx-desc-flags nic i) (logior (ash +rtl8168-mtu+ +rtl8168-descriptor-Frame_Length+)
+                                                (ash 1 +rtl8168-descriptor-OWN+)
+                                                (if (eql i (1- +rtl8168-n-rx-descriptors+))
+                                                    (ash 1 +rtl8168-descriptor-EOR+)
+                                                    0))
+          (rtl8168-rx-desc-vlan nic i) 0
+          (rtl8168-rx-desc-address nic i) (+ (rtl8168-rx-bounce-phys nic)
+                                             (* i (mezzano.supervisor::align-up +rtl8168-mtu+ 128)))))
+  (setf (rtl8168-rx-current nic) 0)
+  ;; Configure Rx.
+  (setf (rtl8168-reg/32 nic +rtl8168-register-RCR+)
+        (logior (ash #b111 +rtl8168-RCR-RXFTH+) ; No Rx FIFO threshold. This seems like the safest option to me.
+                (ash #b111 +rtl8168-RCR-MXDMA+) ; Unlimited maximum DMA burst size. PCI related, I don't know anything about this.
+                ;; Accept broadcast packets, packets addressed to us and all packets with a destination address (promiscuous mode).
+                (ash 1 +rtl8168-RCR-AB+)
+                (ash 1 +rtl8168-RCR-APM+)
+                #++ ; Don't enable promiscuous mode. Seems to cause RX FIFO overruns.
+                (ash 1 +rtl8168-RCR-AAP+)))
+  ;; Not sure what exactly this does...
+  ;; Was set to the MTU, now set to the maximum. (16k-1)
+  ;; ### not clear if this includes the trailing CRC or not.
+  (setf (rtl8168-reg/16 nic +rtl8168-register-RMS+) (1- (* 16 1024)))
+  (setf (rtl8168-reg/32 nic +rtl8168-register-RDSAR+) (ldb (byte 32 0) (rtl8168-rx-ring-phys nic))
+        (rtl8168-reg/32 nic (+ +rtl8168-register-RDSAR+ 4)) (ldb (byte 32 32) (rtl8168-rx-ring-phys nic)))
+  ;; Configure Tx.
+  (setf (rtl8168-reg/32 nic +rtl8168-register-TCR+)
+        (logior (ash #b11 +rtl8168-TCR-IFG+) ; Standard interframe gap time.
+                (ash #b0 +rtl8168-TCR-IFG2+)
+                (ash #b111 +rtl8168-TCR-MXDMA+))) ; Unlimited maximum DMA burst size. PCI related, I don't know anything about this.
+  (setf (rtl8168-reg/8 nic +rtl8168-register-ETThR+) 48) ; I have no idea what this should be. (ceiling mtu 32)
+  (setf (rtl8168-reg/32 nic +rtl8168-register-TNPDS+) (ldb (byte 32 0) (rtl8168-tx-ring-phys nic))
+        (rtl8168-reg/32 nic (+ +rtl8168-register-TNPDS+ 4)) (ldb (byte 32 32) (rtl8168-tx-ring-phys nic)))
+  ;; Enable TX & RX.
+  (setf (rtl8168-reg/8 nic +rtl8168-register-CR+) (logior (ash 1 +rtl8168-CR-RE+)
+                                                          (ash 1 +rtl8168-CR-TE+)))
+  ;; Unmask IRQs.
+  (setf (rtl8168-reg/16 nic +rtl8168-register-IMR+)
+        (logior (ash 1 +ISR-ROK+)
+                (ash 1 +ISR-RER+)
+                (ash 1 +ISR-TOK+)
+                (ash 1 +ISR-TER+)
+                (ash 1 +ISR-RDU+)
+                (ash 1 +ISR-FOVW+)))
+  t)
+
 (defun rtl8168-initialize (nic)
   (setf (rtl8168-irq-handler nic) (make-simple-irq (rtl8168-irq nic)))
   (sup:with-device-access ((rtl8168-boot-id nic) nil)
     ;; Initialize the device.
-    (debug-print-line "Initializing RTL8168 at " (rtl8168-pci-location nic) ". IO base " (rtl8168-io-base nic))
+    (format t "Initializing RTL8168 at ~S. IO base ~X~%"
+            (rtl8168-pci-location nic) (rtl8168-io-base nic))
     (simple-irq-attach (rtl8168-irq-handler nic))
     (setf (pci:pci-bus-master-enabled (rtl8168-pci-location nic)) t)
-    ;; Mask and ack interrupts.
-    (setf (rtl8168-reg/16 nic +rtl8168-register-IMR+) #x0000
-          (rtl8168-reg/16 nic +rtl8168-register-ISR+) #xFFFF)
-    ;; Soft reset NIC by setting the reset bit.
-    (setf (rtl8168-reg/8 nic +rtl8168-register-CR+) (ash 1 +rtl8168-CR-RST+))
-    ;; Check that the chip has finished the reset. It will automatically clear the reset bit.
-    (loop
-       repeat 100
-       do
-         (when (not (logbitp +rtl8168-CR-RST+ (rtl8168-reg/8 nic +rtl8168-register-CR+)))
-           (return))
-         (sleep 0.01)
-       finally
-         (debug-print-line "RTL8168 reset timed out!")
-         (return-from rtl8168-initialize))
     ;; Read the MAC.
     (loop
        with mac = 0
@@ -251,51 +330,8 @@
     (setf (values (rtl8168-rx-bounce-phys nic)
                   (rtl8168-rx-bounce-virt nic))
           (rtl8168-allocate-bounce "RX" +rtl8168-n-rx-descriptors+))
-    ;; FIXME: Verify that all buffers were allocated.
-    ;; Reset the TX ring.
-    (dotimes (i +rtl8168-n-tx-descriptors+)
-      (setf (rtl8168-tx-desc-flags nic i) 0
-            (rtl8168-tx-desc-vlan nic i) 0
-            (rtl8168-tx-desc-address nic i) (+ (rtl8168-tx-bounce-phys nic)
-                                               (* i (mezzano.supervisor::align-up +rtl8168-mtu+ 128)))))
-    (setf (rtl8168-tx-used-count nic) 0
-          (rtl8168-tx-current nic) 0
-          (rtl8168-tx-tail nic) 0)
-    ;; Reset the RX ring.
-    (dotimes (i +rtl8168-n-rx-descriptors+)
-      (setf (rtl8168-rx-desc-flags nic i) (logior (ash +rtl8168-mtu+ +rtl8168-descriptor-Frame_Length+)
-                                                  (ash 1 +rtl8168-descriptor-OWN+)
-                                                  (if (eql i (1- +rtl8168-n-rx-descriptors+))
-                                                      (ash 1 +rtl8168-descriptor-EOR+)
-                                                      0))
-            (rtl8168-rx-desc-vlan nic i) 0
-            (rtl8168-rx-desc-address nic i) (+ (rtl8168-rx-bounce-phys nic)
-                                               (* i (mezzano.supervisor::align-up +rtl8168-mtu+ 128)))))
-    (setf (rtl8168-rx-current nic) 0)
-    ;; Configure Rx.
-    (setf (rtl8168-reg/32 nic +rtl8168-register-RCR+)
-          (logior (ash #b111 +rtl8168-RCR-RXFTH+) ; No Rx FIFO threshold. This seems like the safest option to me.
-                  (ash #b111 +rtl8168-RCR-MXDMA+) ; Unlimited maximum DMA burst size. PCI related, I don't know anything about this.
-                  ;; Accept broadcast packets, packets addressed to us and all packets with a destination address (promiscious mode).
-                  (ash 1 +rtl8168-RCR-AB+)
-                  (ash 1 +rtl8168-RCR-APM+)
-                  (ash 1 +rtl8168-RCR-AAP+)))
-    (setf (rtl8168-reg/16 nic +rtl8168-register-RMS+) +rtl8168-mtu+) ; ### not clear if this includes the trailing CRC or not.
-    (setf (rtl8168-reg/32 nic +rtl8168-register-RDSAR+) (ldb (byte 32 0) (rtl8168-rx-ring-phys nic))
-          (rtl8168-reg/32 nic (+ +rtl8168-register-RDSAR+ 4)) (ldb (byte 32 32) (rtl8168-rx-ring-phys nic)))
-    ;; Configure Tx.
-    (setf (rtl8168-reg/32 nic +rtl8168-register-TCR+)
-          (logior (ash #b11 +rtl8168-TCR-IFG+) ; Standard interframe gap time.
-                  (ash #b0 +rtl8168-TCR-IFG2+)
-                  (ash #b111 +rtl8168-TCR-MXDMA+))) ; Unlimited maximum DMA burst size. PCI related, I don't know anything about this.
-    (setf (rtl8168-reg/8 nic +rtl8168-register-ETThR+) 48) ; I have no idea what this should be. (ceiling mtu 32)
-    (setf (rtl8168-reg/32 nic +rtl8168-register-TNPDS+) (ldb (byte 32 0) (rtl8168-tx-ring-phys nic))
-          (rtl8168-reg/32 nic (+ +rtl8168-register-TNPDS+ 4)) (ldb (byte 32 32) (rtl8168-tx-ring-phys nic)))
-    ;; Enable TX & RX.
-    (setf (rtl8168-reg/8 nic +rtl8168-register-CR+) (logior (ash 1 +rtl8168-CR-RE+)
-                                                            (ash 1 +rtl8168-CR-TE+)))
-    ;; Unmask IRQs.
-    (setf (rtl8168-reg/16 nic +rtl8168-register-IMR+) #b1111) ; enable tx error, tx ok, rx error and rx ok.
+    (when (not (rtl8168-reset nic))
+      (format t "RTL8168 reset failed?!~%"))
     (simple-irq-unmask (rtl8168-irq-handler nic)))
   (nic:register-network-card nic)
   t)
@@ -316,118 +352,162 @@
     (sync:mailbox-send data (rtl8168-tx-mailbox nic))))
 
 (defmethod nic:statistics ((nic rtl8168))
-  (values 0
+  (values (rtl8168-rx-octets nic)
+          (rtl8168-rx-count nic)
           0
-          0
-          0
-          0
+          (rtl8168-tx-octets nic)
+          (rtl8168-tx-count nic)
           0
           0))
 
 (defun tx-descriptors-available-p (nic)
   (not (eql (rtl8168-tx-used-count nic) +rtl8168-n-tx-descriptors+)))
 
+(defmacro with-rtl8168-access ((nic) &body body)
+  `(sup:with-device-access ((rtl8168-boot-id ,nic)
+                            (throw 'disconnect nil))
+     ,@body))
+
+(defun rtl8168-receive-processing (nic)
+  ;; Perform receive handling. Remove packets from the RX ring
+  ;; until there are none left.
+  (loop
+     (let ((current (rtl8168-rx-current nic)))
+       (with-rtl8168-access (nic)
+         (when (logbitp +rtl8168-descriptor-OWN+ (rtl8168-rx-desc-flags nic current))
+           ;; Current descriptor owned by the NIC, no more packets to receive.
+           ;; Break out of the RX loop.
+           (return)))
+       #+(or)(debug-print-line "RTL8168 receive on " current)
+       ;; Receiving one packet.
+       ;; Allocate a buffer. Try to minimize the amount of work done in a device-access region, hence the dropping in and out.
+       (let ((buffer (make-array +rtl8168-mtu+ :element-type '(unsigned-byte 8))))
+         (with-rtl8168-access (nic)
+           ;; Copy the packet into the receive buffer.
+           (let ((address (+ (rtl8168-rx-bounce-virt nic)
+                             (* current (mezzano.supervisor::align-up +rtl8168-mtu+ 128))))
+                 (frame-len (min +rtl8168-mtu+
+                                 (ldb (byte 16 +rtl8168-descriptor-Frame_Length+)
+                                      (rtl8168-rx-desc-flags nic current)))))
+             (dotimes (i frame-len)
+               (setf (aref buffer i) (sys.int::memref-unsigned-byte-8 address i)))
+             (incf (rtl8168-rx-octets nic) frame-len)
+             (incf (rtl8168-rx-count nic)))
+           ;; Reset the descriptor.
+           (setf (rtl8168-rx-desc-flags nic current) (logior (ash +rtl8168-mtu+ +rtl8168-descriptor-Frame_Length+)
+                                                             (ash 1 +rtl8168-descriptor-OWN+)
+                                                             (if (eql current (1- +rtl8168-n-rx-descriptors+))
+                                                                 (ash 1 +rtl8168-descriptor-EOR+)
+                                                                 0))
+                 (rtl8168-rx-desc-vlan nic current) 0))
+         (nic:device-received-packet nic buffer))
+       ;; Advance Current.
+       (setf (rtl8168-rx-current nic) (rem (1+ current) +rtl8168-n-rx-descriptors+)))))
+
+(defun rtl8168-transmit-processing (nic)
+  ;; Transmit handling.
+  ;; Recover free descriptors.
+  (with-rtl8168-access (nic)
+    (loop
+       (when (eql (rtl8168-tx-used-count nic) 0)
+         ;; All pending descriptors processed.
+         (return))
+       (when (logbitp +rtl8168-descriptor-OWN+ (rtl8168-tx-desc-flags nic (rtl8168-tx-tail nic)))
+         ;; Reached the descriptor that the card is processing.
+         #+(or)(debug-print-line "RTL8168 still processing " (rtl8168-tx-tail nic))
+         (return))
+       (decf (rtl8168-tx-used-count nic))
+       (setf (rtl8168-tx-tail nic) (rem (1+ (rtl8168-tx-tail nic)) +rtl8168-n-tx-descriptors+))
+       #+(or)(debug-print-line "RTL8168 transmitted packet on descriptor " (rtl8168-tx-tail nic))))
+  ;; Send pending packets.
+  (loop
+     (when (not (tx-descriptors-available-p nic))
+       ;; Don't transmit when there are no free descriptors.
+       #+(or)(debug-print-line "RTL8168 not transmitting - no free descriptors.")
+       (return))
+     (let ((to-send (sync:mailbox-receive (rtl8168-tx-mailbox nic) :wait-p nil))
+           (current (rtl8168-tx-current nic)))
+       (when (not to-send)
+         (return))
+       #+(or)(debug-print-line "RTL8168 transmitting packet " to-send " on descriptor " current)
+       (with-rtl8168-access (nic)
+         (incf (rtl8168-tx-octets nic) (length to-send))
+         (incf (rtl8168-tx-count nic))
+         ;; Copy packet to buffer.
+         (let ((address (+ (rtl8168-tx-bounce-virt nic)
+                           (* current (mezzano.supervisor::align-up +rtl8168-mtu+ 128)))))
+           (dotimes (i (min +rtl8168-mtu+
+                            (length to-send)))
+             (setf (sys.int::memref-unsigned-byte-8 address i) (aref to-send i))))
+         ;; Configure the descriptor.
+         (setf (rtl8168-tx-desc-flags nic current) (logior (ash (min +rtl8168-mtu+ (length to-send))
+                                                                +rtl8168-descriptor-Frame_Length+)
+                                                           (ash 1 +rtl8168-descriptor-OWN+)
+                                                           (if (eql current (1- +rtl8168-n-tx-descriptors+))
+                                                               (ash 1 +rtl8168-descriptor-EOR+)
+                                                               0)
+                                                           ;; This is the first & last segment.
+                                                           (ash 1 +rtl8168-descriptor-FS+)
+                                                           (ash 1 +rtl8168-descriptor-LS+))
+               (rtl8168-tx-desc-vlan nic current) 0)
+         ;; Notify the card.
+         (setf (rtl8168-reg/8 nic +rtl8168-register-TPPoll+) (ash 1 +rtl8168-TPPoll-NPQ+)))
+       ;; One used.
+       (incf (rtl8168-tx-used-count nic))
+       ;; Advance current.
+       (setf (rtl8168-tx-current nic) (rem (1+ current) +rtl8168-n-tx-descriptors+)))))
+
+;; TODO: Get the remaining registers.
+(defun dump (nic)
+  (describe nic)
+  (format t " ID: ~2,'0X:~2,'0X:~2,'0X:~2,'0X:~2,'0X:~2,'0X~%"
+          (rtl8168-reg/8 nic +rtl8168-register-ID0+)
+          (rtl8168-reg/8 nic (+ +rtl8168-register-ID0+ 1))
+          (rtl8168-reg/8 nic (+ +rtl8168-register-ID0+ 2))
+          (rtl8168-reg/8 nic (+ +rtl8168-register-ID0+ 3))
+          (rtl8168-reg/8 nic (+ +rtl8168-register-ID0+ 4))
+          (rtl8168-reg/8 nic (+ +rtl8168-register-ID0+ 5)))
+  (format t " MAR: ~2,'0X ~2,'0X ~2,'0X ~2,'0X ~2,'0X ~2,'0X ~2,'0X ~2,'0X~%"
+          (rtl8168-reg/8 nic +rtl8168-register-MAR0+)
+          (rtl8168-reg/8 nic (+ +rtl8168-register-MAR0+ 1))
+          (rtl8168-reg/8 nic (+ +rtl8168-register-MAR0+ 2))
+          (rtl8168-reg/8 nic (+ +rtl8168-register-MAR0+ 3))
+          (rtl8168-reg/8 nic (+ +rtl8168-register-MAR0+ 4))
+          (rtl8168-reg/8 nic (+ +rtl8168-register-MAR0+ 5))
+          (rtl8168-reg/8 nic (+ +rtl8168-register-MAR0+ 6))
+          (rtl8168-reg/8 nic (+ +rtl8168-register-MAR0+ 7))))
+
+(defun rtl8168-worker-body (nic)
+  ;; Wait for something to happen.
+  ;; Either an interrupt, a request to send, or the device's boot epoch expiring.
+  (if (tx-descriptors-available-p nic)
+      (sync:wait-for-objects (rtl8168-irq-handler nic)
+                             (rtl8168-tx-mailbox nic)
+                             (rtl8168-boot-id nic))
+      ;; Don't look in the TX mailbox if all descriptors are full.
+      (sync:wait-for-objects (rtl8168-irq-handler nic)
+                             (rtl8168-boot-id nic)))
+  ;; Ack the interrupt and check for errors.
+  (with-rtl8168-access (nic)
+    (let ((isr (rtl8168-reg/16 nic +rtl8168-register-ISR+)))
+      (when (logbitp +ISR-FOVW+ isr)
+        (format t "~S: Rx FIFO overflow! Resetting!~%" nic)
+        (rtl8168-reset nic)
+        ;; Abandon this work iteration.
+        (return-from rtl8168-worker-body))
+      ;; Acknowledge IRQ.
+      (setf (rtl8168-reg/16 nic +rtl8168-register-ISR+) isr)))
+  (rtl8168-receive-processing nic)
+  (rtl8168-transmit-processing nic)
+  (simple-irq-unmask (rtl8168-irq-handler nic)))
+
 (defun rtl8168-worker (nic)
   (when (not (rtl8168-initialize nic))
     (return-from rtl8168-worker))
-  (macrolet ((with-rtl8168-access ((nic) &body body)
-               `(sup:with-device-access ((rtl8168-boot-id ,nic)
-                                         (return-from rtl8168-worker))
-                  ,@body)))
+  (catch 'disconnect
     (unwind-protect
          (loop
-            ;; Wait for something to happen.
-            ;; Either an interrupt, a request to send, or the device's boot epoch expiring.
-            (if (tx-descriptors-available-p nic)
-                (sync:wait-for-objects (rtl8168-irq-handler nic)
-                                       (rtl8168-tx-mailbox nic)
-                                       (rtl8168-boot-id nic))
-                ;; Don't look in the TX mailbox if all descriptors are full.
-                (sync:wait-for-objects (rtl8168-irq-handler nic)
-                                       (rtl8168-boot-id nic)))
-            ;; Perform receive handling. Remove packets from the RX ring
-            ;; until there are none left.
-            (loop
-               (let ((current (rtl8168-rx-current nic)))
-                 (with-rtl8168-access (nic)
-                   ;; Acknowledge IRQ.
-                   (setf (rtl8168-reg/16 nic +rtl8168-register-ISR+) #b1111)
-                   (when (logbitp +rtl8168-descriptor-OWN+ (rtl8168-rx-desc-flags nic current))
-                     ;; Current descriptor owned by the NIC, no more packets to receive.
-                     ;; Break out of the RX loop.
-                     (return)))
-                 #+(or)(debug-print-line "RTL8168 receive on " current)
-                 ;; Receiving one packet.
-                 ;; Allocate a buffer. Try to minimize the amount of work done in a device-access region, hence the dropping in and out.
-                 (let ((buffer (make-array +rtl8168-mtu+ :element-type '(unsigned-byte 8))))
-                   (with-rtl8168-access (nic)
-                     ;; Copy the packet into the receive buffer.
-                     (let ((address (+ (rtl8168-rx-bounce-virt nic)
-                                       (* current (mezzano.supervisor::align-up +rtl8168-mtu+ 128)))))
-                       (dotimes (i (min +rtl8168-mtu+
-                                        (ldb (byte 16 +rtl8168-descriptor-Frame_Length+)
-                                             (rtl8168-rx-desc-flags nic current))))
-                         (setf (aref buffer i) (sys.int::memref-unsigned-byte-8 address i))))
-                     ;; Reset the descriptor.
-                     (setf (rtl8168-rx-desc-flags nic current) (logior (ash +rtl8168-mtu+ +rtl8168-descriptor-Frame_Length+)
-                                                                       (ash 1 +rtl8168-descriptor-OWN+)
-                                                                       (if (eql current (1- +rtl8168-n-rx-descriptors+))
-                                                                           (ash 1 +rtl8168-descriptor-EOR+)
-                                                                           0))
-                           (rtl8168-rx-desc-vlan nic current) 0))
-                   (nic:device-received-packet nic buffer))
-                 ;; Advance Current.
-                 (setf (rtl8168-rx-current nic) (rem (1+ current) +rtl8168-n-rx-descriptors+))))
-            ;; Transmit handling.
-            ;; Recover free descriptors.
-            (with-rtl8168-access (nic)
-              (loop
-                 (when (eql (rtl8168-tx-used-count nic) 0)
-                   ;; All pending descriptors processed.
-                   (return))
-                 (when (logbitp +rtl8168-descriptor-OWN+ (rtl8168-tx-desc-flags nic (rtl8168-tx-tail nic)))
-                   ;; Reached the descriptor that the card is processing.
-                   #+(or)(debug-print-line "RTL8168 still processing " (rtl8168-tx-tail nic))
-                   (return))
-                 (decf (rtl8168-tx-used-count nic))
-                 (setf (rtl8168-tx-tail nic) (rem (1+ (rtl8168-tx-tail nic)) +rtl8168-n-tx-descriptors+))
-                 #+(or)(debug-print-line "RTL8168 transmitted packet on descriptor " (rtl8168-tx-tail nic))))
-            ;; Send pending packets.
-            (loop
-               (when (not (tx-descriptors-available-p nic))
-                 ;; Don't transmit when there are no free descriptors.
-                 #+(or)(debug-print-line "RTL8168 not transmitting - no free descriptors.")
-                 (return))
-               (let ((to-send (sync:mailbox-receive (rtl8168-tx-mailbox nic) :wait-p nil))
-                     (current (rtl8168-tx-current nic)))
-                 (when (not to-send)
-                   (return))
-                 #+(or)(debug-print-line "RTL8168 transmitting packet " to-send " on descriptor " current)
-                 (with-rtl8168-access (nic)
-                   ;; Copy packet to buffer.
-                   (let ((address (+ (rtl8168-tx-bounce-virt nic)
-                                     (* current (mezzano.supervisor::align-up +rtl8168-mtu+ 128)))))
-                     (dotimes (i (min +rtl8168-mtu+
-                                      (length to-send)))
-                       (setf (sys.int::memref-unsigned-byte-8 address i) (aref to-send i))))
-                   ;; Configure the descriptor.
-                   (setf (rtl8168-tx-desc-flags nic current) (logior (ash (min +rtl8168-mtu+ (length to-send))
-                                                                          +rtl8168-descriptor-Frame_Length+)
-                                                                     (ash 1 +rtl8168-descriptor-OWN+)
-                                                                     (if (eql current (1- +rtl8168-n-tx-descriptors+))
-                                                                         (ash 1 +rtl8168-descriptor-EOR+)
-                                                                         0)
-                                                                     ;; This is the first & last segment.
-                                                                     (ash 1 +rtl8168-descriptor-FS+)
-                                                                     (ash 1 +rtl8168-descriptor-LS+))
-                         (rtl8168-tx-desc-vlan nic current) 0)
-                   ;; Notify the card.
-                   (setf (rtl8168-reg/8 nic +rtl8168-register-TPPoll+) (ash 1 +rtl8168-TPPoll-NPQ+)))
-                 ;; One used.
-                 (incf (rtl8168-tx-used-count nic))
-                 ;; Advance current.
-                 (setf (rtl8168-tx-current nic) (rem (1+ current) +rtl8168-n-tx-descriptors+))))
-            (simple-irq-unmask (rtl8168-irq-handler nic)))
+            (rtl8168-worker-body nic))
       (nic:unregister-network-card nic))))
 
 (defun rtl8168-allocate-ring (name size)

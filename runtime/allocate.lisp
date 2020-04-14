@@ -8,9 +8,11 @@
 (sys.int::defglobal sys.int::*wired-area-base*)
 (sys.int::defglobal sys.int::*wired-area-bump*)
 (sys.int::defglobal sys.int::*wired-area-free-bins*)
+(sys.int::defglobal sys.int::*wired-area-usage*)
 (sys.int::defglobal sys.int::*pinned-area-base*)
 (sys.int::defglobal sys.int::*pinned-area-bump*)
 (sys.int::defglobal sys.int::*pinned-area-free-bins*)
+(sys.int::defglobal sys.int::*pinned-area-usage*)
 
 (sys.int::defglobal sys.int::*bytes-allocated-to-stacks*)
 (sys.int::defglobal sys.int::*wired-stack-area-bump*)
@@ -28,8 +30,10 @@
 (sys.int::defglobal sys.int::*function-area-base*)
 (sys.int::defglobal sys.int::*wired-function-area-limit*)
 (sys.int::defglobal sys.int::*wired-function-area-free-bins*)
+(sys.int::defglobal sys.int::*wired-function-area-usage*)
 (sys.int::defglobal sys.int::*function-area-limit*)
 (sys.int::defglobal sys.int::*function-area-free-bins*)
+(sys.int::defglobal sys.int::*function-area-usage* 0)
 
 ;; A major GC will be performed when the old generation
 ;; is this much larger than the young generation.
@@ -160,6 +164,7 @@
         (mezzano.supervisor:with-pseudo-atomic
           (let ((address (%allocate-from-freelist-area tag data words sys.int::*pinned-area-free-bins*)))
             (when address
+              (incf sys.int::*pinned-area-usage* words)
               (sys.int::%%assemble-value address sys.int::+tag-object+))))))))
 
 (defun finish-expand-freelist-area (grow-by limit-sym bins)
@@ -261,6 +266,7 @@
 (defun %allocate-from-wired-area-unlocked (tag data words)
   (let ((address (%allocate-from-freelist-area tag data words sys.int::*wired-area-free-bins*)))
     (when address
+      (incf sys.int::*wired-area-usage* words)
       (sys.int::%%assemble-value address sys.int::+tag-object+))))
 
 (defun %allocate-from-wired-area-1 (tag data words)
@@ -636,7 +642,40 @@
                               sys.int::*wired-function-area-free-bins*
                               sys.int::*function-area-free-bins*))))
             (when address
+              (if wiredp
+                  (incf sys.int::*wired-function-area-usage* words)
+                  (incf sys.int::*function-area-usage* words))
               (sys.int::%%assemble-value address sys.int::+tag-object+))))))))
+
+(defun expand-function-area (words wiredp)
+  "Returns true if the area was successfully expanded."
+  (when wiredp
+    ;; TODO: Implement expanding the wired function area.
+    (error 'storage-condition))
+  ;; Try enlarging the area.
+  (let ((grow-by (* words 8)))
+    (incf grow-by (1- sys.int::+allocation-minimum-alignment+))
+    (setf grow-by (logand (lognot (1- sys.int::+allocation-minimum-alignment+))
+                          grow-by))
+    (when sys.int::*gc-enable-logging*
+      (mezzano.supervisor:debug-print-line
+       "Expanding FUNCTION area by " grow-by))
+    (mezzano.supervisor:without-footholds
+      (mezzano.supervisor:inhibit-thread-pool-blocking-hijack
+        (mezzano.supervisor:with-mutex (*allocator-lock*)
+          (mezzano.supervisor:with-pseudo-atomic
+            (when (mezzano.supervisor:allocate-memory-range
+                   sys.int::*function-area-limit*
+                   grow-by
+                   (logior sys.int::+block-map-present+
+                           sys.int::+block-map-writable+
+                           sys.int::+block-map-zero-fill+
+                           sys.int::+block-map-track-dirty+))
+              (when sys.int::*gc-enable-logging*
+                (mezzano.supervisor:debug-print-line "Expanded function area by " grow-by))
+              ;; Success.
+              (finish-expand-freelist-area grow-by 'sys.int::*function-area-limit* sys.int::*function-area-free-bins*)
+              t)))))))
 
 ;; Also used for allocating function-references
 (defun %allocate-function (tag data words wiredp)
@@ -653,39 +692,29 @@
            (return result)))
        (when (not (eql i 0))
          ;; The GC has been run at least once.
-         (when wiredp
-           ;; TODO: Implement expanding the wired function area.
-           (error 'storage-condition))
-         ;; Try enlarging the area.
-         (let ((grow-by (* words 8)))
-           (incf grow-by (1- sys.int::+allocation-minimum-alignment+))
-           (setf grow-by (logand (lognot (1- sys.int::+allocation-minimum-alignment+))
-                                 grow-by))
-           (when sys.int::*gc-enable-logging*
-             (mezzano.supervisor:debug-print-line
-              "Expanding FUNCTION area by " grow-by))
-           (mezzano.supervisor:without-footholds
-             (mezzano.supervisor:inhibit-thread-pool-blocking-hijack
-               (mezzano.supervisor:with-mutex (*allocator-lock*)
-                 (mezzano.supervisor:with-pseudo-atomic
-                   (when (mezzano.supervisor:allocate-memory-range
-                          sys.int::*function-area-limit*
-                          grow-by
-                          (logior sys.int::+block-map-present+
-                                  sys.int::+block-map-writable+
-                                  sys.int::+block-map-zero-fill+
-                                  sys.int::+block-map-track-dirty+))
-                     (when sys.int::*gc-enable-logging*
-                       (mezzano.supervisor:debug-print-line "Expanded function area by " grow-by))
-                     ;; Success.
-                     (finish-expand-freelist-area grow-by 'sys.int::*function-area-limit* sys.int::*function-area-free-bins*)
-                     (setf inhibit-gc t))))))))
+         (when (expand-function-area words wiredp)
+           (setf inhibit-gc t)))
        (when (> i *maximum-allocation-attempts*)
          (cerror "Retry allocation" 'storage-condition))
        (cond (inhibit-gc
               (setf inhibit-gc nil))
              (t
-              (sys.int::%gc :reason (if wiredp :wired-function :function) :major-required t :full (not (zerop i)))))))
+              (sys.int::%gc :reason (if wiredp :wired-function :function) :major-required t :full (not (zerop i)))
+              ;; Try to keep a reasonable amount of space available after collection.
+              ;; However, this doesn't account for fragmentation.
+              (let* ((words-used (if wiredp
+                                     sys.int::*wired-function-area-usage*
+                                     sys.int::*function-area-usage*))
+                     (words-committed (truncate (if wiredp
+                                                    (- sys.int::*function-area-base* sys.int::*wired-function-area-limit*)
+                                                    (- sys.int::*function-area-limit* sys.int::*function-area-base*))
+                                                8))
+                     (words-avail (- words-committed words-used))
+                     (bytes-avail (* words-avail 8)))
+                (when (and (< bytes-avail sys.int::+allocation-minimum-alignment+) ; chosen arbitrarily
+                           (not wiredp)) ; todo.
+                  (when (expand-function-area words wiredp)
+                    (setf inhibit-gc t))))))))
 
 (defun sys.int::make-function (tag machine-code fixups constants gc-info &optional wired)
   (let* ((mc-size (ceiling (+ (length machine-code) 16) 16))
@@ -837,7 +866,9 @@
   base
   size)
 
-(defconstant +stack-guard-size+ #x200000)
+(defconstant +stack-guard-size+ #x200000
+  "Size of the hard guard area.
+This area exists below the stack and is never allocated or mapped.")
 (defconstant +stack-region-alignment+ #x200000)
 
 ;; TODO: Actually allocate virtual memory.

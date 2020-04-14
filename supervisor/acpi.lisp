@@ -166,10 +166,10 @@
 (defconstant +acpi-iapc-boot-arch-cmos-rtc-not-present+ #x0020)
 
 (defun acpi-parse-rsdp (rsdp-address)
-  (map-physical-memory (align-down rsdp-address +4k-page-size+)
-                       (align-up (1+ (logand rsdp-address #xFFF))
-                                 +4k-page-size+)
-                       "ACPI")
+  (map-physical-memory-early (align-down rsdp-address +4k-page-size+)
+                             (align-up (1+ (logand rsdp-address #xFFF))
+                                       +4k-page-size+)
+                             "ACPI")
   (let ((xsdt-address nil)
         (revision (physical-memref-unsigned-byte-8 (+ rsdp-address +acpi-rsdp-revision-offset+) 0)))
     (when (>= revision 2)
@@ -190,20 +190,20 @@
 (defun ensure-acpi-table-accessible (address)
   ;; Make sure that the length is mapped.
   (let ((length-end (+ address +acpi-header-length-offset+ 4)))
-    (map-physical-memory (align-down address +4k-page-size+)
-                         (- (align-up length-end +4k-page-size+)
-                            (align-down address +4k-page-size+))
-                         "ACPI")
+    (map-physical-memory-early (align-down address +4k-page-size+)
+                               (- (align-up length-end +4k-page-size+)
+                                  (align-down address +4k-page-size+))
+                               "ACPI")
     ;; Read length and map the entire table in.
     (let* ((length (physical-memref-unsigned-byte-32
                     (+ address
                        +acpi-header-length-offset+)
                     0))
            (end (+ address length)))
-      (map-physical-memory (align-down address +4k-page-size+)
-                         (- (align-up end +4k-page-size+)
-                            (align-down address +4k-page-size+))
-                         "ACPI"))))
+      (map-physical-memory-early (align-down address +4k-page-size+)
+                                 (- (align-up end +4k-page-size+)
+                                    (align-down address +4k-page-size+))
+                                 "ACPI"))))
 
 (defun acpi-read-generic-address-structure (address)
   (make-acpi-generic-address

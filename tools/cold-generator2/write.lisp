@@ -58,7 +58,6 @@
     image-offset))
 
 (defun write-image-header (image image-offset stream bml4-block freelist-block header)
-  (declare (ignore image))
   (let ((encoded-header (make-array 4096 :element-type '(unsigned-byte 8) :initial-element 0)))
     ;; Magic.
     (replace encoded-header #(#x00 #x4D #x65 #x7A #x7A #x61 #x6E #x69 #x6E #x65 #x49 #x6D #x61 #x67 #x65 #x00)
@@ -68,7 +67,7 @@
     ;; Major boot protocol version.
     (setf (nibbles:ub16ref/le encoded-header 32) 0)
     ;; Minor boot protocol version.
-    (setf (nibbles:ub16ref/le encoded-header 34) 25)
+    (setf (nibbles:ub16ref/le encoded-header 34) 26)
     ;; Entry fref.
     (setf (nibbles:ub64ref/le encoded-header 40) (image-header-entry-fref header))
     ;; Initial thread.
@@ -80,7 +79,11 @@
           (ecase (image-header-architecture header)
             (:x86-64 sys.int::+llf-arch-x86-64+)
             (:arm64 sys.int::+llf-arch-arm64+)))
-    ;; 65-96 free.
+    ;; 65-72 free.
+    ;; Initial stack pointer.
+    (setf (nibbles:ub64ref/le encoded-header 72)
+          (ser:image-initial-stack-pointer image))
+    ;; 80-96 free.
     ;; Top-level block map.
     (setf (nibbles:ub64ref/le encoded-header 96) (/ bml4-block #x1000))
     ;; Free block list.

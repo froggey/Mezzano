@@ -45,7 +45,7 @@
   (when (and (consp fn) (eql (first fn) 'lambda))
     (setf fn (compile nil fn)))
   (when (and (consp fn) (eql (first fn) 'defmethod))
-    (setf fn (mezzano.clos:method-function (defmethod-name-to-method fn))))
+    (setf fn (mezzano.clos::method-fast-function (defmethod-name-to-method fn) nil nil)))
   (when (and (not (functionp fn))
              (not (sys.int::function-reference-p fn)))
     (setf fn (fdefinition fn)))

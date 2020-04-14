@@ -804,149 +804,147 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                                   (print *compile-print*)
                                   (external-format :default)
                                   (parallel *compile-parallel*))
-  (with-open-file (input-stream input-file :external-format external-format)
-    (when verbose
-      (format t ";; Compiling file ~S.~%" input-file))
-    (let* ((start-time (get-internal-run-time))
-           (*package* *package*)
-           (*readtable* *readtable*)
-           (*compile-verbose* verbose)
-           (*compile-print* print)
-           ;; Only perform parallel compilation when there are multiple cores.
-           (*compile-parallel* (and parallel
-                                    (or (eql parallel :force)
-                                        (> mezzano.supervisor::*n-up-cpus* 1))))
-           (*deferred-functions* '())
-           (*llf-forms* nil)
-           (omap (make-hash-table))
-           (eof-marker (cons nil nil))
-           (*compile-file-pathname* (pathname (merge-pathnames input-file)))
-           (*compile-file-truename* (truename *compile-file-pathname*))
-           (*top-level-form-number* 0)
-           (mezzano.compiler::*load-time-value-hook* 'compile-file-load-time-value)
-           ;; Don't persist optimize proclaimations outside COMPILE-FILE.
-           (mezzano.compiler::*optimize-policy* (copy-list mezzano.compiler::*optimize-policy*))
-           (*gensym-counter* 0)
-           ;; During parallel compilation this is written to by the workers.
-           (*fixup-table* (make-hash-table :synchronized (if *compile-parallel* t nil)))
-           (location-stream (make-instance 'sys.int::location-tracking-stream
-                                           :stream input-stream
-                                           :namestring (ignore-errors (namestring *compile-file-pathname*)))))
-      (sys.int::with-reader-location-tracking
-        (loop
-           for form = (read location-stream nil eof-marker)
-           until (eql form eof-marker)
-           do
-             (when *compile-print*
-               (let ((*print-length* 3)
-                     (*print-level* 3))
-                 (declare (special *print-length* *print-level*))
-                 (format t ";; ~A form ~S.~%"
-                         (if *compile-parallel* "Processing" "Compiling")
-                         form)))
-           ;; TODO: Deal with lexical environments.
-             (handle-top-level-form form
-                                    (lambda (f env)
-                                      (compile-top-level-form f env))
-                                    (lambda (f env)
-                                      (eval-in-lexenv f env)))
-             (incf *top-level-form-number*)))
-      (when *deferred-functions*
-        (let* ((n-functions (length *deferred-functions*))
-               (n-workers mezzano.supervisor::*n-up-cpus*)
-               (work-fifo (mezzano.supervisor:make-fifo (* (max n-workers n-functions) 2)))
-               (return-fifo (mezzano.supervisor:make-fifo (* (max n-workers n-functions) 2)))
-               (workers '()))
-          (unwind-protect
-               (progn
-                 (loop
-                    repeat n-workers
-                    do (push (mezzano.supervisor:make-thread
-                              (lambda () (compile-file-worker work-fifo return-fifo))
-                              :name (format nil "Compile file worker")
-                              :initial-bindings `((*terminal-io* ,*terminal-io*)
-                                                  (*debug-io* ,*debug-io*)
-                                                  (*error-output* ,*error-output*)
-                                                  (*query-io* ,*query-io*)
-                                                  (*standard-input* ,*standard-input*)
-                                                  (*standard-output* ,*standard-output*)
-                                                  (*trace-output* ,*trace-output*)
-                                                  (*fixup-table* ,*fixup-table*)
-                                                  (*compile-verbose* ,*compile-verbose*)
-                                                  (*compile-print* ,*compile-print*)
-                                                  (*compile-file-pathname* ,*compile-file-pathname*)
-                                                  (*compile-file-truename* ,*compile-file-truename*)
-                                                  ,@(mezzano.compiler::compiler-state-bindings))
-                              :priority :low)
-                             workers))
-                 (loop
-                    for fn in *deferred-functions*
-                    do (mezzano.supervisor:fifo-push fn work-fifo))
-                 (when *compile-print*
-                   (format t ";; Parallel compiling ~:D functions over ~D workers...~%" n-functions n-workers))
-                 (let ((start-time (get-internal-run-time)))
+  (with-compilation-unit ()
+    (with-open-file (input-stream input-file :external-format external-format)
+      (when verbose
+        (format t ";; Compiling file ~S.~%" input-file))
+      (let* ((start-time (get-internal-run-time))
+             (*package* *package*)
+             (*readtable* *readtable*)
+             (*compile-verbose* verbose)
+             (*compile-print* print)
+             ;; Only perform parallel compilation when there are multiple cores.
+             (*compile-parallel* (and parallel
+                                      (or (eql parallel :force)
+                                          (> mezzano.supervisor::*n-up-cpus* 1))))
+             (*deferred-functions* '())
+             (*llf-forms* nil)
+             (omap (make-hash-table))
+             (eof-marker (cons nil nil))
+             (*compile-file-pathname* (pathname (merge-pathnames input-file)))
+             (*compile-file-truename* (truename *compile-file-pathname*))
+             (*top-level-form-number* 0)
+             (mezzano.compiler::*load-time-value-hook* 'compile-file-load-time-value)
+             ;; Don't persist optimize proclaimations outside COMPILE-FILE.
+             (mezzano.compiler::*optimize-policy* (copy-list mezzano.compiler::*optimize-policy*))
+             (*gensym-counter* 0)
+             ;; During parallel compilation this is written to by the workers.
+             (*fixup-table* (make-hash-table :synchronized (if *compile-parallel* t nil)))
+             (location-stream (make-instance 'sys.int::location-tracking-stream
+                                             :stream input-stream
+                                             :namestring (ignore-errors (namestring *compile-file-pathname*)))))
+        (sys.int::with-reader-location-tracking
+          (loop
+             for form = (read location-stream nil eof-marker)
+             until (eql form eof-marker)
+             do
+               (when *compile-print*
+                 (let ((*print-length* 3)
+                       (*print-level* 3))
+                   (declare (special *print-length* *print-level*))
+                   (format t ";; ~A form ~S.~%"
+                           (if *compile-parallel* "Processing" "Compiling")
+                           form)))
+             ;; TODO: Deal with lexical environments.
+               (handle-top-level-form form
+                                      (lambda (f env)
+                                        (compile-top-level-form f env))
+                                      (lambda (f env)
+                                        (eval-in-lexenv f env)))
+               (incf *top-level-form-number*)))
+        (when *deferred-functions*
+          (let* ((n-functions (length *deferred-functions*))
+                 (n-workers mezzano.supervisor::*n-up-cpus*)
+                 (work-fifo (mezzano.supervisor:make-fifo (* (max n-workers n-functions) 2)))
+                 (return-fifo (mezzano.supervisor:make-fifo (* (max n-workers n-functions) 2)))
+                 (workers '()))
+            (unwind-protect
+                 (progn
                    (loop
-                      with i = 0
-                      repeat n-functions
-                      do
-                        (when *compile-print*
-                          (when (eql i 0)
-                            (write-string ";; ")
-                            (finish-output)))
-                        (let ((status (mezzano.supervisor:fifo-pop return-fifo)))
-                          (when (and (consp status)
-                                     (eql (first status) :error))
-                            (format t "Error while compiling ~S.~%" (second status))
-                            (loop
-                               for worker in workers
-                               do (mezzano.supervisor:terminate-thread worker))
-                            (error (third status))))
-                        (when *compile-print*
-                          (write-char #\.)
-                          (finish-output)
-                          (incf i)
-                          (when (eql i 72)
-                            (terpri)
-                            (setf i 0))))
+                      repeat n-workers
+                      do (push (mezzano.supervisor:make-thread
+                                (lambda () (compile-file-worker work-fifo return-fifo))
+                                :name (format nil "Compile file worker")
+                                :initial-bindings `((*terminal-io* ,*terminal-io*)
+                                                    (*debug-io* ,*debug-io*)
+                                                    (*error-output* ,*error-output*)
+                                                    (*query-io* ,*query-io*)
+                                                    (*standard-input* ,*standard-input*)
+                                                    (*standard-output* ,*standard-output*)
+                                                    (*trace-output* ,*trace-output*)
+                                                    (*fixup-table* ,*fixup-table*)
+                                                    (*compile-verbose* ,*compile-verbose*)
+                                                    (*compile-print* ,*compile-print*)
+                                                    (*compile-file-pathname* ,*compile-file-pathname*)
+                                                    (*compile-file-truename* ,*compile-file-truename*)
+                                                    ,@(mezzano.compiler::compiler-state-bindings))
+                                :priority :low)
+                               workers))
+                   (loop
+                      for fn in *deferred-functions*
+                      do (mezzano.supervisor:fifo-push fn work-fifo))
                    (when *compile-print*
-                     (fresh-line)
-                     (format t ";; Compiled ~:D functions in ~D seconds.~%"
-                             n-functions
-                             (float (/ (- (get-internal-run-time) start-time)
-                                       internal-time-units-per-second)))))
-                 (loop
-                    repeat n-workers
-                    do (mezzano.supervisor:fifo-push :finished work-fifo)))
-            (loop
-               for worker in workers
-               do (mezzano.supervisor:terminate-thread worker)))))
-      ;; Now write everything to the fasl.
-      ;; Do two passes to detect circularity.
-      (let ((commands (reverse *llf-forms*)))
-        (let ((*llf-dry-run* t))
-          (dolist (cmd commands)
-            (dolist (o (cdr cmd))
-              (save-object o omap (make-broadcast-stream)))))
-        (with-open-file (output-stream output-file
-                                       :element-type '(unsigned-byte 8)
-                                       :if-exists :supersede
-                                       :direction :output)
-          (write-llf-header output-stream input-file)
-          (let ((*llf-dry-run* nil))
+                     (format t ";; Parallel compiling ~:D functions over ~D workers...~%" n-functions n-workers))
+                   (let ((start-time (get-internal-run-time)))
+                     (loop
+                        with i = 0
+                        repeat n-functions
+                        do
+                          (when *compile-print*
+                            (when (eql i 0)
+                              (write-string ";; ")
+                              (finish-output)))
+                          (let ((status (mezzano.supervisor:fifo-pop return-fifo)))
+                            (when (and (consp status)
+                                       (eql (first status) :error))
+                              (format t "Error while compiling ~S.~%" (second status))
+                              (loop
+                                 for worker in workers
+                                 do (mezzano.supervisor:terminate-thread worker))
+                              (error (third status))))
+                          (when *compile-print*
+                            (write-char #\.)
+                            (finish-output)
+                            (incf i)
+                            (when (eql i 72)
+                              (terpri)
+                              (setf i 0))))
+                     (when *compile-print*
+                       (fresh-line)
+                       (format t ";; Compiled ~:D functions in ~D seconds.~%"
+                               n-functions
+                               (float (/ (- (get-internal-run-time) start-time)
+                                         internal-time-units-per-second)))))
+                   (loop
+                      repeat n-workers
+                      do (mezzano.supervisor:fifo-push :finished work-fifo)))
+              (loop
+                 for worker in workers
+                 do (mezzano.supervisor:terminate-thread worker)))))
+        ;; Now write everything to the fasl.
+        ;; Do two passes to detect circularity.
+        (let ((commands (reverse *llf-forms*)))
+          (let ((*llf-dry-run* t))
             (dolist (cmd commands)
               (dolist (o (cdr cmd))
-                (save-object o omap output-stream))
-              (when (car cmd)
-                (write-byte (car cmd) output-stream))))
-          (write-byte +llf-end-of-load+ output-stream)
-          (when *compile-print*
-            (format t ";; Compile-file took ~D seconds.~%"
-                    (float (/ (- (get-internal-run-time) start-time)
-                              internal-time-units-per-second))))
-          (values (truename output-stream) nil nil))))))
-
-(defmacro with-compilation-unit ((&key override) &body body)
-  `(progn ,override ,@body))
+                (save-object o omap (make-broadcast-stream)))))
+          (with-open-file (output-stream output-file
+                                         :element-type '(unsigned-byte 8)
+                                         :if-exists :supersede
+                                         :direction :output)
+            (write-llf-header output-stream input-file)
+            (let ((*llf-dry-run* nil))
+              (dolist (cmd commands)
+                (dolist (o (cdr cmd))
+                  (save-object o omap output-stream))
+                (when (car cmd)
+                  (write-byte (car cmd) output-stream))))
+            (write-byte +llf-end-of-load+ output-stream)
+            (when *compile-print*
+              (format t ";; Compile-file took ~D seconds.~%"
+                      (float (/ (- (get-internal-run-time) start-time)
+                                internal-time-units-per-second))))
+            (values (truename output-stream) nil nil)))))))
 
 (defun assemble-lap (code &optional name debug-info wired architecture)
   (multiple-value-bind (mc constants fixups symbols gc-data)

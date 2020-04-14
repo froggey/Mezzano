@@ -355,7 +355,7 @@ Returns NIL if the function captures no variables."
            (*standard-output* *debug-io*)
            (debug-level *debugger-depth*)
            (*debugger-depth* (1+ *debugger-depth*))
-           (restarts (compute-restarts))
+           (restarts (compute-restarts condition))
            (restart-count (length restarts))
            (*debugger-condition* condition)
            (frames nil)
@@ -506,10 +506,10 @@ Returns NIL if the function captures no variables."
                              (fresh-line)
                              (write v))))))))))))))
 
-(defparameter *the-debugger* 'debugger-main)
+(defparameter *global-debugger* 'debugger-main)
 
 (defun enter-debugger (condition)
-  (funcall (or *the-debugger*
+  (funcall (or *global-debugger*
                'debugger-main)
            condition))
 

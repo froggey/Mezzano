@@ -61,6 +61,9 @@
           (typecase inst
             (unbox-instruction
              (let ((def (first (gethash (unbox-source inst) defs))))
+               (loop
+                  while (typep def 'move-instruction)
+                  do (setf def (first (gethash (move-source def) defs))))
                (when (or (and (typep def 'box-instruction)
                               (eql (box-type inst) (box-type def)))
                          ;; Special case boxing various integer pairs.
@@ -70,6 +73,9 @@
                  (frob (unbox-destination inst) (box-source def)))))
             (box-instruction
              (let ((def (first (gethash (box-source inst) defs))))
+               (loop
+                  while (typep def 'move-instruction)
+                  do (setf def (first (gethash (move-source def) defs))))
                (when (and (typep def 'unbox-instruction)
                           (eql (box-type inst) (box-type def)))
                  (frob (box-destination inst)

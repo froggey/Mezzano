@@ -1464,14 +1464,16 @@ a pointer to the new object. Leaves a forwarding pointer in place."
 (defun align-down (value boundary)
   (logand value (lognot (1- boundary))))
 
-(defun find-next-free-object (start limit)
+(defun find-next-free-object (start limit usage-sym)
   (loop
      (when (>= start limit)
        (return nil))
      (when (not (get-mark-bit start))
        ;; Not marked, must be free.
        (return start))
-     (let ((size (* (align-up (size-of-pinned-area-allocation start) 2) 8)))
+     (let* ((size-in-words (align-up (size-of-pinned-area-allocation start) 2))
+            (size (* size-in-words 8)))
+       (incf (symbol-value usage-sym) size-in-words)
        (loop
           for card from (align-up start +card-size+) below (+ start size) by +card-size+
           for delta = (- start card)
@@ -1515,15 +1517,17 @@ a pointer to the new object. Leaves a forwarding pointer in place."
                     nil
                     delta)))))
 
-(defun rebuild-freelist (bins name base limit)
+(defun rebuild-freelist (bins name base limit usage-sym)
   "Sweep the pinned/wired area chain and rebuild the freelist.
 Additionally update the card table offset fields and clear the mark bits."
   (gc-log "rebuild freelist " name)
   ;; Reset bins.
   (dotimes (i 64)
     (setf (svref bins i) nil))
+  ;; And usage counts.
+  (setf (symbol-value usage-sym) 0)
   ;; Build the freelist.
-  (let* ((entry-start (find-next-free-object base limit))
+  (let* ((entry-start (find-next-free-object base limit usage-sym))
          (entry-len 0)
          (current entry-start))
     (when (not entry-start)
@@ -1546,7 +1550,7 @@ Additionally update the card table offset fields and clear the mark bits."
            ;; Test the mark bit.
            ((get-mark-bit next-addr)
             ;; Is marked, finish this entry and start the next one.
-            (setf current (find-next-free-object next-addr limit))
+            (setf current (find-next-free-object next-addr limit usage-sym))
             (when *gc-debug-freelist-rebuild*
               (gc-log "marked, next is " current))
             (finish-freelist-entry bins entry-start entry-len)
@@ -2122,16 +2126,20 @@ Additionally update the card table offset fields and clear the mark bits."
     ;; Rebuild freelists.
     (rebuild-freelist *wired-area-free-bins*
                       :wired
-                      *wired-area-base* *wired-area-bump*)
+                      *wired-area-base* *wired-area-bump*
+                      '*wired-area-usage*)
     (rebuild-freelist *pinned-area-free-bins*
                       :pinned
-                      *pinned-area-base* *pinned-area-bump*)
+                      *pinned-area-base* *pinned-area-bump*
+                      '*pinned-area-usage*)
     (rebuild-freelist *wired-function-area-free-bins*
                       :wired-function
-                      *wired-function-area-limit* *function-area-base*)
+                      *wired-function-area-limit* *function-area-base*
+                      '*wired-function-area-usage*)
     (rebuild-freelist *function-area-free-bins*
                       :function
-                      *function-area-base* *function-area-limit*)
+                      *function-area-base* *function-area-limit*
+                      '*function-area-usage*)
     (validate-intergenerational-pointers)
     ;; Reset card table.
     ;; Newspace's card table does not need to be cleared as it

@@ -105,6 +105,8 @@
 (defconstant +pci-config-min-gnt+       #x3E)
 (defconstant +pci-config-max-lat+       #x3F)
 
+(defconstant +pci-standard-htype+           #x00)
+
 (defconstant +pci-bridge-htype+             #x01)
 (defconstant +pci-bridge-primary-bus+       #x18)
 (defconstant +pci-bridge-secondary-bus+     #x19)
@@ -225,6 +227,18 @@
 (defun (setf pci-bar) (value device bar)
   (setf (pci-config/32 device (+ +pci-config-bar-start+ (* bar 4))) value))
 
+(defun decode-pci-bar-type (bar-data)
+  "Returns the basic type of the BAR (IO/MMIO + address limits) and prefetchablility."
+  (cond ((zerop bar-data)
+         (values nil nil))
+        ((logbitp 0 bar-data)
+         (values :io nil))
+        (t
+         (values (case (ldb (byte 2 1) bar-data)
+                   (0 :mmio-32)
+                   (2 :mmio-64))
+                 (logbitp 3 bar-data)))))
+
 (defun pci-bar-size (device bar)
   "Calculate the size of the specified BAR.
 Caution: This disables & reenables address decoding to perform the calcuation.
@@ -236,51 +250,41 @@ Returns NIL if the BAR has an unknown type."
             (size nil))
         ;; Disable address decoding as we're changing the addresses in the BAR.
         (setf (pci-config/16 device +pci-config-command+) 0)
-        (cond ((logbitp 0 bar-data)
-               ;; IO memory.
-               (setf (pci-bar device bar) #xFFFFFFFF)
-               (let ((lo (logxor (logand (pci-bar device bar) #xFFFE) #xFFFF)))
-                 (unless (eql lo #xFFFF)
-                   (setf size (1+ lo)))))
-              ((eql (logand bar-data 7) 0)
-               ;; 32-bit memory.
-               (setf (pci-bar device bar) #xFFFFFFFF)
-               (let ((lo (logxor (logand (pci-bar device bar) #xFFFFFFF0) #xFFFFFFFF)))
-                 (unless (eql lo #xFFFFFFFF)
-                   (setf size (1+ lo)))))
-              ((eql (logand bar-data 7) 4)
-               ;; 64-bit memory.
-               (let ((bar-data-hi (pci-bar device (1+ bar))))
-                 (setf (pci-bar device bar) #xFFFFFFFF)
-                 (setf (pci-bar device (1+ bar)) #xFFFFFFFF)
-                 ;; Be careful and avoid constructing a bignum here, stick
-                 ;; with the separate 32-bit halves as long as possible.
-                 (let ((lo (logxor (logand (pci-bar device bar) #xFFFFFFF0) #xFFFFFFFF))
-                       (hi (logxor (pci-bar device (1+ bar)) #xFFFFFFFF)))
-                   (unless (and (eql lo #xFFFFFFFF)
-                                (eql hi #xFFFFFFFF))
-                     (setf size (1+ (logior lo (ash hi 32))))))
-                 (setf (pci-bar device (1+ bar)) bar-data-hi))))
+        (case (decode-pci-bar-type bar-data)
+          (:io
+           ;; IO memory.
+           (setf (pci-bar device bar) #xFFFFFFFF)
+           (let ((lo (logxor (logand (pci-bar device bar) #xFFFE) #xFFFF)))
+             (unless (eql lo #xFFFF)
+               (setf size (1+ lo)))))
+          (:mmio-32
+           ;; 32-bit memory.
+           (setf (pci-bar device bar) #xFFFFFFFF)
+           (let ((lo (logxor (logand (pci-bar device bar) #xFFFFFFF0) #xFFFFFFFF)))
+             (unless (eql lo #xFFFFFFFF)
+               (setf size (1+ lo)))))
+          (:mmio-64
+           ;; 64-bit memory.
+           (let ((bar-data-hi (pci-bar device (1+ bar))))
+             (setf (pci-bar device bar) #xFFFFFFFF)
+             (setf (pci-bar device (1+ bar)) #xFFFFFFFF)
+             ;; Be careful and avoid constructing a bignum here, stick
+             ;; with the separate 32-bit halves as long as possible.
+             (let ((lo (logxor (logand (pci-bar device bar) #xFFFFFFF0) #xFFFFFFFF))
+                   (hi (logxor (pci-bar device (1+ bar)) #xFFFFFFFF)))
+               (unless (and (eql lo #xFFFFFFFF)
+                            (eql hi #xFFFFFFFF))
+                 (setf size (1+ (logior lo (ash hi 32))))))
+             (setf (pci-bar device (1+ bar)) bar-data-hi))))
         ;; Restore old bar value & reenable decoding.
         (setf (pci-bar device bar) bar-data
               (pci-config/16 device +pci-config-command+) old-command)
         size))))
 
 (defun pci-io-region (device bar)
-  (let ((address (pci-bar device bar))
-        (size (pci-bar-size device bar)))
-    (assert size () "Unable to size BAR ~D for PCI device ~S" bar device)
-    (when (not (logbitp 0 address))
-      ;; TODO: Map all physical memory regions at boot to avoid the call
-      ;; to MAP-PHYSICAL-MEMORY here. There are issues with the VM lock and
-      ;; arbitrary lockers.
-      (let* ((base (logand address (lognot #b1111)))
-             (end (sup::align-up (+ base size) #x1000))
-             (aligned-base (logand base (lognot #xFFF)))
-             (aligned-size (- end aligned-base)))
-        (sup:map-physical-memory aligned-base
-                                 aligned-size
-                                 "PCI MMIO")))
+  (let ((address (pci-bar device bar)))
+    (when (not (decode-pci-bar-type address))
+      (error "PCI device ~S BAR ~D has unknown type ~8,'0X" device bar address))
     address))
 
 (defun pci-intr-line (device)
@@ -435,32 +439,52 @@ Returns NIL if the BAR has an unknown type."
                 (sup:debug-print-line "    " cap ": Unknown capability " id)))
              (setf cap (pci-config/8 device (+ cap +pci-capability-next+))))))))
 
+(defun pci-scan-bus (bus)
+  (dotimes (device-nr 32)
+    ;; High bit of the header type specifies if a device is multifunction.
+    (let ((multifunction (logbitp 7 (pci-config/8
+                                     (make-pci-device :address (make-pci-address bus device-nr 0)
+                                                      :boot-id (sup:current-boot-id))
+                                     +pci-config-hdr-type+))))
+      (dotimes (function (if multifunction 8 1))
+        (let* ((address (make-pci-address bus device-nr function))
+               (device (make-pci-device :address address :boot-id (sup:current-boot-id)))
+               (vendor-id (pci-config/16 device +pci-config-vendorid+))
+               (device-id (pci-config/16 device +pci-config-deviceid+))
+               (header-type (ldb (byte 7 0) (pci-config/8 device +pci-config-hdr-type+))))
+          (unless (or (eql vendor-id #xFFFF) (eql vendor-id 0))
+            (setf (pci-device-vendor-id device) vendor-id
+                  (pci-device-device-id device) device-id)
+            (sup::push-wired device *pci-devices*)
+            ;; Ensure memory associated with BARs is mapped.
+            (do ((n-bars (case header-type
+                           (#.+pci-standard-htype+ 6)
+                           (#.+pci-bridge-htype+ 2)
+                           (t 0)))
+                 (bar 0 (1+ bar)))
+                ((>= bar n-bars))
+              (let* ((address (pci-bar device bar))
+                     (type (decode-pci-bar-type address))
+                     (size (pci-bar-size device bar)))
+                (when (and size (member type '(:mmio-32 :mmio-64)))
+                  (let* ((base (logand address (lognot #b1111)))
+                         (end (sup::align-up (+ base size) #x1000))
+                         (aligned-base (logand base (lognot #xFFF)))
+                         (aligned-size (- end aligned-base)))
+                    (sup:map-physical-memory-early aligned-base
+                                                   aligned-size
+                                                   "PCI MMIO"))
+                  (when (eql type :mmio-64)
+                    (incf bar)))))
+            (when (eql header-type +pci-bridge-htype+)
+              ;; Bridge device, scan the other side.
+              (pci-scan-bus (pci-config/8 device +pci-bridge-secondary-bus+)))))))))
+
 (defun sup::pci-detect ()
   (setf (sys.int::io-port/32 +pci-config-address+) #x80000000)
   (when (eql (sys.int::io-port/32 +pci-config-address+) #x80000000)
     (sup:debug-print-line "Begin PCI scan.")
-    (labels ((scan-bus (bus)
-               (dotimes (device-nr 32)
-                 ;; High bit of the header type specifies if a device is multifunction.
-                 (let ((multifunction (logbitp 7 (pci-config/8
-                                                  (make-pci-device :address (make-pci-address bus device-nr 0)
-                                                                   :boot-id (sup:current-boot-id))
-                                                  +pci-config-hdr-type+))))
-                   (dotimes (function (if multifunction 8 1))
-                     (let* ((address (make-pci-address bus device-nr function))
-                            (device (make-pci-device :address address :boot-id (sup:current-boot-id)))
-                            (vendor-id (pci-config/16 device +pci-config-vendorid+))
-                            (device-id (pci-config/16 device +pci-config-deviceid+))
-                            (header-type (ldb (byte 7 0) (pci-config/8 device +pci-config-hdr-type+))))
-                       (unless (or (eql vendor-id #xFFFF) (eql vendor-id 0))
-                         (setf (pci-device-vendor-id device) vendor-id
-                               (pci-device-device-id device) device-id)
-                         (sup::push-wired device *pci-devices*)
-                         (when (eql header-type +pci-bridge-htype+)
-                           ;; Bridge device, scan the other side.
-                           (scan-bus (pci-config/8 device +pci-bridge-secondary-bus+))))))))))
-      (declare (dynamic-extent #'scan-bus))
-      (scan-bus 0))
+    (pci-scan-bus 0)
     (map-pci-devices
      (sup::dx-lambda (device)
        (let* ((vendor-id (pci-config/16 device +pci-config-vendorid+))

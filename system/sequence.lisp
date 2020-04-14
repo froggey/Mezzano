@@ -663,6 +663,34 @@
             ((fast-vector t))
             ((fast-vector single-float))
             ((fast-vector double-float))
+            ((and (typep sequence-1 'string)
+                  (not (array-displacement sequence-1))
+                  (typep sequence-2 'string)
+                  (not (array-displacement sequence-2)))
+             ;; Make sure the destination is at least as wide as the source.
+             (let ((storage-1 (sys.int::%complex-array-storage sequence-1))
+                   (storage-2 (sys.int::%complex-array-storage sequence-2)))
+               (when (not (typep storage-2 '(simple-array (unsigned-byte 8) (*))))
+                 ;; Source may contain wide characters.
+                 (cond ((typep storage-2 '(simple-array (unsigned-byte 16) (*)))
+                        (when (typep storage-1 '(simple-array (unsigned-byte 8) (*)))
+                          ;; Expand 8-bit dest to 16-bit
+                          (setf (sys.int::%complex-array-storage sequence-1)
+                                (make-array (length storage-1)
+                                            :element-type '(unsigned-byte 16)
+                                            :initial-contents storage-1))))
+                       (t
+                        ;; source must be 32-bit
+                        (when (not (typep storage-1 '(simple-array (unsigned-byte 32) (*))))
+                          ;; Expand non-32-bit dest
+                          (setf (sys.int::%complex-array-storage sequence-1)
+                                (make-array (length storage-1)
+                                            :element-type '(unsigned-byte 32)
+                                            :initial-contents storage-1)))))))
+             (replace (sys.int::%complex-array-storage sequence-1)
+                      (sys.int::%complex-array-storage sequence-2)
+                      :start1 start1 :end1 end1
+                      :start2 start2 :end2 end2))
             (t
              (let ((n (min (- end1 start1) (- end2 start2))))
                (cond (copy-backwards
@@ -762,7 +790,23 @@
                    (setf end (fill-pointer sequence)))))
           (setf sequence (sys.int::%complex-array-storage sequence))
           (go RETRY-COMPLEX-ARRAY))
-         ;; TODO: Strings. Check item is a character, expand underlying array as required, fill underlying array with char-as-int.
+         ;; Strings. Check item is a character, expand underlying array as required, fill underlying array with char-as-int.
+         ((#.+object-tag-simple-string+ #.+object-tag-string+)
+          (when (not (eql (array-rank sequence) 1))
+            (error 'type-error :datum sequence :expected-type 'sequence))
+          (when (array-displacement sequence)
+            (go GENERIC))
+          ;; 1D non-displaced array. Adjustable or has a fill-pointer.
+          (when (array-has-fill-pointer-p sequence)
+            (cond (end
+                   (assert (<= end (fill-pointer sequence))))
+                  (t
+                   (setf end (fill-pointer sequence)))))
+          (check-type item character)
+          (mezzano.runtime::ensure-string-wide-enough item sequence)
+          (setf sequence (sys.int::%complex-array-storage sequence)
+                item (char-int item))
+          (go RETRY-COMPLEX-ARRAY))
          (t
           (go GENERIC))))
      (return original-sequence)

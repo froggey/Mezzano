@@ -507,7 +507,7 @@
   ;; Dump the IDENTIFY PACKET data just after the command table.
   (let* ((port-info (ahci-port ahci port))
          (identify-data-phys (+ (ahci-port-command-table port-info) #x100))
-         (identify-data (convert-to-pmap-address identify-data-phys)))
+         (identify-data (sup::convert-to-pmap-address identify-data-phys)))
     (ahci-setup-buffer ahci port identify-data-phys 512 nil nil)
     (ahci-dump-port-registers ahci port)
     (ahci-run-command ahci port ata:+ata-command-identify-packet+)

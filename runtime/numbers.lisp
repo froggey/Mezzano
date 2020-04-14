@@ -719,8 +719,6 @@
          (sys.int::%bignum-integer-length integer))
         (t (error 'type-error :expected-type 'integer :datum integer))))
 
-(declaim (inline left-shift right-shift))
-
 (defun left-shift (integer count)
   (cond ((and (sys.int::fixnump integer)
               (sys.int::fixnump count))
@@ -777,10 +775,6 @@
      (assert (eql count 0))
      integer)))
 
-(declaim (inline sys.int::binary-=
-                 sys.int::binary-< sys.int::binary-<=
-                 sys.int::binary-> sys.int::binary->=))
-
 (defun sys.int::binary-= (lhs rhs)
   (if (and (sys.int::fixnump lhs)
            (sys.int::fixnump rhs))
@@ -811,13 +805,6 @@
       (not (%fixnum-< lhs rhs))
       (sys.int::generic->= lhs rhs)))
 
-(declaim (inline sys.int::binary-+ sys.int::binary--
-                 sys.int::binary-* sys.int::%truncate
-                 rem
-                 sys.int::binary-logand
-                 sys.int::binary-logior
-                 sys.int::binary-logxor
-                 lognot))
 (defun sys.int::binary-+ (lhs rhs)
   (if (and (sys.int::fixnump lhs)
            (sys.int::fixnump rhs))
@@ -847,6 +834,7 @@
       (%fixnum-truncate lhs rhs)
       (sys.int::generic-truncate lhs rhs)))
 
+(declaim (inline rem))
 (defun rem (number divisor)
   (multiple-value-bind (quot rem)
       (truncate number divisor)
@@ -875,3 +863,9 @@
   (if (sys.int::fixnump integer)
       (%fixnum-logxor integer -1)
       (sys.int::generic-lognot integer)))
+
+(defun sys.int::unsigned-byte-64-p (object)
+  (or (and (sys.int::fixnump object)
+           (<= 0 object))
+      (and (sys.int::bignump object)
+           (<= 0 object (1- (expt 2 64))))))
