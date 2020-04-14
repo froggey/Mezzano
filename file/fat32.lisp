@@ -18,7 +18,6 @@
    (%sectors-per-cluster :initarg :sectors-per-cluster :accessor fat-%sectors-per-cluster :type (unsigned-byte 8))
    (%n-reserved-sectors :initarg :n-reserved-sectors :accessor fat-%n-reserved-sectors :type (unsigned-byte 16))
    (%n-fats :initarg :n-fats :accessor fat-%n-fats :type (unsigned-byte 8))
-   (%n-root-entry :initarg :n-root-entry :accessor fat-%n-root-entry :type (unsigned-byte 16))
    (%n-sectors16 :initarg :n-sectors16 :accessor fat-%n-sectors16 :type (unsigned-byte 16))
    (%media-type :initarg :media-type :accessor fat-%media-type :type (unsigned-byte 8))
    (%sectors-per-fat :initarg :sectors-per-fat :accessor fat-%sectors-per-fat :type (unsigned-byte 16))
@@ -81,7 +80,6 @@ Valid media-type ara #xF0 #xF8 #xF9 #xFA #xFB #xFC #xFD #xFE #xFF" media-type)))
           (fat-%sectors-per-cluster ffs) (check-sectors-per-cluster (aref sector 13) bytes-per-sector)
           (fat-%n-reserved-sectors ffs) (sys.int::ub16ref/le sector 14)
           (fat-%n-fats ffs) n-fats
-          (fat-%n-root-entry ffs) (sys.int::ub16ref/le sector 17)
           (fat-%n-sectors16 ffs) (sys.int::ub16ref/le sector 19)
           (fat-%media-type ffs) (check-media-type (aref sector 21))
           (fat-%sectors-per-track ffs) (sys.int::ub16ref/le sector 24)
@@ -91,7 +89,7 @@ Valid media-type ara #xF0 #xF8 #xF9 #xFA #xFB #xFC #xFD #xFE #xFF" media-type)))
           (fat-%n-clusters ffs) (+ (compute-cluster-count sector) 2))))
 
 (defclass fat12 (fat-base)
-  ())
+  ((%n-root-entry :initarg :n-root-entry :accessor fat-%n-root-entry :type (unsigned-byte 16))))
 
 (defun check-signature (signature)
   (if (or (= signature #x28)
@@ -105,50 +103,33 @@ Valid signature are #x28 and #x29" signature)))
     (error "Bad bps : ~a .
 Valid bps are ~a" bps +bootable-partition-signature+)))
 
-(defun read-fat12-structure (disk)
+(defun read-fat12/16-structure (disk ffs)
   (let* ((sector (block-device-read-sector disk 0 1))
-         (fat12 (make-instance 'fat12
-                               :sectors-per-fat (sys.int::ub16ref/le sector 22)
-                               :drive-n (aref sector 36) ; Operating system specific
-                               :boot-code (subseq sector 62 510))))
+         (fat12/16 (make-instance ffs
+                                  :sectors-per-fat (sys.int::ub16ref/le sector 22)
+                                  :drive-n (aref sector 36) ; Operating system specific
+                                  :boot-code (subseq sector 62 510))))
     (when (check-signature (aref sector 38))
-      (setf (fat-%signature fat12) (aref sector 38)
-            (fat-%volume-id fat12) (sys.int::ub32ref/le sector 39)
-            (fat-%volume-label fat12) (map 'string #'code-char (subseq sector 43 54))
-            (fat-%fat-type-label fat12) (map 'string #'code-char (subseq sector 54 60))))
-    (read-fat-base fat12 sector)
-    (assert (or (not (zerop (fat-%n-sectors16 fat12)))
-                (not (zerop (fat-%n-sectors32 fat12)))))
+      (setf (fat-%n-root-entry fat12/16) (sys.int::ub16ref/le sector 17)
+            (fat-%signature fat12/16) (aref sector 38)
+            (fat-%volume-id fat12/16) (sys.int::ub32ref/le sector 39)
+            (fat-%volume-label fat12/16) (map 'string #'code-char (subseq sector 43 54))
+            (fat-%fat-type-label fat12/16) (map 'string #'code-char (subseq sector 54 60))))
+    (read-fat-base fat12/16 sector)
+    (assert (or (not (zerop (fat-%n-sectors16 fat12/16)))
+                (not (zerop (fat-%n-sectors32 fat12/16)))))
     (check-bps (sys.int::ub16ref/le sector 510))
-    fat12))
+    fat12/16))
 
 (defclass fat16 (fat12)
   ())
-
-(defun read-fat16-structure (disk)
-  (let* ((sector (block-device-read-sector disk 0 1))
-         (fat16 (make-instance 'fat16
-                               :sectors-per-fat (sys.int::ub16ref/le sector 22)
-                               :drive-n (aref sector 36) ; Operating system specific
-                               :boot-code (subseq sector 62 510))))
-    (when (check-signature (aref sector 38))
-      (setf (fat-%signature fat16) (aref sector 38)
-            (fat-%volume-id fat16) (sys.int::ub32ref/le sector 39)
-            (fat-%volume-label fat16) (map 'string #'code-char (subseq sector 43 54))
-            (fat-%fat-type-label fat16) (map 'string #'code-char (subseq sector 54 60))))
-    (read-fat-base fat16 sector)
-    (assert (or (not (zerop (fat-%n-sectors16 fat16)))
-                (not (zerop (fat-%n-sectors32 fat16)))))
-    (check-bps (sys.int::ub16ref/le sector 510))
-    fat16))
 
 (defclass fat32 (fat-base)
   ((%flags :initarg :flags :accessor fat32-%flags)
    (%fat-version :initarg :fat-version :accessor fat32-%fat-version)
    (%root-cluster :initarg :root-cluster :accessor fat32-%root-cluster :type (unsigned-byte 32))
    (%fat-info :initarg :fat-info :accessor fat32-%fat-info :type (unsigned-byte 16))
-   (%backup-boot-sector :initarg :backup-boot-sector :accessor fat32-%backup-boot-sector :type (unsigned-byte 16))
-   (%boot-code :initarg :boot-code :accessor fat32-%boot-code)))
+   (%backup-boot-sector :initarg :backup-boot-sector :accessor fat32-%backup-boot-sector :type (unsigned-byte 16))))
 
 (defun check-fat-type-label32 (fat-type-label)
   (if (string= "FAT32   " fat-type-label)
@@ -1183,10 +1164,10 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
            ;; In code below, <, 4085 and 65525 are correct see Microsoft Doc.
            (ffs (cond ((< cluster-count 4085)
                        ;; FAT12
-                       (read-fat12-structure partition))
+                       (read-fat12/16-structure partition 'fat12))
                       ((< cluster-count 65525)
                        ;; FAT16
-                       (read-fat16-structure partition))
+                       (read-fat12/16-structure partition 'fat16))
                       (T
                        ;; FAT32
                        (read-fat32-structure partition))))
