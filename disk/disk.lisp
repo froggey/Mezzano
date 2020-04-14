@@ -70,7 +70,8 @@
   (do-block disk #'write-sector lba n-sectors buffer offset))
 
 (defmethod block-device-flush ((disk sup:disk))
-  (sup:disk-flush disk))
+  (multiple-value-bind (success-p error-reason) (sup:disk-flush disk)
+    (or success-p (error "Disk flush error: ~A" error-reason))))
 
 (defun block-device-read-sector (disk start-sector n-sectors)
   (let ((result (make-array (* (block-device-sector-size disk) n-sectors)
@@ -109,6 +110,6 @@
   (loop
      for block-device in (all-block-devices)
      for id = (probe-block-device host-class block-device)
-     when (and id (= id uuid)) do
+     when (and id (string-equal id uuid)) do
        (return block-device)
      finally NIL))

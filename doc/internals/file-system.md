@@ -2,20 +2,9 @@
 
 # File Systems on Mezzano
 
-Each type of file system on Mezzano requires a host class and two
-stream classes.
-
-One stream class must be a character stream; the other stream class
-must be a binary stream. These streams must support the appropriate
-stream methods.
-
-One approach of creating these streams is to subclass the gray
-streams:
-  * gray:fundamental-character-input-stream and gray:fundamental-character-output-stream
-  * gray:fundamental-binary-input-stream and gray:fundamental-binary-output-stream.
-
-The host class must implement the following methods which are exported
-by the mezzano.file-system package.
+Each type of file system on Mezzano requires a host class and that
+host class must implement the following methods which are exported by
+the mezzano.file-system package.
 
     parse-namestring-using-host (host namestring junk-allowed) => pathname
 
@@ -41,15 +30,22 @@ by the mezzano.file-system package.
 
     truename-using-host (host path) => pathname
 
+As listed above, open-using-host returns a stream. Usually, the
+stream is one of two types: a character stream or a binary
+stream. These streams may be implemented by subclassing the gray streams:
+
+  * gray:fundamental-character-input-stream and gray:fundamental-character-output-stream
+  * gray:fundamental-binary-input-stream and gray:fundamental-binary-output-stream.
+
 The function (setfable)
 
     mezzano.file-system:find-host (host-name &optional (errorp t)) => host
 
 maps a host name to a host object. This mapping is used for converting
-name strings to/from pathname objects.  This allows the syntax of the
-name string to be host dependent. For example, the "REMOTE" host uses
-Unix style name strings: "REMOTE:/home/tom/abc.lisp" while the "LOCAL"
-host uses LispM style name strings: "LOCAL:>home>tom>abc.lisp".
+namestrings to/from pathname objects.  This allows the syntax of the
+namestring to be host dependent. For example, the "REMOTE" host uses
+Unix style namestrings: "REMOTE:/home/tom/abc.lisp" while the "LOCAL"
+host uses LispM style namestrings: "LOCAL:>home>tom>abc.lisp".
 
 For a file system that resides on a local disk or disk partition, the
 host object must have a block device object so that read and write
@@ -66,11 +62,11 @@ These disks and partitions also support the block-device APIs:
 
     mezzano.disk:block-device-sector-size (disk) => <sector size in bytes>
 
-    mezzano.disk:block-device-read (disk lba n-sectors buffer &key (offset 0)) => T on success, NIL and error otherwise
+    mezzano.disk:block-device-read (disk lba n-sectors buffer &key (offset 0)) => T on success, otherwise error
 
-    mezzano.disk:block-device-write (disk lba n-sectors buffer &key (offset 0)) => T on success, NIL and error otherwise
+    mezzano.disk:block-device-write (disk lba n-sectors buffer &key (offset 0)) => T on success, otherwise error
 
-    mezzano.disk:block-device-flush (disk) => T on success, NIL and error otherwise
+    mezzano.disk:block-device-flush (disk) => T on success, otherwise error
 
 A list of block devices can obtained by calling:
 
@@ -204,3 +200,15 @@ function would be useful in general, but also by the name space
 editor. Currently (6 April 2020), for FAT, this functionality is
 provided by mezzano.fat-file-system::mount-fat(block-device host-name
 uuid).
+
+Generate better error types from block devices. Perhaps add a base
+condition (IO-ERROR?) that block device errors inherit from.
+
+Better handling for hotplug devices. Automatic probing when they are
+registered.
+
+It's not clear that the local file system and logical hosts (which
+don't really exist as real file systems at all) should subscribe to
+the mount protocol. They exist from the moment their host objects are
+created and are destroyed when they get GC'd. So the mount protocol
+doesn't really make sense. What, if anything, should be changed?

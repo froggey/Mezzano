@@ -1180,9 +1180,13 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
          (buffer (make-array sector-size :element-type '(unsigned-byte 8))))
     (block-device-read block-device 0 1 buffer)
     (cond ((bpb-v7-p buffer)      ;; Check for version 7.0 BPB
-           (sys.int::ub32ref/le buffer 67))
+           (format nil "~4,'0X-~4,'0X"
+                   (sys.int::ub16ref/le buffer 69)
+                   (sys.int::ub16ref/le buffer 67)))
           ((bpb-v4-p buffer)      ;; Check for version 4.0 BPB
-           (sys.int::ub32ref/le buffer 39)))))
+           (format nil "~4,'0X-~4,'0X"
+                   (sys.int::ub16ref/le buffer 41)
+                   (sys.int::ub16ref/le buffer 39))))))
 
 (defun mount-fat (block-device host-name uuid)
   "If the block-device contains a FAT file system, register an appropriate host using the host-name. Returns the host-name."
