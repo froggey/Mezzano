@@ -683,11 +683,17 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
 
 (defun read-short-name (directory offset)
   ;; Handle 8.3 names
+  ;; DIR_NTRes (aref directory 12) specifies if all of the name chars
+  ;; or all of the extensiton chars are lower case ascii.
   (let ((name (make-string 12 :initial-element #\Space))
+        (name-lower-p (logbitp 3 (aref directory (+ offset 12))))
+        (ext-lower-p (logbitp 4 (aref directory (+ offset 12))))
         (first (aref directory offset))
         (idx 1))
     ;; First character is special
-    (setf (elt name 0) (if (= first #x05) (code-char #xE5) (code-char first)))
+    (setf (elt name 0) (cond ((= first #x05) (code-char #xE5))
+                             (name-lower-p (char-downcase (code-char first)))
+                             (T (code-char first))))
     ;; Copy chars for 8 part
     (loop
        for i from (1+ offset) to (+ 7 offset)
@@ -695,7 +701,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
        when (eql char #\Space) do
          (return)
        do
-         (setf (elt name idx) char)
+         (setf (elt name idx) (if name-lower-p (char-downcase char) char))
          (incf idx))
     ;; Copy chars for 3 part, if there is any
     (when (/= (aref directory (+ 8 offset)) (char-code #\Space))
@@ -707,7 +713,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
          when (eql char #\Space) do
            (return)
          do
-           (setf (elt name idx) char)
+           (setf (elt name idx) (if ext-lower-p (char-downcase char) char))
            (incf idx)))
     ;; Delete extra spaces from the right end
     (string-right-trim '(#\Space) name)))
@@ -1645,7 +1651,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                (let ((name (read-file-name dir-array offset)))
                  (when (and (string/= name ".")
                             (string/= name "..")
-                            (equalp match-name name)
+                            (string= match-name name)
                             (directory-p dir-array offset))
                    (return-from match-in-directory
                      (match-in-directory
