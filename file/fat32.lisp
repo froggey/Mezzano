@@ -1076,7 +1076,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
 
 ;;; Host integration
 
-(defclass fat-host (file-host-mount-mixin)
+(defclass fat-host (file-host-mount-mixin file-system-host)
   ((%name :initarg :name
           :reader host-name)
    (%lock :initarg :lock

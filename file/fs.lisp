@@ -29,6 +29,7 @@
            #:truename-using-host
            #:no-namestring-error
            #:tmpdir-pathname
+           #:file-system-host
            #:file-host-mount-mixin
            #:file-host-mount-args
            #:mount))
@@ -74,18 +75,36 @@
                (error 'unknown-host
                       :host name
                       :pathname (format nil "~A:" name))))))
-    (t name)))
+    (file-system-host name)
+    (t (when errorp
+         (error 'mezzano.internals::simple-type-error
+                :expected-type '(or string symbol file-system-host)
+                :datum name
+                :format-control "~S is invalid type ~S, expected one of ~S"
+                :format-arguments (list name
+                                        (type-of name)
+                                        '(string symbol file-system-host)))))))
 
-(defun (setf find-host) (new-value name &optional errorp)
-  (declare (ignore errorp))
+(defun (setf find-host) (new-value name &optional (errorp t))
   (setf name (string-upcase (string name)))
   (assert (not (zerop (length name))))
-  (cond (new-value
+  (cond ((null new-value)
+         (setf *host-alist* (remove name *host-alist* :key 'first :test 'string=))
+         NIL)
+        ((typep new-value 'file-system-host)
          (setf *host-alist*
                (list* (list name new-value)
-                      (remove name *host-alist* :key 'first :test 'string=))))
-        (t (setf *host-alist* (remove name *host-alist* :key 'first :test 'string=))))
-  new-value)
+                      (remove name *host-alist* :key 'first :test 'string=)))
+         new-value)
+        (errorp
+         (error 'mezzano.internals::simple-type-error
+                :expected-type 'file-system-host
+                :datum new-value
+                :format-control "~S is invalid type ~S, required type ~S"
+                :format-arguments (list new-value
+                                        (type-of new-value)
+                                        'file-system-host)))
+        (T NIL)))
 
 (defun list-all-hosts ()
   (mapcar #'second *host-alist*))
@@ -692,6 +711,12 @@ NAMESTRING as the second."
                                     :directory '(:relative "tmp"))
                      home)))
 
+;;; File System Host - base class that all file system hosts must superclass
+;;;     Created so that find-host can identify file system host objects
+
+(defclass file-system-host ()
+  ())
+
 ;;; Mount Mixin - used on boot to re-associate host with block device
 ;;;     Only hosts associated with block devices need to implement the
 ;;;     mount method.
@@ -714,7 +739,7 @@ NAMESTRING as the second."
 
 ;;; Logical pathnames.
 
-(defclass logical-host (file-host-mount-mixin)
+(defclass logical-host (file-host-mount-mixin file-system-host)
   ((%name :initarg :name :reader host-name)
    (%translations :initform '() :accessor logical-host-translations)))
 

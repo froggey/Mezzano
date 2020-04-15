@@ -597,7 +597,7 @@
 
 ;;; Host integration
 
-(defclass ext4-host (file-host-mount-mixin)
+(defclass ext4-host (file-host-mount-mixin file-system-host)
   ((%name :initarg :name
           :reader host-name)
    (%lock :initarg :lock
