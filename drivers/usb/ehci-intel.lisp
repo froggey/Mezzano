@@ -389,7 +389,7 @@
       (sup:with-mutex ((usbd-lock ehci))
         (loop
            for prev-qh = (async-qh ehci) then
-             (ehci-addr->array next-phys-addr)
+             (ehci-addr->array ehci next-phys-addr)
            for next-phys-addr = (logandc2 (qh-next-qh prev-qh) #x1F)
            when (eql next-phys-addr qh-phys-addr) do
              (setf (qh-next-qh prev-qh +qh-type-QH+) (qh-next-qh qh))
@@ -636,8 +636,8 @@
       ;; TODO stop this queue - see spec on how to remove qtd
       (loop
          for prev-qtd = NIL then qtd
-         for qtd = (ehci-addr->array (qh-next-qtd qh)) then
-           (ehci-addr->array (aref qtd 0))
+         for qtd = (ehci-addr->array ehci (qh-next-qtd qh)) then
+           (ehci-addr->array ehci (aref qtd 0))
          when (= (aref qtd 3) buf-phys-addr) do
          ;; remove qtd for list
            (if prev-qtd
@@ -1031,9 +1031,6 @@
 (defun interrupt-thread-main (ehci)
   (let ((pci-irq (pci-irq ehci)))
     (loop
-       (sync:wait-for-objects
-        pci-irq
-        (pci:pci-device-boot-id (pci-device ehci)))
        (block :process-event
          (handler-bind
              ((error
@@ -1053,31 +1050,33 @@
                  (sleep 60)
                  ;; if we return, exit
                  (return-from interrupt-thread-main))))
+           (sync:wait-for-objects
+            pci-irq
+            (pci:pci-device-boot-id (pci-device ehci)))
            (with-hcd-access (ehci)
-             ;; Create and enqueue an interrupt event for each pending
-             ;; interrupt. Worker threads then handle the interrupt events.
-             (macrolet ((%intr-event (bit type)
-                          (let ((event (gensym "event-")))
-                            `(when (logbitp ,bit interrupts)
-                               (let ((,event (alloc-interrupt-event ehci)))
-                                 (setf (interrupt-event-type ,event) ,type)
-                                 (enqueue-event ,event))))))
-               (let ((interrupts (logand (status-reg ehci)
-                                         (interrupt-enable-reg ehci))))
-                 ;; disable pending interrupts, and clear them.
-                 (setf (interrupt-enable-reg ehci)
-                       (logandc2 (interrupt-enable-reg ehci) interrupts)
-                       (status-reg ehci) interrupts)
+             (let ((interrupts (logand (status-reg ehci)
+                                       (interrupt-enable-reg ehci))))
+               ;; disable pending interrupts, and clear them.
+               (setf (interrupt-enable-reg ehci)
+                     (logandc2 (interrupt-enable-reg ehci) interrupts)
+                     (status-reg ehci) interrupts)
 
+               ;; Re-enable PCI interrupts
+               (sup:simple-irq-unmask pci-irq)
+               ;; Create and enqueue an interrupt event for each pending
+               ;; interrupt. Worker threads then handle the interrupt events.
+               (macrolet ((%intr-event (bit type)
+                            (let ((event (gensym "event-")))
+                              `(when (logbitp ,bit interrupts)
+                                 (let ((,event (alloc-interrupt-event ehci)))
+                                   (setf (interrupt-event-type ,event) ,type)
+                                   (enqueue-event ,event))))))
                  (%intr-event +intr-bit-transfer-done+ :transfer-done)
                  (%intr-event +intr-bit-usb-error+ :usb-error)
                  (%intr-event +intr-bit-hub-status-change+ :hub-status-change)
                  (%intr-event +intr-bit-frame-rollover+ :frame-rollover)
                  (%intr-event +intr-bit-pci-error+ :pci-error)
-                 (%intr-event +intr-bit-async-advance+ :async-advance)))
-
-             ;; Re-enable PCI interrupts
-             (sup:simple-irq-unmask pci-irq)))))))
+                 (%intr-event +intr-bit-async-advance+ :async-advance)))))))))
 
 ;;======================================================================
 ;; Periodic Frame List (PFL) (AKA Interrupt Table) Routines
