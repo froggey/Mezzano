@@ -1303,3 +1303,27 @@ This should only fill in the START- slots and ignore the END- slots.")
    (x nibbles:ub16ref/le mezzano.extensions:ub16ref/le)
    (x nibbles:ub32ref/le mezzano.extensions:ub32ref/le)
    (x nibbles:ub64ref/le mezzano.extensions:ub64ref/le))
+
+;; Used as part of reading short-floats
+(defun coerce (object result-type)
+  (cond ((eql result-type 'short-float)
+         (ecase object
+           (0.0d0 (cross-support::make-cross-short-float :value #x0000))
+           (1.0d0 (cross-support::make-cross-short-float :value #x3C00))))
+        (t
+         (cl:coerce object result-type))))
+
+(defun complex (realpart imagpart)
+  (cond ((or (cross-support::cross-short-float-p realpart)
+             (cross-support::cross-short-float-p imagpart))
+         ;; TODO: Promote as appropriate.
+         (assert (cross-support::cross-short-float-p realpart))
+         (assert (cross-support::cross-short-float-p imagpart))
+         (cross-support::make-cross-complex-short-float
+          :realpart realpart
+          :imagpart imagpart))
+        (t
+         (cl:complex realpart imagpart))))
+
+(defun short-float-p (object)
+  (cross-support::cross-short-float-p object))

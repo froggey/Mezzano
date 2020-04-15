@@ -489,7 +489,7 @@
        (ratio nil)
        (short-float
         (and (fixnum-fits-in-short-float-p x)
-             (sys.int::%%single-float-= (float x #.(sys.int:xshort-float 0.0s0)) y)))
+             (sys.int::%%single-float-= (float x 0.0s0) y)))
        (single-float
         (and (fixnum-fits-in-single-float-p x)
              (sys.int::%%single-float-= (float x 0.0f0) y)))
@@ -545,7 +545,7 @@
      (number-dispatch y
        (fixnum
         (and (fixnum-fits-in-short-float-p y)
-             (sys.int::%%short-float-= x (float y #.(sys.int::xshort-float 0.0s0)))))
+             (sys.int::%%short-float-= x (float y 0.0s0))))
        (bignum nil)
        (ratio
         (ratio-= (rational x) y))

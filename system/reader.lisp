@@ -774,8 +774,11 @@
   (let ((number (read stream t nil t)))
     (when (or (not (listp number))
               (/= (length number) 2)
-              (not (realp (car number)))
-              (not (realp (cadr number))))
+              ;; TODO: Clean this up, cross compiler hack.
+              (not (or (short-float-p (first number))
+                       (realp (first number))))
+              (not (or (short-float-p (second number))
+                       (realp (second number)))))
       (error "Invalid complex number ~S" number))
     (complex (first number) (second number))))
 

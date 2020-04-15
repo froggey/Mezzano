@@ -110,7 +110,9 @@
            :name-char
            :make-hash-table
            :with-compilation-unit
-           :upgraded-complex-part-type)
+           :upgraded-complex-part-type
+           :complex
+           :coerce)
   (:export . #.(let ((symbols '()))
                  (do-external-symbols (sym :cl symbols)
                    (push sym symbols)))))
@@ -137,23 +139,15 @@
   size
   position)
 
+;; TODO: Should this do something for (complex short-float)?
+(setf (find-class 'complex) (find-class 'cl:complex))
+
 (defmethod make-load-form ((object byte) &optional environment)
   (declare (ignore environment))
   `(byte ',(byte-size object) ',(byte-position object)))
 
 (defstruct cross-short-float value)
-
-(defun sys.int::xshort-float (value)
-  (check-type value single-float)
-  (ecase value
-    (0.0 (make-cross-short-float :value #x0000))
-    (1.0 (make-cross-short-float :value #x3C00))))
-
 (defstruct cross-complex-short-float realpart imagpart)
-
-(defun sys.int::xcomplex-short-float (realpart imagpart)
-  (make-cross-complex-short-float :realpart (sys.int::xshort-float realpart)
-                                  :imagpart (sys.int::xshort-float imagpart)))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 (defun loose-constant-equal (x y)

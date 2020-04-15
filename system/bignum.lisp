@@ -72,7 +72,7 @@
     (* (float sig float-zero) exp (if negative -1 1))))
 
 (defun mezzano.runtime::%%coerce-bignum-to-short-float (bignum)
-  (bignum-to-float bignum #.(xshort-float 0.0s0) 11))
+  (bignum-to-float bignum 0.0s0 11))
 
 (defun mezzano.runtime::%%coerce-bignum-to-single-float (bignum)
   (bignum-to-float bignum 0.0f0 24))
