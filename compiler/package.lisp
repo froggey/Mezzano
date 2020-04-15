@@ -186,6 +186,8 @@
    #:sb64ref/be #:sb64ref/le
 
    ;; Float extensions
+   #:short-float-to-ieee-binary16
+   #:ieee-binary16-to-short-float
    #:single-float-to-ieee-binary32
    #:ieee-binary32-to-single-float
    #:double-float-to-ieee-binary64

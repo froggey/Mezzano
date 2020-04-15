@@ -50,6 +50,14 @@
            :least-positive-normalized-single-float
            :least-positive-normalized-double-float
            :least-positive-normalized-long-float
+           :short-float-epsilon
+           :single-float-epsilon
+           :double-float-epsilon
+           :long-float-epsilon
+           :short-float-negative-epsilon
+           :single-float-negative-epsilon
+           :double-float-negative-epsilon
+           :long-float-negative-epsilon
            :boole-1
            :boole-2
            :boole-andc1

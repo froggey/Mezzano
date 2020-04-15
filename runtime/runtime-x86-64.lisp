@@ -263,18 +263,28 @@
                                sys.int::+object-type-shift+))
   (sys.lap-x86:ja OBJECTS-UNEQUAL)
   ;; Both are numbers of the same type.
-  ;; Handle double-floats specifically. They have different behaviour
-  ;; for negative 0.0 compared to =
+  ;; Handle short-floats and double-floats specifically. They have
+  ;; different behaviour for negative 0.0 compared to =
   (sys.lap-x86:cmp8 :al #.(ash (- sys.int::+object-tag-double-float+
                                   sys.int::+first-numeric-object-tag+)
                                sys.int::+object-type-shift+))
   (sys.lap-x86:je COMPARE-DOUBLE-FLOATS)
+  (sys.lap-x86:cmp8 :al #.(ash (- sys.int::+object-tag-short-float+
+                                  sys.int::+first-numeric-object-tag+)
+                               sys.int::+object-type-shift+))
+  (sys.lap-x86:je COMPARE-SHORT-FLOATS)
+  ;; Same for short floats
   ;; Tail-call to generic-=.
   ;; RCX was set to fixnum 2 on entry.
   (sys.lap-x86:jmp (:named-call sys.int::generic-=))
   ;; Compare the two values directly.
   ;; This means +0.0 and -0.0 will be different and that NaNs can be EQL
   ;; if they have the same representation.
+  COMPARE-SHORT-FLOATS
+  (sys.lap-x86:mov16 :ax (:object :r8 0))
+  (sys.lap-x86:cmp16 :ax (:object :r9 0))
+  (sys.lap-x86:je OBJECTS-EQUAL)
+  (sys.lap-x86:jmp OBJECTS-UNEQUAL)
   COMPARE-DOUBLE-FLOATS
   (sys.lap-x86:mov64 :rax (:object :r8 0))
   (sys.lap-x86:cmp64 :rax (:object :r9 0))

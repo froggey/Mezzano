@@ -199,9 +199,11 @@
                                  (bignum sys.int::+object-tag-bignum+)
                                  (ratio sys.int::+object-tag-ratio+)
                                  (double-float sys.int::+object-tag-double-float+)
+                                 (short-float sys.int::+object-tag-short-float+)
                                  (sys.int::complex-rational sys.int::+object-tag-complex-rational+)
                                  (sys.int::complex-single-float sys.int::+object-tag-complex-single-float+)
-                                 (sys.int::complex-double-float sys.int::+object-tag-complex-double-float+))))
+                                 (sys.int::complex-double-float sys.int::+object-tag-complex-double-float+)
+                                 (sys.int::complex-short-float sys.int::+object-tag-complex-short-float+))))
                       (when (aref object-tags tag)
                         (error "Duplicate key ~S~%" key))
                       (setf (aref object-tags tag) sym)))))
@@ -234,7 +236,7 @@
 (defmacro fixnum-float-compare (the-fixnum the-float float-type swap-args)
   (multiple-value-bind (float< float= truncate-float fix-to-float float-zero m-p-f-float m-n-f-float)
       (ecase float-type
-        (single-float
+        (short-float
          (values 'sys.int::%%short-float-<
                  'sys.int::%%short-float-=
                  'sys.int::%%truncate-short-float
@@ -298,6 +300,16 @@
 
 ;; TODO: These should directly create a bignum, blat the value directly in,
 ;; and then canonicalize the result.
+(defun %%truncate-short-float-to-integer (short-float)
+  (let* ((bits (sys.int::%short-float-as-integer short-float))
+         (sig (logior (ldb (byte 11 0) bits)
+                      (ash 1 11)))
+         (exp (- (ldb (byte 5 11) bits) 15))
+         (r (ash sig (- exp 11))))
+    (if (logbitp 15 bits)
+        (- r)
+        r)))
+
 (defun %%truncate-single-float-to-integer (single-float)
   (let* ((bits (sys.int::%single-float-as-integer single-float))
          (sig (logior (ldb (byte 23 0) bits)
@@ -446,8 +458,15 @@
   (and (= (realpart x) (realpart y))
        (= (imagpart x) (imagpart y))))
 
-(declaim (inline fixnum-fits-in-single-float-p
+(declaim (inline fixnum-fits-in-short-float-p
+                 fixnum-fits-in-single-float-p
                  fixnum-fits-in-double-float-p))
+(defun fixnum-fits-in-short-float-p (fixnum)
+  (and (<= -65504 fixnum 65504)
+       (eq (sys.int::%%truncate-short-float
+            (%%coerce-fixnum-to-short-float fixnum))
+           fixnum)))
+
 (defun fixnum-fits-in-single-float-p (fixnum)
   (eq (sys.int::%%truncate-single-float
        (%%coerce-fixnum-to-single-float fixnum))
@@ -468,6 +487,9 @@
        (fixnum (eq x y))
        (bignum nil)
        (ratio nil)
+       (short-float
+        (and (fixnum-fits-in-short-float-p x)
+             (sys.int::%%single-float-= (float x #.(sys.int:xshort-float 0.0s0)) y)))
        (single-float
         (and (fixnum-fits-in-single-float-p x)
              (sys.int::%%single-float-= (float x 0.0f0) y)))
@@ -475,7 +497,8 @@
         (and (fixnum-fits-in-double-float-p x)
              (sys.int::%%double-float-= (float x 0.0d0) y)))
        (sys.int::complex-rational nil)
-       ((sys.int::complex-single-float
+       ((sys.int::complex-short-float
+         sys.int::complex-single-float
          sys.int::complex-double-float)
         ;; Float complexes may have 0 in their imaginary part.
         (complex-= x y))))
@@ -484,6 +507,7 @@
        (fixnum nil)
        (bignum (sys.int::%%bignum-= x y))
        (ratio nil)
+       (short-float nil)
        (single-float
         ;; Check if the value falls outside the fixnum range.
         ;; These tests will always be false for NaNs
@@ -499,7 +523,8 @@
             (= x (%%truncate-double-float-to-integer y))
             nil))
        (sys.int::complex-rational nil)
-       ((sys.int::complex-single-float
+       ((sys.int::complex-short-float
+         sys.int::complex-single-float
          sys.int::complex-double-float)
         ;; Float complexes may have 0 in their imaginary part.
         (complex-= x y))))
@@ -508,10 +533,31 @@
        (fixnum nil)
        (bignum nil)
        (ratio (ratio-= x y))
-       ((single-float double-float)
+       ((short-float single-float double-float)
         (ratio-= x (rational y)))
        (sys.int::complex-rational nil)
-       ((sys.int::complex-single-float
+       ((sys.int::complex-short-float
+         sys.int::complex-single-float
+         sys.int::complex-double-float)
+        ;; Float complexes may have 0 in their imaginary part.
+        (complex-= x y))))
+    (short-float
+     (number-dispatch y
+       (fixnum
+        (and (fixnum-fits-in-short-float-p y)
+             (sys.int::%%short-float-= x (float y #.(sys.int::xshort-float 0.0s0)))))
+       (bignum nil)
+       (ratio
+        (ratio-= (rational x) y))
+       (short-float
+        (sys.int::%%short-float-= x y))
+       (single-float
+        (sys.int::%%single-float-= (float x 0.0f0) y))
+       (double-float
+        (sys.int::%%double-float-= (float x 0.0d0) y))
+       (sys.int::complex-rational nil)
+       ((sys.int::complex-short-float
+         sys.int::complex-single-float
          sys.int::complex-double-float)
         ;; Float complexes may have 0 in their imaginary part.
         (complex-= x y))))
@@ -528,12 +574,15 @@
             nil))
        (ratio
         (ratio-= (rational x) y))
+       (short-float
+        (sys.int::%%short-float-= x (float y 0.0f0)))
        (single-float
         (sys.int::%%single-float-= x y))
        (double-float
         (sys.int::%%double-float-= (float x 0.0d0) y))
        (sys.int::complex-rational nil)
-       ((sys.int::complex-single-float
+       ((sys.int::complex-short-float
+         sys.int::complex-single-float
          sys.int::complex-double-float)
         ;; Float complexes may have 0 in their imaginary part.
         (complex-= x y))))
@@ -550,24 +599,29 @@
             nil))
        (ratio
         (ratio-= (rational x) y))
+       (short-float
+        (sys.int::%%short-float-= x (float y 0.0d0)))
        (single-float
         (sys.int::%%double-float-= x (float y 0.0d0)))
        (double-float
         (sys.int::%%double-float-= x y))
        (sys.int::complex-rational nil)
-       ((sys.int::complex-single-float
+       ((sys.int::complex-short-float
+         sys.int::complex-single-float
          sys.int::complex-double-float)
         ;; Float complexes may have 0 in their imaginary part.
         (complex-= x y))))
     (sys.int::complex-rational
      (number-dispatch y
-       ((fixnum bignum ratio single-float double-float)
+       ((fixnum bignum ratio short-float single-float double-float)
         nil)
        ((sys.int::complex-rational
+         sys.int::complex-short-float
          sys.int::complex-single-float
          sys.int::complex-double-float)
         (complex-= x y))))
-    ((sys.int::complex-single-float
+    ((sys.int::complex-short-float
+      sys.int::complex-single-float
       sys.int::complex-double-float)
      (complex-= x y))))
 
