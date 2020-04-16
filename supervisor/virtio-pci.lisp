@@ -189,9 +189,15 @@
             4096))))
   address)
 
+(defun virtio-pci-transport-queue-size (device)
+  (virtio-pci-common-cfg-queue-size device))
+
 (defun virtio-pci-transport-enable-queue (device queue)
   (setf (virtio-pci-common-cfg-queue-select device) queue)
   (setf (virtio-pci-common-cfg-queue-enable device) 1))
+
+(defun (setf virtio-pci-transport-queue-select) (queue device)
+  (setf (virtio-pci-common-cfg-queue-select device) queue))
 
 ;;;; Legacy PCI transport.
 
