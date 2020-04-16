@@ -2517,13 +2517,13 @@ always match."
                                       (list ,@(loop
                                                  for next in next-method-list
                                                  collect (cond ((listp next)
-                                                                (assert (eql (first method) 'make-method))
-                                                                (assert (eql (length method) 2))
+                                                                (assert (eql (first next) 'make-method))
+                                                                (assert (eql (length next) 2))
                                                                 ;; ???
                                                                 `(make-instance 'standard-method
                                                                                 :function (lambda (,',method-args .next-methods.)
                                                                                             (declare (ignore .next-methods.))
-                                                                                            (progn ,(second method)))))
+                                                                                            (progn ,(second next)))))
                                                                (t `',next)))))
                                      ,',method-args))))
                     (make-method (form)
