@@ -251,7 +251,8 @@ structures to exist, and for memory to be allocated, but not much beyond that."
         *print-escape* t
         *print-readably* nil
         *print-safe* nil)
-  (setf *features* '(:package-local-nicknames
+  (setf *features* '(:short-float-is-ieee-half-float
+                     :package-local-nicknames
                      :unicode
                      :little-endian
                      #+x86-64 :x86-64
