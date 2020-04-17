@@ -986,13 +986,14 @@
     ;; Search for QTDs whose associated QH has an error status
     (sup:with-mutex ((usbd-lock ehci))
       (setf (pending-qtds ehci)
-            (remove-if #'(lambda (qtd)
-                           (if (logtest #x7C (qh-token (ehci-endpoint-qh
-                                                        (xfer-info-endpoint
-                                                         (qtd->xfer-info qtd)))))
-                               (progn (push qtd error-qtds) T)
-                               NIL))
-                       (pending-qtds ehci))))
+            (remove-if
+             #'(lambda (qtd)
+                 (let* ((xfer-info (gethash qtd (qtd->xfer-info ehci)))
+                        (endpoint (xfer-info-endpoint xfer-info)))
+                   (when (logtest #x7C (qh-token (ehci-endpoint-qh endpoint)))
+                     (push qtd error-qtds)
+                     T)))
+             (pending-qtds ehci))))
 
     ;; "Transfer is complete" for the error QTDs
     (dolist (qtd error-qtds)
