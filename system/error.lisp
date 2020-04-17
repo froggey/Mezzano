@@ -471,8 +471,19 @@
              (format stream "Unhandled memory fault on address #x~8,'0X"
                      (memory-fault-error-address condition)))))
 
+(define-condition mezzano.supervisor:dma-buffer-expired (memory-fault-error)
+  ()
+  (:report (lambda (condition stream)
+             (format stream "DMA buffer at address #x~8,'0X has expired"
+                     (memory-fault-error-address condition)))))
+
 (defun raise-memory-fault (address)
-  (error 'memory-fault-error :address address))
+  (cond ((<= #x0000204000000000 address (1- #x0000208000000000))
+         ;; TODO: Track the dma-buffer associated with each address and
+         ;; include it in the condition.
+         (error 'mezzano.supervisor:dma-buffer-expired :address address))
+        (t
+         (error 'memory-fault-error :address address))))
 
 (in-package :mezzano.delimited-continuations)
 
