@@ -605,6 +605,7 @@ Returns NIL if the address is unmapped."
   (pager-rpc 'get-page-physical-address-in-pager virtual-address))
 
 (defun get-page-physical-address-in-pager (virtual-address ignore2 ignore3)
+  (declare (ignore ignore2 ignore3))
   (with-rw-lock-write (*vm-lock*)
     (let ((pte (get-pte-for-address virtual-address nil)))
       (when (and pte (page-present-p pte))
