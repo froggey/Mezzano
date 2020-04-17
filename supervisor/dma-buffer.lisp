@@ -153,6 +153,25 @@ For contiguous buffers this will always return 1."
              (values (svref sg-vec vec-index)
                      (svref sg-vec (1+ vec-index))))))))
 
+(defun dma-buffer-sg-entry-list (dma-buffer &key area)
+  "Return a freshly-consed list containing the scatter/gather address/length pairs.
+Each list entry is a cons representing one SG entry, with the car being
+the address and the cdr being the length.
+This function allocates. The :AREA argument determines where the list is allocated."
+  (let* ((result (cons nil nil))
+         (tail result))
+    (declare (dynamic-extent result))
+    (loop
+       for i below (dma-buffer-n-sg-entries dma-buffer)
+       do (multiple-value-bind (address length)
+              (dma-buffer-sg-entry dma-buffer i)
+            (setf tail (setf (cdr tail)
+                             (sys.int::cons-in-area
+                              (sys.int::cons-in-area address length area)
+                              nil
+                              area)))))
+    (cdr result)))
+
 (declaim (inline map-dma-buffer-pages))
 (defun map-dma-buffer-pages (fn dma-buffer)
   (loop

@@ -654,6 +654,7 @@
            #:dma-buffer-cache-flush
            #:dma-buffer-n-sg-entries
            #:dma-buffer-sg-entry
+           #:dma-buffer-sg-entry-list
            ))
 
 ;;; Runtime contains a bunch of low-level and common functions required to
