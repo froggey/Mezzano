@@ -340,6 +340,8 @@ Returns NIL if the entry is missing and ALLOCATE is false."
              (:wired-backing-writeback
               (setf (physical-page-frame-type backing-frame) :inactive-writeback))))))
      (release-physical-pages frame 1))
+    (:transient-dma-buffer
+     (release-physical-pages frame 1))
     (t
      (panic "Releasing page " frame " with bad type " (physical-page-frame-type frame)))))
 
@@ -1097,7 +1099,7 @@ It will put the thread to sleep, while it waits for the page."
         (force-call-on-thread thread function))
     t))
 
-;; These two exist so that the function object exists in the wired area,
+;; These exist so that the function object exists in the wired area,
 ;; this is needed so the pager can safely read the entry point address.
 (defun %raise-stack-overflow ()
   (sys.int::raise-stack-overflow))

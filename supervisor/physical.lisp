@@ -20,6 +20,7 @@
 ;;         7  Page table
 ;;         8  Other
 ;;         9  Wired backing page, waiting for writeback
+;;        10  Transient DMA buffer page
 ;;    (byte 8 8) - Buddy bin, only when free
 ;;    (byte 52 8) - Virtual page, only when active or wired backing page.
 ;; +1 store block id (when inactive, waiting for writeback or wired backing page)
@@ -73,7 +74,8 @@
     (6 :inactive-writeback)
     (7 :page-table)
     (8 :other)
-    (9 :wired-backing-writeback)))
+    (9 :wired-backing-writeback)
+    (10 :transient-dma-buffer)))
 
 (defun (setf physical-page-frame-type) (value page-number)
   (setf (ldb (byte 8 0) (physical-page-frame-flags page-number))
@@ -87,7 +89,8 @@
           (:inactive-writeback 6)
           (:page-table 7)
           (:other 8)
-          (:wired-backing-writeback 9))))
+          (:wired-backing-writeback 9)
+          (:transient-dma-buffer 10))))
 
 (defun physical-page-frame-bin (page-number)
   (ldb (byte 8 8) (physical-page-frame-flags page-number)))

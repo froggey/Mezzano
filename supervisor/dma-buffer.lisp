@@ -84,12 +84,10 @@ directly or via the buffer array) will signal a DMA-BUFFER-EXPIRED error."
              ;; this way the memory will stay valid even if only the array is live.
              (sys.int::make-weak-pointer
               array array
-              :finalizer (if persistent
-                             (lambda ()
-                               (release-memory-range virtual-address aligned-length))
-                             (lambda ()
-                               (release-memory-range virtual-address aligned-length)
-                               (free-sg-vec sg-vec)))
+              :finalizer (lambda ()
+                           ;; This will also free the pages associated
+                           ;; with the sg-vec.
+                           (release-memory-range virtual-address aligned-length))
               :area :wired)
              ;; Everything succeeded, don't free the SG-VEC.
              (setf successp t))
@@ -97,7 +95,9 @@ directly or via the buffer array) will signal a DMA-BUFFER-EXPIRED error."
           (when did-map
             (release-memory-range virtual-address aligned-length))
           (when (not persistent)
-            (free-sg-vec sg-vec)))))))
+            (dotimes (i (truncate (sys.int::simple-vector-length sg-vec) 2))
+              (release-physical-pages (truncate (svref sg-vec (* i 2)) #x1000)
+                                      (truncate (align-up (svref sg-vec (1+ (* i 2))) #x1000) #x1000)))))))))
 
 (defun dma-buffer-contiguous-p (dma-buffer)
   "Returns true if DMA-BUFFER is contiguous in physical memory."
@@ -222,7 +222,8 @@ This function allocates. The :AREA argument determines where the list is allocat
                 (frame (allocate-physical-pages (if (eql length 0)
                                                     1
                                                     (ceiling length #x1000))
-                                                :32-bit-only 32-bit)))
+                                                :32-bit-only 32-bit
+                                                :type :transient-dma-buffer)))
            (when (not frame)
              ;; FIXME: What kind of error to signal here?
              ;; TODO: Should this call into the pager to try to convince it
@@ -261,7 +262,8 @@ This function allocates. The :AREA argument determines where the list is allocat
                          (frames nil))
                      (loop
                         (setf frames (allocate-physical-pages attempt
-                                                              :32-bit-only 32-bit))
+                                                              :32-bit-only 32-bit
+                                                              :type :transient-dma-buffer))
                         (when frames
                           (return))
                         (when (eql attempt 1)
@@ -285,9 +287,3 @@ This function allocates. The :AREA argument determines where the list is allocat
                                           (truncate length #x1000))
                   (setf frame-stack next)
                   (decf n-entries))))))))
-
-(defun free-sg-vec (sg-vec)
-  (dotimes (i (truncate (sys.int::simple-vector-length sg-vec) 2))
-    (release-physical-pages (truncate (svref sg-vec (* i 2)) #x1000)
-                            (truncate (svref sg-vec (1+ (* i 2))) #x1000)))
-  (values))
