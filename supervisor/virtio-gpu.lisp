@@ -444,14 +444,17 @@
 
 (defun virtio-gpu-dirty (gpu x y w h in-unsafe-context-p)
   (when (not in-unsafe-context-p)
-    ;; Issue commands to update the framebuffer and to flush the scanout.
-    (virtio-gpu-transfer-to-host-2d gpu
-                                    x y w h
-                                    (* (+ x (* y (virtio-gpu-width gpu))) 4)
-                                    +virtio-gpu-framebuffer-resource-id+)
-    (virtio-gpu-resource-flush gpu
-                               x y w h
-                               +virtio-gpu-framebuffer-resource-id+)))
+    ;; Don't issue transfer-to-host-2d if the width or height is zero,
+    ;; this causes qemu to assert.
+    (when (not (or (zerop w) (zerop h)))
+      ;; Issue commands to update the framebuffer and to flush the scanout.
+      (virtio-gpu-transfer-to-host-2d gpu
+                                      x y w h
+                                      (* (+ x (* y (virtio-gpu-width gpu))) 4)
+                                      +virtio-gpu-framebuffer-resource-id+)
+      (virtio-gpu-resource-flush gpu
+                                 x y w h
+                                 +virtio-gpu-framebuffer-resource-id+))))
 
 ;; In the virtio package for backwards compatiblity reasons.
 (defun virtio::virtio-gpu-register (device)
