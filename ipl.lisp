@@ -94,9 +94,7 @@ Make sure there is a virtio-net NIC attached.~%")
 
 (defun driver-source-registry ()
   `(:SOURCE-REGISTRY
-    (:TREE ,(pathname (concatenate 'string "REMOTE:"
-                                   sys.int::*mezzano-source-path*
-                                   "drivers/")))
+    (:TREE ,(pathname "SYS:SOURCE;DRIVERS;"))
     :INHERIT-CONFIGURATION))
 (eval (read-from-string "(push 'driver-source-registry asdf:*default-source-registries*)"))
 
