@@ -464,6 +464,16 @@
 (defun raise-stack-overflow ()
   (error 'stack-overflow))
 
+(define-condition memory-fault-error (error)
+  ((address :initarg :address
+            :reader memory-fault-error-address))
+  (:report (lambda (condition stream)
+             (format stream "Unhandled memory fault on address #x~8,'0X"
+                     (memory-fault-error-address condition)))))
+
+(defun raise-memory-fault (address)
+  (error 'memory-fault-error :address address))
+
 (in-package :mezzano.delimited-continuations)
 
 (define-condition consumed-continuation-resumed (control-error)

@@ -764,7 +764,20 @@ mapped, then the entry will be NIL."
   (when (physical-page-frame-prev frame)
     (setf (physical-page-frame-next (physical-page-frame-prev frame)) (physical-page-frame-next frame))))
 
+(defun address-in-non-faulting-range-p (address)
+  ;; Pages below 512G are wired and should never be unmapped or protected.
+  ;; Same for pages in the wired stack area.
+
+  (or (<= 0 address (1- (* 512 1024 1024 1024)))
+      (<= (ash sys.int::+address-tag-stack+ sys.int::+address-tag-shift+)
+          address
+          (+ (ash sys.int::+address-tag-stack+ sys.int::+address-tag-shift+)
+             (* 512 1024 1024 1024)))))
+
 (defun wait-for-page-unlocked (address writep)
+  (when (address-in-non-faulting-range-p address)
+    (debug-print-line "Fault on non-faulting address " address)
+    (return-from wait-for-page-unlocked nil))
   (let ((pte (get-pte-for-address address))
         (block-info (block-info-for-virtual-address address)))
     #+(or)(debug-print-line "WFP " address " block " block-info)
@@ -1084,8 +1097,13 @@ It will put the thread to sleep, while it waits for the page."
         (force-call-on-thread thread function))
     t))
 
+;; These two exist so that the function object exists in the wired area,
+;; this is needed so the pager can safely read the entry point address.
 (defun %raise-stack-overflow ()
   (sys.int::raise-stack-overflow))
+
+(defun %raise-memory-fault (address)
+  (sys.int::raise-memory-fault address))
 
 (defun handle-fault-in-pager (thread writep)
   "Called when WAIT-FOR-PAGE is unable to handle a paging request."
@@ -1140,6 +1158,12 @@ It will put the thread to sleep, while it waits for the page."
         ;; Return and let the thread redo the fault.
         (wake-thread thread)
         (return-from handle-fault-in-pager)))
+    ;; Try to pass through to the support function.
+    (when (pager-invoke-function-on-thread thread #'%raise-memory-fault faulting-address)
+      (debug-print-line "Pager invoked memory fault handler on address " faulting-address)
+      ;; Return and let the thread redo the fault.
+      (wake-thread thread)
+      (return-from handle-fault-in-pager))
     ;; TODO: Shouldn't panic at all, this should be dispatched to a debugger thread.
     (cond ((or (not (boundp '*panic-on-unhandled-paging-requests*))
                *panic-on-unhandled-paging-requests*)
