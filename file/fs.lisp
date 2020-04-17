@@ -32,7 +32,13 @@
            #:file-system-host
            #:file-host-mount-mixin
            #:file-host-mount-args
-           #:mount))
+           #:file-host-mount-state
+           #:file-host-mount-device
+           #:mount-host
+           #:create-host
+           #:mount-block-device
+           #:unmount-block-device
+           #:unmounted-file-system-error))
 
 (in-package :mezzano.file-system)
 
@@ -717,29 +723,61 @@ NAMESTRING as the second."
 (defclass file-system-host ()
   ())
 
-;;; Mount Mixin - used on boot to re-associate host with block device
-;;;     Only hosts associated with block devices need to implement the
-;;;     mount method.
+;;; Mount Mixin - used to manage the mount state of block device hosts.
 
 (defclass file-host-mount-mixin ()
-  ((%mount-args    :initarg :mount-args :accessor file-host-mount-args))
-  (:default-initargs :mount-args nil))
+  ((%mount-args    :initarg :mount-args   :accessor file-host-mount-args)
+   (%mount-state   :initarg :mount-state  :accessor file-host-mount-state)
+   (%mount-device  :initarg :mount-device :accessor file-host-mount-device))
+  (:default-initargs :mount-args nil :mount-state :unmounted :mount-device NIL))
 
-(defgeneric mount (host))
+(defgeneric mount-host (host block-device))
 
-(defmethod mount (host)
-  ;; default mount method for hosts that do not need an implementation
-  T)
+(defgeneric create-host (class block-device name-alist))
 
-(defun mount-file-systems ()
-  (setf *host-alist*
-        (remove-if-not #'(lambda (pair) (mount (cadr pair))) *host-alist*)))
+(defun mount-block-device (block-device)
+  ;; check if an existing host goes with this block device
+  (loop
+     for pair in *host-alist*
+     for host = (cadr pair)
+     when (and (typep host 'file-host-mount-mixin)
+               (eq (file-host-mount-state host) :unmounted)) do
+       (when (mount-host host block-device)
+         (format t "mount-block-device: mounted ~A on ~A~%"
+                 block-device (car pair))
+         (return-from mount-block-device)))
+  ;; No existing host found
+  ;; if *filesystems* bound (usually in config.lisp) check list for
+  ;; cold-boot hosts.
+  (when (boundp 'mezzano.internals::*filesystems*)
+    (loop
+       for host-class in '(:fat-host)
+       for name = (create-host
+                   host-class
+                   block-device mezzano.internals::*filesystems*)
+       when name do
+         (format t "mount-block-device: mounted ~A on ~A~%" block-device name)
+         (return-from mount-block-device)))
+  ;; No host in *filesystems* found
+  ;; TODO get uuid/host name alist from name space server and call
+  ;; create-host for each host class, exit on success.
+  (format t "mount-block-device: no host found for ~A~%" block-device))
 
-(mezzano.supervisor:add-boot-hook 'mount-file-systems :early)
+(defun unmount-block-device (block-device)
+  (loop
+     for pair in *host-alist*
+     for host = (cadr pair)
+     when (and (typep host 'file-host-mount-mixin)
+               (eq (file-host-mount-device host) block-device)) do
+       (setf (file-host-mount-state host) :unmounted
+             (file-host-mount-device host) NIL)
+       (format t "unmount-block-device: unmounted ~A~%" (car pair))
+       (return-from unmount-block-device))
+  (format t "unmount-block-device: no host found for ~A~%" block-device))
 
 ;;; Logical pathnames.
 
-(defclass logical-host (file-host-mount-mixin file-system-host)
+(defclass logical-host (file-system-host)
   ((%name :initarg :name :reader host-name)
    (%translations :initform '() :accessor logical-host-translations)))
 

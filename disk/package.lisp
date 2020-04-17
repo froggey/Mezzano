@@ -18,8 +18,6 @@
    :all-block-devices
    :register-block-device
    :unregister-block-device
-   :probe-block-device
-   :find-local-block-device
 
    ;; disk mixin
    :disk-mixin

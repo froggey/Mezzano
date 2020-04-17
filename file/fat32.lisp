@@ -1094,17 +1094,32 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
 (defmethod host-default-device ((host fat-host))
   nil)
 
-(defmethod mount ((host fat-host))
-  (let ((partition (find-local-block-device 'fat-host
-                                            (file-host-mount-args host))))
-    (when partition
-      (setf (fat-structure host) (case (type-of (fat-structure host))
-                                   (fat12 (read-fat12-structure partition))
-                                   (fat16 (read-fat16-structure partition))
-                                   (fat32 (read-fat32-structure partition)))
-            (partition host) partition
-            (fat host) (read-fat partition (fat-structure host)))
+(defmethod mount-host ((host fat-host) block-device)
+  (let ((uuid (probe-block-device 'fat-host block-device)))
+    (when (and uuid (string= uuid (file-host-mount-args host)))
+      (setf (fat-structure host)
+            (case (type-of (fat-structure host))
+              (fat12 (read-fat12/16-structure block-device 'fat12))
+              (fat16 (read-fat12/16-structure block-device 'fat16))
+              (fat32 (read-fat32-structure block-device)))
+            (partition host) block-device
+            (fat host) (read-fat block-device (fat-structure host))
+            (file-host-mount-state host) :mounted
+            (file-host-mount-device host) block-device)
       T)))
+
+(defmethod create-host ((class (eql :fat-host)) block-device name-alist)
+  (let* ((uuid (probe-block-device 'fat-host block-device))
+         (name (and uuid (cadr (assoc uuid name-alist :test #'string-equal)))))
+    (when name
+      (format t "#x~8,'0X ~A" uuid block-device)
+      (cond ((find-host name nil)
+             (format t " - already mounted on \"~A\"" name))
+            (T
+             (mount-fat block-device name uuid)
+             (format t " - mounted on \"~A\"" name)))
+      (format t "~%")
+      name)))
 
 ;; According to jdebp (Jonathan de Boyne Pollard)'s Frequently Given
 ;; Answers, the question of how to determine if a partition contains a
@@ -1160,7 +1175,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                              root-dir-sectors))))
     (floor data-sectors (aref buffer 13))))
 
-(defmethod probe-block-device ((class (eql 'fat-host)) block-device)
+(defun probe-block-device (class block-device)
   "If the block-device contains a FAT file system, return the Volume ID otherwise NIL"
   ;; read first sector and check for FAT file system
   (let* ((sector-size (block-device-sector-size block-device))
@@ -1201,7 +1216,9 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                            :fat-structure ffs
                            :fat32-info nil
                            :fat fat
-                           :mount-args uuid))
+                           :mount-args uuid
+                           :mount-state :mounted
+                           :mount-device block-device))
       host-name)))
 
 (defun parse-simple-file-path (host namestring)

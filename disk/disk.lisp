@@ -93,23 +93,35 @@
 (defvar *block-devices* NIL)
 
 (defun all-block-devices ()
-  (sup:with-mutex (*block-devices-lock*)
-    (append *block-devices* (mezzano.supervisor:all-disks))))
+  (sup:with-snapshot-inhibited ()
+    (sup:with-mutex (*block-devices-lock*)
+      (copy-list *block-devices*))))
 
 (defun register-block-device (device)
-  (sup:with-mutex (*block-devices-lock*)
+  (sup:with-snapshot-inhibited ()
+    (sup:with-mutex (*block-devices-lock*)
       (push device *block-devices*)))
+  (mezzano.file-system:mount-block-device device))
 
 (defun unregister-block-device (device)
-  (sup:with-mutex (*block-devices-lock*)
-    (setf *block-devices* (delete device *block-devices*))))
+  (sup:with-snapshot-inhibited ()
+    (sup:with-mutex (*block-devices-lock*)
+      (setf *block-devices* (delete device *block-devices*))))
+  (mezzano.file-system:unmount-block-device device))
 
-(defgeneric probe-block-device (host-class block-device))
+(defvar *previous-sup-disks* NIL)
 
-(defun find-local-block-device (host-class uuid)
+(defun register-supervisor-disks ()
+  ;; This function is also called from ipl.lisp for cold boot
+  ;; un-register supervisor disks from last boot
   (loop
-     for block-device in (all-block-devices)
-     for id = (probe-block-device host-class block-device)
-     when (and id (string-equal id uuid)) do
-       (return block-device)
-     finally NIL))
+     for part in *previous-sup-disks* do
+       (unregister-block-device part))
+  ;; register supervisor disks from this boot
+  (setf *previous-sup-disks* NIL)
+  (loop
+     for part in (sup:all-disks) do
+       (push part *previous-sup-disks*)
+       (register-block-device part)))
+
+(mezzano.supervisor:add-boot-hook 'register-supervisor-disks :early)

@@ -19,7 +19,7 @@ the server instead of reconnecting for each operation.")
 (defvar *default-remote-file-port* 2599)
 (defvar *cache-size* (* 512 1024))
 
-(defclass remote-file-host (file-host-mount-mixin file-system-host)
+(defclass remote-file-host (file-system-host)
   ((%name :initarg :name :reader host-name)
    (%address :initarg :address :reader host-address)
    (%port :initarg :port :reader host-port)

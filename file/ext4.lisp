@@ -624,7 +624,11 @@
 (defmethod host-default-device ((host ext4-host))
   nil)
 
-(defmethod mount ((host ext4-host))
+(defmethod mount-host ((host ext4-host) block-device)
+  (declare (ignore block-device))
+  nil)
+
+(defmethod create-host ((class (eql :ext4-host)) block-device name-alist)
   nil)
 
 (defun parse-simple-file-path (host namestring)
