@@ -103,23 +103,23 @@ Valid signature are #x28 and #x29" signature)))
     (error "Bad bps : ~a .
 Valid bps are ~a" bps +bootable-partition-signature+)))
 
-(defun read-fat12/16-structure (disk ffs)
+(defun read-fat12/16-structure (disk ffs-type)
   (let* ((sector (block-device-read-sector disk 0 1))
-         (fat12/16 (make-instance ffs
-                                  :sectors-per-fat (sys.int::ub16ref/le sector 22)
-                                  :drive-n (aref sector 36) ; Operating system specific
-                                  :boot-code (subseq sector 62 510))))
+         (ffs (make-instance ffs-type
+                             :sectors-per-fat (sys.int::ub16ref/le sector 22)
+                             :drive-n (aref sector 36) ; Operating system specific
+                             :boot-code (subseq sector 62 510))))
     (when (check-signature (aref sector 38))
-      (setf (fat-%n-root-entry fat12/16) (sys.int::ub16ref/le sector 17)
-            (fat-%signature fat12/16) (aref sector 38)
-            (fat-%volume-id fat12/16) (sys.int::ub32ref/le sector 39)
-            (fat-%volume-label fat12/16) (map 'string #'code-char (subseq sector 43 54))
-            (fat-%fat-type-label fat12/16) (map 'string #'code-char (subseq sector 54 60))))
-    (read-fat-base fat12/16 sector)
-    (assert (or (not (zerop (fat-%n-sectors16 fat12/16)))
-                (not (zerop (fat-%n-sectors32 fat12/16)))))
+      (setf (fat-%n-root-entry ffs) (sys.int::ub16ref/le sector 17)
+            (fat-%signature ffs) (aref sector 38)
+            (fat-%volume-id ffs) (sys.int::ub32ref/le sector 39)
+            (fat-%volume-label ffs) (map 'string #'code-char (subseq sector 43 54))
+            (fat-%fat-type-label ffs) (map 'string #'code-char (subseq sector 54 60))))
+    (read-fat-base ffs sector)
+    (assert (or (not (zerop (fat-%n-sectors16 ffs)))
+                (not (zerop (fat-%n-sectors32 ffs)))))
     (check-bps (sys.int::ub16ref/le sector 510))
-    fat12/16))
+    ffs))
 
 (defclass fat16 (fat12)
   ())
