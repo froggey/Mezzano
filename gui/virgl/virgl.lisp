@@ -1,12 +1,3 @@
-;;;; Copyright (c) 2018 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
-
-(defpackage :mezzano.gui.virgl
-  (:use :cl)
-  (:local-nicknames (:gpu :mezzano.supervisor.virtio-gpu)
-                    (:ext :mezzano.extensions)
-                    (:sup :mezzano.supervisor)))
-
 (in-package :mezzano.gui.virgl)
 
 ;;; Renderer capabilities.
@@ -579,6 +570,24 @@
 (gpu:virtio-gpu-ctx-create *gpu* 0 :context 1)
 (gpu:virtio-gpu-attach-resource *gpu* 123 :context 1) ; scanout
 (gpu:virtio-gpu-attach-resource *gpu* 1000 :context 1) ; vertex-buf
+
+#|
+(tgsi:assemble-shader :vertex
+ '((tgsi:dcl (:in 0))
+   (tgsi:dcl (:in 1))
+   (tgsi:dcl (:out 0) :position)
+   (tgsi:dcl (:out 1) :color) ; screaming.
+   (tgsi:mov (:out 0) (:in 0))
+   (tgsi:mov (:out 1) (:in 1))
+   (tgsi:end)))
+
+(tgsi:assemble-shader :fragment
+ '((tgsi:dcl (:in 0) :color :color) ; more screaming.
+   (tgsi:dcl (:out 0) :color) ; ahhhhhh.
+   (tgsi:imm :flt32 (1.0 1.0 1.0 1.0))
+   (tgsi:sub (:out 0) (:imm 0) (:in 0))
+   (tgsi:end)))
+|#
 
 (defun test ()
   ;; Pass position & colour through unchanged.
