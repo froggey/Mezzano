@@ -9,20 +9,14 @@
 
 (defstruct thread-pool
   threads
-  lock
-  cvar
-  event-fifo)
+  mailbox)
 
 (defun worker-thread-main (pool thread-num)
   (sup:debug-print-line "USB worker thread " thread-num " started")
-  (let ((lock (thread-pool-lock pool))
-        (cvar (thread-pool-cvar pool))
-        (event-fifo (thread-pool-event-fifo pool))
+  (let ((mbox (thread-pool-mailbox pool))
         (event))
     (loop
-       (sup:with-mutex ((thread-pool-lock pool))
-         (sup:condition-wait cvar lock)
-         (setf event (sup:fifo-pop event-fifo)))
+       (setf event (sync:mailbox-receive mbox))
        (block :process-event
          (handler-bind
              ((error
@@ -57,13 +51,10 @@
   (when (null *thread-pool*)
     (setf *thread-pool* (make-thread-pool
                          :threads nil
-                         :lock (sup:make-mutex "Thread-Pool lock")
-                         :cvar (sup:make-condition-variable "Thread-Pool cvar")
-                         :event-fifo (sup:make-fifo nil)))
+                         :mailbox (sync:make-mailbox :name "USB Thread-Pool mailbox")))
     (dotimes (i +number-of-threads+)
       (create-worker-thread *thread-pool* (format nil "USB worker ~D" i) i)))
-  (thread-pool-event-fifo *thread-pool*))
+  (thread-pool-mailbox *thread-pool*))
 
 (defun enqueue-event (event)
-  (sup:fifo-push event (thread-pool-event-fifo *thread-pool*))
-  (sup:condition-notify (thread-pool-cvar *thread-pool*)))
+  (sync:mailbox-send event (thread-pool-mailbox *thread-pool*)))

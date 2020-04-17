@@ -115,7 +115,8 @@
 
 (defpackage :mezzano.driver.usb.threads
   (:use :cl :mezzano.driver.usb)
-  (:local-nicknames (:sup :mezzano.supervisor)))
+  (:local-nicknames (:sup :mezzano.supervisor)
+                    (:sync :mezzano.sync)))
 
 (defpackage :mezzano.driver.usb.ohci
   (:use :cl :mezzano.driver.usb)
