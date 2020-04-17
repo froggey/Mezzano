@@ -652,7 +652,7 @@ mapped, then the entry will be NIL."
               for pte = (get-pte-for-address vaddr)
               do
                 (when (not (zerop (sys.int::memref-unsigned-byte-64 bme)))
-                  (panic "Block " address " entry not zero!"))
+                  (panic "Block " vaddr " entry not zero!"))
                 (setf (sys.int::memref-unsigned-byte-64 bme)
                       (logior sys.int::+block-map-present+
                               sys.int::+block-map-writable+

@@ -210,7 +210,7 @@ For contiguous buffers this will always return 1."
              ;; to free up some memory?
              (error "Unable to allocate dma buffer of length ~D" length))
            (setf (svref sg-vec 0) (ash frame 12)
-                 (svref sg-vec 0) length)
+                 (svref sg-vec 1) length)
            sg-vec))
         (t
          ;; Non-contiguous allocations are a little bit tricky, as
