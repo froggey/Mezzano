@@ -525,53 +525,55 @@
   (vector-push-extend-single/le translate1 cmd-buf)
   (vector-push-extend-single/le translate2 cmd-buf))
 
-(defvar *gpu* (mezzano.supervisor:framebuffer-device (mezzano.supervisor:current-framebuffer)))
+(defvar *gpu* (sup:framebuffer-device (mezzano.supervisor:current-framebuffer)))
 ;; Push vertex data to GPU.
-(let ((vertex-buf (make-array 96 :element-type '(unsigned-byte 8) :adjustable t :fill-pointer 0)))
-  ;; Position 0
-  (vector-push-extend-single/le 0.0 vertex-buf)
-  (vector-push-extend-single/le 0.0 vertex-buf)
-  (vector-push-extend-single/le 0.0 vertex-buf)
-  (vector-push-extend-single/le 1.0 vertex-buf)
-  ;; Colour 0
-  (vector-push-extend-single/le 1.0 vertex-buf)
-  (vector-push-extend-single/le 0.0 vertex-buf)
-  (vector-push-extend-single/le 0.0 vertex-buf)
-  (vector-push-extend-single/le 1.0 vertex-buf)
-  ;; Position 1
-  (vector-push-extend-single/le 0.5 vertex-buf)
-  (vector-push-extend-single/le 0.0 vertex-buf)
-  (vector-push-extend-single/le 0.0 vertex-buf)
-  (vector-push-extend-single/le 1.0 vertex-buf)
-  ;; Colour 1
-  (vector-push-extend-single/le 0.0 vertex-buf)
-  (vector-push-extend-single/le 1.0 vertex-buf)
-  (vector-push-extend-single/le 0.0 vertex-buf)
-  (vector-push-extend-single/le 1.0 vertex-buf)
-  ;; Position 2
-  (vector-push-extend-single/le 0.5 vertex-buf)
-  (vector-push-extend-single/le 0.5 vertex-buf)
-  (vector-push-extend-single/le 0.0 vertex-buf)
-  (vector-push-extend-single/le 1.0 vertex-buf)
-  ;; Colour 2
-  (vector-push-extend-single/le 0.0 vertex-buf)
-  (vector-push-extend-single/le 0.0 vertex-buf)
-  (vector-push-extend-single/le 1.0 vertex-buf)
-  (vector-push-extend-single/le 1.0 vertex-buf)
-  ;; Create buffer.
-  (gpu:virtio-gpu-resource-create-3d
-   *gpu* 1000 +pipe-buffer+ 0 +virgl-bind-vertex-buffer+
-   (length vertex-buf) 1 1 1 0 0 0)
-  ;; Upload data. Ergh.
-  (let* ((buffer-frame (mezzano.supervisor::allocate-physical-pages 1))
-         (buffer-phys (* buffer-frame mezzano.supervisor::+4k-page-size+)))
-    (dotimes (i (length vertex-buf))
-      (setf (mezzano.supervisor::physical-memref-unsigned-byte-8 buffer-phys i)
-            (aref vertex-buf i)))
-    (gpu:virtio-gpu-resource-attach-backing *gpu* 1000 1 buffer-phys (length vertex-buf))
+(defvar *test-vertex-dma-buf* (sup:make-dma-buffer 96 :name "Virgl vertex data"))
+(defun upload-test-data ()
+  (let* ((vertex-dma-buf *test-vertex-dma-buf*)
+         (vertex-buf-raw-vec (sup:dma-buffer-array vertex-dma-buf))
+         (vertex-buf (make-array (length vertex-buf-raw-vec)
+                                 :fill-pointer 0
+                                 :displaced-to vertex-buf-raw-vec)))
+    ;; Position 0
+    (vector-push-extend-single/le 0.0 vertex-buf)
+    (vector-push-extend-single/le 0.0 vertex-buf)
+    (vector-push-extend-single/le 0.0 vertex-buf)
+    (vector-push-extend-single/le 1.0 vertex-buf)
+    ;; Colour 0
+    (vector-push-extend-single/le 1.0 vertex-buf)
+    (vector-push-extend-single/le 0.0 vertex-buf)
+    (vector-push-extend-single/le 0.0 vertex-buf)
+    (vector-push-extend-single/le 1.0 vertex-buf)
+    ;; Position 1
+    (vector-push-extend-single/le 0.5 vertex-buf)
+    (vector-push-extend-single/le 0.0 vertex-buf)
+    (vector-push-extend-single/le 0.0 vertex-buf)
+    (vector-push-extend-single/le 1.0 vertex-buf)
+    ;; Colour 1
+    (vector-push-extend-single/le 0.0 vertex-buf)
+    (vector-push-extend-single/le 1.0 vertex-buf)
+    (vector-push-extend-single/le 0.0 vertex-buf)
+    (vector-push-extend-single/le 1.0 vertex-buf)
+    ;; Position 2
+    (vector-push-extend-single/le 0.5 vertex-buf)
+    (vector-push-extend-single/le 0.5 vertex-buf)
+    (vector-push-extend-single/le 0.0 vertex-buf)
+    (vector-push-extend-single/le 1.0 vertex-buf)
+    ;; Colour 2
+    (vector-push-extend-single/le 0.0 vertex-buf)
+    (vector-push-extend-single/le 0.0 vertex-buf)
+    (vector-push-extend-single/le 1.0 vertex-buf)
+    (vector-push-extend-single/le 1.0 vertex-buf)
+    ;; Create buffer.
+    (gpu:virtio-gpu-resource-create-3d
+     *gpu* 1000 +pipe-buffer+ 0 +virgl-bind-vertex-buffer+
+     (length vertex-buf) 1 1 1 0 0 0)
+    ;; Upload data.
+    (gpu:virtio-gpu-resource-attach-backing *gpu* 1000 1 (sup:dma-buffer-physical-address vertex-dma-buf) (length vertex-buf))
     ;; Use context 0, this context has all resources attached for the
     ;; purposes of upload.
     (gpu:virtio-gpu-transfer-to-host-3d *gpu* 0 0 0 (length vertex-buf) 1 1 0 1000 0 0 0 :context 0)))
+(upload-test-data)
 
 ;; Create new context for testing and attach resources to it.
 (gpu:virtio-gpu-ctx-create *gpu* 0 :context 1)
