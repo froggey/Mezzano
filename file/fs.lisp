@@ -36,6 +36,7 @@
            #:file-host-mount-device
            #:mount-host
            #:create-host
+           #:register-block-device-host-type
            #:mount-block-device
            #:unmount-block-device
            #:unmounted-file-system-error))
@@ -735,6 +736,16 @@ NAMESTRING as the second."
 
 (defgeneric create-host (class block-device name-alist))
 
+;;; Code to maintain a list of file system host types that support block devices
+
+(defvar *block-device-host-type-lock*
+  (mezzano.supervisor:make-mutex "Lock for *block-device-host-types*"))
+(defvar *block-device-host-types* NIL)
+
+(defun register-block-device-host-type (host-type)
+  (mezzano.supervisor:with-mutex (*block-device-host-type-lock*)
+    (push host-type *block-device-host-types*)))
+
 (defun mount-block-device (block-device)
   ;; check if an existing host goes with this block device
   (loop
@@ -751,7 +762,7 @@ NAMESTRING as the second."
   ;; cold-boot hosts.
   (when (boundp 'mezzano.internals::*filesystems*)
     (loop
-       for host-class in '(:fat-host)
+       for host-class in *block-device-host-types*
        for name = (create-host
                    host-class
                    block-device mezzano.internals::*filesystems*)
