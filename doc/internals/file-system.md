@@ -2,21 +2,21 @@
 
 # File Systems on Mezzano
 
-Each type of file system on Mezzano requires a host class and that
-host class must implement the following methods which are exported by
-the mezzano.file-system package.
+Each type of file system on Mezzano requires a host class which must
+be a superclass of file-system-host and implement the following
+methods:
 
     parse-namestring-using-host (host namestring junk-allowed) => pathname
 
-    namestring-using-host (host path) => namestring
+    namestring-using-host (path host) => namestring
 
-    open-using-host (host path &key direction element-type if-exists if-does-not-exist external-format) => stream
+    open-using-host (host pathname &key direction element-type if-exists if-does-not-exist external-format) => stream
 
-    probe-using-host (host path) => pathname or NIL
+    probe-using-host (host pathname) => pathname or NIL
 
     directory-using-host (host path &key) => list of pathnames
 
-    ensure-directories-exist-using-host (host path &key verbose) => T or NIL
+    ensure-directories-exist-using-host (host pathname &key verbose) => T or NIL
 
     rename-file-using-host (host source dest) => <ignored>
 
@@ -28,7 +28,10 @@ the mezzano.file-system package.
 
     expunge-directory-using-host (host path &key) => <ignored>
 
-    truename-using-host (host path) => pathname
+    truename-using-host (host pathname) => pathname
+
+These methods and file-system-host are exported by the
+mezzano.file-system package.
 
 As listed above, open-using-host returns a stream. Usually, the
 stream is one of two types: a character stream or a binary
@@ -47,18 +50,110 @@ namestring to be host dependent. For example, the "REMOTE" host uses
 Unix style namestrings: "REMOTE:/home/tom/abc.lisp" while the "LOCAL"
 host uses LispM style namestrings: "LOCAL:>home>tom>abc.lisp".
 
-For a file system that resides on a local disk or disk partition, the
-host object must have a block device object so that read and write
-requests can be mapped to the appropriate disk location. Removable
-media, such as USB mass storage devices, also provide block device
-objects.
+File systems that use a local disk or disk partition, either fixed or
+removable, must also be a superclass of file-host-mount-mixin and
+implement the following methods:
 
-When Mezzano boots, it enumerates all of the available disks and disk
-partitions. A list of these objects can be obtained by calling:
+    create-host (class block-device name-alist) => name on success, otherwise NIL
 
-    mezzano.supervisor:all-disks () => List of disks and partitions
+    mount-host (host block-device) => T on success, otherwise NIL
 
-These disks and partitions also support the block-device APIs:
+The create-host method specializes on the class argument; the
+mount-host method specializes on the host argument; and, the
+name-alist is a list of the form:
+
+    ((UUID <host name>)...)
+
+The pairs are not dotted pairs and the host name should be a
+string. File system host classes that are superclasses of
+file-host-mount-mixin must register using the following:
+
+    register-block-device-host-type (host-type) => T
+
+The host-type argument is used as the class argument in calls to
+create-host. For example, the FAT file system uses the following call:
+
+    (register-block-device-host-type :fat-host)
+
+The file-host-mount-mixin class defines three fields: mount-args,
+mount-state and mount-device. create-host is responsible for setting
+all three fields and mount-host is responsible for setting the last
+two fields. When create-host is successful, it should set mount-args
+to a value that is useful for mount-host to identify the block device
+for remounting. Usually, this is the UUID of the file system on that
+block device. When create-host or mount-host are successful, they
+should set mount-state to :mounted; and, set mount-device to the block
+device.
+
+Whenever a block device is unregistered, if there is a host mounted on
+that block device, the mount state of that host is set to :unmounted
+and the mount device is set to NIL. No further operations are
+permitted on that block device by the host.
+
+When a block device is registered, mount-host is called for each
+existing host that is not mounted until a call returns T indicating
+that the host was mounted on the block device.  mount-host should
+probe the block device to determine if there is a file system of that
+class on the block device and check to see if the UUID of that file
+system matches the UUID of the host. If the UUIDs match, then the host
+should be mounted on that block device. The host should assume that
+the file system has been changed since the last time the host was
+mounted on that block device and should re-initialize whatever
+information is required.
+
+If there is not an appropriate file system on the block device, or the
+UUID does not match the UUID of the host, mount-host should not make
+any changes in the host and return NIL.
+
+If none of the existing unmounted hosts return success (T), then
+create-host is called for each registered host type until a call
+returns success (a host name). create-host should probe the block
+device to determine if there is a file system of that class on the
+block device and use the UUID of that file system to search the
+name-alist to find the associated host name. If an associated host
+name is found, create-host should create and initialize a host for
+that block device and register the host by:
+
+    (setf (mezzano.file-system:find-host <host name>) <host object>) => <host object>
+
+If there is not an appropriate file system on the block device, or no
+match is found in name-alist, create-host should not create a host and
+return NIL.
+
+To create a new file system on a running system. Call create-host with
+the appropriate arguments. For example, to create a FAT file system host:
+
+    (create-host :fat-host <block device> '((<uuid> <host name>)))
+
+If the system is rebooted without saving the current state using:
+
+    mezzano.supervisor:snapshot () => <ignored>
+
+then the host object will be lost and will need to be recreated.
+
+However, if the system is saved, at the start of system boot, the host
+object and host name mapping will still exist and the host will be
+still be mounted on the now obsolete (invalid) block device.  As the
+boot process proceeds, all of the previously registered non-removable
+disks and partitions are unregistered and any hosts associated with
+those partitions are then marked as unmounted.  Next the currently
+enumerated non-removable disks and partitions are registered as block
+devices and any hosts associated with those disks and partitions are
+re-mounted via calls to mount-host.
+
+Any removable media disks and partitions that were registered when the
+system was saved via snapshot are unregistered when the driver
+associated with the removable media recognizes that the system was
+rebooted. Again, any hosts associated with those disks and partitions
+are marked as unmounted. If removable media is reinserted, any hosts
+associated with those disks and partitions are remounted.
+
+Similarly, during normal operation, when a removable media is removed,
+the block devices are unregistered and the associated hosts are
+unmounted. When the same media is reinserted the block devices are
+registered and the associated hosts are remounted.
+
+Block devices support the block-device APIa:
 
     mezzano.disk:block-device-sector-size (disk) => <sector size in bytes>
 
@@ -72,10 +167,7 @@ A list of block devices can obtained by calling:
 
     mezzano.disk:all-block-devices () => List of block devices
 
-All of the local disks and partitions enumerated on boot and returned
-by mezzano.supervisor:all-disks are also returned by
-mezzano.disk:all-block-devices. Additional block devices can be
-registered by:
+Block devices can be registered by:
 
     mezzano.disk:register-block-device (device) => Updated list of block devices
 
@@ -83,132 +175,14 @@ And unregistered by:
 
     mezzano.disk:unregister-block-device (device) => Updated list of block devices
 
-To create a new file system on a running system, create a host object
-of the appropriate type with the desired host name and the desired
-block device object. For example, the type could be fat32, the host
-name could be "HOME", and the block device  selected from the results of
-(mezzano.disk:all-block-devices). For this example, the host name/host
-object mapping would be setup by
-
-    (setf (mezzano.file-system:find-host  "HOME") <fat32 host object>)
-
-If the system is rebooted without saving the current state using:
-
-    mezzano.supervisor:snapshot () => <ignored>
-
-then the host object will be lost and will need to be recreated and
-mapped to the appropriate host name and associated with the
-appropriate block device object.
-
-However, if the system is saved, when the system is rebooted, the host
-object and host name mapping will still exist and the host will be
-re-associated with the block device via the following mechanism.
-
-There is a class "file-host-mount-mixin" which includes a "mount-args"
-slot which is accessed via an accessor function file-host-mount-args
-and defines a generic function:
-
-    mount (host) => T on success, NIL otherwise
-
-and includes a default mount method which does nothing and returns T
-(success).
-
-All file system host classes include file-host-mount-mixin and when a
-file system host is created, the mount-args slot is set to a value
-that depends on both the host type and the file system associated with
-the host. For example, for a FAT32 host, the mount-args slot would be
-set to partition UUID, and for a NFS host, the mount-args slot might
-be set to the url of the NFS file system, e.g.,
-"nfs://nfs.lispm.net/export/home/tom".
-
-During the boot process, after the disks and partitions are
-enumerated, but before any file system references occur, mount is
-called for each of the host objects registered with
-mezzano.file-system:find-host. This method should:
-
-  * delete the association of the host with the (old) block device;
-  * call the appropriate function for "finding" that file system type
-with the host type and the mount-args;
-  * associate the host with the new block device object returned; and,
-  * set the host field in the read/write object to the host (this
-field does not currently exist in the disk object - see
-[Future Work](#future-work) below).
-
-Local block devices are supported by using the function:
-
-    find-local-block-device (<class name> <partition UUID>) => <block device>
-
-find-local-block-device will call the generic function
-
-    probe-block-device (<class name> <block-device>) =>  <partition UUID> or NIL
-
-on each block device object until a matching partition UUID is found
-and find-local-block-device will return that block
-device. probe-block-device will return NIL if the block device is not
-formatted as the given host type. If no matching block device is
-found, find-local-block-device will return NIL.
-
-probe-block-device is a generic function that specializes on the class
-name argument. Therefore, each file system host class that supports
-block devices, will also need to define a probe-block-device
-method. This method needs to read the header of the block device, make
-enough checks to verify that the device contains a file system of the
-appropriate type, then return the partition UUID (or equivalent).
-
-This approach can be expanded to handle other kinds of file systems by
-creating additional partition functions. For example, for NFS the
-following function might be defined:
-
-    find-nfs-partition (<nfs url>) => <nfs read/write object>
-
-For the currently existing http host, remote host, local host and sys
-host, the mount method does nothing except return success. This is all
-that is required as these hosts do not need to do anything special on
-reboot.
-
-The fat host defines a mount method and an appropriate
-probe-block-device method. And therefore, any fat host saved by a
-snapshot will be available on reboot.
-
-Currently (6 April 2020) the ext4 host mount method returns NIL and no
-probe-block-device method is provided. This means any ext4 host saved
-by a snapshot will **not** be available on reboot.
-
 ## Future Work
-
-Adding reboot support for ext4.
-
-Adding the host field to the block device object (or other read/write
-object) makes it easier for an application, e.g., the name space
-editor, to list block devices and their associated host objects. In
-addition, the change to probe-block-device to return the partition
-UUID instead of doing the match allows probe-block-device to be used
-to determine the file system type of a block device without knowing
-the partition UUID. For example, when a disk or partition is formatted
-but not yet associated with a host object.
-
-Create new generic function API in mezzano.file-system package:
-
-    mount-file-system (<class name> <host name> <block device>) => host
-
-which specializes on the class name argument, for example,
-mount-file-system('fat-host "HOME" <block device>). The function
-verifies that the block device contains a file system of the correct
-type, creates a host object and registers it using (setf
-(mezzano.file-system:find-host host-name) <host object>). This
-function would be useful in general, but also by the name space
-editor. Currently (6 April 2020), for FAT, this functionality is
-provided by mezzano.fat-file-system::mount-fat(block-device host-name
-uuid).
 
 Generate better error types from block devices. Perhaps add a base
 condition (IO-ERROR?) that block device errors inherit from.
 
-Better handling for hotplug devices. Automatic probing when they are
-registered.
-
-It's not clear that the local file system and logical hosts (which
-don't really exist as real file systems at all) should subscribe to
-the mount protocol. They exist from the moment their host objects are
-created and are destroyed when they get GC'd. So the mount protocol
-doesn't really make sense. What, if anything, should be changed?
+Do we need an unmount-host generic function which is called when a
+block device is unregistered? For USB, the block device is already
+unavailable, so no additional operations on the block device are
+possible. But there may be some clean up of the host that is required
+(other than setting the mount-state to :unmounted and the
+mounted-device to NIL which already occurs)?
