@@ -744,7 +744,8 @@ NAMESTRING as the second."
 
 (defun register-block-device-host-type (host-type)
   (mezzano.supervisor:with-mutex (*block-device-host-type-lock*)
-    (push host-type *block-device-host-types*)))
+    (push host-type *block-device-host-types*))
+  T)
 
 (defun mount-block-device (block-device)
   ;; check if an existing host goes with this block device
