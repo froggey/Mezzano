@@ -83,35 +83,23 @@
                       :host name
                       :pathname (format nil "~A:" name))))))
     (file-system-host name)
-    (t (when errorp
-         (error 'mezzano.internals::simple-type-error
-                :expected-type '(or string symbol file-system-host)
-                :datum name
-                :format-control "~S is invalid type ~S, expected one of ~S"
-                :format-arguments (list name
-                                        (type-of name)
-                                        '(string symbol file-system-host)))))))
+    (t (error 'mezzano.internals::simple-type-error
+              :expected-type '(or string symbol file-system-host)
+              :datum name))))
 
 (defun (setf find-host) (new-value name &optional (errorp t))
+  (declare (ignore errorp))
   (setf name (string-upcase (string name)))
   (assert (not (zerop (length name))))
+  (check-type new-value (or null file-system-host))
   (cond ((null new-value)
          (setf *host-alist* (remove name *host-alist* :key 'first :test 'string=))
          NIL)
-        ((typep new-value 'file-system-host)
+        (T
          (setf *host-alist*
                (list* (list name new-value)
                       (remove name *host-alist* :key 'first :test 'string=)))
-         new-value)
-        (errorp
-         (error 'mezzano.internals::simple-type-error
-                :expected-type 'file-system-host
-                :datum new-value
-                :format-control "~S is invalid type ~S, required type ~S"
-                :format-arguments (list new-value
-                                        (type-of new-value)
-                                        'file-system-host)))
-        (T NIL)))
+         new-value)))
 
 (defun list-all-hosts ()
   (mapcar #'second *host-alist*))
