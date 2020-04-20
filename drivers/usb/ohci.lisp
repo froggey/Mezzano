@@ -1400,9 +1400,6 @@
   (let ((pci-irq (pci-irq ohci))
         (done-head-mask (dpb 1 +interrupt-done-head+ 0)))
     (loop
-       (sync:wait-for-objects
-        pci-irq
-        (pci:pci-device-boot-id (pci-device ohci)))
        (block :process-event
          (handler-bind
              ((error
@@ -1422,29 +1419,32 @@
                  (sleep 60)
                  ;; if we return, exit
                  (return-from interrupt-thread-main))))
+           (sync:wait-for-objects
+            pci-irq
+            (pci:pci-device-boot-id (pci-device ohci)))
            (with-hcd-access (ohci)
-             ;; Create and enqueue an interrupt event for each pending
-             ;; interrupt. Worker threads then handle the interrupt events.
-             (macrolet ((%handle-interrupt-event (bit type &body fields-values)
-                          (let ((event (gensym "event-")))
-                            `(when (logbitp ,bit interrupts)
-                               (let ((,event (alloc-interrupt-event ohci)))
-                                 (setf (interrupt-event-type ,event) ,type)
-                                 ,@(loop for (field value) on fields-values by #'cddr
-                                      collect `(setf (,field ,event) ,value))
-                                 (enqueue-event ,event))))))
-               (let ((interrupts (logand (get-interrupt-status ohci)
-                                         (get-interrupt-enable ohci))))
-
-                 ;; disable pending interrupts, clear them,
-                 ;; then enable the master interrupt
-                 ;; Can't clear done head interrupt until list is processed
-                 (setf
-                  (get-interrupt-disable ohci) interrupts
-                  (get-interrupt-status ohci) (logandc2 interrupts
-                                                        done-head-mask)
-                  (get-interrupt-enable ohci) #x80000000)
-
+             (let ((interrupts (logand (get-interrupt-status ohci)
+                                       (get-interrupt-enable ohci))))
+               ;; disable pending interrupts, clear them,
+               ;; then enable the master interrupt
+               ;; Can't clear done head interrupt until list is processed
+               (setf
+                (get-interrupt-disable ohci) interrupts
+                (get-interrupt-status ohci) (logandc2 interrupts
+                                                      done-head-mask)
+                (get-interrupt-enable ohci) #x80000000)
+               ;; Re-enable PCI interrupts
+               (sup:simple-irq-unmask pci-irq)
+               ;; Create and enqueue an interrupt event for each pending
+               ;; interrupt. Worker threads then handle the interrupt events.
+               (macrolet ((%handle-interrupt-event (bit type &body fields-values)
+                            (let ((event (gensym "event-")))
+                              `(when (logbitp ,bit interrupts)
+                                 (let ((,event (alloc-interrupt-event ohci)))
+                                   (setf (interrupt-event-type ,event) ,type)
+                                   ,@(loop for (field value) on fields-values by #'cddr
+                                        collect `(setf (,field ,event) ,value))
+                                   (enqueue-event ,event))))))
                  ;; enqueue each interrupt individually
                  (%handle-interrupt-event 0 :overrun)
                  (%handle-interrupt-event 1 :writeback-done)
@@ -1453,11 +1453,7 @@
                  (%handle-interrupt-event 4 :unrecoverable-error)
                  (%handle-interrupt-event 5 :frame-rollover)
                  (%handle-interrupt-event 6 :hub-status-change)
-                 (%handle-interrupt-event 30 :ownership-change)
-                 ))
-
-             ;; Re-enable PCI interrupts
-             (sup:simple-irq-unmask pci-irq)))))))
+                 (%handle-interrupt-event 30 :ownership-change)))))))))
 
 ;;======================================================================
 ;; Interrupt Table Routines

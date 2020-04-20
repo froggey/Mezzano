@@ -70,7 +70,8 @@
   (do-block disk #'write-sector lba n-sectors buffer offset))
 
 (defmethod block-device-flush ((disk sup:disk))
-  (sup:disk-flush disk))
+  (multiple-value-bind (success-p error-reason) (sup:disk-flush disk)
+    (or success-p (error "Disk flush error: ~A" error-reason))))
 
 (defun block-device-read-sector (disk start-sector n-sectors)
   (let ((result (make-array (* (block-device-sector-size disk) n-sectors)
@@ -92,13 +93,35 @@
 (defvar *block-devices* NIL)
 
 (defun all-block-devices ()
-  (sup:with-mutex (*block-devices-lock*)
-    (append *block-devices* (mezzano.supervisor:all-disks))))
+  (sup:with-snapshot-inhibited ()
+    (sup:with-mutex (*block-devices-lock*)
+      (copy-list *block-devices*))))
 
 (defun register-block-device (device)
-  (sup:with-mutex (*block-devices-lock*)
+  (sup:with-snapshot-inhibited ()
+    (sup:with-mutex (*block-devices-lock*)
       (push device *block-devices*)))
+  (mezzano.file-system:mount-block-device device))
 
 (defun unregister-block-device (device)
-  (sup:with-mutex (*block-devices-lock*)
-    (setf *block-devices* (delete device *block-devices*))))
+  (sup:with-snapshot-inhibited ()
+    (sup:with-mutex (*block-devices-lock*)
+      (setf *block-devices* (delete device *block-devices*))))
+  (mezzano.file-system:unmount-block-device device))
+
+(defvar *previous-sup-disks* NIL)
+
+(defun register-supervisor-disks ()
+  ;; This function is also called from ipl.lisp for cold boot
+  ;; un-register supervisor disks from last boot
+  (loop
+     for part in *previous-sup-disks* do
+       (unregister-block-device part))
+  ;; register supervisor disks from this boot
+  (setf *previous-sup-disks* NIL)
+  (loop
+     for part in (sup:all-disks) do
+       (push part *previous-sup-disks*)
+       (register-block-device part)))
+
+(mezzano.supervisor:add-boot-hook 'register-supervisor-disks :early)

@@ -4,8 +4,9 @@
 
 (defpackage :mezzano.ext4-file-system
   (:use :cl :mezzano.file-system :mezzano.file-system-cache :mezzano.disk :iterate)
-  (:export :make-ext4-host)
-  (:local-nicknames (:sys.int :mezzano.internals)))
+  (:local-nicknames (:sys.int :mezzano.internals)
+                    (:sup :mezzano.supervisor))
+  (:export))
 
 (in-package :mezzano.ext4-file-system)
 
@@ -193,148 +194,150 @@
   (reserved nil)
   (checksum nil :type (unsigned-byte 32)))
 
-(defun check-magic (magic)
-  (unless (= magic #xEF53)
-    (error "Bad magic : #x~x.
-  Valid magic value is #xEF53." magic)))
-
 (let ((implemented (list +incompat-filetype+
                          +incompat-extents+
                          +incompat-64bit+
                          +incompat-flex-bg+
                          +incompat-inline-data+)))
   (defun check-feature-incompat (feature-incompat)
-    (when (logbitp +incompat-recover+ feature-incompat)
-      (error "Filesystem needs recovery"))
-    (unless (logbitp +incompat-filetype+ feature-incompat)
-      (error "+incompat-filetype+ is required"))
-    (iter (with result := feature-incompat)
-          (for feature :in implemented)
-          (when (logbitp feature feature-incompat)
-            (decf result (ash 1 feature)))
-          (finally
-           (unless (zerop result)
-             (error "Required incompatible features not implemented : ~b" result))))))
+    (cond ((logbitp +incompat-recover+ feature-incompat)
+           (format t "ext4 file system mount failed: filesystem needs recovery")
+           NIL)
+          ((not (logbitp +incompat-filetype+ feature-incompat))
+           (format t "ext4 file system mount failed: +incompat-filetype+ is required")
+           NIL)
+          (T
+           (loop
+              with result = feature-incompat
+              for feature in implemented
+              when (logbitp feature feature-incompat) do
+                (setf result (logandc2 result (ash 1 feature)))
+              finally
+                (when (not (zerop result))
+                  (format t "ext4 file system mount failed: ~
+                             Requires incompatible features not implemented: #b~b" result))
+                (zerop result))))))
 
 (defun read-superblock (disk)
-  (let* ((superblock (block-device-read-sector disk 2 2))
-         (magic (sys.int::ub16ref/le superblock 56))
-         (feature-incompat (sys.int::ub32ref/le superblock 96)))
-    (check-magic magic)
-    (check-feature-incompat feature-incompat)
-    (make-superblock :inodes-count (sys.int::ub32ref/le superblock 0)
-                     :blocks-count (logior (ash (sys.int::ub32ref/le superblock 336) 64)
-                                           (sys.int::ub32ref/le superblock 4))
-                     :r-blocks-count (logior (ash (sys.int::ub32ref/le superblock 340) 64)
-                                             (sys.int::ub32ref/le superblock 8))
-                     :free-blocks-count (logior (ash (sys.int::ub32ref/le superblock 344) 64)
-                                                (sys.int::ub32ref/le superblock 12))
-                     :free-inodes-count (sys.int::ub32ref/le superblock 16)
-                     :first-data-block (sys.int::ub32ref/le superblock 20)
-                     :log-block-size (sys.int::ub32ref/le superblock 24)
-                     :log-cluster-size (sys.int::ub32ref/le superblock 28)
-                     :blocks-per-group (sys.int::ub32ref/le superblock 32)
-                     :clusters-per-group (sys.int::ub32ref/le superblock 36)
-                     :inodes-per-group (sys.int::ub32ref/le superblock 40)
-                     :mtime (sys.int::ub32ref/le superblock 44)
-                     :wtime (sys.int::ub32ref/le superblock 48)
-                     :mnt-count (sys.int::ub16ref/le superblock 52)
-                     :max-mnt-count (sys.int::ub16ref/le superblock 54)
-                     :magic magic
-                     :state (sys.int::ub16ref/le superblock 58)
-                     :errors (sys.int::ub16ref/le superblock 60)
-                     :minor-rev-level (sys.int::ub16ref/le superblock 62)
-                     :lastcheck (sys.int::ub32ref/le superblock 64)
-                     :checkinterval (sys.int::ub32ref/le superblock 68)
-                     :creator-os (sys.int::ub32ref/le superblock 72)
-                     :rev-level (sys.int::ub32ref/le superblock 76)
-                     :def-resuid (sys.int::ub16ref/le superblock 80)
-                     :def-resgid (sys.int::ub16ref/le superblock 82)
-                     :first-ino (sys.int::ub32ref/le superblock 84)
-                     :inode-size (sys.int::ub16ref/le superblock 88)
-                     :block-group-nr (sys.int::ub16ref/le superblock 90)
-                     :feature-compat (sys.int::ub32ref/le superblock 92)
-                     :feature-incompat feature-incompat
-                     :feature-ro-compat (sys.int::ub32ref/le superblock 100)
-                     :uuid (logior (ash (sys.int::ub64ref/le superblock 112) 64)
-                                   (sys.int::ub64ref/le superblock 104))
-                     :volume-name (map 'string #'code-char (subseq superblock 120 136))
-                     :last-mounted (map 'string #'code-char (subseq superblock 136 200))
-                     :algorithm-bitmap (sys.int::ub32ref/le superblock 200)
-                     :prealloc-blocks (aref superblock 204)
-                     :prealloc-dir-blocks (aref superblock 205)
-                     :reserved-gdt-blocks (sys.int::ub16ref/le superblock 206)
-                     :journal-uuid (logior (ash (sys.int::ub64ref/le superblock 216) 64)
-                                           (sys.int::ub64ref/le superblock 208))
-                     :journal-inum (sys.int::ub32ref/le superblock 224)
-                     :journal-dev (sys.int::ub32ref/le superblock 228)
-                     :last-orphan (sys.int::ub32ref/le superblock 232)
-                     :hash-seed (make-array '(4) :element-type '(unsigned-byte 32)
-                                                 :initial-contents (list (sys.int::ub32ref/le superblock 236)
-                                                                         (sys.int::ub32ref/le superblock 240)
-                                                                         (sys.int::ub32ref/le superblock 244)
-                                                                         (sys.int::ub32ref/le superblock 248)))
-                     :def-hash-version (aref superblock 252)
-                     :jnl-backup-type (aref superblock 253)
-                     :desc-size (sys.int::ub16ref/le superblock 254)
-                     :default-mount-options (sys.int::ub32ref/le superblock 256)
-                     :first-meta-bg (sys.int::ub32ref/le superblock 260)
-                     :mkfs-time (sys.int::ub32ref/le superblock 264)
-                     :jnl-blocks (make-array '(17) :element-type '(unsigned-byte 32)
-                                                   :initial-contents (loop :for i :from 268 :to 332 :by 4
-                                                                           :collect (sys.int::ub32ref/le superblock i)))
-                     :min-extra-isize (sys.int::ub16ref/le superblock 348)
-                     :want-extra-isize (sys.int::ub16ref/le superblock 350)
-                     :flags (sys.int::ub32ref/le superblock 352)
-                     :raid-stride (sys.int::ub16ref/le superblock 356)
-                     :mmp-interval (sys.int::ub16ref/le superblock 358)
-                     :mmp-block (sys.int::ub64ref/le superblock 360)
-                     :raid-stripe-width (sys.int::ub32ref/le superblock 368)
-                     :log-groups-per-flex (aref superblock 372)
-                     :checksum-type (aref superblock 373)
-                     :reserved-pad (sys.int::ub16ref/le superblock 374)
-                     :kbytes-written (sys.int::ub64ref/le superblock 376)
-                     :snapshot-inum (sys.int::ub32ref/le superblock 384)
-                     :snapshot-id (sys.int::ub32ref/le superblock 388)
-                     :snapshot-r-blocks-count (sys.int::ub64ref/le superblock 392)
-                     :snapshot-list (sys.int::ub32ref/le superblock 400)
-                     :error-count (sys.int::ub32ref/le superblock 404)
-                     :first-error-time (sys.int::ub32ref/le superblock 408)
-                     :first-error-ino (sys.int::ub32ref/le superblock 412)
-                     :first-error-block (sys.int::ub64ref/le superblock 416)
-                     :first-error-func (make-array '(32) :element-type '(unsigned-byte 8)
-                                                         :initial-contents (loop :for i :from 424 :to 455
-                                                                                 :collect (aref superblock i)))
-                     :first-error-line (sys.int::ub32ref/le superblock 456)
-                     :last-error-time (sys.int::ub32ref/le superblock 460)
-                     :last-error-ino (sys.int::ub32ref/le superblock 464)
-                     :last-error-line (sys.int::ub32ref/le superblock 468)
-                     :last-error-block (sys.int::ub64ref/le superblock 472)
-                     :last-error-func (make-array '(32) :element-type '(unsigned-byte 8)
-                                                        :initial-contents (loop :for i :from 480 :to 511
-                                                                                :collect (aref superblock i)))
-                     :mount-opts (make-array '(64) :element-type '(unsigned-byte 8)
-                                                   :initial-contents (loop :for i :from 512 :to 575
+  ;; check to see if the disk is big enough to hold a superblock
+  (when (> (block-device-n-sectors disk) 4)
+    (let* ((superblock (block-device-read-sector disk 2 2))
+           (magic (sys.int::ub16ref/le superblock 56))
+           (feature-incompat (sys.int::ub32ref/le superblock 96)))
+      (when (and (= magic #xEF53) (check-feature-incompat feature-incompat))
+        (make-superblock :inodes-count (sys.int::ub32ref/le superblock 0)
+                         :blocks-count (logior (ash (sys.int::ub32ref/le superblock 336) 64)
+                                               (sys.int::ub32ref/le superblock 4))
+                         :r-blocks-count (logior (ash (sys.int::ub32ref/le superblock 340) 64)
+                                                 (sys.int::ub32ref/le superblock 8))
+                         :free-blocks-count (logior (ash (sys.int::ub32ref/le superblock 344) 64)
+                                                    (sys.int::ub32ref/le superblock 12))
+                         :free-inodes-count (sys.int::ub32ref/le superblock 16)
+                         :first-data-block (sys.int::ub32ref/le superblock 20)
+                         :log-block-size (sys.int::ub32ref/le superblock 24)
+                         :log-cluster-size (sys.int::ub32ref/le superblock 28)
+                         :blocks-per-group (sys.int::ub32ref/le superblock 32)
+                         :clusters-per-group (sys.int::ub32ref/le superblock 36)
+                         :inodes-per-group (sys.int::ub32ref/le superblock 40)
+                         :mtime (sys.int::ub32ref/le superblock 44)
+                         :wtime (sys.int::ub32ref/le superblock 48)
+                         :mnt-count (sys.int::ub16ref/le superblock 52)
+                         :max-mnt-count (sys.int::ub16ref/le superblock 54)
+                         :magic magic
+                         :state (sys.int::ub16ref/le superblock 58)
+                         :errors (sys.int::ub16ref/le superblock 60)
+                         :minor-rev-level (sys.int::ub16ref/le superblock 62)
+                         :lastcheck (sys.int::ub32ref/le superblock 64)
+                         :checkinterval (sys.int::ub32ref/le superblock 68)
+                         :creator-os (sys.int::ub32ref/le superblock 72)
+                         :rev-level (sys.int::ub32ref/le superblock 76)
+                         :def-resuid (sys.int::ub16ref/le superblock 80)
+                         :def-resgid (sys.int::ub16ref/le superblock 82)
+                         :first-ino (sys.int::ub32ref/le superblock 84)
+                         :inode-size (sys.int::ub16ref/le superblock 88)
+                         :block-group-nr (sys.int::ub16ref/le superblock 90)
+                         :feature-compat (sys.int::ub32ref/le superblock 92)
+                         :feature-incompat feature-incompat
+                         :feature-ro-compat (sys.int::ub32ref/le superblock 100)
+                         :uuid (logior (ash (sys.int::ub64ref/le superblock 112) 64)
+                                       (sys.int::ub64ref/le superblock 104))
+                         :volume-name (map 'string #'code-char (subseq superblock 120 136))
+                         :last-mounted (map 'string #'code-char (subseq superblock 136 200))
+                         :algorithm-bitmap (sys.int::ub32ref/le superblock 200)
+                         :prealloc-blocks (aref superblock 204)
+                         :prealloc-dir-blocks (aref superblock 205)
+                         :reserved-gdt-blocks (sys.int::ub16ref/le superblock 206)
+                         :journal-uuid (logior (ash (sys.int::ub64ref/le superblock 216) 64)
+                                               (sys.int::ub64ref/le superblock 208))
+                         :journal-inum (sys.int::ub32ref/le superblock 224)
+                         :journal-dev (sys.int::ub32ref/le superblock 228)
+                         :last-orphan (sys.int::ub32ref/le superblock 232)
+                         :hash-seed (make-array '(4) :element-type '(unsigned-byte 32)
+                                                :initial-contents (list (sys.int::ub32ref/le superblock 236)
+                                                                        (sys.int::ub32ref/le superblock 240)
+                                                                        (sys.int::ub32ref/le superblock 244)
+                                                                        (sys.int::ub32ref/le superblock 248)))
+                         :def-hash-version (aref superblock 252)
+                         :jnl-backup-type (aref superblock 253)
+                         :desc-size (sys.int::ub16ref/le superblock 254)
+                         :default-mount-options (sys.int::ub32ref/le superblock 256)
+                         :first-meta-bg (sys.int::ub32ref/le superblock 260)
+                         :mkfs-time (sys.int::ub32ref/le superblock 264)
+                         :jnl-blocks (make-array '(17) :element-type '(unsigned-byte 32)
+                                                 :initial-contents (loop :for i :from 268 :to 332 :by 4
+                                                                      :collect (sys.int::ub32ref/le superblock i)))
+                         :min-extra-isize (sys.int::ub16ref/le superblock 348)
+                         :want-extra-isize (sys.int::ub16ref/le superblock 350)
+                         :flags (sys.int::ub32ref/le superblock 352)
+                         :raid-stride (sys.int::ub16ref/le superblock 356)
+                         :mmp-interval (sys.int::ub16ref/le superblock 358)
+                         :mmp-block (sys.int::ub64ref/le superblock 360)
+                         :raid-stripe-width (sys.int::ub32ref/le superblock 368)
+                         :log-groups-per-flex (aref superblock 372)
+                         :checksum-type (aref superblock 373)
+                         :reserved-pad (sys.int::ub16ref/le superblock 374)
+                         :kbytes-written (sys.int::ub64ref/le superblock 376)
+                         :snapshot-inum (sys.int::ub32ref/le superblock 384)
+                         :snapshot-id (sys.int::ub32ref/le superblock 388)
+                         :snapshot-r-blocks-count (sys.int::ub64ref/le superblock 392)
+                         :snapshot-list (sys.int::ub32ref/le superblock 400)
+                         :error-count (sys.int::ub32ref/le superblock 404)
+                         :first-error-time (sys.int::ub32ref/le superblock 408)
+                         :first-error-ino (sys.int::ub32ref/le superblock 412)
+                         :first-error-block (sys.int::ub64ref/le superblock 416)
+                         :first-error-func (make-array '(32) :element-type '(unsigned-byte 8)
+                                                       :initial-contents (loop :for i :from 424 :to 455
+                                                                            :collect (aref superblock i)))
+                         :first-error-line (sys.int::ub32ref/le superblock 456)
+                         :last-error-time (sys.int::ub32ref/le superblock 460)
+                         :last-error-ino (sys.int::ub32ref/le superblock 464)
+                         :last-error-line (sys.int::ub32ref/le superblock 468)
+                         :last-error-block (sys.int::ub64ref/le superblock 472)
+                         :last-error-func (make-array '(32) :element-type '(unsigned-byte 8)
+                                                      :initial-contents (loop :for i :from 480 :to 511
                                                                            :collect (aref superblock i)))
-                     :usr-quota-inum (sys.int::ub32ref/le superblock 576)
-                     :grp-quota-inum (sys.int::ub32ref/le superblock 580)
-                     :overhead-blocks (sys.int::ub32ref/le superblock 584)
-                     :backup-bgs (make-array '(2) :element-type '(unsigned-byte 32)
-                                                  :initial-contents (loop :for i :from 588 :to 592 :by 4
-                                                                          :collect (sys.int::ub32ref/le superblock i)))
-                     :encrypt-algos (make-array '(4) :element-type '(unsigned-byte 8)
-                                                     :initial-contents (loop :for i :from 596 :to 599
-                                                                             :collect (aref superblock i)))
-                     :encrypt-pw-salt (make-array '(16) :element-type '(unsigned-byte 8)
-                                                        :initial-contents (loop :for i :from 600 :to 615
-                                                                                :collect (aref superblock i)))
-                     :lpf-ino (sys.int::ub32ref/le superblock 616)
-                     :prj-quota-inum (sys.int::ub32ref/le superblock 620)
-                     :checksum-seed (sys.int::ub32ref/le superblock 624)
-                     :reserved (make-array '(98) :element-type '(unsigned-byte 32)
-                                                 :initial-contents (loop :for i :from 628 :to 1016 :by 4
-                                                                         :collect (sys.int::ub32ref/le superblock i)))
-                     :checksum (sys.int::ub32ref/le superblock 1020))))
+                         :mount-opts (make-array '(64) :element-type '(unsigned-byte 8)
+                                                 :initial-contents (loop :for i :from 512 :to 575
+                                                                      :collect (aref superblock i)))
+                         :usr-quota-inum (sys.int::ub32ref/le superblock 576)
+                         :grp-quota-inum (sys.int::ub32ref/le superblock 580)
+                         :overhead-blocks (sys.int::ub32ref/le superblock 584)
+                         :backup-bgs (make-array '(2) :element-type '(unsigned-byte 32)
+                                                 :initial-contents (loop :for i :from 588 :to 592 :by 4
+                                                                      :collect (sys.int::ub32ref/le superblock i)))
+                         :encrypt-algos (make-array '(4) :element-type '(unsigned-byte 8)
+                                                    :initial-contents (loop :for i :from 596 :to 599
+                                                                         :collect (aref superblock i)))
+                         :encrypt-pw-salt (make-array '(16) :element-type '(unsigned-byte 8)
+                                                      :initial-contents (loop :for i :from 600 :to 615
+                                                                           :collect (aref superblock i)))
+                         :lpf-ino (sys.int::ub32ref/le superblock 616)
+                         :prj-quota-inum (sys.int::ub32ref/le superblock 620)
+                         :checksum-seed (sys.int::ub32ref/le superblock 624)
+                         :reserved (make-array '(98) :element-type '(unsigned-byte 32)
+                                               :initial-contents (loop :for i :from 628 :to 1016 :by 4
+                                                                    :collect (sys.int::ub32ref/le superblock i)))
+                         :checksum (sys.int::ub32ref/le superblock 1020))))))
 
 (defun block-size (disk superblock)
   "Take disk and superblock, return block size in disk sectors"
@@ -597,32 +600,46 @@
 
 ;;; Host integration
 
-(defclass ext4-host ()
+(defclass ext4-host (file-host-mount-mixin file-system-host)
   ((%name :initarg :name
           :reader host-name)
    (%lock :initarg :lock
           :reader ext4-host-lock)
-   (%partition :initarg :partition
-               :reader partition)
    (%superblock :initarg :superblock
-                :reader superblock)
+                :accessor superblock)
    (%bgdt :initarg :bgdt
-          :reader bgdt))
+          :accessor bgdt))
   (:default-initargs :lock (mezzano.supervisor:make-mutex "Local File Host lock")))
-
-(defmethod initialize-instance :after ((instance ext4-host) &key)
-  (let* ((partition (partition instance))
-         (superblock (read-superblock partition)))
-    (setf (slot-value instance '%superblock) superblock
-          (slot-value instance '%bgdt) (read-block-group-descriptor-table partition superblock))))
-
-(defun make-ext4-host (name partition)
-  (make-instance 'ext4-host
-                 :name name
-                 :partition partition))
 
 (defmethod host-default-device ((host ext4-host))
   nil)
+
+(defun init-host (host block-device superblock)
+  (setf (superblock host) superblock
+        (bgdt host) (read-block-group-descriptor-table block-device superblock)
+        (file-host-mount-state host) :mounted
+        (file-host-mount-device host) block-device))
+
+(defmethod mount-host ((host ext4-host) block-device)
+  (let ((superblock (read-superblock block-device)))
+    (when (and superblock (string= (superblock-uuid superblock)
+                                   (file-host-mount-args host)))
+      (init-host host block-device superblock)
+      T)))
+
+(defmethod create-host ((class (eql :ext4-host)) block-device name-alist)
+  (let* ((superblock (read-superblock block-device))
+         (uuid (and superblock (superblock-uuid superblock)))
+         (name (and uuid (cadr (assoc uuid name-alist :test #'string-equal)))))
+    (when name
+      (when (find-host name nil)
+        (error "ext4 host ~A already mounted~%" name))
+      (let ((host (make-instance 'ext4-host
+                                 :name name
+                                 :mount-args uuid)))
+        (init-host host block-device superblock)
+        (setf (mezzano.file-system:find-host name) host))
+      name)))
 
 (defun parse-simple-file-path (host namestring)
   (let ((start 0)
@@ -712,7 +729,7 @@
         (pathname-name pathname))))
 
 (defun find-file (host pathname)
-  (loop :with disk := (partition host)
+  (loop :with disk := (file-host-mount-device host)
         :with superblock := (superblock host)
         :with bgdt := (bgdt host)
         :with inode-n := 2
@@ -765,11 +782,12 @@
           (file-length 0)
           (created-file nil)
           (abort-action nil))
-      (let ((inode-n (find-file host pathname)))
+      (let ((inode-n (find-file host pathname))
+            (block-device (file-host-mount-device host)))
         (if inode-n
-            (let ((file-inode (read-inode (partition host) (superblock host) (bgdt host) inode-n)))
+            (let ((file-inode (read-inode block-device (superblock host) (bgdt host) inode-n)))
               (setf file-inode file-inode
-                    buffer (read-file (partition host) (superblock host) (bgdt host) inode-n)
+                    buffer (read-file block-device (superblock host) (bgdt host) inode-n)
                     file-length (inode-size file-inode)))
             (ecase if-does-not-exist
               (:error (error 'simple-file-error
@@ -813,7 +831,7 @@
 
 (defmethod directory-using-host ((host ext4-host) pathname &key)
   (let ((inode-n (find-file host pathname))
-        (disk (partition host))
+        (disk (file-host-mount-device host))
         (superblock (superblock host))
         (bgdt (bgdt host))
         (stack '())
@@ -852,3 +870,6 @@
 
 (defmethod close ((stream ext-file-stream) &key abort)
   t)
+
+;; Register the ext4 file system host as a block device host
+(register-block-device-host-type :ext4-host)

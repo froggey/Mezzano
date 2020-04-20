@@ -12,7 +12,7 @@
 (defvar *permit-redirects* t
   "If true, then redirects are followed. Otherwise 3xx status codes are treated as not-found.")
 
-(defclass http-host () ())
+(defclass http-host (file-system-host) ())
 
 (defmethod host-name ((host http-host))
   (declare (ignore host))

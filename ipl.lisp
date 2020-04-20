@@ -6,6 +6,9 @@
 ;; Fast eval mode.
 (setf sys.int::*eval-hook* 'mezzano.fast-eval:eval-in-lexenv)
 
+;; register supervisor disks as block devices
+(funcall (intern "REGISTER-SUPERVISOR-DISKS" (find-package "MEZZANO.DISK")))
+
 ;; Host where the initial system is kept.
 ;; Change the IP to the host computer's local IP.
 (mezzano.file-system.remote:add-remote-file-host :remote sys.int::*file-server-host-ip*)
@@ -211,6 +214,7 @@ Make sure there is a virtio-net NIC attached.~%")
 (require :mezzano-usb)
 (require :mezzano-usb/class-drivers)
 (require :mezzano-usb/ohci)
+(require :mezzano-usb/ehci)
 
 ;; Other stuff.
 (sys.int::cal "sys:source;drivers;intel-gma.lisp")

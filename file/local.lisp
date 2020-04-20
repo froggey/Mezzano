@@ -11,7 +11,7 @@
 
 (defvar *illegal-characters* ".<>\\/")
 
-(defclass local-file-host ()
+(defclass local-file-host (file-system-host)
   ((%name :initarg :name :reader host-name)
    (%root :reader local-host-root)
    (%lock :initarg :lock :reader local-host-lock))
