@@ -83,7 +83,7 @@
                       :host name
                       :pathname (format nil "~A:" name))))))
     (file-system-host name)
-    (t (error 'mezzano.internals::simple-type-error
+    (t (error 'type-error
               :expected-type '(or string symbol file-system-host)
               :datum name))))
 
