@@ -13,15 +13,18 @@
            #:depth
 
            #:make-context
+           #:with-context
 
            #:make-vertex-buffer
            #:resource-dma-buffer
            #:transfer-to-gpu
+           #:with-resource
 
            #:make-shader
            #:make-surface
            #:make-vertex-elements
            #:make-blend
+           #:with-object
 
            #:make-command-buffer
            #:command-buffer-finalize

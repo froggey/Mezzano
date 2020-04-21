@@ -698,6 +698,13 @@ Avoid using context 0 because that's what the compositor and 2D rendering uses."
         (setf (gethash id (virgl-contexts virgl)) ctx)
         ctx))))
 
+(defmacro with-context ((context &key virgl name) &body body)
+  (let ((context-sym (gensym "CONTEXT")))
+    `(let ((,context-sym (make-context :virgl ,virgl :name ,name)))
+     (unwind-protect
+          (let ((,context ,context-sym)) ,@body)
+       (destroy ,context-sym)))))
+
 (defgeneric destroy (object)
   (:documentation "Destroy an object & release all resources associated with it."))
 
@@ -1048,6 +1055,13 @@ Avoid using context 0 because that's what the compositor and 2D rendering uses."
              "Unable to attach resource to virgl context: ~D" error)))))
     buffer))
 
+(defmacro with-resource ((variable resource) &body body)
+  (let ((resource-sym (gensym "RESOURCE")))
+    `(let ((,resource-sym ,resource))
+       (unwind-protect
+            (let ((,variable ,resource-sym)) ,@body)
+         (destroy ,resource-sym)))))
+
 (defun make-vertex-buffer (context length &rest initargs &key name)
   (declare (ignore name))
   (make-buffer-1 context 'vertex-buffer length :vertex-buffer initargs))
@@ -1149,6 +1163,13 @@ Avoid using context 0 because that's what the compositor and 2D rendering uses."
               (incf (context-next-object-id context))))
        (when (not (gethash id (context-objects context)))
          (return id)))))
+
+(defmacro with-object ((variable object) &body body)
+  (let ((object-sym (gensym "OBJECT")))
+    `(let ((,object-sym ,object))
+       (unwind-protect
+            (let ((,variable ,object-sym)) ,@body)
+         (destroy ,object-sym)))))
 
 (defclass shader (object)
   ((%source :initarg :source :reader shader-source)))
