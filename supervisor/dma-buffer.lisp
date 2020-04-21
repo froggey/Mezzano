@@ -83,7 +83,7 @@ directly or via the buffer array) will signal a DMA-BUFFER-EXPIRED error."
              ;; Attach a finalizer to the array not the dma-buffer,
              ;; this way the memory will stay valid even if only the array is live.
              (sys.int::make-weak-pointer
-              array array
+              array
               :finalizer (lambda ()
                            ;; This will also free the pages associated
                            ;; with the sg-vec.

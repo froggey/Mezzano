@@ -266,7 +266,7 @@
                  (setf typeface (make-instance 'typeface :name (format nil "~:(~A~)" name) :font-loader loader))
                  (setf (gethash typeface-key *typeface-cache*) typeface)
                  (sys.int::make-weak-pointer
-                  typeface typeface
+                  typeface
                   :finalizer (lambda ()
                                (zpb-ttf:close-font-loader loader)))
                  #+(or)(format t "Creating new typeface ~S.~%" typeface)))

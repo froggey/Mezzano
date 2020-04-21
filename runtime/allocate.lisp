@@ -808,9 +808,7 @@
                  (sys.int::lisp-object-address object))
             sys.int::+address-tag-stack+)))
 
-;; TODO: Change this fully over to &KEY at some point.
-;; The only external consumer is Swank and that should be using a weak hash table.
-(defun sys.int::make-weak-pointer (key &optional (value key) &key finalizer area (weakness :key))
+(defun sys.int::make-weak-pointer (key &key (value key) finalizer area (weakness :key))
   ;; Hold VALUE as long as KEY is live.
   ;; Call FINALIZER when the weak-pointer dies.
   ;; Disallow weak pointers to objects with dynamic-extent allocation.
@@ -882,7 +880,7 @@ This area exists below the stack and is never allocated or mapped.")
     ;; Allocate the stack object & finalizer up-front to prevent any issues
     ;; if the system runs out of memory while allocating the stack.
     (sys.int::make-weak-pointer
-     stack stack
+     stack
      :finalizer (lambda ()
                   (when stack-address
                     (release-memory-range stack-address size)

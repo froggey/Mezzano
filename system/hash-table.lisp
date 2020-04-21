@@ -498,7 +498,7 @@ is below the rehash-threshold."
 
 (defun set-full-weak-hash-table-entry (hash-table slot key value)
   (setf (weak-hash-table-entry-at hash-table slot)
-        (make-weak-pointer key value :weakness (hash-table-weakness hash-table))))
+        (make-weak-pointer key :value value :weakness (hash-table-weakness hash-table))))
 
 (defun gethash-weak (key hash-table &optional default)
   (let ((slot (find-weak-hash-table-slot key hash-table)))
