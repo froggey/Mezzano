@@ -26,15 +26,19 @@
            #:+virtio-gpu-format-r8g8b8x8-unorm+
 
            #:+virtio-gpu-framebuffer-resource-id+
+           #:+virtio-gpu-internal-resource-max+
 
            #:virtio-device
+           #:virtio-gpu
            #:virtio-gpu-scanout
            #:virtio-gpu-width
            #:virtio-gpu-height
            #:virtio-gpu-virgl-p
+           #:virtio-gpu-virgl-data
 
            #:virtio-gpu-get-display-info
            #:virtio-gpu-resource-create-2d
+           #:virtio-gpu-resource-unref
            #:virtio-gpu-resource-attach-backing
            #:virtio-gpu-set-scanout
            #:virtio-gpu-transfer-to-host-2d
@@ -156,6 +160,9 @@
 (defconstant +virtio-gpu-update-cursor-size+ 32)
 
 (defconstant +virtio-gpu-framebuffer-resource-id+ 123)
+(defconstant +virtio-gpu-internal-resource-max+ 128
+  "Resource IDs below this are used internally by the GPU driver and
+must not be allocated by virgl.")
 
 (defstruct (virtio-gpu
              (:area :wired))
@@ -166,7 +173,8 @@
   scanout
   width
   height
-  virgl-p)
+  virgl-p
+  virgl-data)
 
 (defun virtio-gpu-command-address (gpu &optional (offset 0))
   (+ (virtio-gpu-request-virt gpu)
@@ -278,6 +286,11 @@
                      (height 12 :ub32/le))
     :command-size 16)
 
+(define-virtio-gpu-command virtio-gpu-resource-unref
+    :command +virtio-gpu-cmd-resource-unref+
+    :command-fields ((resource-id 0 :ub32/le))
+    :command-size 8)
+
 (define-virtio-gpu-command virtio-gpu-resource-attach-backing
     :command +virtio-gpu-cmd-resource-attach-backing+
     :command-fields ((resource-id 0 :ub32/le)
@@ -354,11 +367,27 @@
 ;;; 3d commands
 
 ;; Cares about context
-(define-virtio-gpu-command virtio-gpu-ctx-create
-    :command +virtio-gpu-cmd-ctx-create+
-    ;; FIXME: Include the debug name.
-    :command-fields ((nlen 0 :ub32/le)) ; name length
-    :command-size 72)
+(defun virtio-gpu-ctx-create (gpu debug-name &key (context 0) (fence 0) (flags 0))
+  (let* ((debug-name-bytes (mezzano.internals::encode-utf-8-string debug-name))
+         (nlen (min 64 (length debug-name-bytes))))
+    (mezzano.supervisor:with-mutex ((virtio-gpu-command-lock gpu))
+      (virtio-gpu-configure-command gpu
+                                    +virtio-gpu-cmd-ctx-create+
+                                    flags
+                                    fence
+                                    context)
+      (setf (mezzano.internals::memref-unsigned-byte-32
+             (virtio-gpu-command-address gpu 0))
+            nlen)
+      (dotimes (i nlen)
+        (setf (mezzano.internals::memref-unsigned-byte-8
+               (virtio-gpu-command-address gpu (+ 8 i)))
+              (aref debug-name-bytes i)))
+      (let ((resp-type (virtio-gpu-issue-command gpu 72 0)))
+        (cond ((eql resp-type +virtio-gpu-resp-ok-nodata+)
+               (values t nil))
+              (t
+               (values nil resp-type)))))))
 
 ;; Cares about context
 (define-virtio-gpu-command virtio-gpu-ctx-destroy
