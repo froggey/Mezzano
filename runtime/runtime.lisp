@@ -617,3 +617,17 @@ thread's stack if this function is called from normal code."
 ;; for it.
 (defun %%unreachable ()
   (%%unreachable))
+
+(defun encode-weak-pointer-weakness (weakness)
+  (ecase weakness
+    (:key +weak-pointer-weakness-key+)
+    (:value +weak-pointer-weakness-value+)
+    (:key-and-value +weak-pointer-weakness-and+)
+    (:key-or-value +weak-pointer-weakness-or+)))
+
+(defun decode-weak-pointer-weakness (weakness)
+  (ecase weakness
+    (#.+weak-pointer-weakness-key+ :key)
+    (#.+weak-pointer-weakness-value+ :value)
+    (#.+weak-pointer-weakness-and+ :key-and-value)
+    (#.+weak-pointer-weakness-or+ :key-or-value)))

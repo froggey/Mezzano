@@ -2209,20 +2209,6 @@ No type information will be provided."
        ;; Entry not found. Go back a card (TODO: should go back a whole bunch of cards.)
        (decf current-address +card-size+))))
 
-(defun encode-weak-pointer-weakness (weakness)
-  (ecase weakness
-    (:key sys.int::+weak-pointer-weakness-key+)
-    (:value sys.int::+weak-pointer-weakness-value+)
-    (:key-and-value sys.int::+weak-pointer-weakness-and+)
-    (:key-or-value sys.int::+weak-pointer-weakness-or+)))
-
-(defun decode-weak-pointer-weakness (weakness)
-  (ecase weakness
-    (#.sys.int::+weak-pointer-weakness-key+ :key)
-    (#.sys.int::+weak-pointer-weakness-value+ :value)
-    (#.sys.int::+weak-pointer-weakness-and+ :key-and-value)
-    (#.sys.int::+weak-pointer-weakness-or+ :key-or-value)))
-
 (deftype weak-pointer ()
   '(satisfies weak-pointer-p))
 
