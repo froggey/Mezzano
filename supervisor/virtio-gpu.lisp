@@ -33,6 +33,7 @@
            #:virtio-gpu-scanout
            #:virtio-gpu-width
            #:virtio-gpu-height
+           #:virtio-gpu-framebuffer
            #:virtio-gpu-virgl-p
            #:virtio-gpu-virgl-data
 
@@ -173,6 +174,7 @@ must not be allocated by virgl.")
   scanout
   width
   height
+  framebuffer
   virgl-p
   virgl-data)
 
@@ -533,16 +535,19 @@ must not be allocated by virgl.")
         (when (not successp)
           (sup:debug-print-line "virtio-gpu: Unable to create framebuffer resource: " error)
           (return-from virtio::virtio-gpu-register nil)))
+      ;; TODO: Support discontigious framebuffer.
       (let* ((framebuffer-size (* width height 4))
-             (n-framebuffer-pages (ceiling framebuffer-size sup::+4k-page-size+))
-             (framebuffer-frames (sup::allocate-physical-pages n-framebuffer-pages)))
-        (when (not framebuffer-frames)
+             (framebuffer-dma-buffer (sup:make-dma-buffer framebuffer-size
+                                                          :name gpu
+                                                          :contiguous t
+                                                          :errorp nil)))
+        (when (not framebuffer-dma-buffer)
           (sup:debug-print-line "virtio-gpu: Unable to allocate framebuffer memory")
           (return-from virtio::virtio-gpu-register nil))
-        (let ((framebuffer-phys (* framebuffer-frames sup::+4k-page-size+)))
+        (let ((framebuffer-phys (sup:dma-buffer-physical-address framebuffer-dma-buffer)))
           (sup:debug-print-line "virtio-gpu: Framebuffer at " framebuffer-phys)
           ;; Clear framebuffer.
-          (sys.int::%fill-words (sup::convert-to-pmap-address framebuffer-phys)
+          (sys.int::%fill-words (sup:dma-buffer-virtual-address framebuffer-dma-buffer)
                                 0
                                 (truncate framebuffer-size 8))
           ;; Attach backing store to framebuffer resource.
@@ -559,7 +564,8 @@ must not be allocated by virgl.")
               (return-from virtio::virtio-gpu-register nil)))
           (setf (virtio-gpu-scanout gpu) pmode
                 (virtio-gpu-width gpu) width
-                (virtio-gpu-height gpu) height)
+                (virtio-gpu-height gpu) height
+                (virtio-gpu-framebuffer gpu) framebuffer-dma-buffer)
           (sup::video-set-framebuffer framebuffer-phys width height
                                       (* width 4) :x8r8g8b8
                                       :damage-fn
