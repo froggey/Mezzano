@@ -8,7 +8,7 @@
   (length -1 :read-only t :type fixnum)
   (persistent-boot-id nil)
   (virtual-address -1 :read-only t :type fixnum)
-  (scatter/gather-vector nil :read-only t :type simple-vector)
+  (scatter/gather-vector nil :type (or simple-vector null))
   (cache-mode :write-back :read-only t :type (member :write-back
                                                      :write-through
                                                      :write-combining
@@ -99,6 +99,17 @@ directly or via the buffer array) will signal a DMA-BUFFER-EXPIRED error."
               (release-physical-pages (truncate (svref sg-vec (* i 2)) #x1000)
                                       (truncate (align-up (svref sg-vec (1+ (* i 2))) #x1000) #x1000)))))))))
 
+(defun release-dma-buffer (dma-buffer)
+  "Release the underlying memory associated with DMA-BUFFER.
+After a call to this function, accesses to the memory area will signal
+a DMA-BUFFER-EXPIRED error.
+Calling this function is not strictly necessary, the GC will release the
+associated memory eventually."
+  (setf (dma-buffer-scatter/gather-vector dma-buffer) nil)
+  (release-memory-range
+   (dma-buffer-virtual-address dma-buffer)
+   (align-up (dma-buffer-length dma-buffer) #x1000)))
+
 (defun dma-buffer-contiguous-p (dma-buffer)
   "Returns true if DMA-BUFFER is contiguous in physical memory."
   (eql (dma-buffer-n-sg-entries dma-buffer) 1))
@@ -126,13 +137,18 @@ This is only valid on DMA buffers that are contiguous or <= one page in size."
 (defun dma-buffer-n-sg-entries (dma-buffer)
   "Return the number of scatter/gather entries in DMA-BUFFER.
 For contiguous buffers this will always return 1."
-  (if (dma-buffer-persistent-p dma-buffer)
-      (sys.int::simple-vector-length (dma-buffer-scatter/gather-vector dma-buffer))
-      (truncate (sys.int::simple-vector-length (dma-buffer-scatter/gather-vector dma-buffer)) 2)))
+  (let ((sg-vec (dma-buffer-scatter/gather-vector dma-buffer)))
+    (when (not sg-vec)
+      (error "~S has been released" dma-buffer))
+    (if (dma-buffer-persistent-p dma-buffer)
+        (sys.int::simple-vector-length sg-vec)
+        (truncate (sys.int::simple-vector-length sg-vec) 2))))
 
 (defun dma-buffer-sg-entry (dma-buffer entry-index)
   "Return the physical address and length as values of specified scatter/gather entry."
   (let ((sg-vec (dma-buffer-scatter/gather-vector dma-buffer)))
+    (when (not sg-vec)
+      (error "~S has been released" dma-buffer))
     (cond ((dma-buffer-persistent-p dma-buffer)
            (when (not (eql (dma-buffer-persistent-boot-id dma-buffer)
                            (current-boot-id)))

@@ -642,6 +642,7 @@
            ;; DMA buffers.
            #:dma-buffer
            #:make-dma-buffer
+           #:release-dma-buffer
            #:dma-buffer-expired
            #:dma-buffer-name
            #:dma-buffer-length
