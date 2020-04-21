@@ -402,13 +402,13 @@
                                             (+ 1 (* (length elements) 4)))
                               cmd-buf)
   (vector-push-extend-ub32/le handle cmd-buf)
-  (loop
-     for (src-offset instance-divisor vertex-buffer-index src-format) in elements
-     do
+  (dolist (element elements)
+    (destructuring-bind (src-offset instance-divisor vertex-buffer-index src-format)
+        element
        (vector-push-extend-ub32/le src-offset cmd-buf)
        (vector-push-extend-ub32/le instance-divisor cmd-buf)
        (vector-push-extend-ub32/le vertex-buffer-index cmd-buf)
-       (vector-push-extend-ub32/le src-format cmd-buf)))
+       (vector-push-extend-ub32/le (encode-texture-format src-format) cmd-buf))))
 
 (defun encode-bind-vertex-elements (cmd-buf handle)
   (vector-push-extend-ub32/le (pack-command +virgl-ccmd-bind-object+
@@ -516,170 +516,1036 @@
   (vector-push-extend-single/le translate1 cmd-buf)
   (vector-push-extend-single/le translate2 cmd-buf))
 
-(defvar *gpu* (sup:framebuffer-device (mezzano.supervisor:current-framebuffer)))
-;; Push vertex data to GPU.
-(defvar *test-vertex-dma-buf* (sup:make-dma-buffer 96 :name "Virgl vertex data"))
-(defun upload-test-data ()
-  (let* ((vertex-dma-buf *test-vertex-dma-buf*)
-         (vertex-buf-raw-vec (sup:dma-buffer-array vertex-dma-buf))
-         (vertex-buf (make-array (length vertex-buf-raw-vec)
-                                 :fill-pointer 0
-                                 :displaced-to vertex-buf-raw-vec)))
-    ;; Position 0
-    (vector-push-extend-single/le 0.0 vertex-buf)
-    (vector-push-extend-single/le 0.0 vertex-buf)
-    (vector-push-extend-single/le 0.0 vertex-buf)
-    (vector-push-extend-single/le 1.0 vertex-buf)
-    ;; Colour 0
-    (vector-push-extend-single/le 1.0 vertex-buf)
-    (vector-push-extend-single/le 0.0 vertex-buf)
-    (vector-push-extend-single/le 0.0 vertex-buf)
-    (vector-push-extend-single/le 1.0 vertex-buf)
-    ;; Position 1
-    (vector-push-extend-single/le 0.5 vertex-buf)
-    (vector-push-extend-single/le 0.0 vertex-buf)
-    (vector-push-extend-single/le 0.0 vertex-buf)
-    (vector-push-extend-single/le 1.0 vertex-buf)
-    ;; Colour 1
-    (vector-push-extend-single/le 0.0 vertex-buf)
-    (vector-push-extend-single/le 1.0 vertex-buf)
-    (vector-push-extend-single/le 0.0 vertex-buf)
-    (vector-push-extend-single/le 1.0 vertex-buf)
-    ;; Position 2
-    (vector-push-extend-single/le 0.5 vertex-buf)
-    (vector-push-extend-single/le 0.5 vertex-buf)
-    (vector-push-extend-single/le 0.0 vertex-buf)
-    (vector-push-extend-single/le 1.0 vertex-buf)
-    ;; Colour 2
-    (vector-push-extend-single/le 0.0 vertex-buf)
-    (vector-push-extend-single/le 0.0 vertex-buf)
-    (vector-push-extend-single/le 1.0 vertex-buf)
-    (vector-push-extend-single/le 1.0 vertex-buf)
-    ;; Create buffer.
-    (gpu:virtio-gpu-resource-create-3d
-     *gpu* 1000 +pipe-buffer+ 0 +virgl-bind-vertex-buffer+
-     (length vertex-buf) 1 1 1 0 0 0)
-    ;; Upload data.
-    (gpu:virtio-gpu-resource-attach-backing *gpu* 1000 1 (sup:dma-buffer-physical-address vertex-dma-buf) (length vertex-buf))
-    ;; Use context 0, this context has all resources attached for the
-    ;; purposes of upload.
-    (gpu:virtio-gpu-transfer-to-host-3d *gpu* 0 0 0 (length vertex-buf) 1 1 0 1000 0 0 0 :context 0)))
-(upload-test-data)
+(defun encode-set-sub-ctx (cmd-buf ctx-sub-id)
+  (vector-push-extend-ub32/le (pack-command +virgl-ccmd-set-sub-ctx+
+                                            +virgl-object-null+
+                                            1)
+                              cmd-buf)
+  (vector-push-extend-ub32/le ctx-sub-id cmd-buf))
 
-;; Create new context for testing and attach resources to it.
-(gpu:virtio-gpu-ctx-create *gpu* 0 :context 1)
-(gpu:virtio-gpu-attach-resource *gpu* 123 :context 1) ; scanout
-(gpu:virtio-gpu-attach-resource *gpu* 1000 :context 1) ; vertex-buf
+(defun encode-create-sub-ctx (cmd-buf ctx-sub-id)
+  (vector-push-extend-ub32/le (pack-command +virgl-ccmd-create-sub-ctx+
+                                            +virgl-object-null+
+                                            1)
+                              cmd-buf)
+  (vector-push-extend-ub32/le ctx-sub-id cmd-buf))
 
-#|
-(tgsi:assemble-shader :vertex
- '((tgsi:dcl (:in 0))
-   (tgsi:dcl (:in 1))
-   (tgsi:dcl (:out 0) :position)
-   (tgsi:dcl (:out 1) :color) ; screaming.
-   (tgsi:mov (:out 0) (:in 0))
-   (tgsi:mov (:out 1) (:in 1))
-   (tgsi:end)))
+(defun encode-destroy-sub-ctx (cmd-buf ctx-sub-id)
+  (vector-push-extend-ub32/le (pack-command +virgl-ccmd-destroy-sub-ctx+
+                                            +virgl-object-null+
+                                            1)
+                              cmd-buf)
+  (vector-push-extend-ub32/le ctx-sub-id cmd-buf))
 
-(tgsi:assemble-shader :fragment
- '((tgsi:dcl (:in 0) :color :color) ; more screaming.
-   (tgsi:dcl (:out 0) :color) ; ahhhhhh.
-   (tgsi:imm :flt32 (1.0 1.0 1.0 1.0))
-   (tgsi:sub (:out 0) (:imm 0) (:in 0))
-   (tgsi:end)))
-|#
+(defconstant +virgl-gpu-context+ 1
+  "The context ID that the virgl renderer uses.
+Avoid using context 0 because that's what the compositor and 2D rendering uses.")
 
-(defun test ()
-  ;; Pass position & colour through unchanged.
-  (let ((cmd-buf (encode-create-shader 42
-                                       +pipe-shader-vertex+
-                                       "VERT
-DCL IN[0]
-DCL IN[1]
-DCL OUT[0], POSITION
-DCL OUT[1], COLOR
-MOV OUT[0], IN[0]
-MOV OUT[1], IN[1]
-END"
-                                       (+ 2 ; header 3?
-                                          (* 4 2) ; declaration decl(1)+range(1)?
-                                          0 ; immediate (immediate + 4 words)
-                                          1 ; mov
-                                          1 ; mov
-                                          1 ; end
-                                          )
-                                       ;; No stream output
-                                       nil nil)))
-    (gpu:virtio-gpu-submit-3d *gpu* cmd-buf :context 1))
-  ;; Fancy inverted colour fragment shader.
-  (let ((cmd-buf (encode-create-shader 43
-                                       +pipe-shader-fragment+
-                                       "FRAG
-DCL IN[0], COLOR, COLOR
-DCL OUT[0], COLOR
-IMM FLT32 { 1.0, 1.0, 1.0, 1.0 }
-SUB OUT[0], IMM[0], IN[0]
-END"
-                                       (+ 2 ; header 3?
-                                          (* 2 2) ; declaration decl(1)+range(1)?
-                                          5 ; immediate (immediate + 4 words)
-                                          1 ; mov
-                                          1 ; end
-                                          )
-                                       ;; No stream output
-                                       nil nil)))
-    (gpu:virtio-gpu-submit-3d *gpu* cmd-buf :context 1))
-  (let ((cmd-buf (make-array 100 :element-type '(unsigned-byte 8) :adjustable t :fill-pointer 0)))
-    ;; Create a surface object backed by the scanout buffer
-    (encode-create-surface
-     cmd-buf 123 123 +virgl-format-b8g8r8a8-unorm+ 0 0 0)
-    ;; Attach scanout surface object to the framebuffer's color0 channel.
-    ;; No depth/stencil surface.
-    (encode-set-framebuffer-state
-     cmd-buf 0 123)
-    ;; Viewport.
-    (encode-set-viewport-state
-     cmd-buf
-     ;; near-depth = 0, far-depth = 1
-     (/ 1024.0 2) (/ 768.0 2) 0.5
-     (/ 1024.0 2) (/ 768.0 2) 0.5)
-    ;; Testing clear.
-    (encode-clear
-     cmd-buf +pipe-clear-color0+ 0.25 0.33 0.66 0.75 0.0d0 42)
-    ;; Configure vertex buffer
-    (encode-set-vertex-buffers
-     cmd-buf
-     '(32 ; stride, 2*float4
-       0 ; offset
-       1000) ; vertex buffer resource handle
-     )
-    (encode-create-vertex-elements
-     cmd-buf
-     1001 ; vertex-elements object handle
-     ;; First element: Positions.
-     '(0 ; src-offset
-       0 ; instance-divisor
-       0 ; vertex buffer index
-       #.+virgl-format-r32g32b32a32-float+)
-     ;; Second element: Colours.
-     '(16 ; src-offset
-       0 ; instance-divisor
-       0 ; vertex buffer index
-       #.+virgl-format-r32g32b32a32-float+))
-    (encode-bind-vertex-elements cmd-buf 1001)
-    (encode-bind-shader cmd-buf 42 +pipe-shader-vertex+)
-    (encode-bind-shader cmd-buf 43 +pipe-shader-fragment+)
-    ;; Enable writes to the color channels
-    (encode-create-blend cmd-buf 44
-                         nil
-                         nil
-                         nil
-                         nil
-                         0
-                         nil 0 0 0 0 0 0
-                         +pipe-mask-rgba+)
-    (encode-bind-blend cmd-buf 44)
-    (encode-draw-vbo cmd-buf 0 3 +pipe-prim-triangles+ nil 0 0 nil 0 0 0 #xFFFFFFFF 0)
-    (gpu:virtio-gpu-submit-3d *gpu* cmd-buf :context 1)
-    (gpu:virtio-gpu-resource-flush *gpu* 0 0 1024 768 123))
-)
+;; Actually closer to 2^32, but lets not get that close.
+(defconstant +virgl-max-object-id+ (1- (expt 2 31)))
+
+;; Actually closer to 2^32, but lets not get that close.
+(defconstant +virgl-max-resource-id+ (1- (expt 2 31)))
+
+;; Actually closer to 2^32, but lets not get that close.
+(defconstant +virgl-max-sub-contexts+ (1- (expt 2 31)))
+
+(defclass virgl ()
+  ((%gpu :initarg :gpu :reader virgl-gpu)
+   (%lock :reader virgl-lock)
+   (%error-state :initform nil :accessor virgl-error-state)
+   (%scanout :reader virgl-%scanout)
+   ;; Actually sub-contexts on context +virgl-gpu-context+.
+   (%contexts :initform (make-hash-table) :reader virgl-contexts)
+   (%next-context-id :initform 0 :accessor virgl-next-context-id)
+   (%resources :initform (make-hash-table) :reader virgl-resources)
+   (%next-resource-id :initform gpu:+virtio-gpu-internal-resource-max+ :accessor virgl-next-resource-id)))
+
+(defmethod initialize-instance :after ((instance virgl) &key)
+  (setf (slot-value instance '%lock) (sup:make-mutex instance)))
+
+(define-condition virgl-unsupported-error (error)
+  ((gpu :initarg :gpu :reader virgl-unsupported-error-gpu))
+  (:report (lambda (condition stream)
+             (format stream "Virgl not supported on GPU ~S"
+                     (virgl-unsupported-error-gpu condition)))))
+
+(define-condition virgl-error (error)
+  ((virgl :initarg :virgl :reader virgl-error-virgl)
+   (context :initarg :context :initform nil :reader virgl-error-context)))
+
+(define-condition simple-virgl-error (virgl-error simple-error)
+  ())
+
+(defun simple-virgl-error (virgl context format-control &rest format-arguments)
+  (error 'simple-virgl-error
+         :virgl virgl
+         :context context
+         :format-control format-control
+         :format-arguments format-arguments))
+
+(defun get-virgl (&key flush-existing)
+  "Get the virgl object for the compositor's current display."
+  (let ((gpu (sup:framebuffer-device mezzano.gui.compositor::*main-screen*)))
+    (when (or (not (typep gpu 'gpu:virtio-gpu))
+              (not (gpu:virtio-gpu-virgl-p gpu)))
+      (error 'virgl-unsupported-error :gpu gpu))
+    (let ((virgl (gpu:virtio-gpu-virgl-data gpu)))
+      (cond ((and (not flush-existing) virgl))
+            (t (let ((new (make-instance 'virgl :gpu gpu)))
+                 ;; Take the lock early so that we can do initialization
+                 ;; work before anything else is aware of this object.
+                 (sup:with-mutex ((virgl-lock new))
+                   (let ((existing (ext:cas (gpu:virtio-gpu-virgl-data gpu)
+                                            virgl
+                                            new)))
+                     (cond ((not (eql existing virgl)))
+                           (t
+                            ;; Our virgl was actually installed,
+                            ;; do further inititialization work.
+                            (virgl-reset-1 new)
+                            new))))))))))
+
+(defun virgl-reset-1 (virgl)
+  (assert (sup:mutex-held-p (virgl-lock virgl)))
+  (let ((gpu (virgl-gpu virgl)))
+    (gpu:virtio-gpu-ctx-destroy gpu :context +virgl-gpu-context+)
+    ;; Invalidate contexts.
+    (loop
+       for context being the hash-keys of (virgl-contexts virgl)
+       do (setf (slot-value context '%id) nil))
+    (clrhash (virgl-contexts virgl))
+    ;; Create the primary virgl context.
+    (multiple-value-bind (successp error)
+        (gpu:virtio-gpu-ctx-create
+         gpu "virgl gpu context"
+         :context +virgl-gpu-context+)
+      (when (not successp)
+        (setf (virgl-error-state virgl) error)
+        (simple-virgl-error virgl nil "Unable to create primary context: ~D" error)))
+    ;; Attach the scanout to it.
+    (multiple-value-bind (successp error)
+        (gpu:virtio-gpu-attach-resource
+         gpu gpu:+virtio-gpu-framebuffer-resource-id+
+         :context +virgl-gpu-context+)
+      (when (not successp)
+        (setf (virgl-error-state virgl) error)
+        (simple-virgl-error virgl nil "Unable to attach scanout to primary context: ~D" error)))
+    ;; TODO: What to do when the scanout changes size?
+    (setf (slot-value virgl '%scanout)
+          (make-instance 'scanout
+                         :virgl virgl :context nil
+                         :name `(scanout 0)
+                         :id gpu:+virtio-gpu-framebuffer-resource-id+
+                         :dma-buffer (gpu:virtio-gpu-framebuffer gpu)
+                         :format (gpu:virtio-gpu-framebuffer-format gpu)
+                         :width (gpu:virtio-gpu-width gpu)
+                         :height (gpu:virtio-gpu-height gpu)))
+    (setf (virgl-error-state virgl) nil))
+  (values))
+
+(defun virgl-reset (&key virgl)
+  (setf virgl (or virgl (get-virgl)))
+  (sup:with-mutex ((virgl-lock virgl) :resignal-errors virgl-error)
+    (virgl-reset-1 virgl)))
+
+(define-condition context-ids-exhausted-error (virgl-error)
+  ())
+
+(defclass context ()
+  ((%virgl :initarg :virgl :reader virgl)
+   (%name :initarg :name :accessor name)
+   (%id :initarg :id :reader context-id)
+   (%objects :initform (make-hash-table) :reader context-objects)
+   (%next-object-id :initform 1 :accessor context-next-object-id)))
+
+(defun allocate-context-id (virgl)
+  (when (> (hash-table-count (virgl-contexts virgl))
+           (1- +virgl-max-sub-contexts+))
+    (error 'context-ids-exhausted-error :virgl virgl))
+  (loop
+     ;; Avoid id 0!
+     (let ((id (incf (virgl-next-context-id virgl))))
+       (when (>= id +virgl-max-sub-contexts+)
+         (setf id (setf (virgl-next-context-id virgl) 0)))
+       (when (not (gethash id (virgl-contexts virgl)))
+         (return id)))))
+
+(defun virgl-submit-simple-command-buffer-1 (virgl cmd-buf)
+  (assert (sup:mutex-held-p (virgl-lock virgl)))
+  (multiple-value-bind (successp error)
+      (gpu:virtio-gpu-submit-3d (virgl-gpu virgl)
+                                cmd-buf
+                                :context +virgl-gpu-context+)
+    (when (not successp)
+      (simple-virgl-error virgl nil "Command buffer submission failed: ~D" error))))
+
+(defun make-context (&key virgl name)
+  (setf virgl (or virgl (get-virgl)))
+  (sup:with-mutex ((virgl-lock virgl) :resignal-errors virgl-error)
+    (let ((id (allocate-context-id virgl))
+          (cmd-buf (make-array 100
+                               :element-type '(unsigned-byte 8)
+                               :adjustable t
+                               :fill-pointer 0)))
+      ;; Issue a create sub-context command.
+      (encode-create-sub-ctx cmd-buf id)
+      (virgl-submit-simple-command-buffer-1 virgl cmd-buf)
+      (let ((ctx (make-instance 'context
+                                :virgl virgl
+                                :name name
+                                :id id)))
+        (setf (gethash id (virgl-contexts virgl)) ctx)
+        ctx))))
+
+(defgeneric destroy (object)
+  (:documentation "Destroy an object & release all resources associated with it."))
+
+(defmethod destroy ((context context))
+  (let ((virgl (virgl context)))
+    (sup:with-mutex ((virgl-lock virgl) :resignal-errors virgl-error)
+      (when (context-id context)
+        (let ((cmd-buf (make-array 100
+                                   :element-type '(unsigned-byte 8)
+                                   :adjustable t
+                                   :fill-pointer 0)))
+          ;; Issue a destroy sub-context command.
+          (encode-destroy-sub-ctx cmd-buf (context-id context))
+          (virgl-submit-simple-command-buffer-1 virgl cmd-buf)
+          (remhash (context-id context) (virgl-contexts virgl))
+          (setf (slot-value context '%id) nil)
+          (values))))))
+
+(define-condition resource-ids-exhausted-error (virgl-error)
+  ())
+
+(defun allocate-resource-id (virgl)
+  (when (> (hash-table-count (virgl-resources virgl))
+           (- +virgl-max-resource-id+ gpu:+virtio-gpu-internal-resource-max+))
+    (error 'resource-ids-exhausted-error :virgl virgl))
+  (loop
+     ;; Avoid ids below gpu:+virtio-gpu-internal-resource-max+!
+     (let ((id (virgl-next-resource-id virgl)))
+       (cond ((>= id +virgl-max-resource-id+)
+              (setf id (setf (virgl-next-resource-id virgl)
+                             gpu:+virtio-gpu-internal-resource-max+)))
+             (t
+              (incf (virgl-next-resource-id virgl))))
+       (when (not (gethash id (virgl-resources virgl)))
+         (return id)))))
+
+(defclass resource ()
+  ((%virgl :initarg :virgl :reader virgl)
+   (%context :initarg :context :reader context)
+   (%name :initarg :name :accessor name)
+   (%id :initarg :id :reader resource-id)
+   (%dma-buffer :initarg :dma-buffer :reader resource-dma-buffer))
+  (:default-initargs :name nil))
+
+(defmethod destroy ((resource resource))
+  (let ((virgl (virgl resource)))
+    (sup:with-mutex ((virgl-lock virgl) :resignal-errors virgl-error)
+      (when (resource-id resource)
+        ;; Unbind it from the virgl context and release the reference.
+        (gpu:virtio-gpu-detach-resource
+         (virgl-gpu virgl) (resource-id resource)
+         :context +virgl-gpu-context+)
+        (gpu:virtio-gpu-resource-unref
+         (virgl-gpu virgl) (resource-id resource))
+        ;; Release the dma buffer.
+        (sup:release-dma-buffer (resource-dma-buffer resource))
+        (setf (slot-value resource '%id) nil)))))
+
+(deftype pipe-target ()
+  '(member
+    :buffer
+    :texture-1d :texture-2d :texture-3d :texture-cube
+    :texture-rect
+    :texture-1d-array :texture-2d-array :texture-cube-array))
+
+(defun encode-pipe-target (pipe-target)
+  (ecase pipe-target
+    (:buffer +pipe-buffer+)
+    (:texture-1d +pipe-texture-1d+)
+    (:texture-2d +pipe-texture-2d+)
+    (:texture-3d +pipe-texture-3d+)
+    (:texture-cube +pipe-texture-cube+)
+    (:texture-rect +pipe-texture-rect+)
+    (:texture-1d-array +pipe-texture-1d-array+)
+    (:texture-2d-array +pipe-texture-2d-array+)
+    (:texture-cube-array +pipe-texture-cube-array+)))
+
+(defun encode-texture-format (texture-format)
+  (ecase texture-format
+    (:b8g8r8a8-unorm +virgl-format-b8g8r8a8-unorm+)
+    (:b8g8r8x8-unorm +virgl-format-b8g8r8x8-unorm+)
+    (:a8r8g8b8-unorm +virgl-format-a8r8g8b8-unorm+)
+    (:x8r8g8b8-unorm +virgl-format-x8r8g8b8-unorm+)
+    (:b5g5r5a1-unorm +virgl-format-b5g5r5a1-unorm+)
+    (:b4g4r4a4-unorm +virgl-format-b4g4r4a4-unorm+)
+    (:b5g6r5-unorm +virgl-format-b5g6r5-unorm+)
+    (:r10g10b10a2-unorm +virgl-format-r10g10b10a2-unorm+)
+    (:l8-unorm +virgl-format-l8-unorm+)    ; ubyte luminance
+    (:a8-unorm +virgl-format-a8-unorm+)   ; ubyte alpha
+    (:l8a8-unorm +virgl-format-l8a8-unorm+)   ; ubyte alpha, luminance
+
+    (:l16-unorm +virgl-format-l16-unorm+)   ; ushort luminance
+
+    (:z16-unorm +virgl-format-z16-unorm+)
+    (:z32-unorm +virgl-format-z32-unorm+)
+    (:z32-float +virgl-format-z32-float+)
+    (:z24-unorm-s8-uint +virgl-format-z24-unorm-s8-uint+)
+    (:s8-uint-z24-unorm +virgl-format-s8-uint-z24-unorm+)
+    (:z24x8-unorm +virgl-format-z24x8-unorm+)
+    (:s8-uint +virgl-format-s8-uint+)   ; ubyte stencil
+
+    (:r32-float +virgl-format-r32-float+)
+    (:r32g32-float +virgl-format-r32g32-float+)
+    (:r32g32b32-float +virgl-format-r32g32b32-float+)
+    (:r32g32b32a32-float +virgl-format-r32g32b32a32-float+)
+
+    (:r16-unorm +virgl-format-r16-unorm+)
+    (:r16g16-unorm +virgl-format-r16g16-unorm+)
+
+    (:r16g16b16a16-unorm +virgl-format-r16g16b16a16-unorm+)
+
+    (:r16-snorm +virgl-format-r16-snorm+)
+    (:r16g16-snorm +virgl-format-r16g16-snorm+)
+    (:r16g16b16a16-snorm +virgl-format-r16g16b16a16-snorm+)
+
+    (:r8-unorm +virgl-format-r8-unorm+)
+    (:r8g8-unorm +virgl-format-r8g8-unorm+)
+
+    (:r8g8b8a8-unorm +virgl-format-r8g8b8a8-unorm+)
+
+    (:r8-snorm +virgl-format-r8-snorm+)
+    (:r8g8-snorm +virgl-format-r8g8-snorm+)
+    (:r8g8b8-snorm +virgl-format-r8g8b8-snorm+)
+    (:r8g8b8a8-snorm +virgl-format-r8g8b8a8-snorm+)
+
+    (:r16-float +virgl-format-r16-float+)
+    (:r16g16-float +virgl-format-r16g16-float+)
+    (:r16g16b16-float +virgl-format-r16g16b16-float+)
+    (:r16g16b16a16-float +virgl-format-r16g16b16a16-float+)
+
+    (:l8-srgb +virgl-format-l8-srgb+)
+    (:l8a8-srgb +virgl-format-l8a8-srgb+)
+    (:b8g8r8a8-srgb +virgl-format-b8g8r8a8-srgb+)
+    (:b8g8r8x8-srgb +virgl-format-b8g8r8x8-srgb+)
+    (:r8g8b8a8-srgb +virgl-format-r8g8b8a8-srgb+)
+
+    ;; compressed formats
+    (:dxt1-rgb +virgl-format-dxt1-rgb+)
+    (:dxt1-rgba +virgl-format-dxt1-rgba+)
+    (:dxt3-rgba +virgl-format-dxt3-rgba+)
+    (:dxt5-rgba +virgl-format-dxt5-rgba+)
+
+    ;; sRGB, compressed
+    (:dxt1-srgb +virgl-format-dxt1-srgb+)
+    (:dxt1-srgba +virgl-format-dxt1-srgba+)
+    (:dxt3-srgba +virgl-format-dxt3-srgba+)
+    (:dxt5-srgba +virgl-format-dxt5-srgba+)
+
+    ;; rgtc compressed
+    (:rgtc1-unorm +virgl-format-rgtc1-unorm+)
+    (:rgtc1-snorm +virgl-format-rgtc1-snorm+)
+    (:rgtc2-unorm +virgl-format-rgtc2-unorm+)
+    (:rgtc2-snorm +virgl-format-rgtc2-snorm+)
+
+    (:a8b8g8r8-unorm +virgl-format-a8b8g8r8-unorm+)
+    (:b5g5r5x1-unorm +virgl-format-b5g5r5x1-unorm+)
+    (:r11g11b10-float +virgl-format-r11g11b10-float+)
+    (:r9g9b9e5-float +virgl-format-r9g9b9e5-float+)
+    (:z32-float-s8x24-uint +virgl-format-z32-float-s8x24-uint+)
+
+    (:b10g10r10a2-unorm +virgl-format-b10g10r10a2-unorm+)
+    (:r8g8b8x8-unorm +virgl-format-r8g8b8x8-unorm+)
+    (:b4g4r4x4-unorm +virgl-format-b4g4r4x4-unorm+)
+    (:x24s8-uint +virgl-format-x24s8-uint+)
+    (:s8x24-uint +virgl-format-s8x24-uint+)
+    (:b2g3r3-unorm +virgl-format-b2g3r3-unorm+)
+
+    (:l16a16-unorm +virgl-format-l16a16-unorm+)
+    (:a16-unorm +virgl-format-a16-unorm+)
+
+    (:a8-snorm +virgl-format-a8-snorm+)
+    (:l8-snorm +virgl-format-l8-snorm+)
+    (:l8a8-snorm +virgl-format-l8a8-snorm+)
+
+    (:a16-snorm +virgl-format-a16-snorm+)
+    (:l16-snorm +virgl-format-l16-snorm+)
+    (:l16a16-snorm +virgl-format-l16a16-snorm+)
+
+    (:a16-float +virgl-format-a16-float+)
+    (:l16-float +virgl-format-l16-float+)
+    (:l16a16-float +virgl-format-l16a16-float+)
+
+    (:a32-float +virgl-format-a32-float+)
+    (:l32-float +virgl-format-l32-float+)
+    (:l32a32-float +virgl-format-l32a32-float+)
+
+    (:r8-uint +virgl-format-r8-uint+)
+    (:r8g8-uint +virgl-format-r8g8-uint+)
+    (:r8g8b8-uint +virgl-format-r8g8b8-uint+)
+    (:r8g8b8a8-uint +virgl-format-r8g8b8a8-uint+)
+
+    (:r8-sint +virgl-format-r8-sint+)
+    (:r8g8-sint +virgl-format-r8g8-sint+)
+    (:r8g8b8-sint +virgl-format-r8g8b8-sint+)
+    (:r8g8b8a8-sint +virgl-format-r8g8b8a8-sint+)
+
+    (:r16-uint +virgl-format-r16-uint+)
+    (:r16g16-uint +virgl-format-r16g16-uint+)
+    (:r16g16b16-uint +virgl-format-r16g16b16-uint+)
+    (:r16g16b16a16-uint +virgl-format-r16g16b16a16-uint+)
+
+    (:r16-sint +virgl-format-r16-sint+)
+    (:r16g16-sint +virgl-format-r16g16-sint+)
+    (:r16g16b16-sint +virgl-format-r16g16b16-sint+)
+    (:r16g16b16a16-sint +virgl-format-r16g16b16a16-sint+)
+    (:r32-uint +virgl-format-r32-uint+)
+    (:r32g32-uint +virgl-format-r32g32-uint+)
+    (:r32g32b32-uint +virgl-format-r32g32b32-uint+)
+    (:r32g32b32a32-uint +virgl-format-r32g32b32a32-uint+)
+
+    (:r32-sint +virgl-format-r32-sint+)
+    (:r32g32-sint +virgl-format-r32g32-sint+)
+    (:r32g32b32-sint +virgl-format-r32g32b32-sint+)
+    (:r32g32b32a32-sint +virgl-format-r32g32b32a32-sint+)
+
+    (:a8-uint +virgl-format-a8-uint+)
+    (:l8-uint +virgl-format-l8-uint+)
+    (:l8a8-uint +virgl-format-l8a8-uint+)
+
+    (:a8-sint +virgl-format-a8-sint+)
+    (:l8-sint +virgl-format-l8-sint+)
+    (:l8a8-sint +virgl-format-l8a8-sint+)
+
+    (:a16-uint +virgl-format-a16-uint+)
+    (:l16-uint +virgl-format-l16-uint+)
+    (:l16a16-uint +virgl-format-l16a16-uint+)
+
+    (:a16-sint +virgl-format-a16-sint+)
+    (:l16-sint +virgl-format-l16-sint+)
+    (:l16a16-sint +virgl-format-l16a16-sint+)
+
+    (:a32-uint +virgl-format-a32-uint+)
+    (:l32-uint +virgl-format-l32-uint+)
+    (:l32a32-uint +virgl-format-l32a32-uint+)
+
+    (:a32-sint +virgl-format-a32-sint+)
+    (:l32-sint +virgl-format-l32-sint+)
+    (:l32a32-sint +virgl-format-l32a32-sint+)
+
+    (:b10g10r10a2-uint +virgl-format-b10g10r10a2-uint+)
+    (:r8g8b8x8-snorm +virgl-format-r8g8b8x8-snorm+)
+
+    (:r8g8b8x8-srgb +virgl-format-r8g8b8x8-srgb+)
+
+    (:r8g8b8x8-uint +virgl-format-r8g8b8x8-uint+)
+    (:r8g8b8x8-sint +virgl-format-r8g8b8x8-sint+)
+    (:b10g10r10x2-unorm +virgl-format-b10g10r10x2-unorm+)
+    (:r16g16b16x16-unorm +virgl-format-r16g16b16x16-unorm+)
+    (:r16g16b16x16-snorm +virgl-format-r16g16b16x16-snorm+)
+    (:r16g16b16x16-float +virgl-format-r16g16b16x16-float+)
+    (:r16g16b16x16-uint +virgl-format-r16g16b16x16-uint+)
+    (:r16g16b16x16-sint +virgl-format-r16g16b16x16-sint+)
+
+    (:r10g10b10a2-uint +virgl-format-r10g10b10a2-uint+)
+
+    (:bptc-rgba-unorm +virgl-format-bptc-rgba-unorm+)
+    (:bptc-srgba +virgl-format-bptc-srgba+)
+    (:bptc-rgb-float +virgl-format-bptc-rgb-float+)
+    (:bptc-rgb-ufloat +virgl-format-bptc-rgb-ufloat+)
+
+    (:r10g10b10x2-unorm +virgl-format-r10g10b10x2-unorm+)
+    (:a4b4g4r4-unorm +virgl-format-a4b4g4r4-unorm+)))
+
+(defun encode-pipe-bind (bind)
+  (ecase bind
+    (:depth-stencil +pipe-bind-depth-stencil+) ; create-surface
+    (:render-target +pipe-bind-render-target+) ; create-surface
+    (:blendable +pipe-bind-blendable+) ; create-surface
+    (:sampler-view +pipe-bind-sampler-view+) ; create-sampler-view
+    (:vertex-buffer +pipe-bind-vertex-buffer+) ; set-vertex-buffers
+    (:index-buffer +pipe-bind-index-buffer+) ; draw-elements
+    (:constant-buffer +pipe-bind-constant-buffer+) ; set-constant-buffer
+    (:display-target +pipe-bind-display-target+) ; flush-front-buffer
+    (:transfer-write +pipe-bind-transfer-write+) ; transfer-map
+    (:transfer-read +pipe-bind-transfer-read+) ; transfer-map
+    (:stream-output +pipe-bind-stream-output+) ; set-stream-output-buffers
+    (:cursor +pipe-bind-cursor+) ; mouse cursor
+    (:custom +pipe-bind-custom+) ; state-tracker/winsys usages
+    (:global +pipe-bind-global+) ; set-global-binding
+    (:shader-resource +pipe-bind-shader-resource+) ; set-shader-resources
+    (:compute-resource +pipe-bind-compute-resource+) ; set-compute-resources
+    (:command-args-buffer +pipe-bind-command-args-buffer+) ; pipe-draw-info.indirect
+    (:scanout +pipe-bind-scanout+)
+    (:shared +pipe-bind-shared+) ; get-texture-handle ???
+    (:linear +pipe-bind-linear+)))
+
+(defun encode-pipe-binds (binds)
+  (when (not (listp binds))
+    (setf binds (list binds)))
+  (let ((result 0))
+    (dolist (bind binds result)
+      (setf result (logior (encode-pipe-bind bind) result)))))
+
+(defun create-resource (virgl context id pipe-target texture-format pipe-binds width height depth array-size last-level nr-samples)
+  (multiple-value-bind (successp error)
+      (gpu:virtio-gpu-resource-create-3d
+       (virgl-gpu virgl)
+       id
+       (encode-pipe-target pipe-target)
+       (if texture-format
+           (encode-texture-format texture-format)
+           0)
+       (encode-pipe-binds pipe-binds)
+       width height depth
+       array-size last-level nr-samples
+       0)
+    (when (not successp)
+      (simple-virgl-error virgl context "Resource creation failed: ~D" error))
+    (values)))
+
+(defclass buffer (resource) ())
+(defclass vertex-buffer (buffer) ())
+
+(defun make-buffer-1 (context class length bind initargs)
+  (let* ((virgl (virgl context))
+         (buffer (apply 'make-instance class
+                        :virgl virgl
+                        :context context
+                        initargs)))
+    (sup:with-mutex ((virgl-lock virgl) :resignal-errors virgl-error)
+      (let ((id (allocate-resource-id virgl)))
+        (setf (slot-value buffer '%id) id)
+        (create-resource virgl context id :buffer nil bind
+                         length 1 1 1 0 0)
+        (setf (gethash id (virgl-resources virgl)) buffer)
+        ;; Create a dma-buffer to back this resource.
+        (let ((dma-buffer (sup:make-dma-buffer length :name buffer)))
+          (setf (slot-value buffer '%dma-buffer) dma-buffer)
+          ;; Attach it to the resource.
+          (multiple-value-bind (successp error)
+              (gpu:virtio-gpu-resource-attach-backing
+               (virgl-gpu virgl) id
+               1
+               (sup:dma-buffer-physical-address dma-buffer)
+               length)
+            (when (not successp)
+              (simple-virgl-error
+               virgl context
+               "Unable to attach backing memory to resource: ~D" error))))
+        ;; Associate the resource with the virgl context.
+        (multiple-value-bind (successp error)
+            (gpu:virtio-gpu-attach-resource
+             (virgl-gpu virgl) id
+             :context +virgl-gpu-context+)
+          (when (not successp)
+            (simple-virgl-error
+             virgl context
+             "Unable to attach resource to virgl context: ~D" error)))))
+    buffer))
+
+(defun make-vertex-buffer (context length &rest initargs &key name)
+  (declare (ignore name))
+  (make-buffer-1 context 'vertex-buffer length :vertex-buffer initargs))
+
+(defgeneric transfer-to-gpu (resource &key))
+
+(defmethod transfer-to-gpu ((buffer buffer) &key)
+  (let ((virgl (virgl buffer)))
+    (sup:with-mutex ((virgl-lock virgl) :resignal-errors virgl-error)
+      (multiple-value-bind (successp error)
+          (gpu:virtio-gpu-transfer-to-host-3d
+           (virgl-gpu virgl)
+           0 0 0
+           (sup:dma-buffer-length (resource-dma-buffer buffer)) 1 1
+           0
+           (resource-id buffer)
+           0 0 0
+           :context +virgl-gpu-context+)
+        (when (not successp)
+          (simple-virgl-error
+           virgl (context buffer)
+           "Unable to transfer resource data to GPU: ~D" error))))))
+
+(defclass texture (resource)
+  ((%format :initarg :format :reader texture-format)))
+
+(defgeneric width (texture))
+(defgeneric height (texture)
+  (:method ((texture texture)) 1))
+(defgeneric depth (texture)
+  (:method ((texture texture)) 1))
+
+(defclass texture-1d (texture)
+  ((%width :initarg :width :initform 0 :reader width)))
+
+(defmethod print-object ((instance texture-1d) stream)
+  (print-unreadable-object (instance stream :type t :identity t)
+    (format stream "~A ~D" (texture-format instance)
+            (width instance))))
+
+(defclass texture-2d (texture)
+  ((%width :initarg :width :initform 0 :reader width)
+   (%height :initarg :height :initform 0 :reader height)))
+
+(defmethod print-object ((instance texture-2d) stream)
+  (print-unreadable-object (instance stream :type t :identity t)
+    (format stream "~A ~Dx~D" (texture-format instance)
+            (width instance) (height instance))))
+
+(defclass texture-3d (texture)
+  ((%width :initarg :width :initform 0 :reader width)
+   (%height :initarg :height :initform 0 :reader height)
+   (%depth :initarg :depth :initform 0 :reader depth)))
+
+(defmethod print-object ((instance texture-3d) stream)
+  (print-unreadable-object (instance stream :type t :identity t)
+    (format stream "~A ~Dx~Dx~D" (texture-format instance)
+            (width instance) (height instance) (depth instance))))
+
+(defclass scanout (texture-2d) ())
+
+(defun scanout-flush (scanout x y w h)
+  (let ((virgl (virgl scanout)))
+    (sup:with-mutex ((virgl-lock virgl) :resignal-errors virgl-error)
+      (multiple-value-bind (successp error)
+          (gpu:virtio-gpu-resource-flush
+           (virgl-gpu virgl)
+           x y w h
+           (resource-id scanout))
+        (when (not successp)
+          (simple-virgl-error
+           virgl (context scanout)
+           "Unable to flush scanout: ~D" error))))))
+
+(defun virgl-scanout (virgl &key (index 0))
+  "Return the scanout texture associated with the specified scanout."
+  (ecase index
+    (0 (virgl-%scanout virgl))))
+
+(defclass object ()
+  ((%context :initarg :context :reader context)
+   (%name :initarg :name :accessor name)
+   (%id :initarg :id :reader object-id))
+  (:default-initargs :name nil))
+
+(define-condition object-ids-exhausted-error (virgl-error)
+  ())
+
+(defun allocate-object-id (context)
+  (when (> (hash-table-count (context-objects context))
+           +virgl-max-object-id+)
+    (error 'object-ids-exhausted-error
+           :virgl (virgl context) :context context))
+  (loop
+     (let ((id (context-next-object-id context)))
+       (cond ((>= id +virgl-max-object-id+)
+              (setf id (setf (context-next-object-id context) 1)))
+             (t
+              (incf (context-next-object-id context))))
+       (when (not (gethash id (context-objects context)))
+         (return id)))))
+
+(defclass shader (object)
+  ((%source :initarg :source :reader shader-source)))
+
+(defclass vertex-shader (shader) ())
+(defclass fragment-shader (shader) ())
+
+(defun make-shader (context processor source &key name)
+  (multiple-value-bind (tgsi-text n-tokens)
+      (mezzano.gui.virgl.tgsi:assemble processor source)
+    (let ((virgl (virgl context)))
+      (sup:with-mutex ((virgl-lock virgl) :resignal-errors virgl-error)
+        (let* ((id (allocate-object-id context))
+               (cmd-buf (encode-create-shader
+                         id
+                         (ecase processor
+                           (:vertex +pipe-shader-vertex+)
+                           (:fragment +pipe-shader-fragment+))
+                         tgsi-text n-tokens
+                         nil nil)))
+          (encode-set-sub-ctx cmd-buf (context-id context))
+          (virgl-submit-simple-command-buffer-1 virgl cmd-buf)
+          (setf (gethash id (context-objects context))
+                (make-instance (ecase processor
+                                 (:vertex 'vertex-shader)
+                                 (:fragment 'fragment-shader))
+                               :context context
+                               :name name
+                               :id id
+                               :source source)))))))
+
+(defclass surface (object)
+  ((%texture :initarg :texture :reader surface-texture)))
+
+(defun make-surface (context texture &key name (format (texture-format texture)) (first-layer 0) (last-layer 0) (level 0))
+  (check-type texture texture)
+  (let ((virgl (virgl context)))
+    (sup:with-mutex ((virgl-lock virgl) :resignal-errors virgl-error)
+      (let* ((id (allocate-object-id context))
+             (cmd-buf (make-array 128 :element-type '(unsigned-byte 8) :fill-pointer 0 :adjustable t)))
+        (encode-set-sub-ctx cmd-buf (context-id context))
+        (encode-create-surface
+         cmd-buf id (resource-id texture)
+         (encode-texture-format format)
+         first-layer last-layer level)
+        (virgl-submit-simple-command-buffer-1 virgl cmd-buf)
+        (setf (gethash id (context-objects context))
+              (make-instance 'surface
+                             :context context
+                             :name name
+                             :id id
+                             :texture texture))))))
+
+(defclass vertex-elements (object)
+  ((%elements :initarg :elements :reader vertex-elements-elements)))
+
+(defun make-vertex-elements (context name &rest elements)
+  (let ((virgl (virgl context)))
+    (sup:with-mutex ((virgl-lock virgl) :resignal-errors virgl-error)
+      (let* ((id (allocate-object-id context))
+             (cmd-buf (make-array 128 :element-type '(unsigned-byte 8) :fill-pointer 0 :adjustable t)))
+        (encode-set-sub-ctx cmd-buf (context-id context))
+        (apply #'encode-create-vertex-elements
+         cmd-buf id elements)
+        (virgl-submit-simple-command-buffer-1 virgl cmd-buf)
+        (setf (gethash id (context-objects context))
+              (make-instance 'vertex-elements
+                             :context context
+                             :name name
+                             :id id
+                             :elements elements))))))
+
+(defclass blend (object)
+  ((%logic-op :initarg :logic-op :reader blend-logic-op)
+   (%dither :initarg :dither :reader blend-dither)
+   (%alpha-to-coverage :initarg :alpha-to-coverage :reader blend-alpha-to-coverage)
+   (%alpha-to-one :initarg :alpha-to-one :reader blend-alpha-to-one)
+   (%blend-enable :initarg :blend-enable :reader blend-blend-enable)
+   (%rgb-func :initarg :rgb-func :reader blend-rgb-func)
+   (%rgb-src-factor :initarg :rgb-src-factor :reader blend-rgb-src-factor)
+   (%rgb-dst-factor :initarg :rgb-dst-factor :reader blend-rgb-dst-factor)
+   (%alpha-func :initarg :alpha-func :reader blend-alpha-func)
+   (%alpha-src-factor :initarg :alpha-src-factor :reader blend-alpha-src-factor)
+   (%alpha-dst-factor :initarg :alpha-dst-factor :reader blend-alpha-dst-factor)
+   (%colormask :initarg :colormask :reader blend-colormask)))
+
+(defun encode-logic-op (logic-op)
+  (ecase logic-op
+    (:clear +pipe-logicop-clear+)
+    (:nor +pipe-logicop-nor+)
+    (:and-inverted +pipe-logicop-and-inverted+)
+    (:copy-inverted +pipe-logicop-copy-inverted+)
+    (:and-reverse +pipe-logicop-and-reverse+)
+    (:invert +pipe-logicop-invert+)
+    (:xor +pipe-logicop-xor+)
+    (:nand +pipe-logicop-nand+)
+    (:and +pipe-logicop-and+)
+    (:equiv +pipe-logicop-equiv+)
+    (:noop +pipe-logicop-noop+)
+    (:or-inverted +pipe-logicop-or-inverted+)
+    (:copy +pipe-logicop-copy+)
+    (:or-reverse +pipe-logicop-or-reverse+)
+    (:or +pipe-logicop-or+)
+    (:set +pipe-logicop-set+)))
+
+(defun encode-colormask (colormask)
+  (case colormask
+    (:rgba +pipe-mask-rgba+)
+    (t
+     (when (not (listp colormask))
+       (setf colormask (list colormask)))
+     (let ((mask 0))
+       (dolist (entry colormask)
+         (setf mask (logior mask
+                            (ecase entry
+                              (:r +pipe-mask-r+)
+                              (:g +pipe-mask-g+)
+                              (:b +pipe-mask-b+)
+                              (:a +pipe-mask-a+)))))
+       mask))))
+
+(defun encode-blend-func (blend-func)
+  (ecase blend-func
+    (:add +pipe-blend-add+)
+    (:subtract +pipe-blend-subtract+)
+    (:reverse-subtract +pipe-blend-reverse-subtract+)
+    (:min +pipe-blend-min+)
+    (:max +pipe-blend-max+)))
+
+(defun encode-blend-factor (blend-factor)
+  (ecase blend-factor
+    (:one +pipe-blendfactor-one+)
+    (:src-color +pipe-blendfactor-src-color+)
+    (:src-alpha +pipe-blendfactor-src-alpha+)
+    (:dst-alpha +pipe-blendfactor-dst-alpha+)
+    (:dst-color +pipe-blendfactor-dst-color+)
+    (:src-alpha-saturate +pipe-blendfactor-src-alpha-saturate+)
+    (:const-color +pipe-blendfactor-const-color+)
+    (:const-alpha +pipe-blendfactor-const-alpha+)
+    (:src1-color +pipe-blendfactor-src1-color+)
+    (:src1-alpha +pipe-blendfactor-src1-alpha+)
+    (:zero +pipe-blendfactor-zero+)
+    (:inv-src-color +pipe-blendfactor-inv-src-color+)
+    (:inv-src-alpha +pipe-blendfactor-inv-src-alpha+)
+    (:inv-dst-alpha +pipe-blendfactor-inv-dst-alpha+)
+    (:inv-dst-color +pipe-blendfactor-inv-dst-color+)
+    (:inv-const-color +pipe-blendfactor-inv-const-color+)
+    (:inv-const-alpha +pipe-blendfactor-inv-const-alpha+)
+    (:inv-src1-color +pipe-blendfactor-inv-src1-color+)
+    (:inv-src1-alpha +pipe-blendfactor-inv-src1-alpha+)))
+
+(defun make-blend (context &key name logic-op dither alpha-to-coverage alpha-to-one blend-enable rgb-func rgb-src-factor rgb-dst-factor alpha-func alpha-src-factor alpha-dst-factor colormask)
+  (let ((virgl (virgl context)))
+    (sup:with-mutex ((virgl-lock virgl) :resignal-errors virgl-error)
+      (let* ((id (allocate-object-id context))
+             (cmd-buf (make-array 128 :element-type '(unsigned-byte 8) :fill-pointer 0 :adjustable t)))
+        (encode-set-sub-ctx cmd-buf (context-id context))
+        (encode-create-blend
+         cmd-buf id
+         logic-op dither
+         alpha-to-coverage alpha-to-one
+         (if logic-op (encode-logic-op logic-op) 0)
+         blend-enable
+         (if rgb-func (encode-blend-func rgb-func) 0)
+         (if rgb-src-factor (encode-blend-factor rgb-src-factor) 0)
+         (if rgb-dst-factor (encode-blend-factor rgb-dst-factor) 0)
+         (if alpha-func (encode-blend-func alpha-func) 0)
+         (if alpha-src-factor (encode-blend-factor alpha-src-factor) 0)
+         (if alpha-dst-factor (encode-blend-factor alpha-dst-factor) 0)
+         (encode-colormask colormask))
+        (virgl-submit-simple-command-buffer-1 virgl cmd-buf)
+        (setf (gethash id (context-objects context))
+              (make-instance 'blend
+                             :context context
+                             :name name
+                             :id id
+                             :logic-op logic-op
+                             :dither dither
+                             :alpha-to-coverage alpha-to-coverage
+                             :alpha-to-one alpha-to-one
+                             :blend-enable blend-enable
+                             :rgb-func rgb-func
+                             :rgb-src-factor rgb-src-factor
+                             :rgb-dst-factor rgb-dst-factor
+                             :alpha-func alpha-func
+                             :alpha-src-factor alpha-src-factor
+                             :alpha-dst-factor alpha-dst-factor
+                             :colormask colormask))))))
+
+(defclass command-buffer ()
+  ((%context :initarg :context :reader context)
+   (%name :initarg :name :reader name)
+   (%finalized :initform nil :reader command-buffer-finalized)
+   (%dma-buffer :initform nil :reader command-buffer-dma-buffer)
+   (%data-array :initform (make-array 1024
+                                      :element-type '(unsigned-byte 8)
+                                      :fill-pointer 0
+                                      :adjustable t)
+                :reader command-buffer-data-array)))
+
+(defun make-command-buffer (context &key name)
+  (let* ((cbuf (make-instance 'command-buffer
+                              :context context
+                              :name name))
+         (data (command-buffer-data-array cbuf)))
+    ;; Include a set subcontext command as the first thing.
+    (encode-set-sub-ctx data (context-id context))
+    cbuf))
+
+(defun check-command-buffer-not-finalized (command-buffer)
+  (assert (not (command-buffer-finalized command-buffer))
+          (command-buffer)
+          "Command buffer must not be finalized!"))
+
+(defun command-buffer-finalize (command-buffer &key optimize)
+  "Finalize COMMAND-BUFFER.
+Once the command buffer has been finalized, no further commands can
+be added. If OPTIMIZE is true, then the buffer will be copied to
+dedicated memory where it will be available for faster resubmission.
+This should be set for command buffers that are likely to be used
+multiple times."
+  (when (command-buffer-finalized command-buffer)
+    (error "Command buffer ~D already finalized!" command-buffer))
+  (let ((data (command-buffer-data-array command-buffer)))
+    (when (or optimize
+              ;; Limit of VIRTIO-GPU-SUBMIT-3D's internal command buffer.
+              (> (length data) 1024))
+      ;; Add extra for the GPU header and command size.
+      ;; TODO: Figure out how to do SG with virtio.
+      (let* ((dma-buffer (sup:make-dma-buffer (+ 24 4 (length data))
+                                              :name command-buffer
+                                              :contiguous t))
+             (buf-vec (make-array (sup:dma-buffer-length dma-buffer)
+                                  :element-type '(unsigned-byte 8)
+                                  :memory dma-buffer)))
+        ;; Configure the header.
+        (setf (ext:ub32ref/le buf-vec gpu:+virtio-gpu-ctrl-hdr-type+)
+              gpu:+virtio-gpu-cmd-submit-3d+)
+        (setf (ext:ub32ref/le buf-vec gpu:+virtio-gpu-ctrl-hdr-flags+) 0)
+        (setf (ext:ub64ref/le buf-vec gpu:+virtio-gpu-ctrl-hdr-fence-id+) 0)
+        (setf (ext:ub32ref/le buf-vec gpu:+virtio-gpu-ctrl-hdr-ctx-id+)
+              +virgl-gpu-context+)
+        ;; Command size.
+        (setf (ext:ub32ref/le data 28) (length data))
+        (replace buf-vec data :start1 32)
+        (setf (slot-value command-buffer '%dma-buffer) dma-buffer))))
+  (setf (slot-value command-buffer '%finalized) t)
+  (values))
+
+(defun command-buffer-submit (command-buffer)
+  (assert (command-buffer-finalized command-buffer))
+  (let ((virgl (virgl (context command-buffer))))
+    (sup:with-mutex ((virgl-lock virgl) :resignal-errors virgl-error)
+      (let ((dma-buf (command-buffer-dma-buffer command-buffer)))
+        (cond (dma-buf
+               (error "TODO"))
+              (t
+               (virgl-submit-simple-command-buffer-1 virgl (command-buffer-data-array command-buffer)))))))
+  (values))
+
+(defconstant +max-framebuffer-color-buffers+ 8)
+
+(defun add-command-set-framebuffer-state (command-buffer depth-stencil-surface &rest color-surfaces)
+  (check-command-buffer-not-finalized command-buffer)
+  (let ((nr-cbufs (length color-surfaces)))
+    (assert (<= nr-cbufs +max-framebuffer-color-buffers+))
+    (check-type depth-stencil-surface (or null surface))
+    (apply #'encode-set-framebuffer-state
+           (command-buffer-data-array command-buffer)
+           (if depth-stencil-surface
+               (object-id depth-stencil-surface)
+               0)
+           (loop
+              for surf in color-surfaces
+              collect
+                (cond (surf
+                       (check-type surf surface)
+                       (object-id surf))
+                      (t 0)))))
+  (values))
+
+(defun add-command-set-viewport-state (command-buffer
+                                       scale0 scale1 scale2
+                                       translate0 translate1 translate2)
+  (check-command-buffer-not-finalized command-buffer)
+  (encode-set-viewport-state
+   (command-buffer-data-array command-buffer)
+   scale0 scale1 scale2
+   translate0 translate1 translate2)
+  (values))
+
+(defun add-command-clear (command-buffer buffers color0 color1 color2 color3 depth stencil)
+  (check-command-buffer-not-finalized command-buffer)
+  (let ((encoded-buffers 0))
+    (when (not (listp buffers))
+      (setf buffers (list buffers)))
+    (dolist (buffer buffers)
+      (setf encoded-buffers (logior encoded-buffers
+                                    (ecase buffer
+                                      (:color +pipe-clear-color+)
+                                      (:color-0 +pipe-clear-color0+)
+                                      (:color-1 +pipe-clear-color1+)
+                                      (:color-2 +pipe-clear-color2+)
+                                      (:color-3 +pipe-clear-color3+)
+                                      (:color-4 +pipe-clear-color4+)
+                                      (:color-5 +pipe-clear-color5+)
+                                      (:color-6 +pipe-clear-color6+)
+                                      (:color-7 +pipe-clear-color7+)
+                                      (:depth +pipe-clear-depth+)
+                                      (:stencil +pipe-clear-stencil+)))))
+    (encode-clear (command-buffer-data-array command-buffer)
+                  encoded-buffers
+                  color0 color1 color2 color3
+                  (or depth 0.0d0)
+                  (or stencil 0)))
+  (values))
+
+(defun add-command-set-vertex-buffers (command-buffer &rest vertex-buffers)
+  (check-command-buffer-not-finalized command-buffer)
+  (apply #'encode-set-vertex-buffers
+         (command-buffer-data-array command-buffer)
+         (loop
+            for (stride offset vertex-buffer) in vertex-buffers
+            do
+              (check-type vertex-buffer vertex-buffer)
+            collect
+              (list stride offset (resource-id vertex-buffer))))
+  (values))
+
+(defun add-command-bind-vertex-elements (command-buffer vertex-elements)
+  (check-command-buffer-not-finalized command-buffer)
+  (check-type vertex-elements vertex-elements)
+  (encode-bind-vertex-elements
+   (command-buffer-data-array command-buffer)
+   (object-id vertex-elements))
+  (values))
+
+(defun add-command-bind-shader (command-buffer shader)
+  (check-command-buffer-not-finalized command-buffer)
+  (check-type shader shader)
+  (encode-bind-shader
+   (command-buffer-data-array command-buffer)
+   (object-id shader)
+   (etypecase shader
+     (vertex-shader +pipe-shader-vertex+)
+     (fragment-shader +pipe-shader-fragment+)))
+  (values))
+
+(defun add-command-bind-blend (command-buffer blend)
+  (check-command-buffer-not-finalized command-buffer)
+  (check-type blend blend)
+  (encode-bind-blend
+   (command-buffer-data-array command-buffer)
+   (object-id blend))
+  (values))
+
+(defun encode-primitive-mode (mode)
+  (ecase mode
+    (:points +pipe-prim-points+)
+    (:lines +pipe-prim-lines+)
+    (:line-loop +pipe-prim-line-loop+)
+    (:line-strip +pipe-prim-line-strip+)
+    (:triangles +pipe-prim-triangles+)
+    (:triangle-strip +pipe-prim-triangle-strip+)
+    (:triangle-fan +pipe-prim-triangle-fan+)
+    (:quads +pipe-prim-quads+)
+    (:quad-strip +pipe-prim-quad-strip+)
+    (:polygon +pipe-prim-polygon+)
+    (:lines-adjacency +pipe-prim-lines-adjacency+)
+    (:line-strip-adjacency +pipe-prim-line-strip-adjacency+)
+    (:triangles-adjacency +pipe-prim-triangles-adjacency+)
+    (:triangle-strip-adjacency +pipe-prim-triangle-strip-adjacency+)
+    (:patches +pipe-prim-patches+)))
+
+(defun add-command-draw-vbo (command-buffer
+                             start ; index of the first vertex
+                             count ; number of vertices
+                             mode ; mode of the primitive
+                             &key
+                               indexed ; use index buffer
+                               (instance-count 0) ; number of instances
+                               (start-instance 0) ; first instance-id
+                               primitive-restart-index
+                               (index-bias 0)
+                               (min-index 0)
+                               (max-index #xFFFFFFFF)
+                               (count-from-so 0))
+  (check-command-buffer-not-finalized command-buffer)
+  (encode-draw-vbo
+   (command-buffer-data-array command-buffer)
+   start count (encode-primitive-mode mode)
+   indexed
+   instance-count start-instance
+   primitive-restart-index
+   (or primitive-restart-index 0)
+   index-bias
+   min-index
+   max-index
+   count-from-so)
+  (values))
