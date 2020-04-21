@@ -8,7 +8,6 @@
   (length -1 :read-only t :type fixnum)
   (persistent-boot-id nil)
   (virtual-address -1 :read-only t :type fixnum)
-  (array nil :read-only t)
   (scatter/gather-vector nil :read-only t :type simple-vector)
   (cache-mode :write-back :read-only t :type (member :write-back
                                                      :write-through
@@ -18,7 +17,7 @@
 (defconstant +dma-buffer-guard-size+ #x200000)
 (sys.int::defglobal *dma-buffer-virtual-address-bump*)
 
-(defun make-dma-buffer (length &key name persistent contiguous 32-bit (element-type '(unsigned-byte 8)) (cache-mode :write-back))
+(defun make-dma-buffer (length &key name persistent contiguous 32-bit (cache-mode :write-back))
   "Allocate a new DMA buffer of the given length.
 NAME         - Name of the DMA buffer, for debugging.
 PERSISTENT   - If true, the memory will be saved by a snapshot, though the
@@ -29,8 +28,6 @@ CONTIGUOUS   - Allocate physical memory in a single contiguous chunk. The
                sufficient memory, as it might not be contiguous.
 32-BIT       - If true, all allocated physical memory will be below the 32-bit
                boundary.
-ELEMENT-TYPE - The element type of the buffer array. This does not affect
-               direct access to virtual memory.
 CACHE-MODE   - Select between :WRITE-BACK, :WRITE-THROUGH, :WRITE-COMBINING, and
                :UNCACHED caching modes. Defaults to :WRITE-BACK.
 
@@ -57,7 +54,6 @@ directly or via the buffer array) will signal a DMA-BUFFER-EXPIRED error."
                              *dma-buffer-virtual-address-bump*
                              (+ (align-up aligned-length #x200000)
                                 +dma-buffer-guard-size+)))
-           (array (make-array length :element-type element-type :memory virtual-address))
            (sg-vec (if persistent
                        (alloc-persistent-sg-vec length)
                        (alloc-sg-vec length
@@ -68,29 +64,26 @@ directly or via the buffer array) will signal a DMA-BUFFER-EXPIRED error."
       ;; Be very careful to ensure that the physical memory is freed if something
       ;; goes wrong during creation.
       (unwind-protect
-           (multiple-value-prog1
-               (%make-dma-buffer :name name
-                                 :length length
-                                 :persistent-boot-id (if persistent (current-boot-id) nil)
-                                 :virtual-address virtual-address
-                                 :array array
-                                 :scatter/gather-vector sg-vec
-                                 :cache-mode cache-mode)
+           (let ((dma-buffer (%make-dma-buffer :name name
+                                               :length length
+                                               :persistent-boot-id (if persistent (current-boot-id) nil)
+                                               :virtual-address virtual-address
+                                               :scatter/gather-vector sg-vec
+                                               :cache-mode cache-mode)))
              (if persistent
                  (map-persistent-sg-vec virtual-address sg-vec cache-mode)
                  (map-sg-vec virtual-address sg-vec cache-mode))
              (setf did-map t)
-             ;; Attach a finalizer to the array not the dma-buffer,
-             ;; this way the memory will stay valid even if only the array is live.
              (sys.int::make-weak-pointer
-              array
+              dma-buffer
               :finalizer (lambda ()
                            ;; This will also free the pages associated
                            ;; with the sg-vec.
                            (release-memory-range virtual-address aligned-length))
               :area :wired)
              ;; Everything succeeded, don't free the SG-VEC.
-             (setf successp t))
+             (setf successp t)
+             dma-buffer)
         (when (not successp)
           (when did-map
             (release-memory-range virtual-address aligned-length))
@@ -106,10 +99,6 @@ directly or via the buffer array) will signal a DMA-BUFFER-EXPIRED error."
 (defun dma-buffer-persistent-p (dma-buffer)
   "Returns true if DMA-BUFFER is persistent."
   (not (null (dma-buffer-persistent-boot-id dma-buffer))))
-
-(defun dma-buffer-element-type (dma-buffer)
-  "Return the element type of DMA-BUFFER's array."
-  (array-element-type (dma-buffer-array dma-buffer)))
 
 (defun dma-buffer-cache-flush (dma-buffer &optional (start 0) end)
   "Ensure that CPU caches are coherent with system memory for this DMA buffer."

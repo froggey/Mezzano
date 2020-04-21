@@ -647,8 +647,6 @@
            #:dma-buffer-length
            #:dma-buffer-persistent-p
            #:dma-buffer-contiguous-p
-           #:dma-buffer-array
-           #:dma-buffer-element-type
            #:dma-buffer-cache-mode
            #:dma-buffer-virtual-address
            #:dma-buffer-physical-address
