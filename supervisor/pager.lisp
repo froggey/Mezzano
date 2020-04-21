@@ -636,7 +636,11 @@ mapped, then the entry will be NIL."
     frame-vector))
 
 (defun map-sg-vec (virtual-address sg-vec cache-mode)
-  (pager-rpc 'map-sg-vec-in-pager virtual-address sg-vec cache-mode))
+  (cond (*paging-disk*
+         (pager-rpc 'map-sg-vec-in-pager virtual-address sg-vec cache-mode))
+        (t
+         ;; Early boot, pager not running yet.
+         (map-sg-vec-in-pager virtual-address sg-vec cache-mode))))
 
 (defun map-sg-vec-in-pager (virtual-address sg-vec cache-mode)
   (pager-log-op "Map sg-vec " virtual-address " " sg-vec " " cache-mode)
