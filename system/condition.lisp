@@ -5,6 +5,12 @@
 
 (in-package :mezzano.internals)
 
+(defmethod print-object ((object restart) stream)
+  (cond (*print-escape*
+         (print-unreadable-object (object stream :type t :identity t)
+           (write (restart-name object) :stream stream)))
+        (t (report-restart object stream))))
+
 (defparameter *break-on-signals* nil)
 (defparameter *active-handlers* nil)
 

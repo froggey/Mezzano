@@ -3322,40 +3322,45 @@ always match."
 
 (defmethod reinitialize-instance :before ((generic-function standard-generic-function) &key (lambda-list nil lambda-list-p))
   (when lambda-list-p
-    (let ((gf-ll (analyze-lambda-list lambda-list)))
-      (dolist (method (generic-function-methods generic-function))
+    (let ((gf-ll (analyze-lambda-list lambda-list))
+          (methods (copy-list (generic-function-methods generic-function))))
+      (dolist (method methods)
         ;; Make sure that the new lambda-list is congruent with existing methods.
-        (let ((method-ll (analyze-lambda-list (safe-method-lambda-list method))))
-          (assert (eql (length (getf gf-ll :required-args))
-                       (length (getf method-ll :required-args)))
-                  (generic-function method)
-                  "New lambda-list ~:S for generic function ~S and method ~S have differing required arguments."
-                  lambda-list generic-function method)
-          (assert (eql (length (getf gf-ll :optional-args))
-                       (length (getf method-ll :optional-args)))
-                  (generic-function method)
-                  "New lambda-list ~:S for generic function ~S and method ~S have differing optional arguments."
-                  lambda-list generic-function method)
-          (let ((gf-accepts-key-or-rest (or (getf gf-ll :rest-var)
-                                            (member '&key lambda-list)))
-                (method-accepts-key-or-rest (or (getf method-ll :rest-var)
-                                                (member '&key (safe-method-lambda-list method)))))
-            (assert (or (and gf-accepts-key-or-rest
-                             method-accepts-key-or-rest)
-                        (and (not gf-accepts-key-or-rest)
-                             (not method-accepts-key-or-rest)))
-                    (generic-function method)
-                    "New lambda-list ~:S for generic function ~S and method ~S differ in their acceptance of &KEY or &REST arguments."
-                    lambda-list generic-function method))
-          ;; If a method accepts keywords, then it must accept all the keywords that the generic function accepts
-          (when (and (member '&key (safe-method-lambda-list method))
-                     (not (member '&allow-other-keys (safe-method-lambda-list method))))
-            (let ((missing-keywords (set-difference (getf gf-ll :keywords)
-                                                    (getf method-ll :keywords))))
-              (assert (endp missing-keywords)
+        (restart-case
+            (let ((method-ll (analyze-lambda-list (safe-method-lambda-list method))))
+              (assert (eql (length (getf gf-ll :required-args))
+                           (length (getf method-ll :required-args)))
                       (generic-function method)
-                      "Method ~S must accept all keywords accepted by new lambda-list ~:S for generic function ~S. It is missing ~:S"
-                      method lambda-list generic-function missing-keywords))))))))
+                      "New lambda-list ~:S for generic function ~S and method ~S have differing required arguments."
+                      lambda-list generic-function method)
+              (assert (eql (length (getf gf-ll :optional-args))
+                           (length (getf method-ll :optional-args)))
+                      (generic-function method)
+                      "New lambda-list ~:S for generic function ~S and method ~S have differing optional arguments."
+                      lambda-list generic-function method)
+              (let ((gf-accepts-key-or-rest (or (getf gf-ll :rest-var)
+                                                (member '&key lambda-list)))
+                    (method-accepts-key-or-rest (or (getf method-ll :rest-var)
+                                                    (member '&key (safe-method-lambda-list method)))))
+                (assert (or (and gf-accepts-key-or-rest
+                                 method-accepts-key-or-rest)
+                            (and (not gf-accepts-key-or-rest)
+                                 (not method-accepts-key-or-rest)))
+                        (generic-function method)
+                        "New lambda-list ~:S for generic function ~S and method ~S differ in their acceptance of &KEY or &REST arguments."
+                        lambda-list generic-function method))
+              ;; If a method accepts keywords, then it must accept all the keywords that the generic function accepts
+              (when (and (member '&key (safe-method-lambda-list method))
+                         (not (member '&allow-other-keys (safe-method-lambda-list method))))
+                (let ((missing-keywords (set-difference (getf gf-ll :keywords)
+                                                        (getf method-ll :keywords))))
+                  (assert (endp missing-keywords)
+                          (generic-function method)
+                          "Method ~S must accept all keywords accepted by new lambda-list ~:S for generic function ~S. It is missing ~:S"
+                          method lambda-list generic-function missing-keywords))))
+          (remove-method ()
+            :report (lambda (stream) (format stream "Remove method ~S from ~S" method generic-function))
+            (remove-method generic-function method)))))))
 
 (defmethod reinitialize-instance :after ((generic-function standard-generic-function) &rest initargs &key argument-precedence-order lambda-list)
   (when (and lambda-list (not argument-precedence-order))
