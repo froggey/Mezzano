@@ -17,7 +17,7 @@
 (defconstant +dma-buffer-guard-size+ #x200000)
 (sys.int::defglobal *dma-buffer-virtual-address-bump*)
 
-(defun make-dma-buffer (length &key name persistent contiguous 32-bit (cache-mode :write-back))
+(defun make-dma-buffer (length &key name persistent contiguous 32-bit (cache-mode :write-back) (errorp t))
   "Allocate a new DMA buffer of the given length.
 NAME         - Name of the DMA buffer, for debugging.
 PERSISTENT   - If true, the memory will be saved by a snapshot, though the
@@ -30,6 +30,9 @@ CONTIGUOUS   - Allocate physical memory in a single contiguous chunk. The
                boundary.
 CACHE-MODE   - Select between :WRITE-BACK, :WRITE-THROUGH, :WRITE-COMBINING, and
                :UNCACHED caching modes. Defaults to :WRITE-BACK.
+ERRORP       - If true, then a normal Lisp error will be signalled if memory
+               can't be allocated. If false, NIL will be returned on allocation
+               failure instead.
 
 LENGTH is always internally rounded up to the nearest whole page and returned
 physical memory will always be page-aligned.
@@ -55,12 +58,16 @@ directly or via the buffer array) will signal a DMA-BUFFER-EXPIRED error."
                              (+ (align-up aligned-length #x200000)
                                 +dma-buffer-guard-size+)))
            (sg-vec (if persistent
-                       (alloc-persistent-sg-vec length)
+                       (alloc-persistent-sg-vec length errorp)
                        (alloc-sg-vec length
                                      :contiguous contiguous
-                                     :32-bit 32-bit)))
+                                     :32-bit 32-bit
+                                     :errorp errorp)))
            (did-map nil)
            (successp nil))
+      (when (not sg-vec)
+        ;; Allocation failure with false ERRORP.
+        (return-from make-dma-buffer nil))
       ;; Be very careful to ensure that the physical memory is freed if something
       ;; goes wrong during creation.
       (unwind-protect
@@ -182,7 +189,8 @@ This function allocates. The :AREA argument determines where the list is allocat
       ,dma-buffer)
      ,result))
 
-(defun alloc-persistent-sg-vec (length)
+(defun alloc-persistent-sg-vec (length errorp)
+  (declare (ignore errorp))
   (sys.int::make-simple-vector (ceiling length #x1000) :wired))
 
 (defun update-persistent-sg-vec (virtual-address sg-vec)
@@ -203,7 +211,7 @@ This function allocates. The :AREA argument determines where the list is allocat
   (update-persistent-sg-vec virtual-address sg-vec)
   (values))
 
-(defun alloc-sg-vec (length &key contiguous 32-bit)
+(defun alloc-sg-vec (length &key contiguous 32-bit errorp)
   (cond ((or (<= length #x1000)
              contiguous)
          ;; This sg-vec will consist of a single entry, simple.
@@ -217,7 +225,9 @@ This function allocates. The :AREA argument determines where the list is allocat
              ;; FIXME: What kind of error to signal here?
              ;; TODO: Should this call into the pager to try to convince it
              ;; to free up some memory?
-             (error "Unable to allocate dma buffer of length ~D" length))
+             (when errorp
+               (error "Unable to allocate dma buffer of length ~D" length))
+             (return-from alloc-sg-vec nil))
            (setf (svref sg-vec 0) (ash frame 12)
                  (svref sg-vec 1) length)
            sg-vec))
@@ -257,7 +267,9 @@ This function allocates. The :AREA argument determines where the list is allocat
                           (return))
                         (when (eql attempt 1)
                           ;; Can't get any smaller than this.
-                          (error "Unable to allocate dma buffer of length ~D" length))
+                          (when errorp
+                            (error "Unable to allocate dma buffer of length ~D" length))
+                          (return-from alloc-sg-vec nil))
                         (setf attempt (ceiling attempt 2)))
                      (decf n-frames-remaining attempt)
                      (incf n-entries)
@@ -265,8 +277,8 @@ This function allocates. The :AREA argument determines where the list is allocat
                        (setf (physical-memref-unsigned-byte-64 paddr 0) frame-stack
                              (physical-memref-unsigned-byte-64 paddr 1) (* attempt #x1000))
                        (setf frame-stack paddr))))
-             ;; Free the frames in the unlikely event that the sv-vec allocation
-             ;; fails (due to lack of memory) but execution manages to continue.
+             ;; Free the frames in the event that the sv-vec allocation fails (due to
+             ;; lack of memory) but execution continues.
              (loop
                 (when (eql n-entries 0)
                   (return))
