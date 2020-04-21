@@ -34,6 +34,7 @@
            #:virtio-gpu-width
            #:virtio-gpu-height
            #:virtio-gpu-framebuffer
+           #:virtio-gpu-framebuffer-format
            #:virtio-gpu-virgl-p
            #:virtio-gpu-virgl-data
 
@@ -177,6 +178,10 @@ must not be allocated by virgl.")
   framebuffer
   virgl-p
   virgl-data)
+
+(defun virtio-gpu-framebuffer-format (gpu)
+  (declare (ignore gpu))
+  :b8g8r8a8-unorm)
 
 (defun virtio-gpu-command-address (gpu &optional (offset 0))
   (+ (virtio-gpu-request-virt gpu)
