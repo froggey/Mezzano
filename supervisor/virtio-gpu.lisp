@@ -13,8 +13,39 @@
            #:+virtio-gpu-resp-err-invalid-context-id+
            #:+virtio-gpu-resp-err-invalid-parameter+
 
+           ;; 2d/display commands
+           #:+virtio-gpu-cmd-get-display-info+
+           #:+virtio-gpu-cmd-resource-create-2d+
+           #:+virtio-gpu-cmd-resource-unref+
+           #:+virtio-gpu-cmd-set-scanout+
+           #:+virtio-gpu-cmd-resource-flush+
+           #:+virtio-gpu-cmd-transfer-to-host-2d+
+           #:+virtio-gpu-cmd-resource-attach-backing+
+           #:+virtio-gpu-cmd-resource-detach-backing+
+           #:+virtio-gpu-cmd-get-capset-info+
+           #:+virtio-gpu-cmd-get-capset+
+
+           ;; 3d commands
+           #:+virtio-gpu-cmd-ctx-create+
+           #:+virtio-gpu-cmd-ctx-destroy+
+           #:+virtio-gpu-cmd-ctx-attach-resource+
+           #:+virtio-gpu-cmd-ctx-detach-resource+
+           #:+virtio-gpu-cmd-resource-create-3d+
+           #:+virtio-gpu-cmd-transfer-to-host-3d+
+           #:+virtio-gpu-cmd-transfer-from-host-3d+
+           #:+virtio-gpu-cmd-submit-3d+
+
+           ;; cursor commands
+           #:+virtio-gpu-cmd-update-cursor+
+           #:+virtio-gpu-cmd-move-cursor+
+
            #:+virtio-gpu-flag-fence+
            #:+virtio-gpu-max-scanouts+
+
+           #:+virtio-gpu-ctrl-hdr-type+
+           #:+virtio-gpu-ctrl-hdr-flags+
+           #:+virtio-gpu-ctrl-hdr-fence-id+
+           #:+virtio-gpu-ctrl-hdr-ctx-id+
 
            #:+virtio-gpu-format-b8g8r8a8-unorm+
            #:+virtio-gpu-format-b8g8r8x8-unorm+
