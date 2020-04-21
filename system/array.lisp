@@ -413,7 +413,7 @@
       (check-type physical-memory fixnum)
       (setf memory (mezzano.supervisor::convert-to-pmap-address physical-memory)))
     (when memory
-      (check-type memory fixnum))
+      (check-type memory (or mezzano.supervisor:dma-buffer fixnum)))
     (dolist (dimension dimensions)
       (check-type dimension (integer 0)))
     (cond ((and (eql rank 1)
@@ -429,8 +429,11 @@
                (initialize-from-initial-contents array initial-contents))
              array))
           (memory
-           ;; storage = address
+           ;; storage = address or dma-buffer
            ;; info = element type as an object-tag
+           (when (typep memory 'mezzano.supervisor:dma-buffer)
+             (let ((total-size (reduce #'* dimensions)))
+               (assert (<= total-size (mezzano.supervisor:dma-buffer-length memory)))))
            (%make-array-header +object-tag-array+
                                memory
                                fill-pointer
@@ -595,7 +598,8 @@
   (cond ((or (%simple-1d-array-p array)
              (not (%complex-array-info array)))
          (values nil 0))
-        ((fixnump (%complex-array-storage array))
+        ((or (fixnump (%complex-array-storage array))
+             (typep (%complex-array-storage array) 'mezzano.supervisor:dma-buffer))
          ;; Memory array.
          (values (%complex-array-storage array) 0))
         (t
@@ -609,7 +613,8 @@
          (%simple-array-element-type array))
         ((character-array-p array)
          'character)
-        ((fixnump (%complex-array-storage array))
+        ((or (fixnump (%complex-array-storage array))
+             (typep (%complex-array-storage array) 'mezzano.supervisor:dma-buffer))
          ;; Memory arrays have their type in the info field.
          (svref *array-types* (%complex-array-info array)))
         ((%complex-array-info array)
@@ -624,7 +629,8 @@
          (%simple-array-info array))
         ((character-array-p array)
          *array-character-info*)
-        ((fixnump (%complex-array-storage array))
+        ((or (fixnump (%complex-array-storage array))
+             (typep (%complex-array-storage array) 'mezzano.supervisor:dma-buffer))
          ;; Memory arrays have their type in the info field.
          (upgraded-array-info (svref *array-types* (%complex-array-info array))))
         ((%complex-array-info array)
@@ -689,13 +695,14 @@
   (cond ((%simple-1d-array-p array)
          (%simple-array-aref array index))
         ((%complex-array-info array)
-         (cond ((fixnump (%complex-array-storage array))
-                ;; A memory array.
-                (%memory-array-aref array index))
-               (t
-                ;; A displaced array.
-                (row-major-aref (%complex-array-storage array)
-                                (+ index (%complex-array-info array))))))
+         (let ((storage (%complex-array-storage array)))
+           (cond ((or (fixnump storage)
+                      (typep storage 'mezzano.supervisor:dma-buffer))
+                  ;; A memory array.
+                  (%memory-array-aref array index))
+                 (t
+                  ;; A displaced array.
+                  (row-major-aref storage (+ index (%complex-array-info array)))))))
         ((character-array-p array)
          ;; Character array. Elements are characters, stored as integers.
          (%%assemble-value
@@ -713,14 +720,15 @@
   (cond ((%simple-1d-array-p array)
          (setf (%simple-array-aref array index) value))
         ((%complex-array-info array)
-         (cond ((fixnump (%complex-array-storage array))
-                ;; A memory array.
-                (setf (%memory-array-aref array index) value))
-               (t
-                ;; A displaced array.
-                (setf (row-major-aref (%complex-array-storage array)
-                                      (+ index (%complex-array-info array)))
-                      value))))
+         (let ((storage (%complex-array-storage array)))
+           (cond ((or (fixnump storage)
+                      (typep storage 'mezzano.supervisor:dma-buffer))
+                  ;; A memory array.
+                  (setf (%memory-array-aref array index) value))
+                 (t
+                  ;; A displaced array.
+                  (setf (row-major-aref storage (+ index (%complex-array-info array)))
+                        value)))))
         ((character-array-p array)
          ;; Character array. Elements are characters, stored as integers.
          (let ((min-len (cond ((<= (char-int value) #xFF)
@@ -750,14 +758,16 @@
   (cond ((%simple-1d-array-p array)
          (cas (%simple-array-aref array index) old new))
         ((%complex-array-info array)
-         (cond ((fixnump (%complex-array-storage array))
-                ;; A memory array.
-                (cas (%memory-array-aref array index) old new))
-               (t
-                ;; A displaced array.
-                (cas (row-major-aref (%complex-array-storage array)
-                                     (+ index (%complex-array-info array)))
-                     old new))))
+         (let ((storage (%complex-array-storage array)))
+           (cond ((or (fixnump storage)
+                      (typep storage 'mezzano.supervisor:dma-buffer))
+                  ;; A memory array.
+                  (cas (%memory-array-aref storage index) old new))
+                 (t
+                  ;; A displaced array.
+                  (cas (row-major-aref storage
+                                       (+ index (%complex-array-info array)))
+                       old new)))))
         ((character-array-p array)
          ;; TODO. The promotion from narrow backing arrays to wide backing arrays complicates this...
          (error "CAS not supported on character arrays"))

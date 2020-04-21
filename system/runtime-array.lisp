@@ -348,6 +348,8 @@
 
 (defun %memory-array-aref (array index)
   (let ((address (%complex-array-storage array)))
+    (when (typep address 'mezzano.supervisor:dma-buffer)
+      (setf address (mezzano.supervisor:dma-buffer-virtual-address address)))
     (ecase (%complex-array-info array)
       ((#.+object-tag-array-t+
         #.+object-tag-array-fixnum+)
@@ -425,6 +427,8 @@
 
 (defun (setf %memory-array-aref) (value array index)
   (let ((address (%complex-array-storage array)))
+    (when (typep address 'mezzano.supervisor:dma-buffer)
+      (setf address (mezzano.supervisor:dma-buffer-virtual-address address)))
     (ecase (%complex-array-info array)
       (#.+object-tag-array-t+ ;; simple-vector
        (setf (memref-t address index) value))
@@ -523,6 +527,8 @@
 
 (defun (cas %memory-array-aref) (old new array index)
   (let ((address (%complex-array-storage array)))
+    (when (typep address 'mezzano.supervisor:dma-buffer)
+      (setf address (mezzano.supervisor:dma-buffer-virtual-address address)))
     (ecase (%complex-array-info array)
       (#.+object-tag-array-t+ ;; simple-vector
        (cas (memref-t address index) old new))
