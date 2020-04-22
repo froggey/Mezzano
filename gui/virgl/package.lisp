@@ -26,6 +26,7 @@
            #:make-surface
            #:make-vertex-elements
            #:make-blend
+           #:make-rasterizer
            #:with-object
 
            #:make-command-buffer
@@ -39,6 +40,7 @@
            #:add-command-bind-vertex-elements
            #:add-command-bind-shader
            #:add-command-bind-blend
+           #:add-command-bind-rasterizer
            #:add-command-draw-vbo
            #:add-command-set-constant-buffer
            #:add-command-set-index-buffer
