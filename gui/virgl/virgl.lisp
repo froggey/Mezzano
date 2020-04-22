@@ -651,6 +651,7 @@ Avoid using context 0 because that's what the compositor and 2D rendering uses."
                          :id gpu:+virtio-gpu-framebuffer-resource-id+
                          :dma-buffer (gpu:virtio-gpu-framebuffer gpu)
                          :format (gpu:virtio-gpu-framebuffer-format gpu)
+                         :render-target t
                          :width (gpu:virtio-gpu-width gpu)
                          :height (gpu:virtio-gpu-height gpu)))
     (setf (virgl-error-state virgl) nil))
@@ -772,7 +773,9 @@ Avoid using context 0 because that's what the compositor and 2D rendering uses."
         (gpu:virtio-gpu-resource-unref
          (virgl-gpu virgl) (resource-id resource))
         ;; Release the dma buffer.
-        (sup:release-dma-buffer (resource-dma-buffer resource))
+        (let ((dma-buffer (resource-dma-buffer resource)))
+          (when dma-buffer
+            (sup:release-dma-buffer dma-buffer)))
         (remhash (resource-id resource) (virgl-resources virgl))
         (setf (slot-value resource '%id) nil)))))
 
@@ -983,7 +986,7 @@ Avoid using context 0 because that's what the compositor and 2D rendering uses."
 
 (defun encode-pipe-bind (bind)
   (ecase bind
-    (:depth-stencil +pipe-bind-depth-stencil+) ; create-surface
+    (:depth/stencil +pipe-bind-depth-stencil+) ; create-surface
     (:render-target +pipe-bind-render-target+) ; create-surface
     (:blendable +pipe-bind-blendable+) ; create-surface
     (:sampler-view +pipe-bind-sampler-view+) ; create-sampler-view
@@ -1124,7 +1127,9 @@ Avoid using context 0 because that's what the compositor and 2D rendering uses."
            "Unable to transfer resource data to GPU: ~D" error))))))
 
 (defclass texture (resource)
-  ((%format :initarg :format :reader texture-format)))
+  ((%format :initarg :format :reader texture-format)
+   (%render-target :initform nil :initarg :render-target :reader texture-render-target)
+   (%depth/stencil :initform nil :initarg :depth/stencil :reader texture-depth/stencil)))
 
 (defgeneric width (texture))
 (defgeneric height (texture)
@@ -1178,6 +1183,74 @@ Avoid using context 0 because that's what the compositor and 2D rendering uses."
   "Return the scanout texture associated with the specified scanout."
   (ecase index
     (0 (virgl-%scanout virgl))))
+
+(defun make-texture (context format dimensions &key name render-target depth/stencil host-only)
+  (encode-texture-format format) ; check format is valid
+  (let* ((rank (length dimensions))
+         (virgl (virgl context))
+         (texture (ecase rank
+                    (1 (make-instance 'texture-1d :virgl virgl :context context :name name
+                                      :format format
+                                      :render-target render-target
+                                      :depth/stencil depth/stencil
+                                      :width (first dimensions)))
+                    (2 (make-instance 'texture-2d :virgl virgl :context context :name name
+                                      :format format
+                                      :render-target render-target
+                                      :depth/stencil depth/stencil
+                                      :width (first dimensions)
+                                      :height (second dimensions)))
+                    (3 (make-instance 'texture-3d :virgl virgl :context context :name name
+                                      :format format
+                                      :render-target render-target
+                                      :depth/stencil depth/stencil
+                                      :width (first dimensions)
+                                      :height (second dimensions)
+                                      :depth (third dimensions))))))
+    (sup:with-mutex ((virgl-lock virgl) :resignal-errors virgl-error)
+      (let ((id (allocate-resource-id virgl)))
+        (setf (slot-value texture '%id) id)
+        (create-resource virgl context id
+                         (ecase rank
+                           (1 :texture-1d)
+                           (2 :texture-2d)
+                           (3 :texture-3d))
+                         format
+                         (append (if depth/stencil (list :depth/stencil) nil)
+                                 (if render-target (list :render-target) nil))
+                         (width texture) (height texture) (depth texture)
+                         1 0 0)
+        (setf (gethash id (virgl-resources virgl)) texture)
+        ;; Create a dma-buffer to back this resource, if requested.
+        (cond (host-only
+               (setf (slot-value texture '%dma-buffer) nil))
+              (t
+               ;; TODO: Discontiguous buffers.
+               (let ((dma-buffer (sup:make-dma-buffer
+                                  (* (width texture) (height texture) (depth texture))
+                                  :name texture :contiguous t)))
+                 (setf (slot-value texture '%dma-buffer) dma-buffer)
+                 ;; Attach it to the resource.
+                 (multiple-value-bind (successp error)
+                     (gpu:virtio-gpu-resource-attach-backing
+                      (virgl-gpu virgl) id
+                      1
+                      (sup:dma-buffer-physical-address dma-buffer)
+                      (sup:dma-buffer-length dma-buffer))
+                   (when (not successp)
+                     (simple-virgl-error
+                      virgl context
+                      "Unable to attach backing memory to resource: ~D" error))))))
+        ;; Associate the resource with the virgl context.
+        (multiple-value-bind (successp error)
+            (gpu:virtio-gpu-attach-resource
+             (virgl-gpu virgl) id
+             :context +virgl-gpu-context+)
+          (when (not successp)
+            (simple-virgl-error
+             virgl context
+             "Unable to attach resource to virgl context: ~D" error)))))
+    texture))
 
 (defclass object ()
   ((%context :initarg :context :reader context)
@@ -1618,15 +1691,15 @@ reused without consing."
 
 (defconstant +max-framebuffer-color-buffers+ 8)
 
-(defun add-command-set-framebuffer-state (command-buffer depth-stencil-surface &rest color-surfaces)
+(defun add-command-set-framebuffer-state (command-buffer depth/stencil-surface &rest color-surfaces)
   (check-command-buffer-not-finalized command-buffer)
   (let ((nr-cbufs (length color-surfaces)))
     (assert (<= nr-cbufs +max-framebuffer-color-buffers+))
-    (check-type depth-stencil-surface (or null surface))
+    (check-type depth/stencil-surface (or null surface))
     (apply #'encode-set-framebuffer-state
            (command-buffer-data-array command-buffer)
-           (if depth-stencil-surface
-               (object-id depth-stencil-surface)
+           (if depth/stencil-surface
+               (object-id depth/stencil-surface)
                0)
            (loop
               for surf in color-surfaces

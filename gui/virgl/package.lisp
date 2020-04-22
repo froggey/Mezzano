@@ -17,6 +17,7 @@
 
            #:make-vertex-buffer
            #:make-index-buffer
+           #:make-texture
            #:resource-dma-buffer
            #:transfer-to-gpu
            #:with-resource
