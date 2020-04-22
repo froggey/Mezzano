@@ -1062,6 +1062,23 @@ Avoid using context 0 because that's what the compositor and 2D rendering uses."
             (let ((,variable ,resource-sym)) ,@body)
          (destroy ,resource-sym)))))
 
+(defmacro with-resources (resource-bindings &body body)
+  (let ((resource-syms (loop for (var val) in resource-bindings
+                          collect (gensym "RESOURCE"))))
+    `(let ,(loop
+              for (var val) in resource-bindings
+              for sym in resource-syms
+              collect (list sym val))
+       (unwind-protect
+            (let ,(loop
+                     for (var val) in resource-bindings
+                     for sym in resource-syms
+                     collect (list var sym))
+              ,@body)
+         ,@(loop
+              for sym in (reverse resource-syms)
+              collect `(destroy ,sym))))))
+
 (defun make-vertex-buffer (context length &rest initargs &key name)
   (declare (ignore name))
   (make-buffer-1 context 'vertex-buffer length :vertex-buffer initargs))
@@ -1177,6 +1194,15 @@ Avoid using context 0 because that's what the compositor and 2D rendering uses."
 (defclass vertex-shader (shader) ())
 (defclass fragment-shader (shader) ())
 
+(defun encode-shader-type (shader-type)
+  (ecase shader-type
+    (:vertex +pipe-shader-vertex+)
+    (:fragment +pipe-shader-fragment+)
+    (:geometry +pipe-shader-geometry+)
+    (:tess-ctrl +pipe-shader-tess-ctrl+)
+    (:tess-eval +pipe-shader-tess-eval+)
+    (:compute +pipe-shader-compute+)))
+
 (defun make-shader (context processor source &key name)
   (multiple-value-bind (tgsi-text n-tokens)
       (mezzano.gui.virgl.tgsi:assemble processor source)
@@ -1185,9 +1211,7 @@ Avoid using context 0 because that's what the compositor and 2D rendering uses."
         (let* ((id (allocate-object-id context))
                (cmd-buf (encode-create-shader
                          id
-                         (ecase processor
-                           (:vertex +pipe-shader-vertex+)
-                           (:fragment +pipe-shader-fragment+))
+                         (encode-shader-type processor)
                          tgsi-text n-tokens
                          nil nil)))
           (encode-set-sub-ctx cmd-buf (context-id context))
@@ -1399,6 +1423,7 @@ multiple times."
               (> (length data) 1024))
       ;; Add extra for the GPU header and command size.
       ;; TODO: Figure out how to do SG with virtio.
+      ;; FIXME: Reuse any existing dma buffer if it has the right size.
       (let* ((dma-buffer (sup:make-dma-buffer (+ 24 4 (length data))
                                               :name command-buffer
                                               :contiguous t))
@@ -1429,6 +1454,19 @@ multiple times."
               (t
                (virgl-submit-simple-command-buffer-1 virgl (command-buffer-data-array command-buffer)))))))
   (values))
+
+(defun command-buffer-reset (command-buffer)
+  "Unfinalize COMMAND-BUFFER and remove any commands.
+This does not free associated memory, so the command buffer can be
+reused without consing."
+  ;; Leave the set sub ctx command intact.
+  (setf (fill-pointer (command-buffer-data-array command-buffer)) 8
+        (slot-value command-buffer '%finalized) nil)
+  (values))
+
+(defmethod destroy ((command-buffer command-buffer))
+  (when (command-buffer-dma-buffer command-buffer)
+    (sup:release-dma-buffer (command-buffer-dma-buffer command-buffer))))
 
 (defconstant +max-framebuffer-color-buffers+ 8)
 
@@ -1569,4 +1607,17 @@ multiple times."
    min-index
    max-index
    count-from-so)
+  (values))
+
+(defun add-command-set-constant-buffer (command-buffer shader &rest constants)
+  (check-command-buffer-not-finalized command-buffer)
+  (let ((buf (command-buffer-data-array command-buffer)))
+    (vector-push-extend-ub32/le (pack-command +virgl-ccmd-set-constant-buffer+
+                                              +virgl-object-null+
+                                              (+ 2 (length constants)))
+                                buf)
+    (vector-push-extend-ub32/le (encode-shader-type shader) buf)
+    (vector-push-extend-ub32/le 0 buf) ; index, not actually used.
+    (dolist (constant constants)
+      (vector-push-extend-single/le constant buf)))
   (values))

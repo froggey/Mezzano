@@ -19,6 +19,7 @@
            #:resource-dma-buffer
            #:transfer-to-gpu
            #:with-resource
+           #:with-resources
 
            #:make-shader
            #:make-surface
@@ -29,6 +30,7 @@
            #:make-command-buffer
            #:command-buffer-finalize
            #:command-buffer-submit
+           #:command-buffer-reset
            #:add-command-set-framebuffer-state
            #:add-command-set-viewport-state
            #:add-command-clear
@@ -36,7 +38,8 @@
            #:add-command-bind-vertex-elements
            #:add-command-bind-shader
            #:add-command-bind-blend
-           #:add-command-draw-vbo))
+           #:add-command-draw-vbo
+           #:add-command-set-constant-buffer))
 
 (defpackage :mezzano.gui.virgl.tgsi
   (:use :cl)

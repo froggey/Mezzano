@@ -25,8 +25,8 @@
                         (error "Unexpected label ~D before declaration ~S" saw-label stmt))
                       (destructuring-bind ((file index) &rest things)
                           (rest stmt)
-                        (check-type file (member :in :out))
-                        (check-type index (unsigned-byte 8))
+                        (check-type file (member :in :out :const :temp))
+                        (check-type index (unsigned-byte 32))
                         (incf total-size 2) ; Declaration + range (for index)
                         (format text "DCL ~A[~D]" file index)
                         ;; Things are dimensions, semantic, interpolation & array info.
@@ -61,7 +61,7 @@
                         (dolist (operand (rest stmt))
                           (destructuring-bind (file index)
                               operand
-                            (check-type file (member :imm :in :out))
+                            (check-type file (member :imm :in :out :const :temp))
                             (check-type index (unsigned-byte 32))
                             (cond (first-operand-p
                                    (setf first-operand-p nil)
