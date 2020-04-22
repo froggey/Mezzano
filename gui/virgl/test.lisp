@@ -98,7 +98,7 @@
           (virgl:add-command-bind-shader cmd-buf fragment-shader)
           ;; Enable writes to the color channels
           (virgl:add-command-bind-blend cmd-buf blend)
-          (virgl:add-command-draw-vbo cmd-buf 0 3 :triangles)
+          (virgl:add-command-draw-vbo cmd-buf 0 (length test-data) :triangles)
           (virgl:command-buffer-finalize cmd-buf)
           (virgl:command-buffer-submit cmd-buf)
           (virgl:scanout-flush scanout 0 0 (virgl:width scanout) (virgl:height scanout)))))))
@@ -219,7 +219,7 @@
                   cmd-buf :vertex
                   c (- s) s c))
              ;; Draw
-               (virgl:add-command-draw-vbo cmd-buf 0 6 :triangles :indexed t)
+               (virgl:add-command-draw-vbo cmd-buf 0 (length test-indices) :triangles :indexed t)
              ;; Do it!
                (virgl:command-buffer-finalize cmd-buf)
                (virgl:command-buffer-submit cmd-buf)
@@ -331,7 +331,7 @@
     result))
 
 (defun test-cube ()
-  "Draw a cube."
+  "Draw a cube, with a depth buffer and backface culling."
   (virgl:with-context (context :name "Test context")
     ;; A cube is made of 8 vertices, formed into 6 faces, made of 2 tris each.
     (let ((test-data '(+0.5 +0.5 +0.5 1.0   ; 0 Position RUF (right upper front)
@@ -355,9 +355,16 @@
                           3 1 0 0 2 3    ; Right face
                           7 6 4 4 5 7    ; Left face
                           5 4 0 0 1 5    ; Up face
-                          7 3 2 2 6 7))) ; Down face
+                          7 3 2 2 6 7))  ; Down face
+          (scanout (virgl:virgl-scanout (virgl:virgl context))))
       (virgl:with-resources ((vertex-buffer (virgl:make-vertex-buffer context (* (length test-data) 4) :name "Test vertex buffer"))
-                             (index-buffer (virgl:make-index-buffer context (* (length test-indices) 2) :name "Test index buffer")))
+                             (index-buffer (virgl:make-index-buffer context (* (length test-indices) 2) :name "Test index buffer"))
+                             (depth-texture (virgl:make-texture context
+                                                                :s8-uint-z24-unorm
+                                                                (list (virgl:width scanout) (virgl:height scanout))
+                                                                :name "Test depth/stencil texture"
+                                                                :depth/stencil t
+                                                                :host-only t)))
         ;; Upload test data
         (let* ((vertex-dma-buf (virgl:resource-dma-buffer vertex-buffer))
                (vertex-buf (make-array (sup:dma-buffer-length vertex-dma-buf)
@@ -404,8 +411,9 @@
                                                      1 (tgsi:sub (:out 0) (:imm 0) (:in 0))
                                                      2 (tgsi:end))))
                ;; Create a surface object backed by the scanout buffer
-               (scanout (virgl:virgl-scanout (virgl:virgl context)))
                (scanout-surface (virgl:make-surface context scanout))
+               ;; And the depth texture
+               (depth-surface (virgl:make-surface context depth-texture))
                ;; Create vertex elements buffer.
                (vertex-elements (virgl:make-vertex-elements
                                  context nil
@@ -422,12 +430,16 @@
                (blend (virgl:make-blend context :colormask :rgba))
                (rasterizer (virgl:make-rasterizer
                             context
-                            :front-ccw t
+                            :front-ccw t ; match opengl
                             :cull-face :back))
+               (dsa (virgl:make-dsa
+                     context
+                     :depth-enabled t
+                     :depth-writemask t
+                     :depth-func :less))
                (setup-cmd-buf (virgl:make-command-buffer context)))
           ;; Attach scanout surface object to the framebuffer's color0 channel.
-          ;; No depth/stencil surface.
-          (virgl:add-command-set-framebuffer-state setup-cmd-buf nil scanout-surface)
+          (virgl:add-command-set-framebuffer-state setup-cmd-buf depth-surface scanout-surface)
           ;; Viewport.
           (virgl:add-command-set-viewport-state
            setup-cmd-buf
@@ -446,6 +458,7 @@
           ;; Enable writes to the color channels
           (virgl:add-command-bind-blend setup-cmd-buf blend)
           (virgl:add-command-bind-rasterizer setup-cmd-buf rasterizer)
+          (virgl:add-command-bind-dsa setup-cmd-buf dsa)
           (virgl:add-command-set-index-buffer setup-cmd-buf index-buffer 2 0)
           (virgl:command-buffer-finalize setup-cmd-buf)
           (virgl:command-buffer-submit setup-cmd-buf)
@@ -462,9 +475,8 @@
                (virgl:command-buffer-reset cmd-buf)
              ;; Clear framebuffer.
                (virgl:add-command-clear
-                cmd-buf :color 0.25 0.33 0.66 0.75 0.0d0 0)
+                cmd-buf '(:color :depth) 0.25 0.33 0.66 0.75 1.0d0 0)
              ;; Set constants.
-             ;; An identity matrix. Watch out - this is transposed!
                (virgl:add-command-set-constant-buffer
                 cmd-buf :vertex
                 (matrix-multiply
@@ -473,7 +485,7 @@
                   (make-translate-matrix 0.0 0.0 -1.0)
                   (make-rotate-matrix 1.5 0.5 1.0 (degrees-to-radians i)))))
              ;; Draw
-               (virgl:add-command-draw-vbo cmd-buf 0 (length test-indices)#+(or)(/ (length test-indices) 3) :triangles :indexed t)
+               (virgl:add-command-draw-vbo cmd-buf 0 (length test-indices) :triangles :indexed t)
              ;; Do it!
                (virgl:command-buffer-finalize cmd-buf)
                (virgl:command-buffer-submit cmd-buf)
