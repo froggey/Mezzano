@@ -45,7 +45,7 @@
   (:use :cl)
   (:export #:assemble
            #:dcl #:imm
-           #:mov #:end #:sub))
+           #:end #:mov #:add #:sub #:mul))
 
 (defpackage :mezzano.gui.virgl.test
   (:use :cl)

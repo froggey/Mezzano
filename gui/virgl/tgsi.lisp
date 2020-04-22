@@ -2,6 +2,33 @@
 
 (in-package :mezzano.gui.virgl.tgsi)
 
+(defun check-swizzle (swizzle)
+  ;; This checks both swizzles and writemasks.
+  (when (not swizzle)
+    ;; This is a writemask that writes nothing.
+    (return-from check-swizzle))
+  (let ((name (symbol-name swizzle)))
+    ;; Swizzles are 4 elements long, anything shorter is a writemask.
+    (cond ((< (length name) 4)
+           ;; Writemasks must have their elements in order.
+           ;; :XYZ, not :XZY
+           (loop
+              with order = '(#\X #\Y #\Z #\W)
+              for ch across name
+              do
+                (loop
+                   (when (not order)
+                     (error "Bad writemask ~S" swizzle))
+                   (when (eql ch (pop order))
+                     (return)))))
+          (t
+           (assert (eql (length name) 4))
+           ;; Swizzles consist of XYZW in any order and duplication.
+           (loop
+              for ch across name
+              when (not (member ch '(#\X #\Y #\Z #\W)))
+              do (error "Bad swizzle ~S" swizzle))))))
+
 (defun assemble (processor source)
   (let* ((total-size 2) ; header token + processor token
          (saw-label nil)
@@ -59,16 +86,19 @@
                       (incf total-size)
                       (let ((first-operand-p t))
                         (dolist (operand (rest stmt))
-                          (destructuring-bind (file index)
+                          (destructuring-bind (file index &optional (swizzle :xyzw))
                               operand
                             (check-type file (member :imm :in :out :const :temp))
                             (check-type index (unsigned-byte 32))
+                            (check-swizzle swizzle)
                             (cond (first-operand-p
                                    (setf first-operand-p nil)
                                    (write-string " " text))
                                   (t
                                    (write-string ", " text)))
                             (format text "~A[~D]" file index)
+                            (when (not (eql swizzle :xyzw))
+                              (format text ".~A" swizzle))
                             (incf total-size))))
                       (terpri text))))
                  (when saw-label
