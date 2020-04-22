@@ -151,6 +151,18 @@
           (ash obj-type 8)
           (ash len 16)))
 
+(defun vector-push-extend-ub16/le (new-element vector)
+  (let ((here (vector-push-extend 0 vector)))
+    (vector-push-extend 0 vector)
+    (setf (ext:ub16ref/le vector here) new-element)
+    here))
+
+(defun vector-push-extend-sb16/le (new-element vector)
+  (let ((here (vector-push-extend 0 vector)))
+    (vector-push-extend 0 vector)
+    (setf (ext:sb16ref/le vector here) new-element)
+    here))
+
 (defun vector-push-extend-ub32/le (new-element vector)
   (let ((here (vector-push-extend 0 vector)))
     (vector-push-extend 0 vector)
@@ -1017,6 +1029,7 @@ Avoid using context 0 because that's what the compositor and 2D rendering uses."
 
 (defclass buffer (resource) ())
 (defclass vertex-buffer (buffer) ())
+(defclass index-buffer (buffer) ())
 
 (defun make-buffer-1 (context class length bind initargs)
   (let* ((virgl (virgl context))
@@ -1063,25 +1076,32 @@ Avoid using context 0 because that's what the compositor and 2D rendering uses."
          (destroy ,resource-sym)))))
 
 (defmacro with-resources (resource-bindings &body body)
+  ;; Ensure that bindings are covered by U-P as soon as they
+  ;; are created, so errors in other init-forms will not cause
+  ;; them to leak.
   (let ((resource-syms (loop for (var val) in resource-bindings
                           collect (gensym "RESOURCE"))))
-    `(let ,(loop
-              for (var val) in resource-bindings
-              for sym in resource-syms
-              collect (list sym val))
-       (unwind-protect
-            (let ,(loop
-                     for (var val) in resource-bindings
-                     for sym in resource-syms
-                     collect (list var sym))
-              ,@body)
-         ,@(loop
-              for sym in (reverse resource-syms)
-              collect `(destroy ,sym))))))
+    (labels ((frob (bindings syms)
+               (cond ((endp bindings)
+                      `(let ,(loop
+                                for (var val) in resource-bindings
+                                for sym in resource-syms
+                                collect (list var sym))
+                         ,@body))
+                     (t
+                      `(let ((,(first syms) ,(second (first bindings))))
+                         (unwind-protect
+                              ,(frob (rest bindings) (rest syms))
+                           (destroy ,(first syms))))))))
+      (frob resource-bindings resource-syms))))
 
 (defun make-vertex-buffer (context length &rest initargs &key name)
   (declare (ignore name))
   (make-buffer-1 context 'vertex-buffer length :vertex-buffer initargs))
+
+(defun make-index-buffer (context length &rest initargs &key name)
+  (declare (ignore name))
+  (make-buffer-1 context 'index-buffer length :index-buffer initargs))
 
 (defgeneric transfer-to-gpu (resource &key))
 
@@ -1620,4 +1640,28 @@ reused without consing."
     (vector-push-extend-ub32/le 0 buf) ; index, not actually used.
     (dolist (constant constants)
       (vector-push-extend-single/le constant buf)))
+  (values))
+
+(defun add-command-set-index-buffer (command-buffer index-buffer element-width offset)
+  (check-type index-buffer index-buffer)
+  (check-type element-width (member 1 2 4))
+  (check-command-buffer-not-finalized command-buffer)
+  (let ((buf (command-buffer-data-array command-buffer)))
+    (vector-push-extend-ub32/le (pack-command +virgl-ccmd-set-index-buffer+
+                                              +virgl-object-null+
+                                              3)
+                                buf)
+    (vector-push-extend-ub32/le (resource-id index-buffer) buf)
+    (vector-push-extend-ub32/le element-width buf)
+    (vector-push-extend-ub32/le offset buf))
+  (values))
+
+(defun add-command-clear-index-buffer (command-buffer)
+  (check-command-buffer-not-finalized command-buffer)
+  (let ((buf (command-buffer-data-array command-buffer)))
+    (vector-push-extend-ub32/le (pack-command +virgl-ccmd-set-index-buffer+
+                                              +virgl-object-null+
+                                              1)
+                                buf)
+    (vector-push-extend-ub32/le 0 buf))
   (values))

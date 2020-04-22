@@ -16,6 +16,7 @@
            #:with-context
 
            #:make-vertex-buffer
+           #:make-index-buffer
            #:resource-dma-buffer
            #:transfer-to-gpu
            #:with-resource
@@ -39,7 +40,9 @@
            #:add-command-bind-shader
            #:add-command-bind-blend
            #:add-command-draw-vbo
-           #:add-command-set-constant-buffer))
+           #:add-command-set-constant-buffer
+           #:add-command-set-index-buffer
+           #:add-command-clear-index-buffer))
 
 (defpackage :mezzano.gui.virgl.tgsi
   (:use :cl)

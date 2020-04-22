@@ -106,28 +106,34 @@
 (defun test-spin ()
   "Clear the scanout and draw a spinning triangle."
   (virgl:with-context (context :name "Test context")
-    (let ((test-data '(0.0 0.0 0.0 1.0   ; Position A0
-                       1.0 0.0 0.0 1.0   ; Colour A0
-                       0.5 0.0 0.0 1.0   ; Position A1
-                       0.0 1.0 0.0 1.0   ; Colour A1
-                       0.5 0.5 0.0 1.0   ; Position A2
-                       0.0 0.0 1.0 1.0   ; Colour A2
-                       0.0 0.0 0.0 1.0   ; Position B0
-                       1.0 0.0 0.0 1.0   ; Colour B0
-                       0.0 0.5 0.0 1.0   ; Position B3
-                       1.0 1.0 0.0 1.0   ; Colour B3
-                       0.5 0.5 0.0 1.0   ; Position B2
-                       0.0 0.0 1.0 1.0))); Colour B2
-      (virgl:with-resources ((vertex-buffer (virgl:make-vertex-buffer context (* (length test-data) 4) :name "Test vertex buffer")))
+    (let ((test-data '(0.0 0.0 0.0 1.0   ; 0 Position A0
+                       1.0 0.0 0.0 1.0   ;   Colour A0
+                       0.5 0.0 0.0 1.0   ; 1 Position A1
+                       0.0 1.0 0.0 1.0   ;   Colour A1
+                       0.5 0.5 0.0 1.0   ; 2 Position A2
+                       0.0 0.0 1.0 1.0   ;   Colour A2
+                       0.0 0.5 0.0 1.0   ; 3 Position B3
+                       1.0 1.0 0.0 1.0)) ;   Colour B3
+          (test-indices '(0 1 2 0 3 2)))
+      (virgl:with-resources ((vertex-buffer (virgl:make-vertex-buffer context (* (length test-data) 4) :name "Test vertex buffer"))
+                             (index-buffer (virgl:make-index-buffer context (* (length test-indices) 2) :name "Test index buffer")))
         ;; Upload test data
-        (let* ((dma-buf (virgl:resource-dma-buffer vertex-buffer))
-               (vertex-buf (make-array (sup:dma-buffer-length dma-buf)
+        (let* ((vertex-dma-buf (virgl:resource-dma-buffer vertex-buffer))
+               (vertex-buf (make-array (sup:dma-buffer-length vertex-dma-buf)
                                        :element-type '(unsigned-byte 8)
                                        :fill-pointer 0
-                                       :memory dma-buf)))
+                                       :memory vertex-dma-buf)))
           (dolist (val test-data)
             (virgl::vector-push-extend-single/le val vertex-buf))
           (virgl:transfer-to-gpu vertex-buffer))
+        (let* ((index-dma-buf (virgl:resource-dma-buffer index-buffer))
+               (index-buf (make-array (sup:dma-buffer-length index-dma-buf)
+                                       :element-type '(unsigned-byte 8)
+                                       :fill-pointer 0
+                                       :memory index-dma-buf)))
+          (dolist (val test-indices)
+            (virgl::vector-push-extend-ub16/le val index-buf))
+          (virgl:transfer-to-gpu index-buffer))
         (let* ((vertex-shader (virgl:make-shader context
                                                  :vertex
                                                  '((tgsi:dcl (:in 0))
@@ -191,6 +197,7 @@
           (virgl:add-command-bind-shader setup-cmd-buf fragment-shader)
           ;; Enable writes to the color channels
           (virgl:add-command-bind-blend setup-cmd-buf blend)
+          (virgl:add-command-set-index-buffer setup-cmd-buf index-buffer 2 0)
           (virgl:command-buffer-finalize setup-cmd-buf)
           (virgl:command-buffer-submit setup-cmd-buf)
           (loop
@@ -212,7 +219,7 @@
                   cmd-buf :vertex
                   c (- s) s c))
              ;; Draw
-               (virgl:add-command-draw-vbo cmd-buf 0 6 :triangles)
+               (virgl:add-command-draw-vbo cmd-buf 0 6 :triangles :indexed t)
              ;; Do it!
                (virgl:command-buffer-finalize cmd-buf)
                (virgl:command-buffer-submit cmd-buf)
