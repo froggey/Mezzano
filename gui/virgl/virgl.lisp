@@ -1632,15 +1632,25 @@ reused without consing."
 
 (defun add-command-set-constant-buffer (command-buffer shader &rest constants)
   (check-command-buffer-not-finalized command-buffer)
-  (let ((buf (command-buffer-data-array command-buffer)))
-    (vector-push-extend-ub32/le (pack-command +virgl-ccmd-set-constant-buffer+
-                                              +virgl-object-null+
-                                              (+ 2 (length constants)))
-                                buf)
+  (let* ((buf (command-buffer-data-array command-buffer))
+         (header-pos (length buf))
+         (n-constants 0))
+    (vector-push-extend-ub32/le 0 buf) ; header, filled in once we know how many constants there are.
     (vector-push-extend-ub32/le (encode-shader-type shader) buf)
     (vector-push-extend-ub32/le 0 buf) ; index, not actually used.
     (dolist (constant constants)
-      (vector-push-extend-single/le constant buf)))
+      (etypecase constant
+        ((simple-array single-float (*))
+         (dotimes (i (length constant))
+           (incf n-constants)
+           (vector-push-extend-single/le (aref constant i) buf)))
+        (single-float
+         (incf n-constants)
+         (vector-push-extend-single/le constant buf))))
+    (setf (ext:ub32ref/le buf header-pos)
+          (pack-command +virgl-ccmd-set-constant-buffer+
+                        +virgl-object-null+
+                        (+ 2 n-constants))))
   (values))
 
 (defun add-command-set-index-buffer (command-buffer index-buffer element-width offset)
