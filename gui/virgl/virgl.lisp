@@ -773,6 +773,7 @@ Avoid using context 0 because that's what the compositor and 2D rendering uses."
          (virgl-gpu virgl) (resource-id resource))
         ;; Release the dma buffer.
         (sup:release-dma-buffer (resource-dma-buffer resource))
+        (remhash (resource-id resource) (virgl-resources virgl))
         (setf (slot-value resource '%id) nil)))))
 
 (deftype pipe-target ()
