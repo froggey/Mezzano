@@ -50,12 +50,16 @@
                       ;; Declaration.
                       (when saw-label
                         (error "Unexpected label ~D before declaration ~S" saw-label stmt))
-                      (destructuring-bind ((file index) &rest things)
+                      (destructuring-bind ((file index &optional (end-index index)) &rest things)
                           (rest stmt)
                         (check-type file (member :in :out :const :temp))
                         (check-type index (unsigned-byte 32))
+                        (check-type end-index (unsigned-byte 32))
                         (incf total-size 2) ; Declaration + range (for index)
-                        (format text "DCL ~A[~D]" file index)
+                        (cond ((eql index end-index)
+                               (format text "DCL ~A[~D]" file index))
+                              (t
+                               (format text "DCL ~A[~D..~D]" file index end-index)))
                         ;; Things are dimensions, semantic, interpolation & array info.
                         ;; TODO: Check this more exactly.
                         (dolist (thing things)
