@@ -2,7 +2,8 @@
   (:use :cl)
   (:local-nicknames (:gpu :mezzano.supervisor.virtio-gpu)
                     (:ext :mezzano.extensions)
-                    (:sup :mezzano.supervisor))
+                    (:sup :mezzano.supervisor)
+                    (:gui :mezzano.gui))
   (:export #:get-virgl
            #:virgl
            #:virgl-scanout
@@ -18,6 +19,7 @@
            #:make-vertex-buffer
            #:make-index-buffer
            #:make-texture
+           #:make-texture-from-gui-surface
            #:resource-dma-buffer
            #:transfer-to-gpu
            #:with-resource

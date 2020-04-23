@@ -1286,6 +1286,7 @@ Avoid using context 0 because that's what the compositor and 2D rendering uses."
   (encode-texture-format format) ; check format is valid
   (let* ((rank (length dimensions))
          (virgl (virgl context))
+         (total-size (reduce #'* dimensions))
          (texture (ecase rank
                     (1 (make-instance 'texture-1d :virgl virgl :context context :name name
                                       :format format
@@ -1314,8 +1315,10 @@ Avoid using context 0 because that's what the compositor and 2D rendering uses."
                            (2 :texture-2d)
                            (3 :texture-3d))
                          format
-                         (append (if depth/stencil (list :depth/stencil) nil)
-                                 (if render-target (list :render-target) nil))
+                         (list*
+                          :sampler-view
+                          (append (if depth/stencil (list :depth/stencil) nil)
+                                  (if render-target (list :render-target) nil)))
                          (width texture) (height texture) (depth texture)
                          1 0 0)
         (setf (gethash id (virgl-resources virgl)) texture)
@@ -1325,7 +1328,7 @@ Avoid using context 0 because that's what the compositor and 2D rendering uses."
               (t
                ;; TODO: Discontiguous buffers.
                (let ((dma-buffer (sup:make-dma-buffer
-                                  (* (width texture) (height texture) (depth texture))
+                                  (* total-size (texture-format-width format))
                                   :name texture :contiguous t)))
                  (setf (slot-value texture '%dma-buffer) dma-buffer)
                  ;; Attach it to the resource.
@@ -1348,6 +1351,43 @@ Avoid using context 0 because that's what the compositor and 2D rendering uses."
             (simple-virgl-error
              virgl context
              "Unable to attach resource to virgl context: ~D" error)))))
+    texture))
+
+(defmethod transfer-to-gpu ((texture texture) &key)
+  (let ((virgl (virgl texture)))
+    (sup:with-mutex ((virgl-lock virgl) :resignal-errors virgl-error)
+      (multiple-value-bind (successp error)
+          (gpu:virtio-gpu-transfer-to-host-3d
+           (virgl-gpu virgl)
+           0 0 0
+           (width texture) (height texture) (depth texture)
+           0
+           (resource-id texture)
+           0 0 0
+           :context +virgl-gpu-context+)
+        (when (not successp)
+          (simple-virgl-error
+           virgl (context texture)
+           "Unable to transfer resource data to GPU: ~D" error))))))
+
+(defun make-texture-from-gui-surface (context surface &key name render-target)
+  (let* ((texture (make-texture context
+                               (ecase (gui:surface-format surface)
+                                 (:argb32 :b8g8r8a8-unorm))
+                               (list (gui:surface-width surface)
+                                     (gui:surface-height surface))
+                               :name name
+                               :render-target render-target))
+         (surface-row-major-pixels (make-array (* (gui:surface-height surface)
+                                                  (gui:surface-width surface))
+                                               :displaced-to (gui:surface-pixels surface)))
+         (dma-buf (resource-dma-buffer texture))
+         (texture-data (make-array (* (gui:surface-height surface)
+                                      (gui:surface-width surface))
+                                  :element-type '(unsigned-byte 32)
+                                  :memory dma-buf)))
+    (replace texture-data surface-row-major-pixels)
+    (transfer-to-gpu texture)
     texture))
 
 (defclass object ()
