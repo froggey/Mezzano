@@ -61,6 +61,8 @@
 
            #:virtio-device
            #:virtio-gpu
+           #:virtio-gpu-n-capsets
+           #:virtio-gpu-n-scanouts
            #:virtio-gpu-scanout
            #:virtio-gpu-width
            #:virtio-gpu-height
@@ -213,6 +215,14 @@ must not be allocated by virgl.")
 (defun virtio-gpu-framebuffer-format (gpu)
   (declare (ignore gpu))
   :b8g8r8a8-unorm)
+
+(defun virtio-gpu-n-scanouts (gpu)
+  (virtio:virtio-device-specific-header/32
+   (virtio-gpu-virtio-device gpu) +virtio-gpu-config-num-scanouts+))
+
+(defun virtio-gpu-n-capsets (gpu)
+  (virtio:virtio-device-specific-header/32
+   (virtio-gpu-virtio-device gpu) +virtio-gpu-config-num-capsets+))
 
 (defun virtio-gpu-command-address (gpu &optional (offset 0))
   (+ (virtio-gpu-request-virt gpu)

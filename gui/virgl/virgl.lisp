@@ -49,10 +49,10 @@
                            `(format stream "  ~:(~S~): ~S~%" ',name (,name object)))))))))
 
 (defun ieee-single-ref/le (vector index)
-  (ext:single-float-to-ieee-binary32 (ext:ub32ref/le vector index)))
+  (ext:ieee-binary32-to-single-float (ext:ub32ref/le vector index)))
 
 (defun (setf ieee-single-ref/le) (value vector index)
-  (setf (ext:ub32ref/le vector index) (ext:ieee-binary32-to-single-float value))
+  (setf (ext:ub32ref/le vector index) (ext:single-float-to-ieee-binary32 value))
   value)
 
 (define-caps-struct-slots
@@ -142,6 +142,68 @@
   (2 caps-max-texture-2d-size               484 ext:ub32ref/le)
   (2 caps-max-texture-3d-size               488 ext:ub32ref/le)
   (2 caps-max-texture-cube-size             492 ext:ub32ref/le))
+
+(defconstant +capset-virgl+ 1)
+(defconstant +capset-virgl2+ 2)
+
+(defun read-virgl-capset (gpu)
+  (let ((n-caps (gpu:virtio-gpu-n-capsets gpu))
+        (best-id nil)
+        (best-version nil)
+        (best nil))
+    ;; Prioritize v2 with the highest version, then v1.
+    (loop
+       for i below n-caps
+       do (multiple-value-bind (id max-version)
+              (gpu:virtio-gpu-get-capset-info gpu i)
+            (cond ((eql id +capset-virgl+)
+                   (when (or (not best-id)
+                             (and (eql best-id +capset-virgl+)
+                                  (< best-version max-version)))
+                     (setf best i
+                           best-id id
+                           best-version max-version)))
+                  ((eql id +capset-virgl2+)
+                   (when (or (not best-id)
+                             (< best-version max-version))
+                     (setf best i
+                           best-id id
+                           best-version max-version))))))
+    (when (not best)
+      (return-from read-virgl-capset nil))
+    (multiple-value-bind (id max-version max-size)
+        (gpu:virtio-gpu-get-capset-info gpu best)
+      (let ((data (make-array max-size :element-type '(unsigned-byte 8))))
+        (gpu:virtio-gpu-get-capset gpu id max-version data)
+        ;; Add in formats that're always supported.
+        (let ((depthstencil-offset 132))
+          ;; These are defined in virglrenderer's base_depth_formats.
+          (dolist (format '(:z16-unorm
+                            :z32-unorm
+                            ;; This is the usual format.
+                            :s8-uint-z24-unorm
+                            :z24x8-unorm
+                            :z32-float
+                            :z32-float-s8x24-uint
+                            :x24s8-uint))
+            (multiple-value-bind (index bit)
+                (truncate (encode-texture-format format) 8)
+              (setf (aref data (+ depthstencil-offset index))
+                    (logior (ash 1 bit)
+                            (aref data (+ depthstencil-offset index)))))))
+        (make-virgl-caps :data data)))))
+
+(defun caps-sampler-supported-p (caps texture-format)
+  (caps-sampler caps (encode-texture-format texture-format)))
+
+(defun caps-render-supported-p (caps texture-format)
+  (caps-render caps (encode-texture-format texture-format)))
+
+(defun caps-depthstencil-supported-p (caps texture-format)
+  (caps-depthstencil caps (encode-texture-format texture-format)))
+
+(defun caps-vertexbuffer-supported-p (caps texture-format)
+  (caps-vertexbuffer caps (encode-texture-format texture-format)))
 
 (defun pack-command (cmd obj-type len)
   (check-type cmd (unsigned-byte 8))
@@ -564,6 +626,7 @@ Avoid using context 0 because that's what the compositor and 2D rendering uses."
 
 (defclass virgl ()
   ((%gpu :initarg :gpu :reader virgl-gpu)
+   (%caps :initarg :caps :reader virgl-caps)
    (%lock :reader virgl-lock)
    (%error-state :initform nil :accessor virgl-error-state)
    (%scanout :reader virgl-%scanout)
@@ -643,6 +706,7 @@ Avoid using context 0 because that's what the compositor and 2D rendering uses."
       (when (not successp)
         (setf (virgl-error-state virgl) error)
         (simple-virgl-error virgl nil "Unable to attach scanout to primary context: ~D" error)))
+    (setf (slot-value virgl '%caps) (read-virgl-capset gpu))
     ;; TODO: What to do when the scanout changes size?
     (setf (slot-value virgl '%scanout)
           (make-instance 'scanout
@@ -798,191 +862,225 @@ Avoid using context 0 because that's what the compositor and 2D rendering uses."
     (:texture-2d-array +pipe-texture-2d-array+)
     (:texture-cube-array +pipe-texture-cube-array+)))
 
-(defun encode-texture-format (texture-format)
-  (ecase texture-format
-    (:b8g8r8a8-unorm +virgl-format-b8g8r8a8-unorm+)
-    (:b8g8r8x8-unorm +virgl-format-b8g8r8x8-unorm+)
-    (:a8r8g8b8-unorm +virgl-format-a8r8g8b8-unorm+)
-    (:x8r8g8b8-unorm +virgl-format-x8r8g8b8-unorm+)
-    (:b5g5r5a1-unorm +virgl-format-b5g5r5a1-unorm+)
-    (:b4g4r4a4-unorm +virgl-format-b4g4r4a4-unorm+)
-    (:b5g6r5-unorm +virgl-format-b5g6r5-unorm+)
-    (:r10g10b10a2-unorm +virgl-format-r10g10b10a2-unorm+)
-    (:l8-unorm +virgl-format-l8-unorm+)    ; ubyte luminance
-    (:a8-unorm +virgl-format-a8-unorm+)   ; ubyte alpha
-    (:l8a8-unorm +virgl-format-l8a8-unorm+)   ; ubyte alpha, luminance
+(defparameter *texture-formats*
+  `((:b8g8r8a8-unorm ,+virgl-format-b8g8r8a8-unorm+ 4)
+    (:b8g8r8x8-unorm ,+virgl-format-b8g8r8x8-unorm+ 4)
+    (:a8r8g8b8-unorm ,+virgl-format-a8r8g8b8-unorm+ 4)
+    (:x8r8g8b8-unorm ,+virgl-format-x8r8g8b8-unorm+ 4)
+    (:b5g5r5a1-unorm ,+virgl-format-b5g5r5a1-unorm+ 2)
+    (:b4g4r4a4-unorm ,+virgl-format-b4g4r4a4-unorm+ 2)
+    (:b5g6r5-unorm ,+virgl-format-b5g6r5-unorm+ 2)
+    (:r10g10b10a2-unorm ,+virgl-format-r10g10b10a2-unorm+ 4)
+    (:l8-unorm ,+virgl-format-l8-unorm+ 1)    ; ubyte luminance
+    (:a8-unorm ,+virgl-format-a8-unorm+ 1)   ; ubyte alpha
+    (:l8a8-unorm ,+virgl-format-l8a8-unorm+ 2)   ; ubyte alpha, luminance
 
-    (:l16-unorm +virgl-format-l16-unorm+)   ; ushort luminance
+    (:l16-unorm ,+virgl-format-l16-unorm+ 2)   ; ushort luminance
 
-    (:z16-unorm +virgl-format-z16-unorm+)
-    (:z32-unorm +virgl-format-z32-unorm+)
-    (:z32-float +virgl-format-z32-float+)
-    (:z24-unorm-s8-uint +virgl-format-z24-unorm-s8-uint+)
-    (:s8-uint-z24-unorm +virgl-format-s8-uint-z24-unorm+)
-    (:z24x8-unorm +virgl-format-z24x8-unorm+)
-    (:s8-uint +virgl-format-s8-uint+)   ; ubyte stencil
+    (:z16-unorm ,+virgl-format-z16-unorm+ 2)
+    (:z32-unorm ,+virgl-format-z32-unorm+ 4)
+    (:z32-float ,+virgl-format-z32-float+ 4)
+    (:z24-unorm-s8-uint ,+virgl-format-z24-unorm-s8-uint+ 4)
+    (:s8-uint-z24-unorm ,+virgl-format-s8-uint-z24-unorm+ 4)
+    (:z24x8-unorm ,+virgl-format-z24x8-unorm+ 4)
+    (:s8-uint ,+virgl-format-s8-uint+ 1)   ; ubyte stencil
 
-    (:r32-float +virgl-format-r32-float+)
-    (:r32g32-float +virgl-format-r32g32-float+)
-    (:r32g32b32-float +virgl-format-r32g32b32-float+)
-    (:r32g32b32a32-float +virgl-format-r32g32b32a32-float+)
+    (:r32-float ,+virgl-format-r32-float+ 4)
+    (:r32g32-float ,+virgl-format-r32g32-float+ 8)
+    (:r32g32b32-float ,+virgl-format-r32g32b32-float+ 12)
+    (:r32g32b32a32-float ,+virgl-format-r32g32b32a32-float+ 16)
 
-    (:r16-unorm +virgl-format-r16-unorm+)
-    (:r16g16-unorm +virgl-format-r16g16-unorm+)
+    (:r16-unorm ,+virgl-format-r16-unorm+ 2)
+    (:r16g16-unorm ,+virgl-format-r16g16-unorm+ 2)
 
-    (:r16g16b16a16-unorm +virgl-format-r16g16b16a16-unorm+)
+    (:r16g16b16a16-unorm ,+virgl-format-r16g16b16a16-unorm+ 8)
 
-    (:r16-snorm +virgl-format-r16-snorm+)
-    (:r16g16-snorm +virgl-format-r16g16-snorm+)
-    (:r16g16b16a16-snorm +virgl-format-r16g16b16a16-snorm+)
+    (:r16-snorm ,+virgl-format-r16-snorm+ 2)
+    (:r16g16-snorm ,+virgl-format-r16g16-snorm+ 4)
+    (:r16g16b16a16-snorm ,+virgl-format-r16g16b16a16-snorm+ 8)
 
-    (:r8-unorm +virgl-format-r8-unorm+)
-    (:r8g8-unorm +virgl-format-r8g8-unorm+)
+    (:r8-unorm ,+virgl-format-r8-unorm+ 1)
+    (:r8g8-unorm ,+virgl-format-r8g8-unorm+ 2)
 
-    (:r8g8b8a8-unorm +virgl-format-r8g8b8a8-unorm+)
+    (:r8g8b8a8-unorm ,+virgl-format-r8g8b8a8-unorm+ 4)
 
-    (:r8-snorm +virgl-format-r8-snorm+)
-    (:r8g8-snorm +virgl-format-r8g8-snorm+)
-    (:r8g8b8-snorm +virgl-format-r8g8b8-snorm+)
-    (:r8g8b8a8-snorm +virgl-format-r8g8b8a8-snorm+)
+    (:r8-snorm ,+virgl-format-r8-snorm+ 1)
+    (:r8g8-snorm ,+virgl-format-r8g8-snorm+ 2)
+    (:r8g8b8-snorm ,+virgl-format-r8g8b8-snorm+ 3)
+    (:r8g8b8a8-snorm ,+virgl-format-r8g8b8a8-snorm+ 4)
 
-    (:r16-float +virgl-format-r16-float+)
-    (:r16g16-float +virgl-format-r16g16-float+)
-    (:r16g16b16-float +virgl-format-r16g16b16-float+)
-    (:r16g16b16a16-float +virgl-format-r16g16b16a16-float+)
+    (:r16-float ,+virgl-format-r16-float+ 2)
+    (:r16g16-float ,+virgl-format-r16g16-float+ 4)
+    (:r16g16b16-float ,+virgl-format-r16g16b16-float+ 6)
+    (:r16g16b16a16-float ,+virgl-format-r16g16b16a16-float+ 8)
 
-    (:l8-srgb +virgl-format-l8-srgb+)
-    (:l8a8-srgb +virgl-format-l8a8-srgb+)
-    (:b8g8r8a8-srgb +virgl-format-b8g8r8a8-srgb+)
-    (:b8g8r8x8-srgb +virgl-format-b8g8r8x8-srgb+)
-    (:r8g8b8a8-srgb +virgl-format-r8g8b8a8-srgb+)
+    (:l8-srgb ,+virgl-format-l8-srgb+ 1)
+    (:l8a8-srgb ,+virgl-format-l8a8-srgb+ 2)
+    (:b8g8r8a8-srgb ,+virgl-format-b8g8r8a8-srgb+ 4)
+    (:b8g8r8x8-srgb ,+virgl-format-b8g8r8x8-srgb+ 4)
+    (:r8g8b8a8-srgb ,+virgl-format-r8g8b8a8-srgb+ 4)
 
     ;; compressed formats
-    (:dxt1-rgb +virgl-format-dxt1-rgb+)
-    (:dxt1-rgba +virgl-format-dxt1-rgba+)
-    (:dxt3-rgba +virgl-format-dxt3-rgba+)
-    (:dxt5-rgba +virgl-format-dxt5-rgba+)
+    (:dxt1-rgb ,+virgl-format-dxt1-rgb+ nil)
+    (:dxt1-rgba ,+virgl-format-dxt1-rgba+ nil)
+    (:dxt3-rgba ,+virgl-format-dxt3-rgba+ nil)
+    (:dxt5-rgba ,+virgl-format-dxt5-rgba+ nil)
 
     ;; sRGB, compressed
-    (:dxt1-srgb +virgl-format-dxt1-srgb+)
-    (:dxt1-srgba +virgl-format-dxt1-srgba+)
-    (:dxt3-srgba +virgl-format-dxt3-srgba+)
-    (:dxt5-srgba +virgl-format-dxt5-srgba+)
+    (:dxt1-srgb ,+virgl-format-dxt1-srgb+ nil)
+    (:dxt1-srgba ,+virgl-format-dxt1-srgba+ nil)
+    (:dxt3-srgba ,+virgl-format-dxt3-srgba+ nil)
+    (:dxt5-srgba ,+virgl-format-dxt5-srgba+ nil)
 
     ;; rgtc compressed
-    (:rgtc1-unorm +virgl-format-rgtc1-unorm+)
-    (:rgtc1-snorm +virgl-format-rgtc1-snorm+)
-    (:rgtc2-unorm +virgl-format-rgtc2-unorm+)
-    (:rgtc2-snorm +virgl-format-rgtc2-snorm+)
+    (:rgtc1-unorm ,+virgl-format-rgtc1-unorm+ nil)
+    (:rgtc1-snorm ,+virgl-format-rgtc1-snorm+ nil)
+    (:rgtc2-unorm ,+virgl-format-rgtc2-unorm+ nil)
+    (:rgtc2-snorm ,+virgl-format-rgtc2-snorm+ nil)
 
-    (:a8b8g8r8-unorm +virgl-format-a8b8g8r8-unorm+)
-    (:b5g5r5x1-unorm +virgl-format-b5g5r5x1-unorm+)
-    (:r11g11b10-float +virgl-format-r11g11b10-float+)
-    (:r9g9b9e5-float +virgl-format-r9g9b9e5-float+)
-    (:z32-float-s8x24-uint +virgl-format-z32-float-s8x24-uint+)
+    (:a8b8g8r8-unorm ,+virgl-format-a8b8g8r8-unorm+ 4)
+    (:b5g5r5x1-unorm ,+virgl-format-b5g5r5x1-unorm+ 2)
+    (:r11g11b10-float ,+virgl-format-r11g11b10-float+ 4)
+    (:r9g9b9e5-float ,+virgl-format-r9g9b9e5-float+ 4)
+    (:z32-float-s8x24-uint ,+virgl-format-z32-float-s8x24-uint+ 8)
 
-    (:b10g10r10a2-unorm +virgl-format-b10g10r10a2-unorm+)
-    (:r8g8b8x8-unorm +virgl-format-r8g8b8x8-unorm+)
-    (:b4g4r4x4-unorm +virgl-format-b4g4r4x4-unorm+)
-    (:x24s8-uint +virgl-format-x24s8-uint+)
-    (:s8x24-uint +virgl-format-s8x24-uint+)
-    (:b2g3r3-unorm +virgl-format-b2g3r3-unorm+)
+    (:b10g10r10a2-unorm ,+virgl-format-b10g10r10a2-unorm+ 4)
+    (:r8g8b8x8-unorm ,+virgl-format-r8g8b8x8-unorm+ 4)
+    (:b4g4r4x4-unorm ,+virgl-format-b4g4r4x4-unorm+ 2)
+    (:x24s8-uint ,+virgl-format-x24s8-uint+ 4)
+    (:s8x24-uint ,+virgl-format-s8x24-uint+ 4)
+    (:b2g3r3-unorm ,+virgl-format-b2g3r3-unorm+ 8)
 
-    (:l16a16-unorm +virgl-format-l16a16-unorm+)
-    (:a16-unorm +virgl-format-a16-unorm+)
+    (:l16a16-unorm ,+virgl-format-l16a16-unorm+ 4)
+    (:a16-unorm ,+virgl-format-a16-unorm+ 2)
 
-    (:a8-snorm +virgl-format-a8-snorm+)
-    (:l8-snorm +virgl-format-l8-snorm+)
-    (:l8a8-snorm +virgl-format-l8a8-snorm+)
+    (:a8-snorm ,+virgl-format-a8-snorm+ 1)
+    (:l8-snorm ,+virgl-format-l8-snorm+ 1)
+    (:l8a8-snorm ,+virgl-format-l8a8-snorm+ 2)
 
-    (:a16-snorm +virgl-format-a16-snorm+)
-    (:l16-snorm +virgl-format-l16-snorm+)
-    (:l16a16-snorm +virgl-format-l16a16-snorm+)
+    (:a16-snorm ,+virgl-format-a16-snorm+ 2)
+    (:l16-snorm ,+virgl-format-l16-snorm+ 2)
+    (:l16a16-snorm ,+virgl-format-l16a16-snorm+ 4)
 
-    (:a16-float +virgl-format-a16-float+)
-    (:l16-float +virgl-format-l16-float+)
-    (:l16a16-float +virgl-format-l16a16-float+)
+    (:a16-float ,+virgl-format-a16-float+ 2)
+    (:l16-float ,+virgl-format-l16-float+ 2)
+    (:l16a16-float ,+virgl-format-l16a16-float+ 4)
 
-    (:a32-float +virgl-format-a32-float+)
-    (:l32-float +virgl-format-l32-float+)
-    (:l32a32-float +virgl-format-l32a32-float+)
+    (:a32-float ,+virgl-format-a32-float+ 4)
+    (:l32-float ,+virgl-format-l32-float+ 4)
+    (:l32a32-float ,+virgl-format-l32a32-float+ 8)
 
-    (:r8-uint +virgl-format-r8-uint+)
-    (:r8g8-uint +virgl-format-r8g8-uint+)
-    (:r8g8b8-uint +virgl-format-r8g8b8-uint+)
-    (:r8g8b8a8-uint +virgl-format-r8g8b8a8-uint+)
+    (:r8-uint ,+virgl-format-r8-uint+ 1)
+    (:r8g8-uint ,+virgl-format-r8g8-uint+ 2)
+    (:r8g8b8-uint ,+virgl-format-r8g8b8-uint+ 3)
+    (:r8g8b8a8-uint ,+virgl-format-r8g8b8a8-uint+ 4)
 
-    (:r8-sint +virgl-format-r8-sint+)
-    (:r8g8-sint +virgl-format-r8g8-sint+)
-    (:r8g8b8-sint +virgl-format-r8g8b8-sint+)
-    (:r8g8b8a8-sint +virgl-format-r8g8b8a8-sint+)
+    (:r8-sint ,+virgl-format-r8-sint+ 1)
+    (:r8g8-sint ,+virgl-format-r8g8-sint+ 2)
+    (:r8g8b8-sint ,+virgl-format-r8g8b8-sint+ 3)
+    (:r8g8b8a8-sint ,+virgl-format-r8g8b8a8-sint+ 4)
 
-    (:r16-uint +virgl-format-r16-uint+)
-    (:r16g16-uint +virgl-format-r16g16-uint+)
-    (:r16g16b16-uint +virgl-format-r16g16b16-uint+)
-    (:r16g16b16a16-uint +virgl-format-r16g16b16a16-uint+)
+    (:r16-uint ,+virgl-format-r16-uint+ 2)
+    (:r16g16-uint ,+virgl-format-r16g16-uint+ 4)
+    (:r16g16b16-uint ,+virgl-format-r16g16b16-uint+ 6)
+    (:r16g16b16a16-uint ,+virgl-format-r16g16b16a16-uint+ 8)
 
-    (:r16-sint +virgl-format-r16-sint+)
-    (:r16g16-sint +virgl-format-r16g16-sint+)
-    (:r16g16b16-sint +virgl-format-r16g16b16-sint+)
-    (:r16g16b16a16-sint +virgl-format-r16g16b16a16-sint+)
-    (:r32-uint +virgl-format-r32-uint+)
-    (:r32g32-uint +virgl-format-r32g32-uint+)
-    (:r32g32b32-uint +virgl-format-r32g32b32-uint+)
-    (:r32g32b32a32-uint +virgl-format-r32g32b32a32-uint+)
+    (:r16-sint ,+virgl-format-r16-sint+ 2)
+    (:r16g16-sint ,+virgl-format-r16g16-sint+ 4)
+    (:r16g16b16-sint ,+virgl-format-r16g16b16-sint+ 6)
+    (:r16g16b16a16-sint ,+virgl-format-r16g16b16a16-sint+ 8)
+    (:r32-uint ,+virgl-format-r32-uint+ 2)
+    (:r32g32-uint ,+virgl-format-r32g32-uint+ 4)
+    (:r32g32b32-uint ,+virgl-format-r32g32b32-uint+ 6)
+    (:r32g32b32a32-uint ,+virgl-format-r32g32b32a32-uint+ 8)
 
-    (:r32-sint +virgl-format-r32-sint+)
-    (:r32g32-sint +virgl-format-r32g32-sint+)
-    (:r32g32b32-sint +virgl-format-r32g32b32-sint+)
-    (:r32g32b32a32-sint +virgl-format-r32g32b32a32-sint+)
+    (:r32-sint ,+virgl-format-r32-sint+ 4)
+    (:r32g32-sint ,+virgl-format-r32g32-sint+ 8)
+    (:r32g32b32-sint ,+virgl-format-r32g32b32-sint+ 12)
+    (:r32g32b32a32-sint ,+virgl-format-r32g32b32a32-sint+ 16)
 
-    (:a8-uint +virgl-format-a8-uint+)
-    (:l8-uint +virgl-format-l8-uint+)
-    (:l8a8-uint +virgl-format-l8a8-uint+)
+    (:a8-uint ,+virgl-format-a8-uint+ 1)
+    (:l8-uint ,+virgl-format-l8-uint+ 1)
+    (:l8a8-uint ,+virgl-format-l8a8-uint+ 2)
 
-    (:a8-sint +virgl-format-a8-sint+)
-    (:l8-sint +virgl-format-l8-sint+)
-    (:l8a8-sint +virgl-format-l8a8-sint+)
+    (:a8-sint ,+virgl-format-a8-sint+ 1)
+    (:l8-sint ,+virgl-format-l8-sint+ 1)
+    (:l8a8-sint ,+virgl-format-l8a8-sint+ 2)
 
-    (:a16-uint +virgl-format-a16-uint+)
-    (:l16-uint +virgl-format-l16-uint+)
-    (:l16a16-uint +virgl-format-l16a16-uint+)
+    (:a16-uint ,+virgl-format-a16-uint+ 2)
+    (:l16-uint ,+virgl-format-l16-uint+ 2)
+    (:l16a16-uint ,+virgl-format-l16a16-uint+ 4)
 
-    (:a16-sint +virgl-format-a16-sint+)
-    (:l16-sint +virgl-format-l16-sint+)
-    (:l16a16-sint +virgl-format-l16a16-sint+)
+    (:a16-sint ,+virgl-format-a16-sint+ 2)
+    (:l16-sint ,+virgl-format-l16-sint+ 2)
+    (:l16a16-sint ,+virgl-format-l16a16-sint+ 4)
 
-    (:a32-uint +virgl-format-a32-uint+)
-    (:l32-uint +virgl-format-l32-uint+)
-    (:l32a32-uint +virgl-format-l32a32-uint+)
+    (:a32-uint ,+virgl-format-a32-uint+ 4)
+    (:l32-uint ,+virgl-format-l32-uint+ 4)
+    (:l32a32-uint ,+virgl-format-l32a32-uint+ 8)
 
-    (:a32-sint +virgl-format-a32-sint+)
-    (:l32-sint +virgl-format-l32-sint+)
-    (:l32a32-sint +virgl-format-l32a32-sint+)
+    (:a32-sint ,+virgl-format-a32-sint+ 4)
+    (:l32-sint ,+virgl-format-l32-sint+ 4)
+    (:l32a32-sint ,+virgl-format-l32a32-sint+ 8)
 
-    (:b10g10r10a2-uint +virgl-format-b10g10r10a2-uint+)
-    (:r8g8b8x8-snorm +virgl-format-r8g8b8x8-snorm+)
+    (:b10g10r10a2-uint ,+virgl-format-b10g10r10a2-uint+ 4)
+    (:r8g8b8x8-snorm ,+virgl-format-r8g8b8x8-snorm+ 4)
 
-    (:r8g8b8x8-srgb +virgl-format-r8g8b8x8-srgb+)
+    (:r8g8b8x8-srgb ,+virgl-format-r8g8b8x8-srgb+ 4)
 
-    (:r8g8b8x8-uint +virgl-format-r8g8b8x8-uint+)
-    (:r8g8b8x8-sint +virgl-format-r8g8b8x8-sint+)
-    (:b10g10r10x2-unorm +virgl-format-b10g10r10x2-unorm+)
-    (:r16g16b16x16-unorm +virgl-format-r16g16b16x16-unorm+)
-    (:r16g16b16x16-snorm +virgl-format-r16g16b16x16-snorm+)
-    (:r16g16b16x16-float +virgl-format-r16g16b16x16-float+)
-    (:r16g16b16x16-uint +virgl-format-r16g16b16x16-uint+)
-    (:r16g16b16x16-sint +virgl-format-r16g16b16x16-sint+)
+    (:r8g8b8x8-uint ,+virgl-format-r8g8b8x8-uint+ 4)
+    (:r8g8b8x8-sint ,+virgl-format-r8g8b8x8-sint+ 4)
+    (:b10g10r10x2-unorm ,+virgl-format-b10g10r10x2-unorm+ 4)
+    (:r16g16b16x16-unorm ,+virgl-format-r16g16b16x16-unorm+ 8)
+    (:r16g16b16x16-snorm ,+virgl-format-r16g16b16x16-snorm+ 8)
+    (:r16g16b16x16-float ,+virgl-format-r16g16b16x16-float+ 8)
+    (:r16g16b16x16-uint ,+virgl-format-r16g16b16x16-uint+ 8)
+    (:r16g16b16x16-sint ,+virgl-format-r16g16b16x16-sint+ 8)
 
-    (:r10g10b10a2-uint +virgl-format-r10g10b10a2-uint+)
+    (:r10g10b10a2-uint ,+virgl-format-r10g10b10a2-uint+ 4)
 
-    (:bptc-rgba-unorm +virgl-format-bptc-rgba-unorm+)
-    (:bptc-srgba +virgl-format-bptc-srgba+)
-    (:bptc-rgb-float +virgl-format-bptc-rgb-float+)
-    (:bptc-rgb-ufloat +virgl-format-bptc-rgb-ufloat+)
+    (:bptc-rgba-unorm ,+virgl-format-bptc-rgba-unorm+ nil)
+    (:bptc-srgba ,+virgl-format-bptc-srgba+ nil)
+    (:bptc-rgb-float ,+virgl-format-bptc-rgb-float+ nil)
+    (:bptc-rgb-ufloat ,+virgl-format-bptc-rgb-ufloat+ nil)
 
-    (:r10g10b10x2-unorm +virgl-format-r10g10b10x2-unorm+)
-    (:a4b4g4r4-unorm +virgl-format-a4b4g4r4-unorm+)))
+    (:r10g10b10x2-unorm ,+virgl-format-r10g10b10x2-unorm+ 4)
+    (:a4b4g4r4-unorm ,+virgl-format-a4b4g4r4-unorm+ 2)))
+
+(defun supported-texture-formats (caps accessor)
+  (loop
+     for (name encoding) in *texture-formats*
+     when (funcall accessor caps encoding)
+     collect name))
+
+(defun supported-sampler-formats (caps)
+  (supported-texture-formats caps #'caps-sampler))
+
+(defun supported-render-texture-formats (caps)
+  (supported-texture-formats caps #'caps-render))
+
+(defun supported-depthstencil-formats (caps)
+  (supported-texture-formats caps #'caps-depthstencil))
+
+(defun supported-vertexbuffer-formats (caps)
+  (supported-texture-formats caps #'caps-vertexbuffer))
+
+(defun texture-format-width (texture-format)
+  (loop
+     for (name encoding width) in *texture-formats*
+     when (eql name texture-format)
+     do
+       (when (not width)
+         (error "Texture format ~S has unknown width. Compressed format?" texture-format))
+       (return width)
+     finally (error "Unknown texture-format ~S" texture-format)))
+
+(defun encode-texture-format (texture-format)
+  (loop
+     for (name encoding) in *texture-formats*
+     when (eql name texture-format)
+     do (return encoding)
+     finally (error "Unknown texture-format ~S" texture-format)))
 
 (defun encode-pipe-bind (bind)
   (ecase bind
