@@ -340,8 +340,6 @@ Returns NIL if the entry is missing and ALLOCATE is false."
              (:wired-backing-writeback
               (setf (physical-page-frame-type backing-frame) :inactive-writeback))))))
      (release-physical-pages frame 1))
-    (:transient-dma-buffer
-     (release-physical-pages frame 1))
     (t
      (panic "Releasing page " frame " with bad type " (physical-page-frame-type frame)))))
 
@@ -669,7 +667,53 @@ mapped, then the entry will be NIL."
                                                        :wired t
                                                        :dirty t
                                                        :cache-mode cache-mode)))
-           (incf virt-offset sg-len))))
+           (incf virt-offset sg-len))
+      (begin-tlb-shootdown)
+      (flush-tlb)
+      (tlb-shootdown-range virtual-address virt-offset)
+      (finish-tlb-shootdown)))
+  t)
+
+;; Also frees the memory associated with the sg-vec.
+(defun unmap-sg-vec (virtual-address sg-vec)
+  (cond (*paging-disk*
+         (pager-rpc 'unmap-sg-vec-in-pager virtual-address sg-vec))
+        (t
+         ;; Early boot, pager not running yet.
+         (unmap-sg-vec-in-pager virtual-address sg-vec nil))))
+
+(defun unmap-sg-vec-in-pager (virtual-address sg-vec ignore3)
+  (declare (ignore ignore3))
+  (pager-log-op "Unmap sg-vec " virtual-address " " sg-vec)
+  (with-rw-lock-write (*vm-lock*)
+    (let ((virt-offset 0))
+      (loop
+         for i below (sys.int::simple-vector-length sg-vec) by 2
+         for phys-addr = (svref sg-vec i)
+         for sg-len = (svref sg-vec (1+ i))
+         do
+           (loop
+              for page-offset below sg-len by #x1000
+              for paddr = (+ phys-addr page-offset)
+              for vaddr = (+ virtual-address virt-offset page-offset)
+              for bme = (block-info-for-virtual-address-1 vaddr)
+              for pte = (get-pte-for-address vaddr nil)
+              do
+                (when (not (eql (sys.int::memref-unsigned-byte-64 bme)
+                                (logior sys.int::+block-map-present+
+                                        sys.int::+block-map-writable+
+                                        sys.int::+block-map-transient+)))
+                  (panic "Block " vaddr " entry not correct for sg-vec!"))
+                (setf (sys.int::memref-unsigned-byte-64 bme) 0)
+                (when (and pte (page-present-p pte))
+                  (setf (page-table-entry pte) 0)))
+           (release-physical-pages (truncate phys-addr #x1000)
+                                   (ceiling sg-len #x1000))
+           (incf virt-offset sg-len))
+      (begin-tlb-shootdown)
+      (flush-tlb)
+      (tlb-shootdown-range virtual-address virt-offset)
+      (finish-tlb-shootdown)))
   t)
 
 (defun pager-allocate-page (&key (new-type :active))

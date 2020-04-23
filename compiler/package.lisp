@@ -646,6 +646,7 @@
            #:dma-buffer-expired
            #:dma-buffer-name
            #:dma-buffer-length
+           #:dma-buffer-expired-p
            #:dma-buffer-persistent-p
            #:dma-buffer-contiguous-p
            #:dma-buffer-cache-mode

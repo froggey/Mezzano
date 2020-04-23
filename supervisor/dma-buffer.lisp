@@ -6,7 +6,8 @@
              (:copier nil))
   (name nil)
   (length -1 :read-only t :type fixnum)
-  (persistent-boot-id nil)
+  (boot-id nil :read-only t)
+  (persistent-p nil :read-only t)
   (virtual-address -1 :read-only t :type fixnum)
   (scatter/gather-vector nil :type (or simple-vector null))
   (cache-mode :write-back :read-only t :type (member :write-back
@@ -71,12 +72,14 @@ directly or via the buffer array) will signal a DMA-BUFFER-EXPIRED error."
       ;; Be very careful to ensure that the physical memory is freed if something
       ;; goes wrong during creation.
       (unwind-protect
-           (let ((dma-buffer (%make-dma-buffer :name name
-                                               :length length
-                                               :persistent-boot-id (if persistent (current-boot-id) nil)
-                                               :virtual-address virtual-address
-                                               :scatter/gather-vector sg-vec
-                                               :cache-mode cache-mode)))
+           (let* ((boot-id (current-boot-id))
+                  (dma-buffer (%make-dma-buffer :name name
+                                                :length length
+                                                :boot-id boot-id
+                                                :persistent-p (not (not persistent))
+                                                :virtual-address virtual-address
+                                                :scatter/gather-vector sg-vec
+                                                :cache-mode cache-mode)))
              (if persistent
                  (map-persistent-sg-vec virtual-address sg-vec cache-mode)
                  (map-sg-vec virtual-address sg-vec cache-mode))
@@ -84,9 +87,10 @@ directly or via the buffer array) will signal a DMA-BUFFER-EXPIRED error."
              (sys.int::make-weak-pointer
               dma-buffer
               :finalizer (lambda ()
-                           ;; This will also free the pages associated
-                           ;; with the sg-vec.
-                           (release-memory-range virtual-address aligned-length))
+                           (with-snapshot-inhibited ()
+                             (when (and (svref sg-vec 0) ; Avoid released buffers
+                                        (eql boot-id (current-boot-id)))
+                               (unmap-sg-vec virtual-address sg-vec))))
               :area :wired)
              ;; Everything succeeded, don't free the SG-VEC.
              (setf successp t)
@@ -99,24 +103,29 @@ directly or via the buffer array) will signal a DMA-BUFFER-EXPIRED error."
               (release-physical-pages (truncate (svref sg-vec (* i 2)) #x1000)
                                       (truncate (align-up (svref sg-vec (1+ (* i 2))) #x1000) #x1000)))))))))
 
+(defun dma-buffer-expired-p (dma-buffer)
+  "Return true if RELEASE-DMA-BUFFER was called on DMA-BUFFER."
+  (or (not (svref (dma-buffer-scatter/gather-vector dma-buffer) 0))
+      (not (eql (dma-buffer-boot-id dma-buffer) (current-boot-id)))))
+
 (defun release-dma-buffer (dma-buffer)
   "Release the underlying memory associated with DMA-BUFFER.
 After a call to this function, accesses to the memory area will signal
 a DMA-BUFFER-EXPIRED error.
 Calling this function is not strictly necessary, the GC will release the
 associated memory eventually."
-  (setf (dma-buffer-scatter/gather-vector dma-buffer) nil)
-  (release-memory-range
-   (dma-buffer-virtual-address dma-buffer)
-   (align-up (dma-buffer-length dma-buffer) #x1000)))
+  (with-snapshot-inhibited ()
+    (let ((sg-vec (dma-buffer-scatter/gather-vector dma-buffer)))
+      (when (svref sg-vec 0)
+        (when (eql (dma-buffer-boot-id dma-buffer) (current-boot-id))
+          (unmap-sg-vec (dma-buffer-virtual-address dma-buffer) sg-vec))
+        ;; Mark the buffer as released.
+        (setf (svref sg-vec 0) nil))))
+  (values))
 
 (defun dma-buffer-contiguous-p (dma-buffer)
   "Returns true if DMA-BUFFER is contiguous in physical memory."
   (eql (dma-buffer-n-sg-entries dma-buffer) 1))
-
-(defun dma-buffer-persistent-p (dma-buffer)
-  "Returns true if DMA-BUFFER is persistent."
-  (not (null (dma-buffer-persistent-boot-id dma-buffer))))
 
 (defun dma-buffer-cache-flush (dma-buffer &optional (start 0) end)
   "Ensure that CPU caches are coherent with system memory for this DMA buffer."
@@ -137,29 +146,30 @@ This is only valid on DMA buffers that are contiguous or <= one page in size."
 (defun dma-buffer-n-sg-entries (dma-buffer)
   "Return the number of scatter/gather entries in DMA-BUFFER.
 For contiguous buffers this will always return 1."
+  (when (dma-buffer-expired-p dma-buffer)
+    (error "~S has expired" dma-buffer))
   (let ((sg-vec (dma-buffer-scatter/gather-vector dma-buffer)))
-    (when (not sg-vec)
-      (error "~S has been released" dma-buffer))
     (if (dma-buffer-persistent-p dma-buffer)
         (sys.int::simple-vector-length sg-vec)
         (truncate (sys.int::simple-vector-length sg-vec) 2))))
 
 (defun dma-buffer-sg-entry (dma-buffer entry-index)
   "Return the physical address and length as values of specified scatter/gather entry."
+  (when (dma-buffer-expired-p dma-buffer)
+    (error "~S has expired" dma-buffer))
   (let ((sg-vec (dma-buffer-scatter/gather-vector dma-buffer)))
-    (when (not sg-vec)
-      (error "~S has been released" dma-buffer))
     (cond ((dma-buffer-persistent-p dma-buffer)
-           (when (not (eql (dma-buffer-persistent-boot-id dma-buffer)
-                           (current-boot-id)))
-             ;; The SG vec is outdated, update it.
-             (update-persistent-sg-vec (dma-buffer-virtual-address dma-buffer)
-                                       sg-vec)
-             (setf (dma-buffer-persistent-boot-id dma-buffer)
-                   (current-boot-id)))
-           ;; Entries in persistent sg-vecs are always page-sized.
-           (values (svref sg-vec entry-index)
-                   #x1000))
+           (with-snapshot-inhibited ()
+             (when (not (eql (dma-buffer-boot-id dma-buffer)
+                             (current-boot-id)))
+               ;; The SG vec is outdated, update it.
+               (update-persistent-sg-vec (dma-buffer-virtual-address dma-buffer)
+                                         sg-vec)
+               (setf (dma-buffer-persistent-boot-id dma-buffer)
+                     (current-boot-id)))
+             ;; Entries in persistent sg-vecs are always page-sized.
+             (values (svref sg-vec entry-index)
+                     #x1000)))
           (t
            (let ((vec-index (* entry-index 2)))
              (values (svref sg-vec vec-index)
