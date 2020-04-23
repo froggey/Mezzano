@@ -207,16 +207,14 @@
            (format t "ext4 file system mount failed: +incompat-filetype+ is required")
            NIL)
           (T
-           (loop
-              with result = feature-incompat
-              for feature in implemented
-              when (logbitp feature feature-incompat) do
-                (setf result (logandc2 result (ash 1 feature)))
-              finally
-                (when (not (zerop result))
-                  (format t "ext4 file system mount failed: ~
-                             Requires incompatible features not implemented: #b~b" result))
-                (zerop result))))))
+           (loop :with result := feature-incompat
+                 :for feature :in implemented
+                 :when (logbitp feature feature-incompat)
+                 :do (decf result (ash 1 feature))
+                 :finally (if (zerop result)
+                              (return t)
+                              (format t "ext4 file system mount failed: ~
+                                         Requires incompatible features not implemented: #b~b" result)))))))
 
 (defun read-superblock (disk)
   ;; check to see if the disk is big enough to hold a superblock
