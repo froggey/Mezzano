@@ -104,7 +104,7 @@
           (virgl:scanout-flush scanout 0 0 (virgl:width scanout) (virgl:height scanout)))))))
 
 (defun test-spin ()
-  "Clear the scanout and draw a spinning triangle."
+  "Clear the scanout and draw a spinning square."
   (virgl:with-context (context :name "Test context")
     (let ((test-data '(0.0 0.0 0.0 1.0   ; 0 Position A0
                        1.0 0.0 0.0 1.0   ;   Colour A0
@@ -491,3 +491,123 @@
                (virgl:command-buffer-submit cmd-buf)
                (virgl:scanout-flush scanout 0 0 (virgl:width scanout) (virgl:height scanout))
                (sleep 1/60)))))))
+
+(defun load-test-image (name)
+  (mezzano.gui.image:load-image
+   (merge-pathnames name
+                    (translate-logical-pathname
+                     (or *load-pathname*
+                         *default-pathname-defaults*)))))
+
+(defvar *alien-logo* (load-test-image "lisplogo_alien_256.png"))
+
+(defun test-texture ()
+  "Clear the scanout and draw a textured square."
+  (virgl:with-context (context :name "Test context")
+    (let ((test-data '(0.0 0.0 0.0 1.0   ; 0 Position UR
+                       0.0 1.0 0.0 0.0   ;   Texcoord
+                       0.5 0.0 0.0 1.0   ; 1 Position DR
+                       1.0 1.0 0.0 0.0   ;   Texcoord
+                       0.5 0.5 0.0 1.0   ; 2 Position DL
+                       1.0 0.0 0.0 0.0   ;   Texcoord
+                       0.0 0.5 0.0 1.0   ; 3 Position UL
+                       0.0 0.0 0.0 0.0)) ;   Texcoord
+          (test-indices '(2 1 0 0 3 2)))
+      (virgl:with-resources ((vertex-buffer (virgl:make-vertex-buffer context (* (length test-data) 4) :name "Test vertex buffer"))
+                             (index-buffer (virgl:make-index-buffer context (* (length test-indices) 2) :name "Test index buffer"))
+                             (texture (virgl:make-texture-from-gui-surface context *alien-logo* :name "Test texture")))
+        ;; Upload test data
+        (let* ((vertex-dma-buf (virgl:resource-dma-buffer vertex-buffer))
+               (vertex-buf (make-array (sup:dma-buffer-length vertex-dma-buf)
+                                       :element-type '(unsigned-byte 8)
+                                       :fill-pointer 0
+                                       :memory vertex-dma-buf)))
+          (dolist (val test-data)
+            (virgl::vector-push-extend-single/le val vertex-buf))
+          (virgl:transfer-to-gpu vertex-buffer))
+        (let* ((index-dma-buf (virgl:resource-dma-buffer index-buffer))
+               (index-buf (make-array (sup:dma-buffer-length index-dma-buf)
+                                       :element-type '(unsigned-byte 8)
+                                       :fill-pointer 0
+                                       :memory index-dma-buf)))
+          (dolist (val test-indices)
+            (virgl::vector-push-extend-ub16/le val index-buf))
+          (virgl:transfer-to-gpu index-buffer))
+        (let* ((vertex-shader (virgl:make-shader context
+                                                 :vertex
+                                                 '((tgsi:dcl (:in 0)) ; vertex position
+                                                   (tgsi:dcl (:in 1)) ; vertex texcoord
+                                                   (tgsi:dcl (:out 0) :position)
+                                                   (tgsi:dcl (:out 1) :texcoord)
+                                                   ;; Pass inputs through unchanged.
+                                                   (tgsi:mov (:out 0) (:in 0))
+                                                   (tgsi:mov (:out 1) (:in 1))
+                                                   (tgsi:end))))
+               (fragment-shader (virgl:make-shader context
+                                                   :fragment
+                                                   '((tgsi:dcl (:in 1) :texcoord) ; index must match the index in the vertex shader.
+                                                     (tgsi:dcl (:out 0) :color)
+                                                     (tgsi:dcl (:samp 0))
+                                                     (tgsi:dcl (:temp 0))
+                                                     (tgsi:imm :flt32 (0.0 0.0 0.0 0.5)) ; 0 alpha threshold
+                                                     (tgsi:tex (:out 0) (:in 1) (:samp 0) :2d)
+                                                     ;; Alpha test.
+                                                     (tgsi:sub (:temp 0 :w) (:out 0) (:imm 0))
+                                                     (tgsi:kill-if (:temp 0 :wwww))
+                                                     (tgsi:end))))
+               ;; Needs to have both a view and a state bound.
+               (sampler-view (virgl:make-sampler-view context texture))
+               (sampler-state (virgl:make-sampler-state context))
+               ;; Create a surface object backed by the scanout buffer
+               (scanout (virgl:virgl-scanout (virgl:virgl context)))
+               (scanout-surface (virgl:make-surface context scanout))
+               ;; Create vertex elements buffer.
+               (vertex-elements (virgl:make-vertex-elements
+                                 context nil
+                                 ;; First element: Positions.
+                                 '(0 ; src-offset
+                                   0 ; instance-divisor
+                                   0 ; vertex buffer index
+                                   :r32g32b32a32-float)
+                                 ;; Second element: Texcoord.
+                                 '(16 ; src-offset
+                                   0 ; instance-divisor
+                                   0 ; vertex buffer index
+                                   :r32g32b32a32-float)))
+               (blend (virgl:make-blend context
+                                        :colormask :rgba
+
+                                        ))
+               (cmd-buf (virgl:make-command-buffer context)))
+          ;; Attach scanout surface object to the framebuffer's color0 channel.
+          ;; No depth/stencil surface.
+          (virgl:add-command-set-framebuffer-state cmd-buf nil scanout-surface)
+          ;; Viewport.
+          (virgl:add-command-set-viewport-state
+           cmd-buf
+           ;; near-depth = 0, far-depth = 1
+           (/ (virgl:width scanout) 2.0) (/ (virgl:height scanout) 2.0) 0.5
+           (/ (virgl:width scanout) 2.0) (/ (virgl:height scanout) 2.0) 0.5)
+          ;; Configure vertex buffer
+          (virgl:add-command-set-vertex-buffers
+           cmd-buf
+           `(32 ; stride, 2*float4
+             0 ; offset
+             ,vertex-buffer)) ; vertex buffer resource handle
+          (virgl:add-command-bind-vertex-elements cmd-buf vertex-elements)
+          (virgl:add-command-bind-shader cmd-buf vertex-shader)
+          (virgl:add-command-bind-shader cmd-buf fragment-shader)
+          ;; Enable writes to the color channels
+          (virgl:add-command-bind-blend cmd-buf blend)
+          (virgl:add-command-set-index-buffer cmd-buf index-buffer 2 0)
+          (virgl:add-command-bind-sampler-states cmd-buf :fragment 0 sampler-state)
+          (virgl:add-command-set-sampler-views cmd-buf :fragment 0 sampler-view)
+          ;; Clear framebuffer.
+          (virgl:add-command-clear
+           cmd-buf :color 0.25 0.33 0.66 0.75 0.0d0 0)
+          ;; Draw
+          (virgl:add-command-draw-vbo cmd-buf 0 (length test-indices) :triangles :indexed t)
+          ;; Do it!
+          (virgl:command-buffer-finalize cmd-buf)
+          (virgl:command-buffer-submit cmd-buf)
+          (virgl:scanout-flush scanout 0 0 (virgl:width scanout) (virgl:height scanout)))))))
