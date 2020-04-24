@@ -559,6 +559,7 @@
            #:ps/2-aux-read
            #:*ps/2-mouse-device-id*
            #:current-framebuffer
+           #:framebuffer
            #:framebuffer-blit
            #:framebuffer-width
            #:framebuffer-height

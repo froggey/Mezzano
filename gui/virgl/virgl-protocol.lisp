@@ -892,3 +892,5 @@ PIPE-RESOURCE-FLAG-MAP-COHERENT must be set when creating the resource.")
 (defconstant +pipe-compute-cap-max-clock-frequency+ 10)
 (defconstant +pipe-compute-cap-max-compute-units+ 11)
 (defconstant +pipe-compute-cap-images-supported+ 12)
+
+(defconstant +virgl-resource-y-0-top+ 1)

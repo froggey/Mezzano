@@ -659,9 +659,14 @@ Avoid using context 0 because that's what the compositor and 2D rendering uses."
          :format-control format-control
          :format-arguments format-arguments))
 
-(defun get-virgl (&key flush-existing)
+(defun get-virgl (&key flush-existing from)
   "Get the virgl object for the compositor's current display."
-  (let ((gpu (sup:framebuffer-device mezzano.gui.compositor::*main-screen*)))
+  (when (typep from 'virgl)
+    (return-from get-virgl from))
+  (let ((gpu (etypecase from
+               (gpu:virtio-gpu from)
+               (sup:framebuffer (sup:framebuffer-device from))
+               (null (sup:framebuffer-device mezzano.gui.compositor::*main-screen*)))))
     (when (or (not (typep gpu 'gpu:virtio-gpu))
               (not (gpu:virtio-gpu-virgl-p gpu)))
       (error 'virgl-unsupported-error :gpu gpu))
@@ -722,7 +727,7 @@ Avoid using context 0 because that's what the compositor and 2D rendering uses."
   (values))
 
 (defun virgl-reset (&key virgl)
-  (setf virgl (or virgl (get-virgl)))
+  (setf virgl (get-virgl :from virgl))
   (sup:with-mutex ((virgl-lock virgl) :resignal-errors virgl-error)
     (virgl-reset-1 virgl)))
 
@@ -758,7 +763,7 @@ Avoid using context 0 because that's what the compositor and 2D rendering uses."
       (simple-virgl-error virgl nil "Command buffer submission failed: ~D" error))))
 
 (defun make-context (&key virgl name)
-  (setf virgl (or virgl (get-virgl)))
+  (setf virgl (get-virgl :from virgl))
   (sup:with-mutex ((virgl-lock virgl) :resignal-errors virgl-error)
     (let ((id (allocate-context-id virgl))
           (cmd-buf (make-array 100
@@ -1112,7 +1117,7 @@ Avoid using context 0 because that's what the compositor and 2D rendering uses."
     (dolist (bind binds result)
       (setf result (logior (encode-pipe-bind bind) result)))))
 
-(defun create-resource (virgl context id pipe-target texture-format pipe-binds width height depth array-size last-level nr-samples)
+(defun create-resource (virgl context id pipe-target texture-format pipe-binds width height depth array-size last-level nr-samples flags)
   (multiple-value-bind (successp error)
       (gpu:virtio-gpu-resource-create-3d
        (virgl-gpu virgl)
@@ -1124,7 +1129,7 @@ Avoid using context 0 because that's what the compositor and 2D rendering uses."
        (encode-pipe-binds pipe-binds)
        width height depth
        array-size last-level nr-samples
-       0)
+       flags)
     (when (not successp)
       (simple-virgl-error virgl context "Resource creation failed: ~D" error))
     (values)))
@@ -1143,7 +1148,7 @@ Avoid using context 0 because that's what the compositor and 2D rendering uses."
       (let ((id (allocate-resource-id virgl)))
         (setf (slot-value buffer '%id) id)
         (create-resource virgl context id :buffer nil bind
-                         length 1 1 1 0 0)
+                         length 1 1 1 0 0 0)
         (setf (gethash id (virgl-resources virgl)) buffer)
         ;; Create a dma-buffer to back this resource.
         (let ((dma-buffer (sup:make-dma-buffer length :name buffer)))
@@ -1206,6 +1211,7 @@ Avoid using context 0 because that's what the compositor and 2D rendering uses."
   (make-buffer-1 context 'index-buffer length :index-buffer initargs))
 
 (defgeneric transfer-to-gpu (resource &key))
+(defgeneric transfer-from-gpu (resource &key))
 
 (defmethod transfer-to-gpu ((buffer buffer) &key)
   (let ((virgl (virgl buffer)))
@@ -1320,7 +1326,9 @@ Avoid using context 0 because that's what the compositor and 2D rendering uses."
                           (append (if depth/stencil (list :depth/stencil) nil)
                                   (if render-target (list :render-target) nil)))
                          (width texture) (height texture) (depth texture)
-                         1 0 0)
+                         1 0 0
+                         ;; Without this everything gets rendered inside out???
+                         +virgl-resource-y-0-top+)
         (setf (gethash id (virgl-resources virgl)) texture)
         ;; Create a dma-buffer to back this resource, if requested.
         (cond (host-only
@@ -1370,7 +1378,24 @@ Avoid using context 0 because that's what the compositor and 2D rendering uses."
            virgl (context texture)
            "Unable to transfer resource data to GPU: ~D" error))))))
 
-(defun make-texture-from-gui-surface (context surface &key name render-target)
+(defmethod transfer-from-gpu ((texture texture) &key)
+  (let ((virgl (virgl texture)))
+    (sup:with-mutex ((virgl-lock virgl) :resignal-errors virgl-error)
+      (multiple-value-bind (successp error)
+          (gpu:virtio-gpu-transfer-from-host-3d
+           (virgl-gpu virgl)
+           0 0 0
+           (width texture) (height texture) (depth texture)
+           0
+           (resource-id texture)
+           0 0 0
+           :context +virgl-gpu-context+)
+        (when (not successp)
+          (simple-virgl-error
+           virgl (context texture)
+           "Unable to transfer resource data from GPU: ~D" error))))))
+
+(defun make-texture-2d-from-gui-surface (context surface &key name render-target)
   (let* ((texture (make-texture context
                                (ecase (gui:surface-format surface)
                                  (:argb32 :b8g8r8a8-unorm))
@@ -1389,6 +1414,84 @@ Avoid using context 0 because that's what the compositor and 2D rendering uses."
     (replace texture-data surface-row-major-pixels)
     (transfer-to-gpu texture)
     texture))
+
+(defun compute-blit-info-dest-src (nrows ncols from-array from-row from-col to-array to-row to-col)
+  "Clamp parameters to array boundaries, return the stride of both arrays and their undisplaced, non-complex base arrays."
+  (let ((from-width (width from-array))
+        (from-height (height from-array))
+        (from-offset 0)
+        (to-width (array-dimension to-array 1))
+        (to-height (array-dimension to-array 0))
+        (to-offset 0))
+    ;; Only need to clamp values below zero here. nrows/ncols will
+    ;; end up negative if the source/target positions are too large.
+    ;; Clamp to row/column.
+    (when (< to-row 0)
+      (incf nrows to-row)
+      (decf from-row to-row)
+      (setf to-row 0))
+    (when (< to-col 0)
+      (incf ncols to-col)
+      (decf from-col to-col)
+      (setf to-col 0))
+    ;; Clamp from row/column.
+    (when (< from-row 0)
+      (incf nrows from-row)
+      (decf to-row from-row)
+      (setf from-row 0))
+    (when (< from-col 0)
+      (incf ncols from-col)
+      (decf to-col from-col)
+      (setf from-col 0))
+    ;; Clamp nrows/ncols.
+    (setf nrows (max (min nrows (- to-height to-row) (- from-height from-row)) 0))
+    (setf ncols (max (min ncols (- to-width to-col) (- from-width from-col)) 0))
+    ;; Undisplace displaced arrays
+    (multiple-value-bind (to-displaced-to to-displaced-offset)
+        (array-displacement to-array)
+      (when to-displaced-to
+        (when (integerp to-displaced-to)
+          (error "Memory arrays not supported"))
+        (setf to-array to-displaced-to
+              to-offset to-displaced-offset)))
+    (incf from-offset (+ (* from-row from-width) from-col))
+    (incf to-offset (+ (* to-row to-width) to-col))
+    (values nrows ncols
+            from-offset from-width
+            (if (mezzano.internals::%simple-1d-array-p to-array)
+                to-array
+                (mezzano.internals::%complex-array-storage to-array))
+            to-offset to-width)))
+
+(defun %bitblt-line (to to-offset ncols from-address from-offset)
+  (declare (optimize speed (safety 0) (debug 1))
+           (type fixnum to-offset ncols from-offset)
+           (type (simple-array (unsigned-byte 32) (*)) to))
+  (loop for i fixnum below ncols do
+       (setf (aref to to-offset) (mezzano.internals::memref-unsigned-byte-32 from-address from-offset))
+       (incf to-offset)
+       (incf from-offset)))
+
+(defun copy-texture-2d-to-gui-surface (width height source source-x source-y dest dest-x dest-y)
+  (check-type source texture-2d)
+  (check-type dest gui:surface)
+  (multiple-value-bind (nrows ncols from-offset from-stride to to-offset to-stride)
+      (compute-blit-info-dest-src height width
+                                  source source-y source-x
+                                  (gui:surface-pixels dest) dest-y dest-x)
+    (assert (typep to '(simple-array (unsigned-byte 32) (*))))
+    (let ((from (sup:dma-buffer-virtual-address
+                 (resource-dma-buffer source))))
+      (when (> ncols 0)
+        ;; Everything is upside down because of the +virgl-resource-y-0-top+
+        ;; flag. Correct for this.
+        (setf from-offset (* from-stride nrows))
+        (dotimes (y nrows)
+          (decf from-offset from-stride)
+          (%bitblt-line to to-offset
+                        ncols
+                        from from-offset)
+          (incf to-offset to-stride))))))
 
 (defclass object ()
   ((%context :initarg :context :reader context)

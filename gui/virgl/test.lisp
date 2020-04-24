@@ -515,7 +515,7 @@
           (test-indices '(2 1 0 0 3 2)))
       (virgl:with-resources ((vertex-buffer (virgl:make-vertex-buffer context (* (length test-data) 4) :name "Test vertex buffer"))
                              (index-buffer (virgl:make-index-buffer context (* (length test-indices) 2) :name "Test index buffer"))
-                             (texture (virgl:make-texture-from-gui-surface context *alien-logo* :name "Test texture")))
+                             (texture (virgl:make-texture-2d-from-gui-surface context *alien-logo* :name "Test texture")))
         ;; Upload test data
         (let* ((vertex-dma-buf (virgl:resource-dma-buffer vertex-buffer))
                (vertex-buf (make-array (sup:dma-buffer-length vertex-dma-buf)

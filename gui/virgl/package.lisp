@@ -19,9 +19,11 @@
            #:make-vertex-buffer
            #:make-index-buffer
            #:make-texture
-           #:make-texture-from-gui-surface
+           #:make-texture-2d-from-gui-surface
+           #:copy-texture-2d-to-gui-surface
            #:resource-dma-buffer
            #:transfer-to-gpu
+           #:transfer-from-gpu
            #:with-resource
            #:with-resources
 
