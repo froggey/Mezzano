@@ -31,6 +31,8 @@
            #:make-blend
            #:make-rasterizer
            #:make-dsa
+           #:make-sampler-state
+           #:make-sampler-view
            #:with-object
 
            #:make-command-buffer
@@ -41,11 +43,13 @@
            #:add-command-set-viewport-state
            #:add-command-clear
            #:add-command-set-vertex-buffers
+           #:add-command-set-sampler-views
            #:add-command-bind-vertex-elements
            #:add-command-bind-shader
            #:add-command-bind-blend
            #:add-command-bind-rasterizer
            #:add-command-bind-dsa
+           #:add-command-bind-sampler-states
            #:add-command-draw-vbo
            #:add-command-set-constant-buffer
            #:add-command-set-index-buffer

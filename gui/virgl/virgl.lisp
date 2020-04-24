@@ -1846,6 +1846,150 @@ Avoid using context 0 because that's what the compositor and 2D rendering uses."
         (virgl-submit-simple-command-buffer-1 virgl cmd-buf)
         (setf (gethash id (context-objects context)) dsa)))))
 
+(deftype tex-wrap ()
+  '(member :repeat :clamp :clamp-to-edge :clamp-to-border :mirror-repeat :mirror-clamp :mirror-clamp-to-edge :mirror-clamp-to-border))
+
+(defun encode-tex-wrap (tex-wrap)
+  (ecase tex-wrap
+    (:repeat +pipe-tex-wrap-repeat+)
+    (:clamp +pipe-tex-wrap-clamp+)
+    (:clamp-to-edge +pipe-tex-wrap-clamp-to-edge+)
+    (:clamp-to-border +pipe-tex-wrap-clamp-to-border+)
+    (:mirror-repeat +pipe-tex-wrap-mirror-repeat+)
+    (:mirror-clamp +pipe-tex-wrap-mirror-clamp+)
+    (:mirror-clamp-to-edge +pipe-tex-wrap-mirror-clamp-to-edge+)
+    (:mirror-clamp-to-border +pipe-tex-wrap-mirror-clamp-to-border+)))
+
+(deftype tex-filter ()
+  '(member :nearest :linear))
+
+(defun encode-tex-filter (tex-filter)
+  (ecase tex-filter
+    (:nearest +pipe-tex-filter-nearest+)
+    (:linear +pipe-tex-filter-linear+)))
+
+(deftype tex-mipfilter ()
+  '(member :nearest :linear :none))
+
+(defun encode-tex-mipfilter (tex-mipfilter)
+  (ecase tex-mipfilter
+    (:nearest +pipe-tex-mipfilter-nearest+)
+    (:linear +pipe-tex-mipfilter-linear+)
+    (:none +pipe-tex-mipfilter-none+)))
+
+(deftype tex-compare ()
+  '(member :none :r-to-texture))
+
+(defun encode-tex-compare (tex-compare)
+  (ecase tex-compare
+    (:none +pipe-tex-compare-none+)
+    (:r-to-texture +pipe-tex-compare-r-to-texture+)))
+
+(defclass sampler-state (object)
+  ((%wrap-s :initform :repeat :initarg :wrap-s :reader sampler-state-wrap-s :type tex-wrap)
+   (%wrap-t :initform :repeat :initarg :wrap-t :reader sampler-state-wrap-t :type tex-wrap)
+   (%wrap-r :initform :repeat :initarg :wrap-r :reader sampler-state-wrap-r :type tex-wrap)
+   (%min-img-filter :initform :nearest :initarg :min-img-filter :reader sampler-state-min-img-filter :type tex-filter)
+   (%min-mip-filter :initform :nearest :initarg :min-mip-filter :reader sampler-state-min-mip-filter :type tex-mipfilter)
+   (%mag-img-filter :initform :nearest :initarg :mag-img-filter :reader sampler-state-mag-img-filter :type tex-filter)
+   (%compare-mode :initform :none :initarg :compare-mode :reader sampler-state-compare-mode :type tex-compare)
+   (%compare-func :initform :never :initarg :compare-func :reader sampler-state-compare-func :type pipe-function)
+   (%seamless-cube-map :initform nil :initarg :seamless-cube-map :reader sampler-state-seamless-cube-map)
+   (%lod-bias :initform 0.0 :initarg :lod-bias :reader sampler-state-lod-bias :type single-float)
+   (%min-lod :initform 0.0 :initarg :min-lod :reader sampler-state-min-lod :type single-float)
+   (%max-lod :initform 0.0 :initarg :max-lod :reader sampler-state-max-lod :type single-float)))
+
+(defun make-sampler-state (context &rest initargs &key name &allow-other-keys)
+  (declare (ignore name))
+  (let ((virgl (virgl context)))
+    (sup:with-mutex ((virgl-lock virgl) :resignal-errors virgl-error)
+      (let* ((id (allocate-object-id context))
+             (cmd-buf (make-array 128 :element-type '(unsigned-byte 8) :fill-pointer 0 :adjustable t))
+             (sampler-state (apply #'make-instance 'sampler-state
+                                   :context context
+                                   :id id
+                                   initargs)))
+        (encode-set-sub-ctx cmd-buf (context-id context))
+        (vector-push-extend-ub32/le (pack-command +virgl-ccmd-create-object+
+                                                  +virgl-object-sampler-state+
+                                                  9)
+                                    cmd-buf)
+        (vector-push-extend-ub32/le id cmd-buf)
+        (vector-push-extend-ub32/le
+         (logior (ash (encode-tex-wrap (sampler-state-wrap-s sampler-state)) 0)
+                 (ash (encode-tex-wrap (sampler-state-wrap-t sampler-state)) 3)
+                 (ash (encode-tex-wrap (sampler-state-wrap-r sampler-state)) 6)
+                 (ash (encode-tex-filter (sampler-state-min-img-filter sampler-state)) 9)
+                 (ash (encode-tex-mipfilter (sampler-state-min-mip-filter sampler-state)) 11)
+                 (ash (encode-tex-filter (sampler-state-mag-img-filter sampler-state)) 13)
+                 (ash (encode-tex-compare (sampler-state-compare-mode sampler-state)) 15)
+                 (ash (encode-pipe-function (sampler-state-compare-func sampler-state)) 16)
+                 (ash (if (sampler-state-seamless-cube-map sampler-state) 1 0) 19))
+         cmd-buf)
+        (vector-push-extend-single/le (sampler-state-lod-bias sampler-state) cmd-buf)
+        (vector-push-extend-single/le (sampler-state-min-lod sampler-state) cmd-buf)
+        (vector-push-extend-single/le (sampler-state-max-lod sampler-state) cmd-buf)
+        ;; These are the border colour fields, but I can't figure out how
+        ;; they're supposed to be encoded.
+        (vector-push-extend-ub32/le 0 cmd-buf)
+        (vector-push-extend-ub32/le 0 cmd-buf)
+        (vector-push-extend-ub32/le 0 cmd-buf)
+        (vector-push-extend-ub32/le 0 cmd-buf)
+        (virgl-submit-simple-command-buffer-1 virgl cmd-buf)
+        (setf (gethash id (context-objects context)) sampler-state)))))
+
+(defun encode-swizzle (swizzle)
+  (assert (keywordp swizzle))
+  (let ((encoded 0)
+        (text (string swizzle)))
+    (assert (eql (length text) 4))
+    (loop
+       for i from 0 by 3
+       for ch across text
+       do
+         (setf encoded (logior encoded
+                               (ash (ecase ch
+                                      (#\R +pipe-swizzle-red+)
+                                      (#\G +pipe-swizzle-green+)
+                                      (#\B +pipe-swizzle-blue+)
+                                      (#\A +pipe-swizzle-alpha+)
+                                      (#\1 +pipe-swizzle-one+)
+                                      (#\0 +pipe-swizzle-zero+))
+                                    i))))
+    encoded))
+
+(defclass sampler-view (object)
+  ((%texture :initarg :texture :reader sampler-view-texture)
+   (%swizzle :initform :xyzw :initarg :swizzle :reader sampler-view-swizzle :type swizzle)))
+
+(defun make-sampler-view (context texture &key name (swizzle :rgba))
+  (check-type texture texture)
+  (assert (encode-swizzle swizzle))
+  (let ((virgl (virgl context)))
+    (sup:with-mutex ((virgl-lock virgl) :resignal-errors virgl-error)
+      (let* ((id (allocate-object-id context))
+             (cmd-buf (make-array 128 :element-type '(unsigned-byte 8) :fill-pointer 0 :adjustable t))
+             (sampler-view (make-instance 'sampler-view
+                                          :context context
+                                          :id id
+                                          :name name
+                                          :texture texture
+                                          :swizzle swizzle)))
+        (encode-set-sub-ctx cmd-buf (context-id context))
+        (vector-push-extend-ub32/le (pack-command +virgl-ccmd-create-object+
+                                                  +virgl-object-sampler-view+
+                                                  6)
+                                    cmd-buf)
+        (vector-push-extend-ub32/le id cmd-buf)
+        (vector-push-extend-ub32/le (resource-id texture) cmd-buf)
+        (vector-push-extend-ub32/le (encode-texture-format (texture-format texture)) cmd-buf)
+        ;; Not sure what these are for... Texture layer/level.
+        (vector-push-extend-ub32/le #xFFFF0000 cmd-buf)
+        (vector-push-extend-ub32/le #xFFFF0000 cmd-buf)
+        (vector-push-extend-ub32/le (encode-swizzle swizzle) cmd-buf)
+        (virgl-submit-simple-command-buffer-1 virgl cmd-buf)
+        (setf (gethash id (context-objects context)) sampler-view)))))
+
 (defclass command-buffer ()
   ((%context :initarg :context :reader context)
    (%name :initarg :name :reader name)
@@ -2047,6 +2191,34 @@ reused without consing."
                                               1)
                                 cmd-buf)
     (vector-push-extend-ub32/le (object-id dsa) cmd-buf))
+  (values))
+
+(defun add-command-bind-sampler-states (command-buffer shader-type start-slot &rest states)
+  (check-command-buffer-not-finalized command-buffer)
+  (let ((cmd-buf (command-buffer-data-array command-buffer)))
+    (vector-push-extend-ub32/le (pack-command +virgl-ccmd-bind-sampler-states+
+                                              +virgl-object-null+
+                                              (+ 2 (length states)))
+                                cmd-buf)
+    (vector-push-extend-ub32/le (encode-shader-type shader-type) cmd-buf)
+    (vector-push-extend-ub32/le start-slot cmd-buf)
+    (dolist (sampler-state states)
+      (check-type sampler-state sampler-state)
+      (vector-push-extend-ub32/le (object-id sampler-state) cmd-buf)))
+  (values))
+
+(defun add-command-set-sampler-views (command-buffer shader-type start-slot &rest views)
+  (check-command-buffer-not-finalized command-buffer)
+  (let ((cmd-buf (command-buffer-data-array command-buffer)))
+    (vector-push-extend-ub32/le (pack-command +virgl-ccmd-set-sampler-views+
+                                              +virgl-object-null+
+                                              (+ 2 (length views)))
+                                cmd-buf)
+    (vector-push-extend-ub32/le (encode-shader-type shader-type) cmd-buf)
+    (vector-push-extend-ub32/le start-slot cmd-buf)
+    (dolist (sampler-view views)
+      (check-type sampler-view sampler-view)
+      (vector-push-extend-ub32/le (object-id sampler-view) cmd-buf)))
   (values))
 
 (defun encode-primitive-mode (mode)
