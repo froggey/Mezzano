@@ -95,7 +95,10 @@
       (dolist (h (first handlers))
         (when (typep condition (car h))
           (let ((*active-handlers* (rest handlers)))
-            (funcall (cdr h) condition)))))
+            (funcall (cdr h) condition))
+          ;; If a handler in this cluster declines, then no other handler
+          ;; in the cluster will be considered for possible invocation. (9.1.4)
+          (return))))
     nil))
 
 (defun %handler-bind (bindings thunk)
