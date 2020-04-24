@@ -95,6 +95,7 @@ Make sure there is a virtio-net NIC attached.~%")
 (defun driver-source-registry ()
   `(:SOURCE-REGISTRY
     (:TREE ,(pathname "SYS:SOURCE;DRIVERS;"))
+    (:TREE ,(pathname "SYS:SOURCE;GUI;VIRGL;"))
     :INHERIT-CONFIGURATION))
 (eval (read-from-string "(push 'driver-source-registry asdf:*default-source-registries*)"))
 
