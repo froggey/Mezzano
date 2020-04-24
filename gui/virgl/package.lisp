@@ -68,6 +68,9 @@
 (defpackage :mezzano.gui.virgl.test
   (:use :cl)
   (:local-nicknames (:gui :mezzano.gui)
+                    (:comp :mezzano.gui.compositor)
+                    (:widgets :mezzano.gui.widgets)
+                    (:sync :mezzano.sync)
                     (:virgl :mezzano.gui.virgl)
                     (:tgsi :mezzano.gui.virgl.tgsi)
                     (:gpu :mezzano.supervisor.virtio-gpu)

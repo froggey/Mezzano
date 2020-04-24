@@ -2,26 +2,92 @@
 
 (in-package :mezzano.gui.virgl.test)
 
+;;; Demo framework.
+(defmacro with-demo-gui ((context window-texture &key title (width 800) (height 600)) &body body)
+  (let ((width-sym (gensym "WIDTH"))
+        (height-sym (gensym "HEIGHT"))
+        (window (gensym "WINDOW"))
+        (mailbox (gensym "MAILBOX"))
+        (frame (gensym "FRAME"))
+        (frame-left (gensym "FRAME-LEFT"))
+        (frame-right (gensym "FRAME-RIGHT"))
+        (frame-top (gensym "FRAME-TOP"))
+        (frame-bottom (gensym "FRAME-BOTTOM")))
+    `(let ((,mailbox (sync:make-mailbox :capacity 50))
+           (,width-sym ,width)
+           (,height-sym ,height))
+       (multiple-value-bind (,frame-left ,frame-right ,frame-top ,frame-bottom)
+           (widgets:frame-size (make-instance 'widgets:frame))
+         (comp:with-window (,window ,mailbox (+ ,width-sym ,frame-left ,frame-right) (+ ,height-sym ,frame-top ,frame-bottom))
+           (let ((,frame (make-instance 'widgets:frame
+                                        :framebuffer (comp:window-buffer ,window)
+                                        :title ',title
+                                        :close-button-p t
+                                        :damage-function (widgets:default-damage-function ,window)
+                                        :set-cursor-function (widgets:default-cursor-function ,window))))
+             (widgets:draw-frame ,frame)
+             (virgl:with-context (,context :name ',title)
+               (virgl:with-resources ((,window-texture (virgl:make-texture ,context
+                                                                           :b8g8r8a8-unorm
+                                                                           (list ,width-sym ,height-sym)
+                                                                           :name "Window display surface"
+                                                                           :render-target t)))
+                 (macrolet ((window-loop (&body body)
+                              `(loop
+                                  (progn ,@body)
+                                  (window-loop-process-events ,',mailbox ,',frame)
+                                  ;; Update the window surface.
+                                  (virgl:transfer-from-gpu window-texture)
+                                  (virgl:copy-texture-2d-to-gui-surface
+                                   ,',width-sym ,',height-sym
+                                   ,',window-texture 0 0
+                                   (comp:window-buffer ,',window) ,',frame-left ,',frame-top)
+                                  (comp:damage-window ,',window ,',frame-left ,',frame-top (- ,',width-sym ,',frame-left ,',frame-right) (- ,',height-sym ,',frame-top ,',frame-bottom))
+                                  (sleep 1/60))))
+                   (catch 'quit
+                     ,@body))))))))))
+
+(defmacro window-loop (&body body)
+  (declare (ignore body))
+  (error "WINDOW-LOOP must only be used within WITH-DEMO-GUI"))
+
+(defun window-loop-process-events (mailbox frame)
+  (loop
+     (let ((evt (sync:mailbox-receive mailbox :wait-p nil)))
+       (when (not evt) (return))
+       (typecase evt
+         ((or comp:quit-event comp:window-close-event)
+          (throw 'quit nil))
+         (comp:window-activation-event
+          (setf (widgets:activep frame) (comp:state evt))
+          (widgets:draw-frame frame))
+         (comp:mouse-event
+          (handler-case
+              (widgets:frame-mouse-event frame evt)
+            (widgets:close-button-clicked ()
+              (throw 'quit nil))))))))
+
+;;; The tests.
+
 (defun test-clear (&optional (red 0.25) (green 0.33) (blue 0.66))
-  "Clear the scanout."
-  (virgl:with-context (context :name "Test context")
-    ;; Create a surface object backed by the scanout buffer
-    (let* ((scanout (virgl:virgl-scanout (virgl:virgl context)))
-           (scanout-surface (virgl:make-surface context scanout))
+  "Clear the window."
+  (with-demo-gui (context window-texture :title "Clear test")
+    ;; Create a surface object backed by the window texture.
+    (let* ((window-surface (virgl:make-surface context window-texture))
            (cmd-buf (virgl:make-command-buffer context)))
       ;; Attach scanout surface object to the framebuffer's color0 channel.
       ;; No depth/stencil surface.
-      (virgl:add-command-set-framebuffer-state cmd-buf nil scanout-surface)
+      (virgl:add-command-set-framebuffer-state cmd-buf nil window-surface)
       ;; Clear.
       (virgl:add-command-clear
        cmd-buf :color red green blue 1.0 0.0d0 0)
       (virgl:command-buffer-finalize cmd-buf)
       (virgl:command-buffer-submit cmd-buf)
-      (virgl:scanout-flush scanout 0 0 (virgl:width scanout) (virgl:height scanout)))))
+      (window-loop))))
 
 (defun test-triangle ()
-  "Clear the scanout and draw a simple triangle."
-  (virgl:with-context (context :name "Test context")
+  "Draw a simple triangle."
+  (with-demo-gui (context window-texture :title "Triangle test")
     (let ((test-data '(0.0 0.0 0.0 1.0   ; Position 0
                        1.0 0.0 0.0 1.0   ; Colour 0
                        0.5 0.0 0.0 1.0   ; Position 1
@@ -54,12 +120,12 @@
                                                    '((tgsi:dcl (:in 0) :color :color)
                                                      (tgsi:dcl (:out 0) :color)
                                                      (tgsi:imm :flt32 (1.0 1.0 1.0 1.0))
-                                                     ;; Invert the colour channel.
-                                                     1 (tgsi:sub (:out 0) (:imm 0) (:in 0))
-                                                     2 (tgsi:end))))
-               ;; Create a surface object backed by the scanout buffer
-               (scanout (virgl:virgl-scanout (virgl:virgl context)))
-               (scanout-surface (virgl:make-surface context scanout))
+                                                     ;; Invert the colour channel, leave alpha alone.
+                                                     1 (tgsi:mov (:out 0) (:in 0))
+                                                     2 (tgsi:sub (:out 0 :xyz) (:imm 0) (:out 0))
+                                                     3 (tgsi:end))))
+               ;; Create a surface object backed by the window texture.
+               (window-surface (virgl:make-surface context window-texture))
                ;; Create vertex elements buffer.
                (vertex-elements (virgl:make-vertex-elements
                                  context nil
@@ -77,16 +143,16 @@
                (cmd-buf (virgl:make-command-buffer context)))
           ;; Attach scanout surface object to the framebuffer's color0 channel.
           ;; No depth/stencil surface.
-          (virgl:add-command-set-framebuffer-state cmd-buf nil scanout-surface)
+          (virgl:add-command-set-framebuffer-state cmd-buf nil window-surface)
           ;; Viewport.
           (virgl:add-command-set-viewport-state
            cmd-buf
            ;; near-depth = 0, far-depth = 1
-           (/ (virgl:width scanout) 2.0) (/ (virgl:height scanout) 2.0) 0.5
-           (/ (virgl:width scanout) 2.0) (/ (virgl:height scanout) 2.0) 0.5)
+           (/ (virgl:width window-texture) 2.0) (/ (virgl:height window-texture) 2.0) 0.5
+           (/ (virgl:width window-texture) 2.0) (/ (virgl:height window-texture) 2.0) 0.5)
           ;; Clear.
           (virgl:add-command-clear
-           cmd-buf :color 0.25 0.33 0.66 0.75 0.0d0 0)
+           cmd-buf :color 0.25 0.33 0.66 1.0 0.0d0 0)
           ;; Configure vertex buffer
           (virgl:add-command-set-vertex-buffers
            cmd-buf
@@ -101,11 +167,11 @@
           (virgl:add-command-draw-vbo cmd-buf 0 (length test-data) :triangles)
           (virgl:command-buffer-finalize cmd-buf)
           (virgl:command-buffer-submit cmd-buf)
-          (virgl:scanout-flush scanout 0 0 (virgl:width scanout) (virgl:height scanout)))))))
+          (window-loop))))))
 
 (defun test-spin ()
-  "Clear the scanout and draw a spinning square."
-  (virgl:with-context (context :name "Test context")
+  "Draw a spinning square."
+  (with-demo-gui (context window-texture :title "Uniform test")
     (let ((test-data '(0.0 0.0 0.0 1.0   ; 0 Position A0
                        1.0 0.0 0.0 1.0   ;   Colour A0
                        0.5 0.0 0.0 1.0   ; 1 Position A1
@@ -156,12 +222,12 @@
                                                    '((tgsi:dcl (:in 0) :color :color)
                                                      (tgsi:dcl (:out 0) :color)
                                                      (tgsi:imm :flt32 (1.0 1.0 1.0 1.0))
-                                                     ;; Invert the colour channel.
-                                                     1 (tgsi:sub (:out 0) (:imm 0) (:in 0))
-                                                     2 (tgsi:end))))
-               ;; Create a surface object backed by the scanout buffer
-               (scanout (virgl:virgl-scanout (virgl:virgl context)))
-               (scanout-surface (virgl:make-surface context scanout))
+                                                     ;; Invert the colour channel, leave alpha alone.
+                                                     1 (tgsi:mov (:out 0) (:in 0))
+                                                     2 (tgsi:sub (:out 0 :xyz) (:imm 0) (:out 0))
+                                                     3 (tgsi:end))))
+               ;; Create a surface object backed by the window texture.r
+               (window-surface (virgl:make-surface context window-texture))
                ;; Create vertex elements buffer.
                (vertex-elements (virgl:make-vertex-elements
                                  context nil
@@ -177,15 +243,15 @@
                                    :r32g32b32a32-float)))
                (blend (virgl:make-blend context :colormask :rgba))
                (setup-cmd-buf (virgl:make-command-buffer context)))
-          ;; Attach scanout surface object to the framebuffer's color0 channel.
+          ;; Attach window surface object to the framebuffer's color0 channel.
           ;; No depth/stencil surface.
-          (virgl:add-command-set-framebuffer-state setup-cmd-buf nil scanout-surface)
+          (virgl:add-command-set-framebuffer-state setup-cmd-buf nil window-surface)
           ;; Viewport.
           (virgl:add-command-set-viewport-state
            setup-cmd-buf
            ;; near-depth = 0, far-depth = 1
-           (/ (virgl:width scanout) 2.0) (/ (virgl:height scanout) 2.0) 0.5
-           (/ (virgl:width scanout) 2.0) (/ (virgl:height scanout) 2.0) 0.5)
+           (/ (virgl:width window-texture) 2.0) (/ (virgl:height window-texture) 2.0) 0.5
+           (/ (virgl:width window-texture) 2.0) (/ (virgl:height window-texture) 2.0) 0.5)
           ;; Configure vertex buffer
           (virgl:add-command-set-vertex-buffers
            setup-cmd-buf
@@ -200,16 +266,13 @@
           (virgl:add-command-set-index-buffer setup-cmd-buf index-buffer 2 0)
           (virgl:command-buffer-finalize setup-cmd-buf)
           (virgl:command-buffer-submit setup-cmd-buf)
-          (loop
-             with cmd-buf = (virgl:make-command-buffer context)
-             with n = 1000
-             for i below n
-             ;with i = 0
-             do
+          (let ((cmd-buf (virgl:make-command-buffer context))
+                (i 0))
+            (window-loop
                (virgl:command-buffer-reset cmd-buf)
              ;; Clear framebuffer.
                (virgl:add-command-clear
-                cmd-buf :color 0.25 0.33 0.66 0.75 0.0d0 0)
+                cmd-buf :color 0.25 0.33 0.66 1.0 0.0d0 0)
              ;; Set constants
              ;; This is a matrix that looks like:
              ;; [cos i, -sin i,
@@ -223,8 +286,7 @@
              ;; Do it!
                (virgl:command-buffer-finalize cmd-buf)
                (virgl:command-buffer-submit cmd-buf)
-               (virgl:scanout-flush scanout 0 0 (virgl:width scanout) (virgl:height scanout))
-               (sleep 1/60)))))))
+               (incf i))))))))
 
 (defun degrees-to-radians (degrees)
   (* degrees (/ (float pi 0.0f0) 180.0)))
@@ -332,7 +394,7 @@
 
 (defun test-cube ()
   "Draw a cube, with a depth buffer and backface culling."
-  (virgl:with-context (context :name "Test context")
+  (with-demo-gui (context window-texture :title "Test cube")
     ;; A cube is made of 8 vertices, formed into 6 faces, made of 2 tris each.
     (let ((test-data '(+0.5 +0.5 +0.5 1.0   ; 0 Position RUF (right upper front)
                         1.0  0.0  0.0 1.0   ;   Colour
@@ -355,13 +417,12 @@
                           3 1 0 0 2 3    ; Right face
                           7 6 4 4 5 7    ; Left face
                           5 4 0 0 1 5    ; Up face
-                          7 3 2 2 6 7))  ; Down face
-          (scanout (virgl:virgl-scanout (virgl:virgl context))))
+                          7 3 2 2 6 7))) ; Down face
       (virgl:with-resources ((vertex-buffer (virgl:make-vertex-buffer context (* (length test-data) 4) :name "Test vertex buffer"))
                              (index-buffer (virgl:make-index-buffer context (* (length test-indices) 2) :name "Test index buffer"))
                              (depth-texture (virgl:make-texture context
                                                                 :s8-uint-z24-unorm
-                                                                (list (virgl:width scanout) (virgl:height scanout))
+                                                                (list (virgl:width window-texture) (virgl:height window-texture))
                                                                 :name "Test depth/stencil texture"
                                                                 :depth/stencil t
                                                                 :host-only t)))
@@ -407,11 +468,12 @@
                                                    '((tgsi:dcl (:in 0) :color :color)
                                                      (tgsi:dcl (:out 0) :color)
                                                      (tgsi:imm :flt32 (1.0 1.0 1.0 1.0))
-                                                     ;; Invert the colour channel.
-                                                     1 (tgsi:sub (:out 0) (:imm 0) (:in 0))
-                                                     2 (tgsi:end))))
-               ;; Create a surface object backed by the scanout buffer
-               (scanout-surface (virgl:make-surface context scanout))
+                                                     ;; Invert the colour channel, leave alpha alone.
+                                                     1 (tgsi:mov (:out 0) (:in 0))
+                                                     2 (tgsi:sub (:out 0 :xyz) (:imm 0) (:out 0))
+                                                     3 (tgsi:end))))
+               ;; Create a surface object backed by the window texture.
+               (window-surface (virgl:make-surface context window-texture))
                ;; And the depth texture
                (depth-surface (virgl:make-surface context depth-texture))
                ;; Create vertex elements buffer.
@@ -438,14 +500,14 @@
                      :depth-writemask t
                      :depth-func :less))
                (setup-cmd-buf (virgl:make-command-buffer context)))
-          ;; Attach scanout surface object to the framebuffer's color0 channel.
-          (virgl:add-command-set-framebuffer-state setup-cmd-buf depth-surface scanout-surface)
+          ;; Attach window surface object to the framebuffer's color0 channel.
+          (virgl:add-command-set-framebuffer-state setup-cmd-buf depth-surface window-surface)
           ;; Viewport.
           (virgl:add-command-set-viewport-state
            setup-cmd-buf
            ;; near-depth = 0, far-depth = 1
-           (/ (virgl:width scanout) 2.0) (/ (virgl:height scanout) 2.0) 0.5
-           (/ (virgl:width scanout) 2.0) (/ (virgl:height scanout) 2.0) 0.5)
+           (/ (virgl:width window-texture) 2.0) (/ (virgl:height window-texture) 2.0) 0.5
+           (/ (virgl:width window-texture) 2.0) (/ (virgl:height window-texture) 2.0) 0.5)
           ;; Configure vertex buffer
           (virgl:add-command-set-vertex-buffers
            setup-cmd-buf
@@ -462,35 +524,31 @@
           (virgl:add-command-set-index-buffer setup-cmd-buf index-buffer 2 0)
           (virgl:command-buffer-finalize setup-cmd-buf)
           (virgl:command-buffer-submit setup-cmd-buf)
-          (loop
-             with cmd-buf = (virgl:make-command-buffer context)
-             with perspective = (make-perspective-matrix
-                                 (degrees-to-radians 90)
-                                 (float (/ (virgl:width scanout) (virgl:height scanout)))
-                                 0.01 100.0)
-             with n = 1000
-             for i below n
-             ;with i = 0
-             do
-               (virgl:command-buffer-reset cmd-buf)
-             ;; Clear framebuffer.
-               (virgl:add-command-clear
-                cmd-buf '(:color :depth) 0.25 0.33 0.66 0.75 1.0d0 0)
-             ;; Set constants.
-               (virgl:add-command-set-constant-buffer
-                cmd-buf :vertex
+          (let ((cmd-buf (virgl:make-command-buffer context))
+                (perspective (make-perspective-matrix
+                              (degrees-to-radians 90)
+                              (float (/ (virgl:width window-texture) (virgl:height window-texture)))
+                              0.01 100.0))
+                (i 0))
+            (window-loop
+              (virgl:command-buffer-reset cmd-buf)
+              ;; Clear framebuffer.
+              (virgl:add-command-clear
+               cmd-buf '(:color :depth) 0.25 0.33 0.66 1.0 1.0d0 0)
+              ;; Set constants.
+              (virgl:add-command-set-constant-buffer
+               cmd-buf :vertex
+               (matrix-multiply
+                perspective
                 (matrix-multiply
-                 perspective
-                 (matrix-multiply
-                  (make-translate-matrix 0.0 0.0 -1.0)
-                  (make-rotate-matrix 1.5 0.5 1.0 (degrees-to-radians i)))))
-             ;; Draw
-               (virgl:add-command-draw-vbo cmd-buf 0 (length test-indices) :triangles :indexed t)
-             ;; Do it!
-               (virgl:command-buffer-finalize cmd-buf)
-               (virgl:command-buffer-submit cmd-buf)
-               (virgl:scanout-flush scanout 0 0 (virgl:width scanout) (virgl:height scanout))
-               (sleep 1/60)))))))
+                 (make-translate-matrix 0.0 0.0 -1.0)
+                 (make-rotate-matrix 1.5 0.5 1.0 (degrees-to-radians i)))))
+              ;; Draw
+              (virgl:add-command-draw-vbo cmd-buf 0 (length test-indices) :triangles :indexed t)
+              ;; Do it!
+              (virgl:command-buffer-finalize cmd-buf)
+              (virgl:command-buffer-submit cmd-buf)
+              (incf i))))))))
 
 (defun load-test-image (name)
   (mezzano.gui.image:load-image
@@ -502,8 +560,8 @@
 (defvar *alien-logo* (load-test-image "lisplogo_alien_256.png"))
 
 (defun test-texture ()
-  "Clear the scanout and draw a textured square."
-  (virgl:with-context (context :name "Test context")
+  "Draw a textured square."
+  (with-demo-gui (context window-texture :title "Test texture")
     (let ((test-data '(0.0 0.0 0.0 1.0   ; 0 Position UR
                        0.0 1.0 0.0 0.0   ;   Texcoord
                        0.5 0.0 0.0 1.0   ; 1 Position DR
@@ -558,9 +616,8 @@
                ;; Needs to have both a view and a state bound.
                (sampler-view (virgl:make-sampler-view context texture))
                (sampler-state (virgl:make-sampler-state context))
-               ;; Create a surface object backed by the scanout buffer
-               (scanout (virgl:virgl-scanout (virgl:virgl context)))
-               (scanout-surface (virgl:make-surface context scanout))
+               ;; Create a surface object backed by the window texture.
+               (window-surface (virgl:make-surface context window-texture))
                ;; Create vertex elements buffer.
                (vertex-elements (virgl:make-vertex-elements
                                  context nil
@@ -579,15 +636,15 @@
 
                                         ))
                (cmd-buf (virgl:make-command-buffer context)))
-          ;; Attach scanout surface object to the framebuffer's color0 channel.
+          ;; Attach window surface object to the framebuffer's color0 channel.
           ;; No depth/stencil surface.
-          (virgl:add-command-set-framebuffer-state cmd-buf nil scanout-surface)
+          (virgl:add-command-set-framebuffer-state cmd-buf nil window-surface)
           ;; Viewport.
           (virgl:add-command-set-viewport-state
            cmd-buf
            ;; near-depth = 0, far-depth = 1
-           (/ (virgl:width scanout) 2.0) (/ (virgl:height scanout) 2.0) 0.5
-           (/ (virgl:width scanout) 2.0) (/ (virgl:height scanout) 2.0) 0.5)
+           (/ (virgl:width window-texture) 2.0) (/ (virgl:height window-texture) 2.0) 0.5
+           (/ (virgl:width window-texture) 2.0) (/ (virgl:height window-texture) 2.0) 0.5)
           ;; Configure vertex buffer
           (virgl:add-command-set-vertex-buffers
            cmd-buf
@@ -604,10 +661,10 @@
           (virgl:add-command-set-sampler-views cmd-buf :fragment 0 sampler-view)
           ;; Clear framebuffer.
           (virgl:add-command-clear
-           cmd-buf :color 0.25 0.33 0.66 0.75 0.0d0 0)
+           cmd-buf :color 0.25 0.33 0.66 1.0 0.0d0 0)
           ;; Draw
           (virgl:add-command-draw-vbo cmd-buf 0 (length test-indices) :triangles :indexed t)
           ;; Do it!
           (virgl:command-buffer-finalize cmd-buf)
           (virgl:command-buffer-submit cmd-buf)
-          (virgl:scanout-flush scanout 0 0 (virgl:width scanout) (virgl:height scanout)))))))
+          (window-loop))))))
