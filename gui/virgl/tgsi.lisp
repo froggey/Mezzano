@@ -29,6 +29,12 @@
               when (not (member ch '(#\X #\Y #\Z #\W)))
               do (error "Bad swizzle ~S" swizzle))))))
 
+(defun convert-opcode-name (opcode)
+  (let ((name (symbol-name opcode)))
+    (cond ((find #\- name)
+           (substitute #\_ #\- name))
+          (t name))))
+
 (defun assemble (processor source)
   (let* ((total-size 2) ; header token + processor token
          (saw-label nil)
@@ -86,7 +92,7 @@
                      (cons
                       ;; An instruction.
                       (setf saw-label nil)
-                      (format text "~A" (first stmt))
+                      (format text "~A" (convert-opcode-name (first stmt)))
                       (incf total-size)
                       (let ((first-operand-p t)
                             (texture nil))
