@@ -558,6 +558,7 @@
                          *default-pathname-defaults*)))))
 
 (defvar *alien-logo* (load-test-image "lisplogo_alien_256.png"))
+(defvar *made-with-lisp* (load-test-image "made-with-lisp_256.png"))
 
 (defun test-texture ()
   "Draw a textured square."
@@ -668,3 +669,268 @@
           (virgl:command-buffer-finalize cmd-buf)
           (virgl:command-buffer-submit cmd-buf)
           (window-loop))))))
+
+(defun demo ()
+  "A fun demo!"
+  (with-demo-gui (context window-texture :title "Demo")
+    ;; A cube is made of 8 vertices, formed into 6 faces, made of 2 tris each.
+    (let ((test-data '(+0.5 +0.5 +0.5 1.0   ; 0 Position RUF (right upper front)
+                        1.0  0.0  0.0 1.0   ;   Colour
+                        1.0  0.0  0.0 0.0   ;   Texcoord
+                       +0.5 +0.5 -0.5 1.0   ; 1 Position RUB (right upper back)
+                        1.0  0.0  0.0 1.0   ;   Colour
+                        1.0  1.0  0.0 0.0   ;   Texcoord
+                       +0.5 -0.5 +0.5 1.0   ; 2 Position RDF (right down front)
+                        0.0  0.0  1.0 1.0   ;   Colour
+                        1.0  1.0  0.0 0.0   ;   Texcoord
+                       +0.5 -0.5 -0.5 1.0   ; 3 Position RDB (right down back)
+                        1.0  1.0  0.0 1.0   ;   Colour
+                        1.0  0.0  0.0 0.0   ;   Texcoord
+                       -0.5 +0.5 +0.5 1.0   ; 4 Position LUF (left upper front)
+                        1.0  0.0  1.0 1.0   ;   Colour
+                        0.0  0.0  0.0 0.0   ;   Texcoord
+                       -0.5 +0.5 -0.5 1.0   ; 5 Position LUB (left upper back)
+                        0.0  1.0  1.0 1.0   ;   Colour
+                        0.0  1.0  0.0 0.0   ;   Texcoord
+                       -0.5 -0.5 +0.5 1.0   ; 6 Position LDF (left down front)
+                        0.5  0.5  0.0 1.0   ;   Colour
+                        0.0  1.0  0.0 0.0   ;   Texcoord
+                       -0.5 -0.5 -0.5 1.0   ; 7 Position LDB (left down back)
+                        0.5  0.0  0.5 1.0   ;   Colour
+                        0.0  0.0  0.0 0.0   ;   Texcoord
+                       ;; Side coordinates - different texcoords.
+                       +0.5 +0.5 +0.5 1.0   ; 8 Position RUF (right upper front)
+                        1.0  0.0  0.0 1.0   ;   Colour
+                        0.0  0.0  0.0 0.0   ;   Texcoord
+                       +0.5 +0.5 -0.5 1.0   ; 9 Position RUB (right upper back)
+                        1.0  0.0  0.0 1.0   ;   Colour
+                        0.0  1.0  0.0 0.0   ;   Texcoord
+                       +0.5 -0.5 +0.5 1.0   ;10 Position RDF (right down front)
+                        0.0  0.0  1.0 1.0   ;   Colour
+                        1.0  0.0  0.0 0.0   ;   Texcoord
+                       +0.5 -0.5 -0.5 1.0   ;11 Position RDB (right down back)
+                        1.0  1.0  0.0 1.0   ;   Colour
+                        1.0  1.0  0.0 0.0   ;   Texcoord
+                       -0.5 +0.5 +0.5 1.0   ;12 Position LUF (left upper front)
+                        1.0  0.0  1.0 1.0   ;   Colour
+                        1.0  0.0  0.0 0.0   ;   Texcoord
+                       -0.5 +0.5 -0.5 1.0   ;13 Position LUB (left upper back)
+                        0.0  1.0  1.0 1.0   ;   Colour
+                        0.0  0.0  0.0 0.0   ;   Texcoord
+                       -0.5 -0.5 +0.5 1.0   ;14 Position LDF (left down front)
+                        0.5  0.5  0.0 1.0   ;   Colour
+                        1.0  1.0  0.0 0.0   ;   Texcoord
+                       -0.5 -0.5 -0.5 1.0   ;15 Position LDB (left down back)
+                        0.5  0.0  0.5 1.0   ;   Colour
+                        0.0  1.0  0.0 0.0)) ;   Texcoord
+          (test-indices '( 6  2  0  0  4  6   ; Cube front face
+                           7  5  1  1  3  7   ; Cube back face
+                          11  9  8  8 10 11   ; Cube right face
+                          15 14 12 12 13 15   ; Cube left face
+                           5  4  0  0  1  5   ; Cube up face
+                           7  3  2  2  6  7   ; Cube down face
+                           6 2 0 0 4 6))) ; Background lines.
+      (virgl:with-resources ((vertex-buffer (virgl:make-vertex-buffer context (* (length test-data) 4) :name "Test vertex buffer"))
+                             (index-buffer (virgl:make-index-buffer context (* (length test-indices) 2) :name "Test index buffer"))
+                             (depth-texture (virgl:make-texture context
+                                                                :s8-uint-z24-unorm
+                                                                (list (virgl:width window-texture) (virgl:height window-texture))
+                                                                :name "Test depth/stencil texture"
+                                                                :depth/stencil t
+                                                                ;; Host only as it is never directly read from.
+                                                                :host-only t))
+                             (alien-texture (virgl:make-texture-2d-from-gui-surface context *alien-logo* :name "Lisp Alien"))
+                             (mwl-texture (virgl:make-texture-2d-from-gui-surface context *made-with-lisp* :name "Made with Lisp")))
+        ;; Upload test data
+        (let* ((vertex-dma-buf (virgl:resource-dma-buffer vertex-buffer))
+               (vertex-buf (make-array (sup:dma-buffer-length vertex-dma-buf)
+                                       :element-type '(unsigned-byte 8)
+                                       :fill-pointer 0
+                                       :memory vertex-dma-buf)))
+          (dolist (val test-data)
+            (virgl::vector-push-extend-single/le val vertex-buf))
+          (virgl:transfer-to-gpu vertex-buffer))
+        (let* ((index-dma-buf (virgl:resource-dma-buffer index-buffer))
+               (index-buf (make-array (sup:dma-buffer-length index-dma-buf)
+                                      :element-type '(unsigned-byte 8)
+                                      :fill-pointer 0
+                                      :memory index-dma-buf)))
+          (dolist (val test-indices)
+            (virgl::vector-push-extend-ub16/le val index-buf))
+          (virgl:transfer-to-gpu index-buffer))
+        (let* ((vertex-shader (virgl:make-shader context
+                                                 :vertex
+                                                 '((tgsi:dcl (:in 0)) ; vertex position
+                                                   (tgsi:dcl (:in 1)) ; vertex colour
+                                                   (tgsi:dcl (:in 2)) ; vertex texcoord
+                                                   (tgsi:dcl (:out 0) :position)
+                                                   (tgsi:dcl (:out 1) :color)
+                                                   (tgsi:dcl (:out 2) :texcoord)
+                                                   (tgsi:dcl (:const 0 3)) ; projection/view matrix
+                                                   (tgsi:dcl (:const 4)) ; texcoord adjust (xy = translate, zw = scale)
+                                                   (tgsi:dcl (:const 5)) ; vertex colour multiplier
+                                                   (tgsi:dcl (:temp 0 3))
+                                                   ;; Apply the 4D transform matrix (const 0..3) to the vertex position (input 0).
+                                                   (tgsi:mul (:temp 0) (:const 0) (:in 0 :xxxx))
+                                                   (tgsi:mul (:temp 1) (:const 1) (:in 0 :yyyy))
+                                                   (tgsi:mul (:temp 2) (:const 2) (:in 0 :zzzz))
+                                                   (tgsi:mul (:temp 3) (:const 3) (:in 0 :wwww))
+                                                   (tgsi:add (:out 0) (:temp 0) (:temp 1))
+                                                   (tgsi:add (:out 0) (:out 0) (:temp 2))
+                                                   (tgsi:add (:out 0) (:out 0) (:temp 3))
+                                                   ;; Pass colour (input 1) through unchanged.
+                                                   (tgsi:mul (:out 1) (:in 1) (:const 5))
+                                                   ;; Scale the texcoord and add the offset.
+                                                   (tgsi:mul (:out 2 :xy) (:in 2) (:const 4 :zwww))
+                                                   (tgsi:add (:out 2 :xy) (:out 2) (:const 4))
+                                                   (tgsi:end))))
+               (fragment-shader (virgl:make-shader context
+                                                   :fragment
+                                                   ;; Color semantic and color interpolation
+                                                   '((tgsi:dcl (:in 0) :color :color)
+                                                     (tgsi:dcl (:in 2) :texcoord)
+                                                     (tgsi:dcl (:out 0) :color)
+                                                     (tgsi:dcl (:samp 0))
+                                                     (tgsi:dcl (:temp 0))
+                                                     (tgsi:imm :flt32 (1.0 1.0 1.0 1.0)) ; inverse alpha
+                                                     (tgsi:imm :flt32 (0.0 0.0 0.0 0.5)) ; alpha threshold
+                                                     ;; Read texture.
+                                                     (tgsi:tex (:out 0) (:in 2) (:samp 0) :2d)
+                                                     (tgsi:mul (:out 0 :xyz) (:out 0) (:out 0 :wwww)) ; multiply by alpha
+                                                     ;; Multiply vertex colour by inverse alpha.
+                                                     (tgsi:sub (:temp 0) (:imm 0) (:out 0))
+                                                     (tgsi:mul (:temp 0) (:in 0) (:temp 0 :wwww))
+                                                     ;; Alpha blend the two together.
+                                                     (tgsi:add (:out 0) (:out 0) (:temp 0))
+                                                     ;; Alpha test.
+                                                     (tgsi:sub (:temp 0 :w) (:out 0) (:imm 1))
+                                                     (tgsi:kill-if (:temp 0 :wwww))
+                                                     (tgsi:end))))
+               ;; Needs to have both a view and a state bound.
+               (sampler-state (virgl:make-sampler-state context))
+               (alien-view (virgl:make-sampler-view context alien-texture))
+               (mwl-view (virgl:make-sampler-view context mwl-texture))
+               ;; Create a surface object backed by the window buffer.
+               (window-surface (virgl:make-surface context window-texture))
+               ;; And the depth texture
+               (depth-surface (virgl:make-surface context depth-texture))
+               ;; Create vertex elements buffer.
+               (vertex-elements (virgl:make-vertex-elements
+                                 context nil
+                                 ;; First element: Positions.
+                                 '(0 ; src-offset
+                                   0 ; instance-divisor
+                                   0 ; vertex buffer index
+                                   :r32g32b32a32-float)
+                                 ;; Second element: Colours.
+                                 '(16 ; src-offset
+                                   0 ; instance-divisor
+                                   0 ; vertex buffer index
+                                   :r32g32b32a32-float)
+                                 ;; Third element: Texcoord.
+                                 '(32 ; src-offset
+                                   0 ; instance-divisor
+                                   0 ; vertex buffer index
+                                   :r32g32b32a32-float)))
+               (blend (virgl:make-blend context :colormask :rgba))
+               (rasterizer (virgl:make-rasterizer
+                            context
+                            :front-ccw t ; match opengl
+                            :cull-face :back))
+               (dsa (virgl:make-dsa
+                     context
+                     :depth-enabled t
+                     :depth-writemask t
+                     :depth-func :less))
+               (setup-cmd-buf (virgl:make-command-buffer context)))
+          ;; Attach window surface object to the framebuffer's color0 channel.
+          (virgl:add-command-set-framebuffer-state setup-cmd-buf depth-surface window-surface)
+          ;; Viewport.
+          (virgl:add-command-set-viewport-state
+           setup-cmd-buf
+           ;; near-depth = 0, far-depth = 1
+           (/ (virgl:width window-texture) 2.0) (/ (virgl:height window-texture) 2.0) 0.5
+           (/ (virgl:width window-texture) 2.0) (/ (virgl:height window-texture) 2.0) 0.5)
+          ;; Configure vertex buffer
+          (virgl:add-command-set-vertex-buffers
+           setup-cmd-buf
+           `(48 ; stride, 3*float4
+             0 ; offset
+             ,vertex-buffer)) ; vertex buffer resource handle
+          (virgl:add-command-bind-vertex-elements setup-cmd-buf vertex-elements)
+          (virgl:add-command-bind-shader setup-cmd-buf vertex-shader)
+          (virgl:add-command-bind-shader setup-cmd-buf fragment-shader)
+          ;; Enable writes to the color channels
+          (virgl:add-command-bind-blend setup-cmd-buf blend)
+          (virgl:add-command-bind-rasterizer setup-cmd-buf rasterizer)
+          (virgl:add-command-bind-dsa setup-cmd-buf dsa)
+          (virgl:add-command-set-index-buffer setup-cmd-buf index-buffer 2 0)
+          (virgl:add-command-bind-sampler-states setup-cmd-buf :fragment 0 sampler-state)
+          (virgl:command-buffer-finalize setup-cmd-buf)
+          (virgl:command-buffer-submit setup-cmd-buf)
+          (let ((cmd-buf (virgl:make-command-buffer context))
+                (perspective (make-perspective-matrix
+                              (degrees-to-radians 90)
+                              (/ (float (virgl:width window-texture)) (virgl:height window-texture))
+                              0.01 100.0))
+                (i 0))
+            (window-loop
+              (virgl:command-buffer-reset cmd-buf)
+              ;; Clear framebuffer.
+              (virgl:add-command-clear
+               cmd-buf '(:color :depth) 0.25 0.33 0.66 1.0 1.0d0 0)
+              ;; Drawing background lines
+              ;; Bind line texture
+              (virgl:add-command-set-sampler-views cmd-buf :fragment 0 mwl-view)
+              ;; Set constants.
+              (virgl:add-command-set-constant-buffer
+               cmd-buf :vertex
+               ;; Transform matrix
+               (matrix-multiply
+                perspective
+                (matrix-multiply
+                 (make-translate-matrix 0.0 2.0 -5.0)
+                 (make-scale-matrix 40.0 2.0 2.0)))
+               ;; Texture offset and scale
+               (* (float i 0.0f0) -0.01) 0.0 20.0 1.0
+               ;; Vertex colour multiplier
+               0.0 0.0 0.0 0.0)
+              ;; Draw line indices.
+              (virgl:add-command-draw-vbo cmd-buf 36 6 :triangles :indexed t)
+              ;; Set constants.
+              (virgl:add-command-set-constant-buffer
+               cmd-buf :vertex
+               ;; Transform matrix
+               (matrix-multiply
+                perspective
+                (matrix-multiply
+                 (make-translate-matrix 0.0 -2.0 -5.0)
+                 (make-scale-matrix 40.0 2.0 2.0)))
+               ;; Texture offset and scale
+               (* (float i 0.0f0) 0.01) 0.0 20.0 1.0
+               ;; Vertex colour multiplier
+               0.0 0.0 0.0 0.0)
+              ;; Draw line indices.
+              (virgl:add-command-draw-vbo cmd-buf 36 6 :triangles :indexed t)
+              ;; Drawing cube
+              ;; Bind cube face texture
+              (virgl:add-command-set-sampler-views cmd-buf :fragment 0 alien-view)
+              ;; Set constants.
+              (virgl:add-command-set-constant-buffer
+               cmd-buf :vertex
+               ;; Transform matrix
+               (matrix-multiply
+                perspective
+                (matrix-multiply
+                 (make-translate-matrix 0.0 0.0 -1.0)
+                 (make-rotate-matrix 1.0 2.0 0.0 (degrees-to-radians (* i 2)))))
+               ;; Texture offset and scale
+               0.0 0.0 1.0 1.0
+               ;; Vertex colour multiplier
+               1.0 1.0 1.0 1.0)
+              ;; Draw cube indices.
+              (virgl:add-command-draw-vbo cmd-buf 0 36 :triangles :indexed t)
+              ;; Do it!
+              (virgl:command-buffer-finalize cmd-buf)
+              (virgl:command-buffer-submit cmd-buf)
+              (incf i))))))))
