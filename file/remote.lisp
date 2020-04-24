@@ -209,10 +209,12 @@ the server instead of reconnecting for each operation.")
                              (close (remote-host-connection host))
                              (setf (remote-host-connection host) nil))
                            (go RETRY))
-                    :report-function (lambda (stream)
-                                       (format stream "Retry connecting to the file server"))))
+                         :report-function (lambda (stream)
+                                            (format stream "Retry connecting to the file server"))))
                (handler-bind
-                   ((error (lambda (c)
+                   ((simple-file-error (lambda (c)
+                                         (return c)))
+                    (error (lambda (c)
                              ;; If an error occurs, then close the current
                              ;; connection and force the next operation to re-open.
                              ;; Just in case the connection gets into a bad state.
