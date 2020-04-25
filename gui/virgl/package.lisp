@@ -75,4 +75,10 @@
                     (:tgsi :mezzano.gui.virgl.tgsi)
                     (:gpu :mezzano.supervisor.virtio-gpu)
                     (:ext :mezzano.extensions)
-                    (:sup :mezzano.supervisor)))
+                    (:sup :mezzano.supervisor))
+  (:export #:test-clear
+           #:test-triangle
+           #:test-spin
+           #:test-cube
+           #:test-texture
+           #:demo))
