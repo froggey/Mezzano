@@ -42,7 +42,7 @@
                                    ,',width-sym ,',height-sym
                                    ,',window-texture 0 0
                                    (comp:window-buffer ,',window) ,',frame-left ,',frame-top)
-                                  (comp:damage-window ,',window ,',frame-left ,',frame-top (- ,',width-sym ,',frame-left ,',frame-right) (- ,',height-sym ,',frame-top ,',frame-bottom))
+                                  (comp:damage-window ,',window ,',frame-left ,',frame-top ,',width-sym ,',height-sym)
                                   (sleep 1/60))))
                    (catch 'quit
                      ,@body))))))))))
