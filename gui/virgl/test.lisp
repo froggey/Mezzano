@@ -37,7 +37,7 @@
                                   (progn ,@body)
                                   (window-loop-process-events ,',mailbox ,',frame)
                                   ;; Update the window surface.
-                                  (virgl:transfer-from-gpu window-texture)
+                                  (virgl:transfer-from-gpu ,',window-texture)
                                   (virgl:copy-texture-2d-to-gui-surface
                                    ,',width-sym ,',height-sym
                                    ,',window-texture 0 0
