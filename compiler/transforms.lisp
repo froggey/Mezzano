@@ -364,7 +364,6 @@
     ((:optimize (= safety 0) (= speed 3)))
   `(call not (call mezzano.runtime::%sb64-< ,rhs ,lhs)))
 
-
 ;;; Unboxed fixnum arithmetic.
 ;;; Must come after the UB64/SB64 transforms.
 ;;; These only apply at safety 0 as they can produce invalid values which
@@ -395,6 +394,13 @@
 (define-transform mezzano.runtime::generic-right-shift (lhs (rhs (eql 0)))
     ((:optimize (= safety 0) (= speed 3)))
   lhs)
+
+;; Make an attempt at transforming constant counts.
+(define-transform mezzano.runtime::right-shift (integer (count fixnum))
+    ()
+  `(if (if (call sys.int::fixnump ,integer) (call sys.int::fixnump ,count) 'nil)
+       (the fixnum (call mezzano.runtime::%fixnum-right-shift ,integer ,count))
+       (call mezzano.runtime::generic-right-shift ,integer ,count)))
 
 (define-transform sys.int::%truncate (number (divisor (eql 1)))
     ()
