@@ -14,6 +14,9 @@
 
 (sys.int::defglobal *enable-snapshot-cow-fast-path* nil)
 
+(sys.int::defglobal *snapshot-epoch*)
+(sys.int::defglobal *snapshot-next-epoch*)
+
 (declaim (inline %fast-page-copy))
 (defun %fast-page-copy (destination source)
   (sys.int::%copy-words destination source 512))
@@ -393,6 +396,11 @@ Returns 4 values:
   (set-snapshot-light nil)
   (debug-print-line "End snapshot."))
 
+(defun current-snapshot-epoch ()
+  "Return an event that identifies the current snapshot epoch.
+This event will be signalled when the epoch changes."
+  *snapshot-epoch*)
+
 (defun snapshot-thread ()
   ;; A preallocated timer is required here because the snapshot thread
   ;; runs at :supervisor priority and must not cons outside of boot.
@@ -409,6 +417,9 @@ Returns 4 values:
        ;; going to sleep. (SETF EVENT-STATE) can't be called with the
        ;; global thread-lock held.
        (setf (event-state *snapshot-state*) t)
+       ;; Move to the next epoch.
+       (setf (event-state *snapshot-epoch*) t)
+       (setf *snapshot-epoch* *snapshot-next-epoch*)
        (%disable-interrupts)
        (acquire-global-thread-lock)
        (setf *snapshot-in-progress* nil)
@@ -438,6 +449,11 @@ Returns 4 values:
   (when (not (boundp '*snapshot-state*))
     (setf *snapshot-state* (make-event :name 'snapshot-not-in-progress)))
   (setf (event-state *snapshot-state*) nil)
+  (cond ((boundp '*snapshot-epoch*)
+         (setf (event-state *snapshot-epoch*) t)
+         (setf *snapshot-epoch* *snapshot-next-epoch*))
+        (t
+         (setf *snapshot-epoch* (make-event :name 'snapshot-epoch))))
   (setf *snapshot-disk-request* (make-disk-request))
   (setf *snapshot-in-progress* nil)
   (setf *snapshot-inhibit* 1)
@@ -463,12 +479,14 @@ Returns 4 values:
   ;; Attempt to wake the snapshot thread, only waking it if
   ;; there is not snapshot currently in progress.
   ;; FIXME: locking for SMP.
-  (let ((did-wake (safe-without-interrupts ()
-                      (let ((was-in-progress (sys.int::cas (sys.int::symbol-global-value '*snapshot-in-progress*) nil t)))
-                        (when (eql was-in-progress nil)
-                          (setf (event-state *snapshot-state*) nil)
-                          (wake-thread sys.int::*snapshot-thread*)
-                          t)))))
+  (let* ((next-epoch (make-event :name 'snapshot-epoch))
+         (did-wake (safe-without-interrupts ()
+                     (let ((was-in-progress (sys.int::cas (sys.int::symbol-global-value '*snapshot-in-progress*) nil t)))
+                       (when (eql was-in-progress nil)
+                         (setf (event-state *snapshot-state*) nil)
+                         (setf *snapshot-next-epoch* next-epoch)
+                         (wake-thread sys.int::*snapshot-thread*)
+                         t)))))
     (when did-wake
       (thread-yield))))
 

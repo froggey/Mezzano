@@ -489,6 +489,7 @@
            #:latch-trigger
            #:snapshot
            #:wait-for-snapshot-completion
+           #:current-snapshot-epoch
            #:allocate-memory-range
            #:protect-memory-range
            #:release-memory-range
