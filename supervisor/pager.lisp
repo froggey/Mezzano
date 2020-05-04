@@ -144,7 +144,6 @@ the data. Free the page with FREE-PAGE when done."
   (setf *paging-disk* :freestanding
         *paging-read-only* t)
   (debug-print-line "Running freestanding.")
-  (setf *bml4* (sys.int::memref-signed-byte-64 (+ *boot-information-page* +boot-information-block-map+)))
   (debug-print-line "BML4 at " *bml4*)
   (initialize-freestanding-store)
   (setf *store-fudge-factor* (- (truncate (physical-memory-statistics) 1.1)))
@@ -158,7 +157,6 @@ the data. Free the page with FREE-PAGE when done."
                                (boot-option +boot-option-force-read-only+)))
   (when *paging-read-only*
     (debug-print-line "Running read-only."))
-  (setf *bml4* (sys.int::memref-signed-byte-64 (+ *boot-information-page* +boot-information-block-map+)))
   (debug-print-line "BML4 at " *bml4*)
   (initialize-store-freelist (truncate (* (disk-n-sectors *paging-disk*) (disk-sector-size *paging-disk*)) #x1000)
                              (sys.int::memref-unsigned-byte-64 (+ header +image-header-freelist+)))
@@ -1089,6 +1087,7 @@ It will put the thread to sleep, while it waits for the page."
   (pager-rpc 'map-physical-memory-in-pager base size name))
 
 (defun initialize-pager ()
+  (setf *bml4* (sys.int::memref-signed-byte-64 (+ *boot-information-page* +boot-information-block-map+)))
   (when (not (boundp '*pager-waiting-threads*))
     (setf *pager-noisy* nil
           *pager-waiting-threads* '()
