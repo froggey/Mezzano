@@ -1540,8 +1540,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                                                :defaults pathname)
                                 result)))))
                  (T
-                  (let* ((wild-pos (position :wild directory))
-                         (start-of-dir (subseq directory 0 wild-pos)))
+                  (let ((start-of-dir (butlast directory (length dir-list))))
                     (do-files (offset) dir-array
                         NIL
                         (let ((name (read-file-name dir-array offset)))
@@ -1564,8 +1563,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
            result))
         ((eql (car dir-list) :wild-inferiors)
          (let* ((directory (pathname-directory pathname))
-                (wild-pos (position :wild-inferiors directory))
-                (start-of-dir (subseq directory 0 wild-pos))
+                (start-of-dir (butlast directory (length dir-list)))
                 (rest-of-dir-list (cdr dir-list))
                 (result '()))
            (do-files (offset) dir-array
@@ -1736,6 +1734,10 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                              (ldb (byte 5 0) date)
                              (ldb (byte 4 5) date)
                              (+ 1980 (ldb (byte 7 9) date))))))
+
+(defmethod file-author-using-host ((host fat-host) path)
+  ;; FAT does not support an author field
+  NIL)
 
 (defmethod delete-file-using-host ((host fat-host) path &key)
   (let* ((disk (file-host-mount-device host))

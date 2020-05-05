@@ -28,10 +28,17 @@ methods:
 
     expunge-directory-using-host (host path &key) => <ignored>
 
+    delete-directory-using-host (host path &key) =>
+
     truename-using-host (host pathname) => pathname
 
 These methods and file-system-host are exported by the
 mezzano.file-system package.
+
+The default implementation for truename-using-host calls probe-file
+(which calls probe-file-using-host). If this implementation is
+sufficient for a given host, then no host specific implementation of
+truename-using-host is required.
 
 As listed above, open-using-host returns a stream. Usually, the
 stream is one of two types: a character stream or a binary
