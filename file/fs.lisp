@@ -22,6 +22,7 @@
            #:delete-file-using-host
            #:delete-directory
            #:delete-directory-using-host
+           #:expunge-directory
            #:expunge-directory-using-host
            #:file-stream-pathname
            #:simple-file-error
