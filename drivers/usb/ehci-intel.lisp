@@ -416,7 +416,7 @@
                                       (xfer-info-endpoint
                                        (gethash qtd (qtd->xfer-info ehci))))
                                      device)
-                                 (progn (pushd qtd qtds) T)
+                                 (progn (push qtd qtds) T)
                                  NIL))
                          (pending-qtds ehci))))
       (dolist (qtd qtds)
