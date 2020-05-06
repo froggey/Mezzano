@@ -1,15 +1,6 @@
 ;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(defpackage :mezzano.gui.desktop
-  (:use :cl)
-  (:export #:spawn)
-  (:local-nicknames (:gui :mezzano.gui)
-                    (:comp :mezzano.gui.compositor)
-                    (:font :mezzano.gui.font))
-  (:import-from :mezzano.gui.image
-                #:load-image))
-
 (in-package :mezzano.gui.desktop)
 
 (defvar *icons* '(("LOCAL:>Icons>Terminal.png" "Lisp REPL" "(mezzano.gui.fancy-repl:spawn)")
@@ -28,6 +19,9 @@
 
 (defclass set-background-image ()
   ((%image-pathname :initarg :image-pathname :reader image-pathname)))
+
+(defclass set-text-colour ()
+  ((%colour :initarg :colour :reader colour)))
 
 ;;; Desktop object.
 
@@ -59,6 +53,11 @@
              (when image
                (setf (slot-value desktop '%image) image
                      (slot-value desktop '%image-pathname) path)))))
+  (redraw-desktop-window desktop))
+
+(defmethod dispatch-event (desktop (event set-text-colour))
+  (check-type (colour event) (unsigned-byte 32))
+  (setf theme:*desktop-text* (colour event))
   (redraw-desktop-window desktop))
 
 (defmethod dispatch-event (desktop (event comp:screen-geometry-update))
@@ -125,7 +124,7 @@
   (let* ((font (font desktop))
          (window (window desktop))
          (desktop-height (comp:height window))
-         (text-cache (build-text-cache *icons* font (gui:make-colour 1 1 1))))
+         (text-cache (build-text-cache *icons* font theme:*desktop-text*)))
     (loop
        with icon-pen = 0
        with column = *icon-horizontal-offset*
@@ -176,7 +175,7 @@
          (desktop-height (comp:height window))
          (framebuffer (comp:window-buffer window))
          (font (font desktop))
-         (text-cache (build-text-cache *icons* font (gui:make-colour 1 1 1))))
+         (text-cache (build-text-cache *icons* font theme:*desktop-text*)))
     (gui:bitset :set
                 desktop-width desktop-height
                 (colour desktop)

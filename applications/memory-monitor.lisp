@@ -8,6 +8,7 @@
   (:export #:spawn)
   (:local-nicknames (:gui :mezzano.gui)
                     (:comp :mezzano.gui.compositor)
+                    (:theme :mezzano.gui.theme)
                     (:sync :mezzano.sync)
                     (:sup :mezzano.supervisor)
                     (:int :mezzano.internals)))
@@ -130,22 +131,22 @@
       (dotimes (px w)
         (setf (mezzano.gui:surface-pixel fb (+ x px) (+ y py))
               (case (svref flag-array (+ (* py w) px))
-                (#x000 (mezzano.gui:make-colour 0 0 0)) ; not present.
-                (#x001 (mezzano.gui:make-colour-from-octets 53 148 254)) ; free
-                (#x002 (mezzano.gui:make-colour-from-octets 248 8 23)) ; wired
-                (#x004 (mezzano.gui:make-colour-from-octets 143 80 10)) ; wired-backing
-                (#x008 (mezzano.gui:make-colour-from-octets 147 253 21)) ; active
-                (#x010 (mezzano.gui:make-colour-from-octets 81 145 7)) ; active-writeback
-                (#x020 (mezzano.gui:make-colour-from-octets 82 9 146)) ; inactive-writeback
-                (#x040 (mezzano.gui:make-colour-from-octets 251 131 216)) ; page-table
-                (#x100 (mezzano.gui:make-colour-from-octets 121 121 121)) ; other
-                (t (mezzano.gui:make-colour 1 1 1)))))))) ; mixed
+                (#x000 theme:*memory-monitor-not-present*)
+                (#x001 theme:*memory-monitor-free*)
+                (#x002 theme:*memory-monitor-wired*)
+                (#x004 theme:*memory-monitor-wired-backing*)
+                (#x008 theme:*memory-monitor-active*)
+                (#x010 theme:*memory-monitor-active-writeback*)
+                (#x020 theme:*memory-monitor-inactive-writeback*)
+                (#x040 theme:*memory-monitor-page-table*)
+                (#x100 theme:*memory-monitor-other*)
+                (t theme:*memory-monitor-mixed*)))))))
 
 (defparameter *graph-background-colour*
-  gui:*default-background-colour*)
+  theme:*memory-monitor-graph-background*)
 
 (defparameter *graph-tracker-colour*
-  (gui:make-colour-from-octets 255 0 0))
+  theme:*memory-monitor-graph-tracker*)
 
 (defparameter *graph-update-interval* 1/4)
 
@@ -320,47 +321,47 @@
                                      :mode :graphs
                                      :samplers (list (make-instance 'graph-sampler
                                                                     :function 'general-area-usage
-                                                                    :colour (gui:make-colour 0 0 1)
+                                                                    :colour theme:*memory-monitor-general-area-usage*
                                                                     :name "General area usage")
                                                      (make-instance 'graph-sampler
                                                                     :function 'general-area-alloc
-                                                                    :colour (gui:make-colour 0.5 0.5 1)
+                                                                    :colour theme:*memory-monitor-general-area-alloc*
                                                                     :name "General area bytes allocated"
                                                                     :scale t)
                                                      (make-instance 'graph-sampler
                                                                     :function 'general-area-commit
-                                                                    :colour (gui:make-colour 0.5 0.2 1)
+                                                                    :colour theme:*memory-monitor-general-area-commit*
                                                                     :name "General area bytes committed"
                                                                     :scale t)
                                                      (make-instance 'graph-sampler
                                                                     :function 'cons-area-usage
-                                                                    :colour (gui:make-colour 0 1 0)
+                                                                    :colour theme:*memory-monitor-cons-area-usage*
                                                                     :name "Cons area usage")
                                                      (make-instance 'graph-sampler
                                                                     :function 'cons-area-alloc
-                                                                    :colour (gui:make-colour 0.5 1 0.5)
+                                                                    :colour theme:*memory-monitor-cons-area-alloc*
                                                                     :name "Cons area bytes allocated"
                                                                     :scale t)
                                                      (make-instance 'graph-sampler
                                                                     :function 'cons-area-commit
-                                                                    :colour (gui:make-colour 0.5 1 0.2)
+                                                                    :colour theme:*memory-monitor-cons-area-commit*
                                                                     :name "Cons area bytes committed"
                                                                     :scale t)
                                                      (make-instance 'graph-sampler
                                                                     :function 'pinned-area-usage
-                                                                    :colour (gui:make-colour 1 0 0)
+                                                                    :colour theme:*memory-monitor-pinned-area-usage*
                                                                     :name "Pinned area usage")
                                                      (make-instance 'graph-sampler
                                                                     :function 'wired-area-usage
-                                                                    :colour (gui:make-colour 1 0 1)
+                                                                    :colour theme:*memory-monitor-wired-area-usage*
                                                                     :name "Wired area usage")
                                                      (make-instance 'graph-sampler
                                                                     :function 'function-area-usage
-                                                                    :colour (gui:make-colour 0.75 0.5 0)
+                                                                    :colour theme:*memory-monitor-function-area-usage*
                                                                     :name "Function area usage")
                                                      (make-instance 'graph-sampler
                                                                     :function 'wired-function-area-usage
-                                                                    :colour (gui:make-colour 0.75 0.5 1)
+                                                                    :colour theme:*memory-monitor-wired-function-area-usage*
                                                                     :name "Wired function area usage")))))
             (mezzano.gui.widgets:draw-frame frame)
             (mezzano.gui.compositor:damage-window window

@@ -1,30 +1,6 @@
 ;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(defpackage :mezzano.gui.font
-  (:use :cl)
-  (:local-nicknames (:sys.int :mezzano.internals))
-  (:export #:open-font
-           #:name
-           #:size
-           #:line-height
-           #:em-square-width
-           #:ascender
-           #:glyph-character
-           #:glyph-mask
-           #:glyph-yoff
-           #:glyph-xoff
-           #:glyph-advance
-           #:character-to-glyph
-           #:*default-font*
-           #:*default-font-size*
-           #:*default-bold-font*
-           #:*default-bold-font-size*
-           #:*default-monospace-font*
-           #:*default-monospace-font-size*
-           #:*default-monospace-bold-font*
-           #:*default-monospace-bold-font-size*))
-
 (in-package :mezzano.gui.font)
 
 (defvar *default-font* "DejaVuSans")

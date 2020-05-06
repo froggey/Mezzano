@@ -3,9 +3,6 @@
 
 (in-package :mezzano.gui.compositor)
 
-(defvar *default-foreground-colour* (mezzano.gui:make-colour-from-octets #xDC #xDC #xCC))
-(defvar *default-background-colour* (mezzano.gui:make-colour-from-octets #x3E #x3E #x3E #xD8))
-
 (defparameter *enable-live-resize* nil
   "When true, windows will continously redraw their contents when resizing.")
 
