@@ -3,6 +3,7 @@
 
 (defpackage :mezzano.gui.widgets
   (:use :cl :mezzano.gui.font)
+  (:local-nicknames (:theme :mezzano.gui.theme))
   (:import-from :mezzano.gui.compositor
                 #:width #:height
                 #:mouse-x-position #:mouse-y-position
@@ -150,13 +151,6 @@
                         (lerp-colour colour1 colour2 (/ i (1- height)))
                         to-array to-x (+ to-y i))))
 
-(defvar *active-frame-colour* (mezzano.gui:make-colour-from-octets #x80 #x80 #x80))
-(defvar *active-frame-top-colour* (mezzano.gui:make-colour-from-octets #xFF #xFF #xFF))
-(defvar *inactive-frame-colour* (mezzano.gui:make-colour-from-octets #x40 #x40 #x40))
-(defvar *inactive-frame-top-colour* (mezzano.gui:make-colour-from-octets #x80 #x80 #x80))
-
-(defvar *frame-title-text-colour* (mezzano.gui:make-colour-from-octets #x3F #x3F #x3F))
-
 (defun set-frame-draw-enables (frame)
   (let ((top-border (top-border frame))
         (win-width (mezzano.gui:surface-width (framebuffer frame)))
@@ -198,8 +192,8 @@
          (right (right-border frame))
          (top (top-border frame))
          (bottom (bottom-border frame))
-         (colour (if (activep frame) *active-frame-colour* *inactive-frame-colour*))
-         (top-colour (if (activep frame) *active-frame-top-colour* *inactive-frame-top-colour*)))
+         (colour (if (activep frame) theme:*active-frame* theme:*inactive-frame*))
+         (top-colour (if (activep frame) theme:*active-frame-top* theme:*inactive-frame-top*)))
     ;; Top.
     (vertical-gradient win-width top
                        top-colour colour
@@ -255,7 +249,7 @@
                 (return))
               (mezzano.gui:bitset :blend
                                   (mezzano.gui:surface-width mask) (mezzano.gui:surface-height mask)
-                                  *frame-title-text-colour*
+                                  theme:*frame-title*
                                   framebuffer
                                   (+ origin pen (glyph-xoff glyph))
                                   (- (+ vert (ascender *frame-title-font*)) (glyph-yoff glyph))
@@ -406,8 +400,8 @@
    (%foreground-colour :initarg :foreground-colour :reader foreground-colour)
    (%font :initarg :font :reader font)
    (%cursor-visible :initform nil :reader cursor-visible))
-  (:default-initargs :foreground-colour mezzano.gui:*default-foreground-colour*
-                     :background-colour mezzano.gui:*default-background-colour*))
+  (:default-initargs :foreground-colour theme:*foreground*
+                     :background-colour theme:*background*))
 
 (defmethod initialize-instance :after ((widget text-widget) &key)
   (reset widget))

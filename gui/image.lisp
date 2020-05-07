@@ -1,12 +1,6 @@
 ;;;; Copyright (c) 2011-2017 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(defpackage :mezzano.gui.image
-  (:use :cl)
-  (:export #:load-image
-           #:flush-image-cache
-           #:transcode-cl-jpeg-buffer))
-
 (in-package :mezzano.gui.image)
 
 ;; FIXME: This should probably be weak.

@@ -148,7 +148,7 @@
                        (mezzano.gui.widgets:frame-size frame)
                      (mezzano.gui:bitset :set
                                          (- width left right) (- height top bottom)
-                                         mezzano.gui:*default-background-colour*
+                                         mezzano.gui.theme:*background*
                                          framebuffer left top)
                      (mezzano.gui.widgets:draw-frame frame)
                      (mezzano.gui.compositor:damage-window window

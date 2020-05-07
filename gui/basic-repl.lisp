@@ -25,8 +25,8 @@
                      :x 0
                      :y 0
                      :line 0
-                     :foreground-colour mezzano.gui:*default-foreground-colour*
-                     :background-colour mezzano.gui:*default-background-colour*))
+                     :foreground-colour mezzano.gui.theme:*foreground*
+                     :background-colour mezzano.gui.theme:*background*))
 
 (defgeneric dispatch-event (window event)
   ;; Eat unknown events.

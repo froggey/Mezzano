@@ -141,6 +141,7 @@ Make sure there is a virtio-net NIC attached.~%")
 #+arm64
 (sys.int::cal "sys:source;gui;blit-generic.lisp")
 (sys.int::cal "sys:source;gui;keymaps.lisp")
+(sys.int::cal "sys:source;gui;theme.lisp")
 (sys.int::cal "sys:source;gui;compositor.lisp")
 #+x86-64
 (sys.int::cal "sys:source;gui;input-drivers.lisp")
