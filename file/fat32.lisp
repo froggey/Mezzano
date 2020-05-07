@@ -1092,7 +1092,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
 
 (defmethod mount-host ((host fat-host) block-device)
   (multiple-value-bind (uuid sector-0-buf) (probe-block-device block-device)
-    (when (and uuid (string= uuid (file-host-mount-args host)))
+    (when (and uuid (string-equal uuid (file-host-mount-args host)))
       (init-host host block-device sector-0-buf (type-of (fat-structure host)))
       T)))
 
