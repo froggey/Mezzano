@@ -5,7 +5,8 @@
 (defpackage :mezzano.ext4-file-system
   (:use :cl :mezzano.file-system :mezzano.file-system-cache :mezzano.disk :iterate)
   (:local-nicknames (:sys.int :mezzano.internals)
-                    (:sup :mezzano.supervisor))
+                    (:sup :mezzano.supervisor)
+                    (:uuid :mezzano.uuid))
   (:export))
 
 (in-package :mezzano.ext4-file-system)
@@ -136,14 +137,14 @@
   (feature-compat nil :type (unsigned-byte 32))
   (feature-incompat nil :type (unsigned-byte 32))
   (feature-ro-compat nil :type (unsigned-byte 32))
-  (uuid nil :type (unsigned-byte 128))
+  (uuid nil :type string)
   (volume-name nil :type string)
   (last-mounted nil :type string)
   (algorithm-bitmap nil :type (unsigned-byte 32))
   (prealloc-blocks nil :type (unsigned-byte 8))
   (prealloc-dir-blocks nil :type (unsigned-byte 8))
   (reserved-gdt-blocks nil :type (unsigned-byte 16))
-  (journal-uuid nil :type (unsigned-byte 128))
+  (journal-uuid nil :type string)
   (journal-inum nil :type (unsigned-byte 32))
   (journal-dev nil :type (unsigned-byte 32))
   (last-orphan nil :type (unsigned-byte 32))
@@ -257,16 +258,14 @@
                          :feature-compat (sys.int::ub32ref/le superblock 92)
                          :feature-incompat feature-incompat
                          :feature-ro-compat (sys.int::ub32ref/le superblock 100)
-                         :uuid (logior (ash (sys.int::ub64ref/le superblock 112) 64)
-                                       (sys.int::ub64ref/le superblock 104))
+                         :uuid  (uuid:uuid-buffer->string superblock :offset 104)
                          :volume-name (map 'string #'code-char (subseq superblock 120 136))
                          :last-mounted (map 'string #'code-char (subseq superblock 136 200))
                          :algorithm-bitmap (sys.int::ub32ref/le superblock 200)
                          :prealloc-blocks (aref superblock 204)
                          :prealloc-dir-blocks (aref superblock 205)
                          :reserved-gdt-blocks (sys.int::ub16ref/le superblock 206)
-                         :journal-uuid (logior (ash (sys.int::ub64ref/le superblock 216) 64)
-                                               (sys.int::ub64ref/le superblock 208))
+                         :journal-uuid (uuid:uuid-buffer->string superblock :offset 208)
                          :journal-inum (sys.int::ub32ref/le superblock 224)
                          :journal-dev (sys.int::ub32ref/le superblock 228)
                          :last-orphan (sys.int::ub32ref/le superblock 232)
@@ -424,9 +423,10 @@
                                                   (superblock-desc-size superblock) 32))
                     (with n-octets := (* block-group-size (n-block-groups superblock)))
                     (with block := (read-block disk superblock 1
+                                               (ceiling
                                                (/ n-octets
                                                   (block-device-sector-size disk)
-                                                  (block-size disk superblock))))
+                                                  (block-size disk superblock)))))
                     (for offset :from 0 :below n-octets :by block-group-size)
                     (collecting (read-block-group-descriptor superblock block offset)))))
 
@@ -620,8 +620,8 @@
 
 (defmethod mount-host ((host ext4-host) block-device)
   (let ((superblock (read-superblock block-device)))
-    (when (and superblock (string= (superblock-uuid superblock)
-                                   (file-host-mount-args host)))
+    (when (and superblock (string-equal (superblock-uuid superblock)
+                                        (file-host-mount-args host)))
       (init-host host block-device superblock)
       T)))
 
