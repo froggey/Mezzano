@@ -965,3 +965,12 @@
            #:barrier-present-barrier
            #:unknown-prompt-tag
            #:unknown-prompt-tag-tag))
+
+(defpackage mezzano.uuid
+  (:use :cl)
+  (:export
+   #:uuid-string-valid-p
+   #:generate-uuid
+   #:generate-uuid-buffer
+   #:uuid-buffer->string
+   #:string->uuid-buffer))
