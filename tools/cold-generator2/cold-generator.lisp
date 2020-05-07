@@ -225,7 +225,6 @@
     "file/fs.lisp"
     "file/remote.lisp"
     ;; Non-supervisor disk code
-    "disk/package.lisp"
     "disk/crc32.lisp"
     "disk/guid.lisp"
     "disk/disk.lisp"

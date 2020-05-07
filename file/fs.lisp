@@ -734,6 +734,8 @@ NAMESTRING as the second."
 (defun register-block-device-host-type (host-type)
   (mezzano.supervisor:with-mutex (*block-device-host-type-lock*)
     (push host-type *block-device-host-types*))
+  (dolist (block-device (mezzano.disk:all-block-devices))
+    (create-host host-type block-device mezzano.internals::*filesystems*))
   T)
 
 (defun mount-block-device (block-device)
