@@ -170,6 +170,19 @@
                              (align-up (1+ (logand rsdp-address #xFFF))
                                        +4k-page-size+)
                              "ACPI")
+  ;; Check signature.
+  (loop
+     with sig = "RSD PTR "
+     for i below 8
+     for byte = (char-code (char sig i))
+     do
+       (when (not (eql (physical-memref-unsigned-byte-8 (+ rsdp-address +acpi-rsdp-signature-offset+) i) byte))
+         (debug-print-line "RSDP has invalid signature!")
+         (return-from acpi-parse-rsdp nil)))
+  ;; Check v1 checksum.
+  (unless (acpi-checksum-range rsdp-address 20)
+    (debug-print-line "RSDP failed v1.0 checksum!")
+    (return-from acpi-parse-rsdp nil))
   (let ((xsdt-address nil)
         (revision (physical-memref-unsigned-byte-8 (+ rsdp-address +acpi-rsdp-revision-offset+) 0)))
     (when (>= revision 2)
@@ -452,6 +465,9 @@
       (debug-print-line "No ACPI RSDP.")
       (return-from initialize-acpi))
     (let ((rsdp (acpi-parse-rsdp rsdp-address)))
+      (when (not rsdp)
+        (debug-print-line "ACPI RSDP failed validation.")
+        (return-from initialize-acpi))
       (debug-print-line "RSDP: " (acpi-rsdp-oemid rsdp) " " (acpi-rsdp-revision rsdp) " " (acpi-rsdp-rsdt-address rsdp) " " (acpi-rsdp-xsdt-address rsdp))
       (multiple-value-bind (root-header table-addresses)
           (if (acpi-rsdp-xsdt-address rsdp)
