@@ -6,8 +6,20 @@
 ;; Fast eval mode.
 (setf sys.int::*eval-hook* 'mezzano.fast-eval:eval-in-lexenv)
 
+;;; mezzano.file-system::*filesystem-alist* is a mapping from
+;;; partition UUIDs to file system host names. These mappings should
+;;; be set up for the local system configuration. For example:
+;;;
+;;; (set (intern "*filesystem-alist*" (find-package "MEZZANO.FILE-SYSTEM"))
+;;;      '(("8F51-4F7E" MNT)
+;;;        ("a3a2162c-6272-401b-b621-a97b65c3f871" HOME)))
+;;;
+;;; For FAT file systems, the 32-bit BS_VolID (Volume serial number)
+;;; is used as the "UUID" - for example the MNT entry in the example
+;;; above.
+
 ;; register supervisor disks as block devices
-(funcall (intern "REGISTER-SUPERVISOR-DISKS" (find-package "MEZZANO.DISK")))
+(mezzano.disk:register-supervisor-disks)
 
 ;; Host where the initial system is kept.
 ;; Change the IP to the host computer's local IP.

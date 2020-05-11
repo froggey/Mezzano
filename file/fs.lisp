@@ -731,11 +731,17 @@ NAMESTRING as the second."
   (mezzano.supervisor:make-mutex "Lock for *block-device-host-types*"))
 (defvar *block-device-host-types* NIL)
 
+;;; Mapping between partition UUIDs and file system host names.  This
+;;; is a system specific configuration and is typically set at the top
+;;; of ipl.lisp
+
+(defvar *filesystems-alist* NIL)
+
 (defun register-block-device-host-type (host-type)
   (mezzano.supervisor:with-mutex (*block-device-host-type-lock*)
     (push host-type *block-device-host-types*))
   (dolist (block-device (mezzano.disk:all-block-devices))
-    (create-host host-type block-device mezzano.internals::*filesystems*))
+    (create-host host-type block-device *filesystems-alist*))
   T)
 
 (defun mount-block-device (block-device)
@@ -752,16 +758,13 @@ NAMESTRING as the second."
   ;; No existing host found
   ;; if *filesystems* bound (usually in config.lisp) check list for
   ;; cold-boot hosts.
-  (when (boundp 'mezzano.internals::*filesystems*)
     (loop
        for host-class in *block-device-host-types*
-       for name = (create-host
-                   host-class
-                   block-device mezzano.internals::*filesystems*)
+       for name = (create-host host-class block-device *filesystems-alist*)
        when name do
          (format t "mount-block-device: mounted ~A on ~A~%" block-device name)
-         (return-from mount-block-device)))
-  ;; No host in *filesystems* found
+         (return-from mount-block-device))
+  ;; No host in *filesystems-alist* found
   ;; TODO get uuid/host name alist from name space server and call
   ;; create-host for each host class, exit on success.
   (format t "mount-block-device: no host found for ~A~%" block-device))

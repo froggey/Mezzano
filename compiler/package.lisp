@@ -992,6 +992,7 @@
    :all-block-devices
    :register-block-device
    :unregister-block-device
+   :register-supervisor-disks
 
    ;; disk mixin
    :disk-mixin
