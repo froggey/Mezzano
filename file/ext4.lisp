@@ -202,10 +202,10 @@
                          +incompat-inline-data+)))
   (defun check-feature-incompat (feature-incompat)
     (cond ((logbitp +incompat-recover+ feature-incompat)
-           (format t "ext4 file system mount failed: filesystem needs recovery")
+           (format t "ext4 file system mount failed: filesystem needs recovery~%")
            NIL)
           ((not (logbitp +incompat-filetype+ feature-incompat))
-           (format t "ext4 file system mount failed: +incompat-filetype+ is required")
+           (format t "ext4 file system mount failed: +incompat-filetype+ is required~%")
            NIL)
           (T
            (loop :with result := feature-incompat
@@ -215,7 +215,7 @@
                  :finally (if (zerop result)
                               (return t)
                               (format t "ext4 file system mount failed: ~
-                                         Requires incompatible features not implemented: #b~b" result)))))))
+                                         Requires incompatible features not implemented: #b~b~%" result)))))))
 
 (defun read-superblock (disk)
   ;; check to see if the disk is big enough to hold a superblock
@@ -423,10 +423,9 @@
                                                   (superblock-desc-size superblock) 32))
                     (with n-octets := (* block-group-size (n-block-groups superblock)))
                     (with block := (read-block disk superblock 1
-                                               (ceiling
-                                               (/ n-octets
-                                                  (block-device-sector-size disk)
-                                                  (block-size disk superblock)))))
+                                               (ceiling (/ n-octets
+                                                           (block-device-sector-size disk)
+                                                           (block-size disk superblock)))))
                     (for offset :from 0 :below n-octets :by block-group-size)
                     (collecting (read-block-group-descriptor superblock block offset)))))
 
@@ -627,17 +626,24 @@
 
 (defmethod create-host ((class (eql :ext4-host)) block-device name-alist)
   (let* ((superblock (read-superblock block-device))
-         (uuid (and superblock (superblock-uuid superblock)))
-         (name (and uuid (cadr (assoc uuid name-alist :test #'string-equal)))))
-    (when name
-      (when (find-host name nil)
-        (error "ext4 host ~A already mounted~%" name))
-      (let ((host (make-instance 'ext4-host
-                                 :name name
-                                 :mount-args uuid)))
-        (init-host host block-device superblock)
-        (setf (mezzano.file-system:find-host name) host))
-      name)))
+         (uuid (and superblock (superblock-uuid superblock))))
+    (when uuid
+      (let ((name (cadr (assoc uuid name-alist :test #'string-equal))))
+        (when (null name)
+          ;; no host name found, try using volume name
+          (multiple-value-bind (host-name valid-p)
+              (make-host-name (superblock-volume-name superblock))
+            (when valid-p
+              (setf name host-name))))
+        (when name
+          (when (find-host name nil)
+            (error "ext4 host ~A already mounted~%" name))
+          (let ((host (make-instance 'ext4-host
+                                     :name name
+                                     :mount-args uuid)))
+            (init-host host block-device superblock)
+            (setf (mezzano.file-system:find-host name) host))
+          name)))))
 
 (defun parse-simple-file-path (host namestring)
   (let ((start 0)

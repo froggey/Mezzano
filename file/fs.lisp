@@ -12,6 +12,7 @@
            #:host-pathname-class
            #:parse-namestring-using-host
            #:namestring-using-host
+           #:make-host-name
            #:open-using-host
            #:probe-using-host
            #:directory-using-host
@@ -477,6 +478,28 @@ NAMESTRING as the second."
         ;; Not a hostname.
         (return (values nil namestring)))
       (vector-push-extend ch hostname))))
+
+(defun make-host-name (label)
+  "Convert a label into a valid host name if possible. Returns host-name and valid-p"
+  (let ((host-name (string-upcase (string-right-trim '(#\Space #\Null) label))))
+    (when (/= (length host-name) 0)
+      (loop
+         for ch across host-name
+         when (not (valid-hostname-character-p ch)) do
+           (format t "Unable to make a host name from \"~A\", ~
+                  ~C not a valid host name character~%" label ch)
+           (return-from make-host-name (values NIL NIL))
+         finally
+           (return
+             (loop
+                with names = (mapcar #'first *host-alist*)
+                with number = 2
+                with result-name = host-name
+                while (member result-name names :test 'string=) do
+                  (setf result-name (format nil "~A-~D" host-name number))
+                  (incf number)
+                finally
+                  (return (values result-name T))))))))
 
 (defgeneric open-using-host (host pathname &key direction element-type if-exists if-does-not-exist external-format))
 

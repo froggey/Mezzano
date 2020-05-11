@@ -1091,29 +1091,39 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
         (file-host-mount-device host) block-device))
 
 (defmethod mount-host ((host fat-host) block-device)
-  (multiple-value-bind (uuid sector-0-buf) (probe-block-device block-device)
+  (multiple-value-bind (uuid label sector-0-buf)
+      (probe-block-device block-device)
+    (declare (ignore label))
     (when (and uuid (string-equal uuid (file-host-mount-args host)))
       (init-host host block-device sector-0-buf (type-of (fat-structure host)))
       T)))
 
 (defmethod create-host ((class (eql :fat-host)) block-device name-alist)
-  (multiple-value-bind (uuid sector-0-buf) (probe-block-device block-device)
-    (let ((name (and uuid (cadr (assoc uuid name-alist :test #'string-equal)))))
-      (when name
-        (when (find-host name nil)
-          (error "fat host ~A already mounted~%" name))
-        (let* ((cluster-count (compute-cluster-count sector-0-buf))
-               ;; In code below, <, 4085 and 65525 are correct see Microsoft Doc.
-               (ffs-type (cond ((< cluster-count 4085) 'fat12)
-                               ((< cluster-count 65525) 'fat16)
-                               (T 'fat32)))
-               (host (make-instance 'fat-host
-                                    :name name
-                                    :fat32-info nil
-                                    :mount-args uuid)))
-          (init-host host block-device sector-0-buf ffs-type)
-          (setf (mezzano.file-system:find-host name) host))
-        name))))
+  (multiple-value-bind (uuid label sector-0-buf)
+      (probe-block-device block-device)
+    (when uuid
+      (let ((name (cadr (assoc uuid name-alist :test #'string-equal))))
+        (when (null name)
+          ;; no host name found, try using label
+          (multiple-value-bind (host-name valid-p) (make-host-name label)
+            (when valid-p
+              (setf name host-name))))
+        (when name
+          (when (find-host name nil)
+            (error "fat host ~A already mounted~%" name))
+          (let* ((cluster-count (compute-cluster-count sector-0-buf))
+                 ;; In code below, <, 4085 and 65525 are correct see
+                 ;; Microsoft Doc.
+                 (ffs-type (cond ((< cluster-count 4085) 'fat12)
+                                 ((< cluster-count 65525) 'fat16)
+                                 (T 'fat32)))
+                 (host (make-instance 'fat-host
+                                      :name name
+                                      :fat32-info nil
+                                      :mount-args uuid)))
+            (init-host host block-device sector-0-buf ffs-type)
+            (setf (mezzano.file-system:find-host name) host))
+          name)))))
 
 ;; According to jdebp (Jonathan de Boyne Pollard)'s Frequently Given
 ;; Answers, the question of how to determine if a partition contains a
@@ -1179,13 +1189,15 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
            (values (format nil "~4,'0X-~4,'0X"
                            (sys.int::ub16ref/le buffer 69)
                            (sys.int::ub16ref/le buffer 67))
+                   (map 'string #'code-char (subseq buffer 71 82))
                    buffer))
           ((bpb-v4-p buffer)      ;; Check for version 4.0 BPB
            (values (format nil "~4,'0X-~4,'0X"
                            (sys.int::ub16ref/le buffer 41)
                            (sys.int::ub16ref/le buffer 39))
+                   (map 'string #'code-char (subseq buffer 43 54))
                    buffer))
-          (T (values NIL NIL)))))
+          (T (values NIL NIL NIL)))))
 
 (defun parse-simple-file-path (host namestring)
   (let ((start 0)
