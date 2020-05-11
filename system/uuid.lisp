@@ -27,16 +27,14 @@
   ;; Set bits 6 & 7 of clock-seq-hi-and-reserved to 0 and 1 respectively
   ;; Set the four most significant bits (12 - 15) of
   ;; time-hi-and-version field to #b0100
-  (case result-type
+  (ecase result-type
     (list
-     (let ((result NIL))
-       (dotimes (i 16)
-         (push (case i
-                 (9 (logior #x40 (random 16)))
-                 (7 (logior (random 64) #x80))
-                 (t (random 256)))
-               result))
-       result))
+     (loop
+        for i from 0 to 15
+        collect (case i
+                  (6 (logior #x40 (random 16)))
+                  (8 (logior (random 64) #x80))
+                  (t (random 256)))))
     (vector
      (let ((uuid (make-array 16 :element-type '(unsigned-byte 8))))
        (dotimes (i 16)
