@@ -21,7 +21,7 @@
 
 (in-package :mezzano.uuid)
 
-(defun generate-uuid (&optional (result-type 'string))
+(defun generate-uuid (&key (result-type 'string))
   "Generate version 4 UUID from pseudo-random numbers. Formats supported ~
    are: list, vector or string."
   ;; Set bits 6 & 7 of clock-seq-hi-and-reserved to 0 and 1 respectively
