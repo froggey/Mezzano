@@ -221,10 +221,10 @@
     "net/dns.lisp"
     "net/dhcp.lisp"
     "net/network-setup.lisp"
+    "system/uuid.lisp"
     "file/fs.lisp"
     "file/remote.lisp"
     ;; Non-supervisor disk code
-    "disk/package.lisp"
     "disk/crc32.lisp"
     "disk/guid.lisp"
     "disk/disk.lisp"

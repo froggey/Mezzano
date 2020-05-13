@@ -12,6 +12,7 @@
            #:host-pathname-class
            #:parse-namestring-using-host
            #:namestring-using-host
+           #:make-host-name
            #:open-using-host
            #:probe-using-host
            #:directory-using-host
@@ -478,6 +479,28 @@ NAMESTRING as the second."
         (return (values nil namestring)))
       (vector-push-extend ch hostname))))
 
+(defun make-host-name (label)
+  "Convert a label into a valid host name if possible. Returns host-name and valid-p"
+  (let ((host-name (string-upcase (string-right-trim '(#\Space #\Null) label))))
+    (when (/= (length host-name) 0)
+      (loop
+         for ch across host-name
+         when (not (valid-hostname-character-p ch)) do
+           (format t "Unable to make a host name from \"~A\", ~
+                  ~C not a valid host name character~%" label ch)
+           (return-from make-host-name (values NIL NIL))
+         finally
+           (return
+             (loop
+                with names = (mapcar #'first *host-alist*)
+                with number = 2
+                with result-name = host-name
+                while (member result-name names :test 'string=) do
+                  (setf result-name (format nil "~A-~D" host-name number))
+                  (incf number)
+                finally
+                  (return (values result-name T))))))))
+
 (defgeneric open-using-host (host pathname &key direction element-type if-exists if-does-not-exist external-format))
 
 (defun open (filespec &key
@@ -731,9 +754,17 @@ NAMESTRING as the second."
   (mezzano.supervisor:make-mutex "Lock for *block-device-host-types*"))
 (defvar *block-device-host-types* NIL)
 
+;;; Mapping between partition UUIDs and file system host names.  This
+;;; is a system specific configuration and is typically set at the top
+;;; of ipl.lisp
+
+(defvar *filesystems-alist* NIL)
+
 (defun register-block-device-host-type (host-type)
   (mezzano.supervisor:with-mutex (*block-device-host-type-lock*)
     (push host-type *block-device-host-types*))
+  (dolist (block-device (mezzano.disk:all-block-devices))
+    (create-host host-type block-device *filesystems-alist*))
   T)
 
 (defun mount-block-device (block-device)
@@ -750,16 +781,13 @@ NAMESTRING as the second."
   ;; No existing host found
   ;; if *filesystems* bound (usually in config.lisp) check list for
   ;; cold-boot hosts.
-  (when (boundp 'mezzano.internals::*filesystems*)
     (loop
        for host-class in *block-device-host-types*
-       for name = (create-host
-                   host-class
-                   block-device mezzano.internals::*filesystems*)
+       for name = (create-host host-class block-device *filesystems-alist*)
        when name do
          (format t "mount-block-device: mounted ~A on ~A~%" block-device name)
-         (return-from mount-block-device)))
-  ;; No host in *filesystems* found
+         (return-from mount-block-device))
+  ;; No host in *filesystems-alist* found
   ;; TODO get uuid/host name alist from name space server and call
   ;; create-host for each host class, exit on success.
   (format t "mount-block-device: no host found for ~A~%" block-device))

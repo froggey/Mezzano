@@ -965,3 +965,52 @@
            #:barrier-present-barrier
            #:unknown-prompt-tag
            #:unknown-prompt-tag-tag))
+
+(defpackage mezzano.uuid
+  (:use :cl)
+  (:export
+   #:uuid-string-valid-p
+   #:generate-uuid
+   #:generate-uuid-buffer
+   #:uuid-buffer->string
+   #:string->uuid-buffer))
+
+(defpackage :mezzano.disk
+  (:use :cl)
+  (:local-nicknames (:sup :mezzano.supervisor)
+                    (:ext :mezzano.extensions))
+  (:export
+   ;; APIs
+   :block-device-sector-size
+   :block-device-n-sectors
+   :block-device-read
+   :block-device-write
+   :block-device-flush
+   :block-device-read-sector
+   :block-device-write-sector
+   :parse-partition-table
+   :all-block-devices
+   :register-block-device
+   :unregister-block-device
+   :register-supervisor-disks
+
+   ;; disk mixin
+   :disk-mixin
+   :disk-writable-p
+   :disk-n-sectors
+   :disk-sector-size
+
+   ;; disk partition table mixin
+   :disk-pt-mixin
+   :pt-type
+   :disk-id
+   :pt-first-lba
+   :pt-last-lba
+
+   ;; disk partition mixin
+   :disk-partition-mixin
+   :dp-disk
+   :dp-partition-num
+   :dp-partition-type
+   :dp-start-lba
+   :dp-size))
