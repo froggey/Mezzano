@@ -511,7 +511,7 @@ Returns NIL if the function captures no variables."
                              (fresh-line)
                              (write v))))))))))))))
 
-(defparameter *global-debugger* 'debugger-main)
+(defparameter *global-debugger* nil)
 
 (defun enter-debugger (condition)
   (funcall (or *global-debugger*

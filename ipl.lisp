@@ -3,6 +3,17 @@
 
 (in-package :mezzano.internals)
 
+;; Take over the debugger for the duration, this so that early errors
+;; can be caught and made to produce a sensible error instead of
+;; "serial read char not implemented"
+;; This is undone at the end of the file.
+(defun ipl-debugger (condition)
+  (format t "----- ERROR -----~%")
+  (format t "Error during warm initialization:~%")
+  (format t "~A~%" condition)
+  (mezzano.supervisor:panic (format nil "~A" condition)))
+(setf mezzano.debug:*global-debugger* 'ipl-debugger)
+
 ;; Fast eval mode.
 (setf sys.int::*eval-hook* 'mezzano.fast-eval:eval-in-lexenv)
 
@@ -256,5 +267,8 @@ Make sure there is a virtio-net NIC attached.~%")
 
 (mezzano.supervisor:add-boot-hook 'sys.int::load-init-file :late)
 (sys.int::load-init-file)
+
+;; Ditch the debugger hook that was established earlier.
+(setf mezzano.debug:*global-debugger* nil)
 
 ;; Done.
