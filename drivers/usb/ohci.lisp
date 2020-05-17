@@ -176,6 +176,9 @@
 (defun ed-tdq-head (ed)
   (aref ed +endpt-tdq-head+))
 
+(defun ed-tdq-head-tdq-addr (ed)
+  (logandc2 (aref ed +endpt-tdq-head+) #x0F))
+
 (defun (setf ed-tdq-head) (phys-addr ed)
   ;; clears the toggle carry and halted bits.
   (validate-address/16 tdq-head phys-addr)
@@ -201,7 +204,7 @@
   (loop
      with td->xfer-info = (td->xfer-info ohci)
      with td-tail-phys-addr = (ed-tdq-tail ed)
-     for td-phys-addr = (logandc2 (ed-tdq-head ed) #x0F) then next-td-phys-addr
+     for td-phys-addr = (ed-tdq-head-tdq-addr ed) then next-td-phys-addr
      for td = (phys-addr->array td-phys-addr)
      for xfer-info = (gethash td td->xfer-info)
      for next-td-phys-addr = (td-next-td td)
@@ -1001,7 +1004,7 @@
          (td->xfer-info (td->xfer-info ohci)))
     (loop
        for prev-td = NIL then td
-       for td-phys-addr = (logandc2 (ed-tdq-head ed) #x0F) then (td-next-td td)
+       for td-phys-addr = (ed-tdq-head-tdq-addr ed) then (td-next-td td)
        for td = (phys-addr->array td-phys-addr)
        for msg-xfer-info = (gethash td td->xfer-info)
        when (eq buf (xfer-info-buf msg-xfer-info)) do
@@ -1087,7 +1090,7 @@
     (let* ((endpoint (aref (usb-device-endpoints device) 0))
            (event-type (ohci-endpoint-event-type endpoint))
            (ed (ohci-endpoint-ed endpoint))
-           (msg-td (phys-addr->array (ed-tdq-head ed)))
+           (msg-td (phys-addr->array (ed-tdq-head-tdq-addr ed)))
            (msg-xfer-info (gethash msg-td (td->xfer-info ohci)))
            (msg-buf (alloc-buffer/8 (buf-pool ohci) 8))
            (dummy-td (alloc-td ohci))
@@ -1135,7 +1138,7 @@
            condition-code)))
 
       (setf dummy-td msg-td ;; re-use previous td as "dummy" td
-            msg-td (phys-addr->array (ed-tdq-head ed))
+            msg-td (phys-addr->array (ed-tdq-head-tdq-addr ed))
             msg-xfer-info (gethash msg-td (td->xfer-info ohci))
 
             ;; clean up dummy-td
@@ -1198,7 +1201,7 @@
     (let* ((endpoint (aref (usb-device-endpoints device) 0))
            (event-type (ohci-endpoint-event-type endpoint))
            (ed (ohci-endpoint-ed endpoint))
-           (msg-td (phys-addr->array (ed-tdq-head ed)))
+           (msg-td (phys-addr->array (ed-tdq-head-tdq-addr ed)))
            (msg-xfer-info (gethash msg-td (td->xfer-info ohci)))
            (msg-buf (alloc-buffer/8 (buf-pool ohci) 8))
            (dummy-td (alloc-td ohci))
@@ -1248,7 +1251,7 @@
            condition-code)))
 
       (setf dummy-td msg-td ;; re-use previous td as "dummy" td
-            msg-td (phys-addr->array (ed-tdq-head ed))
+            msg-td (phys-addr->array (ed-tdq-head-tdq-addr ed))
             msg-xfer-info (gethash msg-td (td->xfer-info ohci))
 
 
