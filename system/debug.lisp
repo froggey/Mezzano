@@ -606,8 +606,8 @@ executed, and the offset into it."
      (when (and limit (> i limit))
        (return-from backtrace))
      (let* ((return-address (memref-unsigned-byte-64 fp 1))
-            (fn (function-from-frame (list nil fp nil)))
-            (name (when (functionp fn) (function-name fn))))
+            (fn (frame-function (make-frame :depth i :fp fp)))
+            (name (or (if (functionp fn) (function-name fn)) fn)))
        (format stream "~&~X ~X ~S" fp return-address name)))))
 
 (defvar *traced-functions* '())
