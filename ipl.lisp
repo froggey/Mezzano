@@ -21,9 +21,9 @@
 ;;; partition UUIDs to file system host names. These mappings should
 ;;; be set up for the local system configuration. For example:
 ;;;
-;;; (set (intern "*filesystem-alist*" (find-package "MEZZANO.FILE-SYSTEM"))
-;;;      '(("8F51-4F7E" MNT)
-;;;        ("a3a2162c-6272-401b-b621-a97b65c3f871" HOME)))
+;;; (setf mezzano.file-system::*filesystems-alist*
+;;;       '(("8F51-4F7E" MNT)
+;;;         ("a3a2162c-6272-401b-b621-a97b65c3f871" HOME)))
 ;;;
 ;;; For FAT file systems, the 32-bit BS_VolID (Volume serial number)
 ;;; is used as the "UUID" - for example the MNT entry in the example
@@ -37,14 +37,16 @@
 (mezzano.file-system.remote:add-remote-file-host :remote sys.int::*file-server-host-ip*)
 ;; Use PATHNAME instead of #p because the cross-compiler doesn't support #p.
 ;; Point *DEFAULT-PATHNAME-DEFAULTS* at the full path to the source tree.
-(setf *default-pathname-defaults* (pathname (concatenate 'string "REMOTE:" sys.int::*mezzano-source-path*)))
+(setf *default-pathname-defaults* (pathname *mezzano-source-path*))
 ;; Point MEZZANO.FILE-SYSTEM::*HOME-DIRECTORY* at the home directory containing the libraries.
-(setf mezzano.file-system::*home-directory* (pathname (concatenate 'string "REMOTE:" sys.int::*home-directory-path*)))
+(setf mezzano.file-system::*home-directory* (pathname *home-directory-path*))
 
-(push (list "SOURCE;**;*.*.*" (merge-pathnames "**/" *default-pathname-defaults*))
+(push (list "SOURCE;**;*.*.*" (merge-pathnames (make-pathname :directory '(:relative :wild-inferiors))
+                                               *default-pathname-defaults*))
       (logical-pathname-translations "SYS"))
 
-(push (list "HOME;**;*.*.*" (merge-pathnames "**/" (user-homedir-pathname)))
+(push (list "HOME;**;*.*.*" (merge-pathnames  (make-pathname :directory '(:relative :wild-inferiors))
+                                              (user-homedir-pathname)))
       (logical-pathname-translations "SYS"))
 
 (defun sys.int::check-connectivity ()
@@ -150,7 +152,9 @@ Make sure there is a virtio-net NIC attached.~%")
 (require :cl-video-wav)
 (require :cl-wav)
 ;; Swank doesn't really support logical pathname shenanigans.
-(load (merge-pathnames "slime/swank-loader.lisp" (user-homedir-pathname)))
+
+(load (merge-pathnames (make-pathname :directory '(:relative "slime") :name "swank-loader" :type "lisp")
+                       (user-homedir-pathname)))
 (eval (read-from-string "(swank-loader::init)"))
 (eval (read-from-string "(swank:create-server :style :spawn :dont-close t :interface \"0.0.0.0\")"))
 
@@ -180,11 +184,15 @@ Make sure there is a virtio-net NIC attached.~%")
 
 ;; Fonts. Loaded from the home directory.
 (ensure-directories-exist "LOCAL:>Fonts>")
-(dolist (f (directory (merge-pathnames "Fonts/**/*.ttf" (user-homedir-pathname))))
+(dolist (f (directory (merge-pathnames
+                       (make-pathname :directory '(:relative "Fonts" :wild-inferiors) :name :wild :type "ttf")
+                       (user-homedir-pathname))))
   (sys.int::copy-file f
              (merge-pathnames "LOCAL:>Fonts>" f)
              '(unsigned-byte 8)))
-(sys.int::copy-file (merge-pathnames "Fonts/LICENSE" (user-homedir-pathname))
+(sys.int::copy-file (merge-pathnames
+                     (make-pathname :directory '(:relative "Fonts") :name "LICENSE")
+                     (user-homedir-pathname))
                     "LOCAL:>Fonts>LICENSE"
                     'character)
 
