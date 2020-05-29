@@ -241,12 +241,37 @@ If clear, the fault occured in supervisor mode.")
 (sys.int::defglobal *i8259-spinlock* nil
   "Lock serializing access to i8259 and associated variables.")
 (sys.int::defglobal *i8259-irqs* nil)
+(sys.int::defglobal *i8259-reported-spurious-interrupt*)
+(sys.int::defglobal *i8259-spurious-interrupt-count*)
+
+(defun i8259-irq-spurious-p (irq)
+  ;; Only IRQs 7 and 15 can be spurious.
+  (cond ((eql irq 7)
+         (setf (sys.int::io-port/8 #x20) #x0B)
+         (let ((isr (sys.int::io-port/8 #x20)))
+           (setf (sys.int::io-port/8 #x20) #x0A)
+           (logbitp 7 isr)))
+        ((eql irq 15)
+         (setf (sys.int::io-port/8 #xA0) #x0B)
+         (let ((isr (sys.int::io-port/8 #xA0)))
+           (setf (sys.int::io-port/8 #xA0) #x0A)
+           (logbitp 7 isr)))
+        (t nil)))
 
 (defun i8259-interrupt-handler (interrupt-frame info)
   (let ((irq (- info +i8259-base-interrupt+)))
-    (irq-deliver interrupt-frame (svref *i8259-irqs* irq))
-    ;; Send EOI.
+    ;; Check if this is a spurious interrupt. These should not
+    ;; be delivered to the system and don't need an EOI.
     (with-symbol-spinlock (*i8259-spinlock*)
+      (when (i8259-irq-spurious-p irq)
+        (when (not *i8259-reported-spurious-interrupt*)
+          (setf *i8259-reported-spurious-interrupt* t)
+          (debug-print-line "Spurious i8259 IRQ " irq ". Further spurious IRQs will not be reported."))
+        (incf *i8259-spurious-interrupt-count*)
+        (return-from i8259-interrupt-handler)))
+    (irq-deliver interrupt-frame (svref *i8259-irqs* irq))
+    (with-symbol-spinlock (*i8259-spinlock*)
+      ;; Send EOI.
       (setf (sys.int::io-port/8 #x20) #x20)
       (when (>= irq 8)
         (setf (sys.int::io-port/8 #xA0) #x20)))
@@ -280,6 +305,8 @@ If clear, the fault occured in supervisor mode.")
     (setf *i8259-irqs* (sys.int::make-simple-vector 16 :wired)
           ;; fixme: do at cold-gen time.
           *i8259-spinlock* :unlocked))
+  (setf *i8259-reported-spurious-interrupt* nil
+        *i8259-spurious-interrupt-count* 0)
   (dotimes (i 16)
     (setf (svref *i8259-irqs* i) (make-irq :platform-number i)))
   ;; Hook interrupts.
