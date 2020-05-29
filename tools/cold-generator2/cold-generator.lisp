@@ -11,6 +11,7 @@
                     (#:write #:mezzano.cold-generator.write)
                     (#:util #:mezzano.cold-generator.util)
                     (#:clos #:mezzano.cold-generator.clos)
+                    (#:uuid #:mezzano.uuid)
                     (#:sys.int #:mezzano.internals))
   (:export #:make-image
            #:set-up-cross-compiler))
@@ -504,8 +505,8 @@
         (format t ";; Writing symbol table to ~S.~%" symtabl-file-path)
         (ser:write-symbol-table symtabl-file-path image))
       (let ((image-header (make-instance 'write:image-header
-                                         :uuid (cond ((stringp uuid) (util:parse-uuid uuid))
-                                                     ((not uuid) (util:generate-uuid))
+                                         :uuid (cond ((stringp uuid) (uuid:string->uuid uuid))
+                                                     ((not uuid) (uuid:generate-uuid :result-type 'vector))
                                                      (uuid))
                                          :entry-fref (ser:serialize-object
                                                       (env:function-reference
@@ -517,7 +518,7 @@
                                                           image environment)
                                          :nil (ser:serialize-object nil image environment)
                                          :architecture architecture)))
-        (format t ";; Writing image with UUID ~/mezzano.cold-generator.util:format-uuid/.~%"
+        (format t ";; Writing image with UUID ~/mezzano.uuid:format-uuid/.~%"
                 (write:image-header-uuid image-header))
         (format t ";; Nil at ~X~%" (write:image-header-nil image-header))
         (format t ";; Entry-Fref at ~X (~X)~%"

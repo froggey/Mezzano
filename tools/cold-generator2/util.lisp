@@ -6,10 +6,7 @@
   (:export #:load-binary-file
            #:utf-8-sequence-length
            #:align-up
-           #:git-revision
-           #:generate-uuid
-           #:format-uuid
-           #:parse-uuid))
+           #:git-revision))
 
 (in-package :mezzano.cold-generator.util)
 
@@ -40,44 +37,3 @@
   (ignore-errors
     (values (uiop/run-program:run-program '("git" "rev-parse" "HEAD")
                                           :output '(:string :stripped t)))))
-
-(defun generate-uuid ()
-  (let ((uuid (make-array 16 :element-type '(unsigned-byte 8))))
-    (dotimes (i 16)
-      (setf (aref uuid i) (case i
-                            (9 (logior #x40 (random 16)))
-                            (7 (logior (random 64) #x80))
-                            (t (random 256)))))
-    uuid))
-
-(defun format-uuid (stream object &optional colon-p at-sign-p)
-  (declare (ignore colon-p at-sign-p))
-  ;; Printed UUIDs are super weird.
-  (format stream "~2,'0X~2,'0X~2,'0X~2,'0X-~2,'0X~2,'0X-~2,'0X~2,'0X-~2,'0X~2,'0X-~2,'0X~2,'0X~2,'0X~2,'0X~2,'0X~2,'0X"
-          ;; Byteswapped.
-          (aref object 3) (aref object 2) (aref object 1) (aref object 0)
-          (aref object 5) (aref object 4)
-          (aref object 7) (aref object 6)
-          ;; Not byteswapped.
-          (aref object 8) (aref object 9)
-          (aref object 10) (aref object 11) (aref object 12) (aref object 13) (aref object 14) (aref object 15)))
-
-(defun parse-uuid (string)
-  (assert (eql (length string) 36))
-  (assert (eql (char string 8) #\-))
-  (assert (eql (char string 13) #\-))
-  (assert (eql (char string 18) #\-))
-  (assert (eql (char string 23) #\-))
-  (flet ((b (start)
-           (parse-integer string :radix 16 :start start :end (+ start 2))))
-    (vector
-     ;; First group. Byteswapped.
-     (b 6) (b 4) (b 2) (b 0)
-     ;; Second group. Byteswapped.
-     (b 11) (b 9)
-     ;; Third group. Byteswapped.
-     (b 16) (b 14)
-     ;; Fourth group. Not byteswapped.
-     (b 19) (b 21)
-     ;; Fifth group. Not byteswapped.
-     (b 24) (b 26) (b 28) (b 30) (b 32) (b 34))))

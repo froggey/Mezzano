@@ -93,6 +93,11 @@
      finally
        (return result)))
 
+(defun format-uuid (stream object &optional colon-p at-sign-p)
+  "Format a UUID, for use with ~/"
+  (declare (ignore colon-p at-sign-p))
+  (write-string (uuid-buffer->string object) stream))
+
 (defun uuid-string-valid-p (uuid)
   (and (stringp uuid)
        (= (length uuid) 36)
@@ -120,3 +125,8 @@
        (when (member idx '(8 13 18 23))
          (incf idx)))
   buffer)
+
+(defun string->uuid (uuid)
+  "Convert a string (Uniform Resource Name) to a uuid in a new buffer"
+  (assert (uuid-string-valid-p uuid))
+  (string->uuid-buffer uuid (make-array 16 :element-type '(unsigned-byte 8))))

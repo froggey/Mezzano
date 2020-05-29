@@ -973,7 +973,9 @@
    #:generate-uuid
    #:generate-uuid-buffer
    #:uuid-buffer->string
-   #:string->uuid-buffer))
+   #:format-uuid
+   #:string->uuid-buffer
+   #:string->uuid))
 
 (defpackage :mezzano.disk
   (:use :cl)

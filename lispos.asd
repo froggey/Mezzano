@@ -19,6 +19,7 @@
                (:file "system/parse")
                (:file "system/backquote")
                (:file "system/reader")
+               (:file "system/uuid")
                (:file "compiler/compiler")
                (:file "compiler/environment")
                (:file "compiler/cross-compile")
