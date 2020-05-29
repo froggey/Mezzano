@@ -885,30 +885,30 @@
               ;; Set constants.
               (virgl:add-command-set-constant-buffer
                cmd-buf :vertex
-               ;; Transform matrix
+               ;; Transform matrix (:const 0 3)
                (matrix-multiply
                 perspective
                 (matrix-multiply
                  (make-translate-matrix 0.0 2.0 -5.0)
                  (make-scale-matrix 40.0 2.0 2.0)))
-               ;; Texture offset and scale
+               ;; Texture offset and scale (:const 4)
                (* (float i 0.0f0) -0.01) 0.0 20.0 1.0
-               ;; Vertex colour multiplier
+               ;; Vertex colour multiplier (:const 5)
                0.0 0.0 0.0 0.0)
               ;; Draw line indices.
               (virgl:add-command-draw-vbo cmd-buf 36 6 :triangles :indexed t)
               ;; Set constants.
               (virgl:add-command-set-constant-buffer
                cmd-buf :vertex
-               ;; Transform matrix
+               ;; Transform matrix (:const 0 3)
                (matrix-multiply
                 perspective
                 (matrix-multiply
                  (make-translate-matrix 0.0 -2.0 -5.0)
                  (make-scale-matrix 40.0 2.0 2.0)))
-               ;; Texture offset and scale
+               ;; Texture offset and scale (:const 4)
                (* (float i 0.0f0) 0.01) 0.0 20.0 1.0
-               ;; Vertex colour multiplier
+               ;; Vertex colour multiplier (:const 5)
                0.0 0.0 0.0 0.0)
               ;; Draw line indices.
               (virgl:add-command-draw-vbo cmd-buf 36 6 :triangles :indexed t)
@@ -918,15 +918,15 @@
               ;; Set constants.
               (virgl:add-command-set-constant-buffer
                cmd-buf :vertex
-               ;; Transform matrix
+               ;; Transform matrix (:const 0 3)
                (matrix-multiply
                 perspective
                 (matrix-multiply
                  (make-translate-matrix 0.0 0.0 -1.0)
                  (make-rotate-matrix 1.0 2.0 0.0 (degrees-to-radians (* i 2)))))
-               ;; Texture offset and scale
+               ;; Texture offset and scale (:const 4)
                0.0 0.0 1.0 1.0
-               ;; Vertex colour multiplier
+               ;; Vertex colour multiplier (:const 5)
                1.0 1.0 1.0 1.0)
               ;; Draw cube indices.
               (virgl:add-command-draw-vbo cmd-buf 0 36 :triangles :indexed t)

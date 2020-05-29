@@ -1430,7 +1430,7 @@ This returns the raw IEEE binary representation of the float as an integer.
 (defun ieee-binary32-to-single-float (ieee-binary32)
   "Reinterpret the (unsigned-byte 32) IEEE-BINARY32 as a single-float.
 This converts the raw IEEE binary representation to a float.
-#x00000000 => 0.0f0, #x3FF0000000000000 => 1.0f0, etc."
+#x00000000 => 0.0f0, #x3F800000 => 1.0f0, etc."
   (check-type ieee-binary32 (unsigned-byte 32))
   (%integer-as-single-float ieee-binary32))
 
