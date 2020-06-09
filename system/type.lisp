@@ -872,12 +872,20 @@
       :report (lambda (s) (format s "Input a new value for ~S." place))
       v)))
 
-(defmacro check-type (place typespec &optional string)
-  (let ((value (gensym)))
-    ;; FIXME: Place evaluation.
-    `(do ((,value ,place ,place))
-         ((typep ,value ',typespec))
-       (setf ,place (check-type-error ',place ,value ',typespec ,string)))))
+(defmacro check-type (&environment environment place typespec &optional string)
+  (multiple-value-bind (vars vals store-vars writer-form reader-form)
+      (get-setf-expansion place environment)
+    (let ((value (gensym))
+          (original-value (gensym)))
+      ;; This is written in a slightly convoluted way to allow the compiler
+      ;; to optimize away CHECK-TYPE at low safety when the types are known.
+      `(let* (,@(mapcar #'list vars vals)
+              (,original-value ,reader-form))
+         (when (not (typep ,original-value ',typespec))
+           (do ((,value ,original-value ,reader-form))
+               ((typep ,value ',typespec))
+             (let ((,(first store-vars) (check-type-error ',place ,value ',typespec ,string)))
+               ,writer-form)))))))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 (defun compile-typep-expression (object type-specifier)
