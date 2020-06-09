@@ -33,7 +33,8 @@ Currently disabled by default as it has a severe performance impact.")
                    *optimize-policy*
                    *verify-special-stack*
                    *constprop-lambda-copy-limit*
-                   *the-checks-types*)))
+                   *the-checks-types*
+                   *max-optimizer-iterations*)))
     (loop
        for sym in symbols
        collect (list sym (symbol-value sym)))))
