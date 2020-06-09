@@ -1215,6 +1215,125 @@ First return value is a list of elements, second is the final dotted component (
                                          ind))))
                 form))))))
 
+(defun integer-type-p (type)
+  (or (eql type 'integer)
+      (and (consp type)
+           (eql (first type) 'integer))))
+
+(defun fold-fixnum-<-2 (value bound direction)
+  (destructuring-bind (&optional (min '*) (max '*))
+      (if (consp bound) (rest bound) '())
+    (cond ((or (not (integerp min))
+               (not (integerp max)))
+           ;; Don't deal with non-inclusive ranges.
+           (values nil nil))
+          ((funcall direction value min)
+           (values nil t))
+          ((funcall direction max value)
+           (values t t))
+          (t
+           ;; Indeterminate.
+           (values nil nil)))))
+
+(defun fold-fixnum-<-1 (lhs rhs)
+  (cond ((and (typep lhs 'ast-quote)
+              (integerp (ast-value lhs))
+              (typep rhs 'ast-the)
+              (integer-type-p (ast-the-type rhs)))
+         (multiple-value-bind (val successp)
+             (fold-fixnum-<-2 (ast-value lhs) (ast-the-type rhs) #'<=)
+           (values (not val) successp)))
+        ((and (typep lhs 'ast-the)
+              (integer-type-p (ast-the-type lhs))
+              (typep rhs 'ast-quote)
+              (integerp (ast-value rhs)))
+         (fold-fixnum-<-2 (ast-value rhs) (ast-the-type lhs) #'>=))
+        (t
+         (values nil nil))))
+
+(defun extract-integer-type-interval (form)
+  "Extract an INTEGER type from FORM.
+Returns if the type is valid, and the lower and upper bounds.
+The bounds may be NIL, denoting the absence of a bound, or they may be
+an integer. Both bounds are inclusive. The interval will always contain at
+least one value."
+  (cond ((and (typep form 'ast-quote)
+              (integerp (ast-value form)))
+         (values t (ast-value form) (ast-value form)))
+        ((and (typep form 'ast-the)
+              (eql (ast-the-type form) 'integer))
+         (values t nil nil))
+        ((and (typep form 'ast-the)
+              (consp (ast-the-type form))
+              (eql (first (ast-the-type form)) 'integer))
+         (destructuring-bind (&optional (min '*) (max '*))
+             (rest (ast-the-type form))
+           ;; Convert bounds to inclusive and * to NIL.
+           (cond ((consp min)
+                  (setf min (1+ (first min))))
+                 ((eql min '*)
+                  (setf min nil)))
+           (cond ((consp max)
+                  (setf max (1- (first max))))
+                 ((eql max '*)
+                  (setf max nil)))
+           (cond ((and min max (< max min))
+                  ;; This is secretly the bottom type, contains no values!
+                  nil)
+                 (t
+                  (values t min max)))))
+        (t nil)))
+
+(defun integer-interval-<-p (lhs-lower-bound lhs-upper-bound
+                             rhs-lower-bound rhs-upper-bound)
+  (cond ((< lhs-upper-bound rhs-lower-bound)
+         (values t t))
+        ((>= lhs-lower-bound rhs-upper-bound)
+         (values t nil))
+        (t nil)))
+
+(defun test-integer-interval-<-p ()
+  (dotimes (i 4)
+    (dotimes (j 4)
+      (dotimes (k 4)
+        (dotimes (l 4)
+          (when (and (<= i j) (<= k l))
+            (let* ((lhs (loop for x from i to j collect x))
+                   (rhs (loop for y from k to l collect y))
+                   (res (loop for x in lhs appending
+                             (loop for y in rhs collecting (list x y (not (not (< x y)))))))
+                   (n-t (count 't res :key #'third))
+                   (n-nil (count 'nil res :key #'third))
+                   (expected (cond ((zerop n-t) nil)
+                                   ((zerop n-nil) t)
+                                   (t :indeterminate)))
+                   (tmp (multiple-value-bind (validp val)
+                            (integer-interval-<-p i j k l)
+                          (if validp val :indeterminate))))
+              (format t "[~D,~D] [~D,~D] ~:S ~:S => ~:S ~S ~S ~A~%" i j k l lhs rhs res
+                      expected tmp (if (eql expected tmp) "OK" "***ERROR***")))))))))
+
+(defun fold-fixnum-< (form)
+  (let ((lhs (first (arguments form)))
+        (rhs (second (arguments form))))
+    (multiple-value-bind (lhs-valid-p lhs-lower-bound lhs-upper-bound)
+        (extract-integer-type-interval lhs)
+      (multiple-value-bind (rhs-valid-p rhs-lower-bound rhs-upper-bound)
+          (extract-integer-type-interval rhs)
+        (when (and lhs-valid-p
+                   (integerp lhs-lower-bound)
+                   (integerp lhs-upper-bound)
+                   rhs-valid-p
+                   (integerp rhs-lower-bound)
+                   (integerp rhs-upper-bound))
+          (multiple-value-bind (validp value)
+              (integer-interval-<-p
+               lhs-lower-bound lhs-upper-bound
+               rhs-lower-bound rhs-upper-bound)
+            (when validp
+              (change-made)
+              (ast `(progn ,lhs ,rhs ',value) form))))))))
+
 (defmethod simp-form ((form ast-call))
   (simp-form-list (arguments form))
   (cond ((eql (name form) 'eql)
@@ -1357,6 +1476,11 @@ First return value is a list of elements, second is the final dotted component (
          (change-made)
          (ast `(call sys.int::%allocate-struct ',(sys.int::get-structure-type (ast-value (first (arguments form)))))
               form))
+        ((and (eql (name form) 'mezzano.runtime::%fixnum-<)
+              (local-inlining-permitted-p form)
+              (= (length (arguments form)) 2)
+              (match-optimize-settings form '((= safety 0) (= speed 3)))
+              (fold-fixnum-< form)))
         (t
          ;; Rewrite (foo ... ([progn,let] x y) ...) to ([progn,let] x (foo ... y ...)) when possible.
          (loop
