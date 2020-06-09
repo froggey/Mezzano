@@ -728,7 +728,7 @@
   '(sys.int::binary-+ sys.int::binary--
     sys.int::binary-* sys.int::%truncate rem
     sys.int::binary-logior sys.int::binary-logxor sys.int::binary-logand
-    mezzano.runtime::%fixnum-left-shift))
+    mezzano.runtime::left-shift mezzano.runtime::%fixnum-left-shift))
 
 (defun mod-n-transform-candidate-p (value mask mask-type)
   ;; Mask must be a known positive power-of-two minus 1 fixnum.
