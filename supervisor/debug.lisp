@@ -301,6 +301,11 @@
        (debug-print-line "<truncated>")
        (abandon-page-fault))
     (debug-print-line "Thread " thread " " (thread-state thread) " " (thread-wait-item thread)))
+  (with-page-fault-hook
+      (()
+       (debug-print-line "<truncated>")
+       (abandon-page-fault))
+    (debug-print-line "TIFH: " (thread-inhibit-footholds thread) " TPFH: " (thread-pending-footholds thread)))
   (when (not (eql thread (current-thread)))
     (dump-thread-saved-pc thread))
   (panic-print-backtrace fp))
