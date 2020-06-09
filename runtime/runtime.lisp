@@ -137,7 +137,7 @@
    sys.int::+first-function-object-tag+
    sys.int::+last-function-object-tag+))
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 (defun %progv (symbols values fn)
   (cond (symbols

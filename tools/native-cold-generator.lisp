@@ -1,7 +1,7 @@
 ;;; Load the cold-generator on Mezzano.
 ;;; Expects *DEFAULT-PATHNAME-DEFAULTS* to point at the Mezzano source directory.
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 (defpackage :cross-cl
   (:use :cl)

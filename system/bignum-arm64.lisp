@@ -1,7 +1,7 @@
 ;;;; Copyright (c) 2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 (sys.int::define-lap-function sys.int::%%make-bignum-64-x10 ()
   (mezzano.lap.arm64:stp :x29 :x30 (:pre :sp -16))

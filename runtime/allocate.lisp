@@ -938,7 +938,7 @@ This area exists below the stack and is never allocated or mapped.")
 ;;; Card table.
 ;;; This would be in gc.lisp, but it needs to be wired.
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 ;; Card table offsets are only valid for pinned/wired objects.
 ;; They are only needed for converting function return addresses

@@ -195,7 +195,7 @@
     (setf (sys.int::structure-definition-layout def) layout-object)
     def))
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 (defstruct (structure-definition
              (:area :wired)

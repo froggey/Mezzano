@@ -11,7 +11,7 @@
 ;;; Accesses must be aligned to the disk sector size.
 ;;; Accesses are unbuffered and will occur immediately, no flushing currently required.
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 (defclass disk-stream (mezzano.gray:fundamental-binary-input-stream
                        mezzano.gray:fundamental-binary-output-stream

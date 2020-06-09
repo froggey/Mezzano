@@ -1059,7 +1059,7 @@ This is a one-shot timer and must be reset after firing."
 (defun logical-core-count ()
   (length *cpus*))
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 ;; (%cpuid leaf ecx) -> eax ebx ecx edx
 ;; Must be called with the GC deferred as CPUID uses EBX.

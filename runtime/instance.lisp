@@ -233,7 +233,7 @@
                  replacement))))
   (values))
 
-(in-package :sys.int)
+(in-package :mezzano.internals)
 
 (defstruct (layout
              (:area :wired)

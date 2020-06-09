@@ -269,7 +269,7 @@
 (defvar sys.int::*features* '(:unicode :little-endian :mezzano :ieee-floating-point :ansi-cl :common-lisp))
 
 ;; Replicated from system/package.lisp. Needed to define packages in package.lisp
-(in-package :sys.int)
+(in-package :mezzano.internals)
 (defmacro defpackage (defined-package-name &rest options)
   (let ((nicknames '())
         (documentation nil)
