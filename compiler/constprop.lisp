@@ -111,8 +111,9 @@
 (defun unwrapped-the-type (form)
   (cond ((typep form 'ast-the)
          (cond ((typep (ast-value form) 'ast-the)
-                `(and ,(ast-the-type form)
-                      ,(unwrapped-the-type (ast-value form))))
+                (merge-the-types
+                 (ast-the-type form)
+                 (unwrapped-the-type (ast-value form))))
                (t
                 (ast-the-type form))))
         (t 't)))

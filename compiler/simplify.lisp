@@ -495,10 +495,96 @@
   (and (consp type)
        (eql (first type) 'values)))
 
-(defun merge-the-types (type-1 type-2)
+;; FIXME: This isn't quite right, it produces a result type that is the
+;; the minimum and maximum of each input type. If the input types are
+;; disjoint then it should produced an AND type.
+(defun merge-real-type-values (value-1 value-2 op)
+  (cond ((and (eql value-1 '*) (eql value-2 '*))
+         '*)
+        ((eql value-1 '*) value-2)
+        ((eql value-2 '*) value-1)
+        ((and (consp value-1) (consp value-2))
+         ;; Both exclusive.
+         (if (funcall op (first value-1) (first value-2))
+             value-1
+             value-2))
+        ((consp value-1)
+         (cond ((= (first value-1) value-2)
+                ;; Equal, pick the exclusive bound.
+                value-1)
+               ((funcall op (first value-1) value-2)
+                value-1)
+               (t
+                value-2)))
+        ((consp value-2)
+         (cond ((= value-1 (first value-2))
+                ;; Equal, pick the exclusive bound.
+                value-2)
+               ((funcall op value-1 (first value-2))
+                value-1)
+               (t
+                value-2)))
+        (t
+         ;; Both inclusive
+         (if (funcall op value-1 value-2)
+             value-1
+             value-2))))
+
+(defun merge-the-types-non-values (type-1 type-2)
+  "Merge TYPE-1 and TYPE-2 together, not dealing with values types."
   (cond ((equal type-1 type-2)
          type-1)
-        ((or (values-type-p type-1)
+        ((eql type-1 't) type-2)
+        ((eql type-2 't) type-1)
+        ((and (or (and (consp type-1) (eql (first type-1) 'integer))
+                  (eql type-1 'integer))
+              (or (and (consp type-2) (eql (first type-2) 'integer))
+                  (eql type-2 'integer)))
+         (destructuring-bind (&optional (min-1 '*) (max-1 '*))
+             (if (consp type-1) (rest type-1) '())
+           (destructuring-bind (&optional (min-2 '*) (max-2 '*))
+               (if (consp type-2) (rest type-2) '())
+             (let ((new-min (merge-real-type-values min-1 min-2 #'>))
+                   (new-max (merge-real-type-values max-1 max-2 #'<)))
+               `(integer ,new-min ,new-max)))))
+        (t
+         `(and ,type-1 ,type-2))))
+
+(defun test-merge-integer-types ()
+  (labels ((check1 (x y expected)
+             (let ((result (merge-the-types-non-values x y)))
+               (format t "~:S ~:S => ~:S: ~A~%" x y expected
+                       (if (equal result expected)
+                           "pass" "FAIL"))
+               (when (not (equal result expected))
+                 (format t "   got ~:S~%" result))))
+           (check2 (x y expected)
+             (check1 x y expected)
+             (check1 y x expected)))
+    (check1 '(integer * *) '(integer * *) '(integer * *))
+    (check2 '(integer 0 *) '(integer * *) '(integer 0 *))
+    (check2 '(integer * 0) '(integer * *) '(integer * 0))
+    (check2 '(integer 0 *) '(integer * 0) '(integer 0 0))
+    (check2 '(integer * 0) '(integer 0 *) '(integer 0 0))
+    (check2 '(integer (0) *) '(integer * *) '(integer (0) *))
+    (check2 '(integer * (0)) '(integer * *) '(integer * (0)))
+    (check2 '(integer (0) *) '(integer * (0)) '(integer (0) (0)))
+    (check2 '(integer * (0)) '(integer (0) *) '(integer (0) (0)))
+    (check2 '(integer 0 *) '(integer 0 *) '(integer 0 *))
+    (check2 '(integer (0) *) '(integer 0 *) '(integer (0) *))
+    (check2 '(integer (0) *) '(integer (0) *) '(integer (0) *))
+    (check2 '(integer 0 *) '(integer -1 *) '(integer 0 *))
+    (check2 '(integer * 0) '(integer * 1) '(integer * 0))
+    (check2 '(integer (0) *) '(integer (-1) *) '(integer (0) *))
+    (check2 '(integer * (0)) '(integer * (1)) '(integer * (0)))
+    (check2 '(integer (0) *) '(integer -1 *) '(integer (0) *))
+    (check2 '(integer * (0)) '(integer * 1) '(integer * (0)))
+    (check2 '(integer 0 *) '(integer (-1) *) '(integer 0 *))
+    (check2 '(integer * 0) '(integer * (1)) '(integer * 0))
+    ))
+
+(defun merge-the-types (type-1 type-2)
+  (cond ((or (values-type-p type-1)
              (values-type-p type-2))
          (when (not (values-type-p type-1))
            (setf type-1 `(values ,type-1)))
@@ -509,12 +595,15 @@
               (result '()))
              ((and (endp i)
                    (endp j))
-              `(values ,@(reverse result)))
-           (push (merge-the-types (if i (first i) 't)
-                                  (if j (first j) 't))
+              (cond ((endp (rest result))
+                     (first result))
+                    (t
+                     `(values ,@(reverse result)))))
+           (push (merge-the-types-non-values (if i (first i) 't)
+                                             (if j (first j) 't))
                  result)))
         (t
-         `(and ,type-1 ,type-2))))
+         (merge-the-types-non-values type-1 type-2))))
 
 (defmethod simp-form ((form ast-the))
   (cond ((compiler-valid-subtypep 't (the-type form))

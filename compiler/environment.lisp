@@ -106,15 +106,13 @@
                                         symbol-macro)
                                     (if new-var
                                         type
-                                        (let ((old-type (lookup-variable-declared-type-in-environment name environment)))
-                                          (if (eql old-type 't)
-                                              type
-                                              `(and ,type ,old-type)))))
+                                        (merge-the-types
+                                         (lookup-variable-declared-type-in-environment name environment)
+                                         type)))
                                    (special-variable
-                                    (let ((old-type (mezzano.runtime::symbol-type name)))
-                                      (if (eql old-type 't)
-                                          type
-                                          `(and ,type ,old-type)))))))
+                                    (merge-the-types
+                                     (mezzano.runtime::symbol-type name)
+                                     type)))))
                  (let ((existing (assoc name new-decls :key #'name)))
                    (when existing
                      (warn 'sys.int::simple-style-warning
@@ -122,7 +120,8 @@
                            :format-arguments (list name))
                      ;; Merge the two types together.
                      (unless (compiler-type-equal-p real-type (second existing))
-                       (setf (second existing) `(and ,(second existing) real-type)))))
+                       (setf (second existing)
+                             (merge-the-types (second existing) real-type)))))
                  (push (list actual-var real-type) new-decls))))
         (loop
            for (what type . names) in declarations
