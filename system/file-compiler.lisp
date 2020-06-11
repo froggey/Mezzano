@@ -805,6 +805,8 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
               (mezzano.supervisor:fifo-push work return-fifo))))
     (mezzano.supervisor:fifo-push :exit return-fifo)))
 
+(defparameter *parallel-compile-file-dots-per-line* 72)
+
 (defun compile-file (input-file &key
                                   (output-file (compile-file-pathname input-file))
                                   (verbose *compile-verbose*)
@@ -895,6 +897,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                    (let ((start-time (get-internal-run-time)))
                      (loop
                         with i = 0
+                        for total-compiled from 0
                         repeat n-functions
                         do
                           (when *compile-print*
@@ -913,8 +916,8 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                             (write-char #\.)
                             (finish-output)
                             (incf i)
-                            (when (eql i 72)
-                              (terpri)
+                            (when (eql i *parallel-compile-file-dots-per-line*)
+                              (format t " ~D%~%" (truncate (* total-compiled 100) n-functions))
                               (setf i 0))))
                      (when *compile-print*
                        (fresh-line)
