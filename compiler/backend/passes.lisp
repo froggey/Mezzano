@@ -90,6 +90,56 @@
      do (setf basic-block (next-instruction backend-function basic-block)))
   basic-block)
 
+(defun instruction-in-basic-block-p (backend-function basic-block instruction)
+  (do ((inst (next-instruction backend-function basic-block)
+             (next-instruction backend-function inst)))
+      ((or (not inst)
+           (typep inst 'label))
+       nil)
+    (when (eql inst instruction)
+      (return t))))
+
+(defun unbox-phis-phi-is-candidate-p (backend-function uses defs bb bb-preds index phi)
+  (flet ((value-type (vreg)
+           (let ((inst (first (gethash vreg defs))))
+             (typecase inst
+               (box-single-float-instruction
+                'single-float)
+               (box-double-float-instruction
+                'double-float)
+               (box-unsigned-byte-64-instruction
+                ':unsigned-byte-64)
+               (box-fixnum-instruction
+                'fixnum)
+               (constant-instruction
+                (typecase (constant-value inst)
+                  (single-float 'single-float)
+                  (double-float 'double-float)
+                  (fixnum 'fixnum)
+                  ((unsigned-byte 64) ':unsigned-byte-64)
+                  (t nil)))
+               (t nil))))
+         (pred-value (pred)
+           (nth index (jump-values (basic-block-terminator backend-function pred)))))
+    (let ((type (value-type (pred-value (first (gethash bb bb-preds))))))
+      (when (and type
+                 (every (lambda (pred)
+                          (let ((other-type (value-type (pred-value pred))))
+                            ;; Do a bit of finagling to get unsigned-byte-64s unboxed
+                            (cond ((eql type 'fixnum)
+                                   (cond ((eql other-type 'fixnum)
+                                          t)
+                                         ((eql other-type ':unsigned-byte-64)
+                                          (setf type ':unsigned-byte-64)
+                                          t)
+                                         (t nil)))
+                                  ((eql type ':unsigned-byte-64)
+                                   (member other-type '(:unsigned-byte-64 fixnum)))
+                                  (t
+                                   (eql type other-type)))))
+                        (rest (gethash bb bb-preds))))
+        type))))
+
 (defun unbox-phis-1 (backend-function basic-blocks bb-preds)
   "Attempt to represent phi nodes unboxed."
   (multiple-value-bind (uses defs)
@@ -103,61 +153,49 @@
          ;; If all definitions of this phi are box or constant instructions
          ;; with the same type, then replace it with a new phi of the
          ;; appropriate type.
-           (flet ((value-type (vreg)
-                    (let ((inst (first (gethash vreg defs))))
-                      (typecase inst
-                        (box-single-float-instruction
-                         'single-float)
-                        (box-double-float-instruction
-                         'double-float)
-                        (constant-instruction
-                         (typecase (constant-value inst)
-                           (single-float 'single-float)
-                           (double-float 'double-float)
-                           (t nil)))
-                        (t nil))))
-                  (pred-value (pred)
-                    (nth index (jump-values (basic-block-terminator backend-function pred)))))
-             (let ((type (value-type (pred-value (first (gethash bb bb-preds))))))
-               (when (and type
-                          (every (lambda (pred)
-                                   (eql type (value-type (pred-value pred))))
-                                 (rest (gethash bb bb-preds))))
-                 ;; Insert unbox instructions before every definition of the phi.
-                 (dolist (pred (gethash bb bb-preds))
-                   (let* ((term (basic-block-terminator backend-function pred))
-                          (value (nth index (jump-values term)))
-                          (temp (make-instance 'virtual-register
-                                               :kind (ecase type
-                                                       (single-float :single-float)
-                                                       (double-float :double-float)))))
-                     (insert-before backend-function term
-                                    (make-instance (ecase type
-                                                     (single-float 'unbox-single-float-instruction)
-                                                     (double-float 'unbox-double-float-instruction))
-                                                   :source value
-                                                   :destination temp))
-                     (setf (nth index (jump-values term)) temp)))
-                 ;; Insert box instructions before every use of the phi.
-                 ;; Insert before each use to keep new live ranges short.
-                 (dolist (user (gethash phi uses))
-                   (let ((temp (make-instance 'virtual-register)))
-                     (insert-before backend-function user
-                                    (make-instance (ecase type
-                                                     (single-float 'box-single-float-instruction)
-                                                     (double-float 'box-double-float-instruction))
-                                                   :source phi
-                                                   :destination temp))
-                     (replace-all-registers user
-                                            (lambda (reg)
-                                              (cond ((eql reg phi)
-                                                     temp)
-                                                    (t reg))))))
-                 ;; Change the phi kind.
-                 (setf (slot-value phi '%kind) (ecase type
-                                                 (single-float :single-float)
-                                                 (double-float :double-float)))
-                 (return-from unbox-phis-1 t)))))))
+           (let ((type (unbox-phis-phi-is-candidate-p backend-function uses defs bb bb-preds index phi)))
+             (when (and type
+                        ;; Don't bother if it was a fixnum all along.
+                        (not (eql type 'fixnum)))
+               ;; Insert unbox instructions before every definition of the phi.
+               (dolist (pred (gethash bb bb-preds))
+                 (let* ((term (basic-block-terminator backend-function pred))
+                        (value (nth index (jump-values term)))
+                        (temp (make-instance 'virtual-register
+                                             :kind (ecase type
+                                                     (single-float :single-float)
+                                                     (double-float :double-float)
+                                                     (:unsigned-byte-64 :integer)))))
+                   (insert-before backend-function term
+                                  (make-instance (ecase type
+                                                   (single-float 'unbox-single-float-instruction)
+                                                   (double-float 'unbox-double-float-instruction)
+                                                   (:unsigned-byte-64 'unbox-unsigned-byte-64-instruction))
+                                                 :source value
+                                                 :destination temp))
+                   (setf (nth index (jump-values term)) temp)))
+               ;; Insert box instructions before every use of the phi.
+               ;; Insert before each use to keep new live ranges short.
+               (dolist (user (gethash phi uses))
+                 (let ((temp (make-instance 'virtual-register)))
+                   (insert-before backend-function user
+                                  (make-instance (ecase type
+                                                   (single-float 'box-single-float-instruction)
+                                                   (double-float 'box-double-float-instruction)
+                                                   (:unsigned-byte-64 'box-unsigned-byte-64-instruction))
+                                                 :source phi
+                                                 :destination temp))
+                   (replace-all-registers user
+                                          (lambda (reg)
+                                            (cond ((eql reg phi)
+                                                   temp)
+                                                  (t reg))))))
+               ;; Change the phi kind.
+               (setf (slot-value phi '%kind) (ecase type
+                                               (single-float :single-float)
+                                               (double-float :double-float)
+                                               (:unsigned-byte-64 :integer)))
+               (return-from unbox-phis-1 t))))))
   nil)
 
 (defun unbox-phis (backend-function)
