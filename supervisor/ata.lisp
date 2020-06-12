@@ -168,12 +168,12 @@ Returns true when the bits are equal, false when the timeout expires or if the d
     (sup:debug-print-line "ATA-SELECT-DEVICE called with command in progress.")
     (return-from ata-select-device nil))
   (when (not (eql (ata-controller-current-channel controller) channel))
-    (assert (or (eql channel :master) (eql channel :slave)))
+    (assert (or (eql channel :device-0) (eql channel :device-1)))
     (setf (sys.int::io-port/8 (+ (ata-controller-command controller)
                                  +ata-register-device+))
           (ecase channel
-            (:master 0)
-            (:slave +ata-dev+)))
+            (:device-0 0)
+            (:device-1 +ata-dev+)))
     ;; Again, neither BSY nor DRQ should be set.
     (when (logtest (logior +ata-bsy+ +ata-drq+)
                    (ata-alt-status controller))
@@ -383,8 +383,8 @@ Returns true when the bits are equal, false when the timeout expires or if the d
     (setf (sys.int::io-port/8 (+ (ata-controller-command controller)
                                  +ata-register-device+))
           (logior (ecase (ata-device-channel device)
-                    (:master 0)
-                    (:slave +ata-dev+))
+                    (:device-0 0)
+                    (:device-1 +ata-dev+))
                   +ata-lba+
                   (ldb (byte 4 24) lba)))
     ;; HI4: Write_command
@@ -416,8 +416,8 @@ Returns true when the bits are equal, false when the timeout expires or if the d
       (wr +ata-register-lba-mid+  (ldb (byte 8 8) lba))
       (wr +ata-register-lba-low+  (ldb (byte 8 0) lba))
       (wr +ata-register-device+ (logior (ecase (ata-device-channel device)
-                                          (:master 0)
-                                          (:slave +ata-dev+))
+                                          (:device-0 0)
+                                          (:device-1 +ata-dev+))
                                         +ata-lba+))
       ;; HI4: Write_command
       (wr +ata-register-command+ command)))
@@ -852,8 +852,8 @@ This is used to implement the INTRQ_Wait state."
                     controller
                     :exclusive t)
     ;; Probe drives.
-    (ata-detect-drive controller :master)
-    (ata-detect-drive controller :slave)
+    (ata-detect-drive controller :device-0)
+    (ata-detect-drive controller :device-1)
     ;; Enable controller interrupts.
     (setf (sys.int::io-port/8 (+ control-base +ata-register-device-control+)) 0)))
 
