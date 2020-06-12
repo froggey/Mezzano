@@ -273,6 +273,16 @@
              inherit)
         nil)))
 
+;;; Ordering of transforms in this file is important!
+;;; Transforms defined later are tested first, before those that are defined earlier.
+
+;; Make an attempt at transforming constant counts.
+(define-transform mezzano.runtime::right-shift (integer (count fixnum))
+    ()
+  `(if (if (call sys.int::fixnump ,integer) (call sys.int::fixnump ,count) 'nil)
+       (the fixnum (call mezzano.runtime::%fixnum-right-shift ,integer ,count))
+       (call mezzano.runtime::generic-right-shift ,integer ,count)))
+
 ;;; Unboxed (Unsigned-Byte 64) arithmetic.
 ;;; These only apply at safety 0 as they can produce invalid values which
 ;;; can damage the system if the type declarations are incorrect;.
@@ -395,13 +405,6 @@
 (define-transform mezzano.runtime::generic-right-shift (lhs (rhs (eql 0)))
     ((:optimize (= safety 0) (= speed 3)))
   lhs)
-
-;; Make an attempt at transforming constant counts.
-(define-transform mezzano.runtime::right-shift (integer (count fixnum))
-    ()
-  `(if (if (call sys.int::fixnump ,integer) (call sys.int::fixnump ,count) 'nil)
-       (the fixnum (call mezzano.runtime::%fixnum-right-shift ,integer ,count))
-       (call mezzano.runtime::generic-right-shift ,integer ,count)))
 
 (define-transform sys.int::%truncate (number (divisor (eql 1)))
     ()
