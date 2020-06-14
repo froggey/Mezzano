@@ -546,9 +546,8 @@
             (unless (and (zerop block-n))
               (follow-pointer disk superblock block-n fn (1- n-indirection))))))
 
-(defun do-file (fn disk superblock bgdt inode-n)
-  (let* ((inode (read-inode disk superblock bgdt inode-n))
-         (inode-block (inode-block inode))
+(defun do-file (fn disk superblock bgdt inode)
+  (let* ((inode-block (inode-block inode))
          (inode-flags (inode-flags inode)))
     (cond ((and (logbitp +incompat-extents+ (superblock-feature-incompat superblock))
                 (logbitp +extents-flag+ inode-flags))
@@ -575,11 +574,11 @@
                  (never (zerop block-n))
                  (follow-pointer disk superblock block-n fn indirection))))))
 
-(defun read-file (disk superblock bgdt inode-n)
+(defun read-file (disk superblock bgdt inode)
   (let ((blocks))
     (do-file #'(lambda (block)
                  (push block blocks))
-      disk superblock bgdt inode-n)
+      disk superblock bgdt inode)
     (iter (with block-size := (block-size-in-bytes disk superblock))
           (with result := (make-array (list (* block-size (length blocks))) :element-type '(unsigned-byte 8)))
           (for block :in (nreverse blocks))
@@ -587,12 +586,12 @@
           (replace result block :start1 offset)
           (finally (return result)))))
 
-(defmacro do-files ((arg var) disk superblock bgdt inode-n finally &body body)
+(defmacro do-files ((arg var) disk superblock bgdt inode finally &body body)
   `(unless (do-file (lambda (,arg)
                       (do ((,var 0 (+ ,var (sys.int::ub16ref/le ,arg (+ 4 ,var)))))
                           ((= ,var (block-size-in-bytes disk superblock)) nil)
                         ,@body))
-             ,disk ,superblock ,bgdt ,inode-n)
+             ,disk ,superblock ,bgdt ,inode)
      ,finally))
 
 ;;; Host integration
@@ -736,25 +735,28 @@
   (loop :with disk := (file-host-mount-device host)
         :with superblock := (superblock host)
         :with bgdt := (bgdt host)
-        :with inode-n := 2
+        :with inode := (read-inode disk superblock bgdt 2)
         :with file-name := (file-name pathname)
         :for directory :in (rest (pathname-directory pathname))
         :do (block do-files
-              (do-files (block offset) disk superblock bgdt inode-n
+              (do-files (block offset) disk superblock bgdt inode
                 (error 'simple-file-error
                        :pathname pathname
                        :format-control "Directory ~A not found. ~S"
                        :format-arguments (list directory pathname))
-                (when (string= directory (linked-directory-entry-name (read-linked-directory-entry block offset)))
-                  (setf inode-n (linked-directory-entry-inode (read-linked-directory-entry block offset)))
-                  (return-from do-files t))))
+                (let ((directory-entry (read-linked-directory-entry block offset)))
+                  (when (string= directory (linked-directory-entry-name directory-entry))
+                    (setf inode (read-inode disk superblock bgdt (linked-directory-entry-inode directory-entry)))
+                    (return-from do-files t)))))
         :finally
         (if (null file-name)
-            (return inode-n)
+            (return inode)
             (block do-files
-              (do-files (block offset) disk superblock bgdt inode-n nil
-                (when (string= file-name (linked-directory-entry-name (read-linked-directory-entry block offset)))
-                  (return-from find-file (linked-directory-entry-inode (read-linked-directory-entry block offset)))))))))
+              (do-files (block offset) disk superblock bgdt inode nil
+                (let ((directory-entry (read-linked-directory-entry block offset)))
+                  (when (string= file-name (linked-directory-entry-name directory-entry))
+                    (return-from find-file
+                      (read-inode disk superblock bgdt (linked-directory-entry-inode directory-entry))))))))))
 
 (defclass ext-file-stream (mezzano.gray:fundamental-binary-input-stream
                            mezzano.gray:fundamental-binary-output-stream
@@ -776,31 +778,26 @@
   `(mezzano.supervisor:with-mutex ((ext4-host-lock ,host))
      ,@body))
 
-;; WIP
 (defmethod open-using-host ((host ext4-host) pathname
                             &key direction element-type if-exists if-does-not-exist external-format)
   (with-ext4-host-locked (host)
-    (let ((file-inode nil)
+    (let ((file-inode (find-file host pathname))
           (buffer nil)
           (file-position 0)
           (file-length 0)
           (created-file nil)
           (abort-action nil))
-      (let ((inode-n (find-file host pathname))
-            (block-device (file-host-mount-device host)))
-        (if inode-n
-            (let ((file-inode (read-inode block-device (superblock host) (bgdt host) inode-n)))
-              (setf file-inode file-inode
-                    buffer (read-file block-device (superblock host) (bgdt host) inode-n)
-                    file-length (inode-size file-inode)))
-            (ecase if-does-not-exist
-              (:error (error 'simple-file-error
-                             :pathname pathname
-                             :format-control "File ~A does not exist. ~S"
-                             :format-arguments (list pathname (file-name pathname))))
-              (:create (setf created-file t
-                             abort-action :delete)
-               (error ":create not implemented")))))
+      (if file-inode
+          (setf buffer (read-file (file-host-mount-device host) (superblock host) (bgdt host) file-inode)
+                file-length (inode-size file-inode))
+          (ecase if-does-not-exist
+            (:error (error 'simple-file-error
+                           :pathname pathname
+                           :format-control "File ~A does not exist. ~S"
+                           :format-arguments (list pathname (file-name pathname))))
+            (:create (setf created-file t
+                           abort-action :delete)
+             (error ":create not implemented"))))
       (when (and (not created-file) (member direction '(:output :io)))
         (error ":output :io not implemented"))
       (cond ((or (eql element-type :default)
@@ -830,17 +827,17 @@
             (t (error "Unsupported element-type ~S." element-type))))))
 
 (defmethod probe-using-host ((host ext4-host) pathname)
-  (multiple-value-bind (inode-n) (find-file host pathname)
-    (if inode-n t nil)))
+  (multiple-value-bind (inode) (find-file host pathname)
+    (if inode t nil)))
 
 (defmethod directory-using-host ((host ext4-host) pathname &key)
-  (let ((inode-n (find-file host pathname))
+  (let ((inode (find-file host pathname))
         (disk (file-host-mount-device host))
         (superblock (superblock host))
         (bgdt (bgdt host))
         (stack '())
         (path (directory-namestring pathname)))
-    (do-files (block offset) disk superblock bgdt inode-n t
+    (do-files (block offset) disk superblock bgdt inode t
       (let* ((file (read-linked-directory-entry block offset))
              (file-name (linked-directory-entry-name file))
              (type (linked-directory-entry-file-type file)))
