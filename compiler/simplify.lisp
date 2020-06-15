@@ -12,18 +12,43 @@
 
 (defgeneric simp-form (form))
 
-(defun simp-form-list (x)
-  (do ((i x (cdr i)))
-      ((endp i))
-    (setf (car i) (cond ((and (typep (car i) 'ast-let)
-                              (typep (ast-body (car i)) 'ast-the))
-                         ;; Hoist the forms out of lets.
-                         (change-made)
-                         (ast `(the ,(the-type (ast-body (car i)))
-                                    ,(simp-form (car i)))
-                              (car i)))
-                        (t
-                         (simp-form (car i)))))))
+(defgeneric fetch-inner-the-type (form)
+  (:documentation "Descend FORM as fetch the type of the outermost THE form type.
+Returns NIL if there is no THE form.")
+  (:method ((form ast-node)) nil))
+
+(defmethod fetch-inner-the-type ((form ast-the))
+  (ast-the-type form))
+
+(defmethod fetch-inner-the-type ((form ast-block))
+  (fetch-inner-the-type (ast-body form)))
+
+(defmethod fetch-inner-the-type ((form ast-let))
+  (fetch-inner-the-type (ast-body form)))
+
+(defmethod fetch-inner-the-type ((form ast-multiple-value-bind))
+  (fetch-inner-the-type (ast-body form)))
+
+(defmethod fetch-inner-the-type ((form ast-multiple-value-prog1))
+  (fetch-inner-the-type (ast-value-form form)))
+
+(defmethod fetch-inner-the-type ((form ast-progn))
+  (cond ((ast-forms form)
+         (fetch-inner-the-type (first (last (ast-forms form)))))
+        (t nil)))
+
+(defmethod fetch-inner-the-type ((form ast-unwind-protect))
+  (fetch-inner-the-type (ast-protected-form form)))
+
+(defun hoist-the-form-to-edge (form)
+  (cond ((typep form 'ast-the)
+         form)
+        (t
+         (let ((the-type (fetch-inner-the-type form)))
+           (cond (the-type
+                  (change-made)
+                  (ast `(the ,the-type ,form) form))
+                 (t form))))))
 
 (defmethod simp-form ((form ast-block))
   (cond
@@ -175,7 +200,7 @@
                                              (t nil))))
                                    (bindings form)))
   (dolist (b (bindings form))
-    (setf (second b) (simp-form (second b))))
+    (setf (second b) (simp-form (hoist-the-form-to-edge (second b)))))
   (setf (body form) (simp-form (body form)))
   ;; Rewrite (let (... (foo ([progn,let] x y)) ...) ...) to (let (...) ([progn,let] x (let ((foo y) ...) ...))) when possible.
   (when (not (let-binds-special-variable-p form))
@@ -690,7 +715,6 @@
       (typep value 'short-float)))
 
 (defun simp-eql (form)
-  (simp-form-list (arguments form))
   (when (eql (list-length (arguments form)) 2)
     ;; (eql constant non-constant) => (eql non-constant constant)
     (when (and (quoted-form-p (first (arguments form)))
@@ -705,7 +729,6 @@
   form)
 
 (defun simp-ash (form)
-  (simp-form-list (arguments form))
   (cond ((and (eql (list-length (arguments form)) 2)
               (or (and (typep (second (arguments form)) 'ast-the)
                        (match-optimize-settings form '((= safety 0) (= speed 3)))
@@ -1361,7 +1384,10 @@ least one value."
               (ast `(progn ,lhs ,rhs ',value) form))))))))
 
 (defmethod simp-form ((form ast-call))
-  (simp-form-list (arguments form))
+  ;; Simplify arguments.
+  (do ((i (arguments form) (cdr i)))
+      ((endp i))
+    (setf (car i) (simp-form (hoist-the-form-to-edge (car i)))))
   (cond ((eql (name form) 'eql)
          (simp-eql form))
         ((eql (name form) 'ash)
@@ -1427,7 +1453,6 @@ least one value."
         ((and (eql (name form) 'mezzano.runtime::%funcall)
               (typep (unwrap-the (first (arguments form))) 'ast-function))
          (change-made)
-         (simp-form-list (rest (arguments form)))
          (ast `(call ,(name (unwrap-the (first (arguments form))))
                      ,@(rest (arguments form))) form))
         ;; (funcall fn ...) = (%funcall (%coerce-to-callable fn) ...)
