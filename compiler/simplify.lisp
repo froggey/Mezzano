@@ -532,6 +532,10 @@
 
 (defun merge-the-types-non-values (type-1 type-2)
   "Merge TYPE-1 and TYPE-2 together, not dealing with values types."
+  (when (and (consp type-1) (member (first type-1) '(and or)) (endp (cddr type-1)))
+    (setf type-1 (second type-1)))
+  (when (and (consp type-2) (member (first type-2) '(and or)) (endp (cddr type-2)))
+    (setf type-2 (second type-2)))
   (cond ((equal type-1 type-2)
          type-1)
         ((eql type-1 't) type-2)
@@ -547,6 +551,28 @@
              (let ((new-min (merge-real-type-values min-1 min-2 #'>))
                    (new-max (merge-real-type-values max-1 max-2 #'<)))
                `(integer ,new-min ,new-max)))))
+        ;; Check if one type is an AND type that contains the other type.
+        ((and (consp type-1)
+              (eql (first type-1) 'and)
+              (some (lambda (x) (equal x type-2)) (rest type-1)))
+         type-1)
+        ((and (consp type-2)
+              (eql (first type-2) 'and)
+              (some (lambda (x) (equal x type-1)) (rest type-2)))
+         type-2)
+        ;; Check if one type is an AND type and avoid creating deeply nested
+        ;; AND types.
+        ((and (consp type-1)
+              (eql (first type-1) 'and)
+              (consp type-2)
+              (eql (first type-2) 'and))
+         `(and ,@(rest type-1) ,@(rest type-2)))
+        ((and (consp type-1)
+              (eql (first type-1) 'and))
+         `(and type-2 ,@(rest type-1)))
+        ((and (consp type-2)
+              (eql (first type-2) 'and))
+         `(and type-1 ,@(rest type-2)))
         (t
          `(and ,type-1 ,type-2))))
 
