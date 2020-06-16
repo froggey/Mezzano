@@ -98,12 +98,12 @@
     "system/cas.lisp"
     "system/string.lisp"
     "system/hash-table.lisp"
-    "system/runtime-numbers.lisp"
-    "system/bignum.lisp"
-    "system/float.lisp"
-    ("system/bignum-x86-64.lisp" :x86-64)
-    ;;("system/bignum-arm64.lisp" :arm64)
-    "system/numbers.lisp"
+    "system/numbers/runtime-numbers.lisp"
+    "system/numbers/bignum.lisp"
+    "system/numbers/float.lisp"
+    ("system/numbers/bignum-x86-64.lisp" :x86-64)
+    ;;("system/numbers/bignum-arm64.lisp" :arm64)
+    "system/numbers/numbers.lisp"
     "system/gc.lisp"
     "system/room.lisp"
     "system/reader.lisp"
@@ -201,7 +201,7 @@
     "compiler/backend/arm64/object.lisp"
     "compiler/backend/arm64/number.lisp"
     ("runtime/simd.lisp" :x86-64)
-    "system/nibbles.lisp"
+    "system/numbers/nibbles.lisp"
     "system/file-compiler.lisp"
     "system/clos/constructor.lisp"
     "system/xp-package.lisp"
@@ -563,7 +563,7 @@
     "system/stream.lisp"
     "system/reader.lisp"
     "system/printer.lisp"
-    "system/numbers.lisp"
+    "system/numbers/numbers.lisp"
     "system/character.lisp"
     "system/clos/macros.lisp"
     "system/clos/closette.lisp"
@@ -571,7 +571,7 @@
     "system/gc.lisp"
     "system/cold-start.lisp"
     "system/cons.lisp"
-    "system/runtime-numbers.lisp"
+    "system/numbers/runtime-numbers.lisp"
     "supervisor/time.lisp"
     "supervisor/thread.lisp"
     "supervisor/interrupts.lisp"
@@ -585,7 +585,7 @@
     "runtime/symbol.lisp"
     "system/stuff.lisp"
     "system/sync.lisp"
-    "system/nibbles.lisp"
+    "system/numbers/nibbles.lisp"
 )
   "These files are loaded into the compiler environment so other source
 files will be compiled correctly.")
