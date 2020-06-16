@@ -1532,6 +1532,29 @@ least one value."
               (= (length (arguments form)) 2)
               (match-optimize-settings form '((= safety 0) (= speed 3)))
               (fold-fixnum-< form)))
+        ((and (eql (name form) 'byte-size)
+              (eql (length (arguments form)) 1)
+              (typep (first (arguments form)) 'ast-call)
+              (eql (ast-name (first (arguments form))) 'byte)
+              (eql (length (arguments (first (arguments form)))) 2))
+         ;; (byte-size (byte size position)) => (prog1 size position)
+         (change-made)
+         (ast `(let ((size ,(first (arguments (first (arguments form))))))
+                 (progn
+                   ,(second (arguments (first (arguments form))))
+                   size))
+              form))
+        ((and (eql (name form) 'byte-position)
+              (eql (length (arguments form)) 1)
+              (typep (first (arguments form)) 'ast-call)
+              (eql (ast-name (first (arguments form))) 'byte)
+              (eql (length (arguments (first (arguments form)))) 2))
+         ;; (byte-position (byte size position)) => (progn size position)
+         (change-made)
+         (ast `(progn
+                   ,(first (arguments (first (arguments form))))
+                   ,(second (arguments (first (arguments form)))))
+              form))
         (t
          ;; Rewrite (foo ... ([progn,let] x y) ...) to ([progn,let] x (foo ... y ...)) when possible.
          (loop
