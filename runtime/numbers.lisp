@@ -476,7 +476,7 @@
        (ratio nil)
        (short-float
         (and (fixnum-fits-in-short-float-p x)
-             (sys.int::%%single-float-= (float x 0.0s0) y)))
+             (sys.int::%%short-float-= (float x 0.0s0) y)))
        (single-float
         (and (fixnum-fits-in-single-float-p x)
              (sys.int::%%single-float-= (float x 0.0f0) y)))
@@ -562,7 +562,7 @@
        (ratio
         (mezzano.internals.numbers.ratio:ratio-= (rational x) y))
        (short-float
-        (sys.int::%%short-float-= x (float y 0.0f0)))
+        (sys.int::%%single-float-= x (float y 0.0f0)))
        (single-float
         (sys.int::%%single-float-= x y))
        (double-float
@@ -587,7 +587,7 @@
        (ratio
         (mezzano.internals.numbers.ratio:ratio-= (rational x) y))
        (short-float
-        (sys.int::%%short-float-= x (float y 0.0d0)))
+        (sys.int::%%double-float-= x (float y 0.0d0)))
        (single-float
         (sys.int::%%double-float-= x (float y 0.0d0)))
        (double-float
