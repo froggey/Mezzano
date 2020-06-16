@@ -272,6 +272,8 @@
   (etypecase radians
     (double-float
      (float (tan-single-float (float radians 0.0f0)) 0.0d0))
+    (short-float
+     (float (tan-single-float (float radians 0.0f0)) 0.0s0))
     (real
      (tan-single-float (float radians 0.0f0)))))
 
