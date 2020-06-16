@@ -325,7 +325,7 @@
     (setf u (sleef-ldexpkf u q))
 
     (if (< d -104) (setf u 0))
-    (if (> d  104) (setf u single-float-positive-infinity))
+    (if (> d  104) (setf u mezzano.extensions:single-float-positive-infinity))
 
     u))
 
@@ -354,11 +354,11 @@
     (setf x (+ (* x tt) (* 0.693147180559945286226764f0 e)))
 
     (when (mezzano.extensions:float-infinity-p d)
-      (setf x single-float-positive-infinity))
+      (setf x mezzano.extensions:single-float-positive-infinity))
     (when (< d 0)
       (setf x (/ 0.0f0 0.0f0)))
     (when (= d 0)
-      (setf x single-float-negative-infinity))
+      (setf x mezzano.extensions:single-float-negative-infinity))
 
     (if (floatp number)
         (float x number)

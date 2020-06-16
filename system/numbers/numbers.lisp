@@ -97,17 +97,6 @@
 
 (define-commutative-arithmetic-operator + binary-+ 0)
 (define-commutative-arithmetic-operator * binary-* 1)
-(define-commutative-arithmetic-operator logand binary-logand -1)
-(define-commutative-arithmetic-operator logior binary-logior 0)
-(define-commutative-arithmetic-operator logxor binary-logxor 0)
-
-;;; LOGEQV is funny, it doesn't have a compiler builtin.
-(define-compiler-macro logeqv (&rest numbers)
-  `(lognot (logxor ,@numbers)))
-
-(defun logeqv (&rest numbers)
-  (declare (dynamic-extent numbers))
-  (lognot (apply #'logxor numbers)))
 
 ;;; - and / do not fit into the previous template, so have to be
 ;;; explicitly defined.
@@ -332,137 +321,6 @@
   (check-type integer integer)
   (eql (logand integer 1) 1))
 
-(declaim (inline logtest))
-(defun logtest (integer-1 integer-2)
-  (not (zerop (logand integer-1 integer-2))))
-
-(define-setf-expander ldb (bytespec int &environment env)
-  (multiple-value-bind (temps vals stores
-                              store-form access-form)
-      (get-setf-expansion int env);Get setf expansion for int.
-    (let ((btemp (gensym))     ;Temp var for byte specifier.
-          (store (gensym))     ;Temp var for byte to store.
-          (stemp (first stores)) ;Temp var for int to store.
-          (bs-size (gensym))   ; Temp var for byte specifier size.
-          (bs-position (gensym))) ; Temp var for byte specifier position.
-      (when (cdr stores) (error "Can't expand this."))
-      ;; Generate calls to %LDB and %DPB when the bytespec is
-      ;; well-known.
-      (if (and (listp bytespec)
-               (eql (length bytespec) 3)
-               (eql (first bytespec) 'byte))
-          (values (list* bs-size bs-position temps)       ;Temporary variables.
-                  (list* (second bytespec) (third bytespec) vals)     ;Value forms.
-                  (list store)             ;Store variables.
-                  `(let ((,stemp (%dpb ,store ,bs-size ,bs-position ,access-form)))
-                     ,store-form
-                     ,store)               ;Storing form.
-                  `(%ldb ,bs-size ,bs-position ,access-form) ;Accessing form.
-                  )
-          ;; Return the setf expansion for LDB as five values.
-          (values (cons btemp temps)       ;Temporary variables.
-                  (cons bytespec vals)     ;Value forms.
-                  (list store)             ;Store variables.
-                  `(let ((,stemp (dpb ,store ,btemp ,access-form)))
-                     ,store-form
-                     ,store)               ;Storing form.
-                  `(ldb ,btemp ,access-form) ;Accessing form.
-                  )))))
-
-(define-setf-expander mask-field (bytespec integer &environment env)
-  (multiple-value-bind (temps vals stores store-form access-form)
-      (get-setf-expansion integer env);Get setf expansion for int.
-    (let ((btemp (gensym))     ;Temp var for byte specifier.
-          (store (gensym))     ;Temp var for byte to store.
-          (stemp (first stores)) ;Temp var for int to store.
-          (bs-size (gensym))   ; Temp var for byte specifier size.
-          (bs-position (gensym))) ; Temp var for byte specifier position.
-      (when (cdr stores) (error "Can't expand this."))
-      ;; Generate calls to %MASK-FIELD and %DEPOSIT-FIELD when the bytespec is
-      ;; well-known.
-      (if (and (listp bytespec)
-               (eql (length bytespec) 3)
-               (eql (first bytespec) 'byte))
-          (values (list* bs-size bs-position temps)       ;Temporary variables.
-                  (list* (second bytespec) (third bytespec) vals)     ;Value forms.
-                  (list store)             ;Store variables.
-                  `(let ((,stemp (%deposit-field ,store ,bs-size ,bs-position ,access-form)))
-                     ,store-form
-                     ,store)               ;Storing form.
-                  `(%mask-field ,bs-size ,bs-position ,access-form) ;Accessing form.
-                  )
-          ;; Return the setf expansion for LDB as five values.
-          (values (cons btemp temps)       ;Temporary variables.
-                  (cons bytespec vals)     ;Value forms.
-                  (list store)             ;Store variables.
-                  `(let ((,stemp (deposit-field ,store ,btemp ,access-form)))
-                     ,store-form
-                     ,store)               ;Storing form.
-                  `(mask-field ,btemp ,access-form) ;Accessing form.
-                  )))))
-
-(define-compiler-macro ldb (&whole whole bytespec integer)
-  ;; Avoid creating a byte specifier.
-  ;; (LDB (BYTE size position) integer)
-  ;; => (%LDB size position integer)
-  (cond ((and (listp bytespec)
-              (= (length bytespec) 3)
-              (eql (first bytespec) 'byte))
-         `(%ldb ,(second bytespec)
-                ,(third bytespec)
-                ,integer))
-        (t whole)))
-
-(define-compiler-macro dpb (&whole whole newbyte bytespec integer)
-  ;; Avoid creating a byte specifier.
-  ;; (DPB newbyte (BYTE size position) integer)
-  ;; => (%DPB newbyte size position integer)
-  (cond ((and (listp bytespec)
-              (= (length bytespec) 3)
-              (eql (first bytespec) 'byte))
-         `(%dpb ,newbyte
-                ,(second bytespec)
-                ,(third bytespec)
-                ,integer))
-        (t whole)))
-
-(define-compiler-macro mask-field (&whole whole bytespec integer)
-  ;; Avoid creating a byte specifier.
-  ;; (MASK-FIELD (BYTE size position) integer)
-  ;; => (%MASK-FIELD size position integer)
-  (cond ((and (listp bytespec)
-              (= (length bytespec) 3)
-              (eql (first bytespec) 'byte))
-         `(%mask-field ,(second bytespec)
-                       ,(third bytespec)
-                       ,integer))
-        (t whole)))
-
-(define-compiler-macro deposit-field (&whole whole newbyte bytespec integer)
-  ;; Avoid creating a byte specifier.
-  ;; (DEPOSIT-FIELD newbyte (BYTE size position) integer)
-  ;; => (%DEPOSIT-FIELD newbyte size position integer)
-  (cond ((and (listp bytespec)
-              (= (length bytespec) 3)
-              (eql (first bytespec) 'byte))
-         `(%deposit-field ,newbyte
-                          ,(second bytespec)
-                          ,(third bytespec)
-                          ,integer))
-        (t whole)))
-
-(define-compiler-macro ldb-test (&whole whole bytespec integer)
-  ;; Avoid creating a byte specifier.
-  ;; (LDB-TEST (BYTE size position) integer)
-  ;; => (%LDB-TEST size position integer)
-  (cond ((and (listp bytespec)
-              (= (length bytespec) 3)
-              (eql (first bytespec) 'byte))
-         `(%ldb-test ,(second bytespec)
-                     ,(third bytespec)
-                     ,integer))
-        (t whole)))
-
 (defun parse-integer (string &key (start 0) end (radix 10) junk-allowed)
   (setf end (or end (length string)))
   (let ((negativep nil)
@@ -517,13 +375,3 @@
                      :format-control "Not a parseable integer ~S."
                      :format-arguments (list string))))
         (setf n (+ (* n radix) weight))))))
-
-(defun logcount (integer)
-  (check-type integer integer)
-  (do ((n 0))
-      ((or (eql integer 0)
-           (eql integer -1))
-       n)
-    (when (logtest integer 1)
-      (incf n))
-    (setf integer (ash integer -1))))

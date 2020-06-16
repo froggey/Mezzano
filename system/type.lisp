@@ -994,7 +994,7 @@
              'character))
         ((single-float-p object)
          'single-float)
-        ((small-byte-p object)
+        ((mezzano.internals.numbers.logical::small-byte-p object)
          'byte)
         ;; Heap objects.
         ((consp object)
