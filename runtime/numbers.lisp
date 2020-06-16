@@ -362,9 +362,9 @@
                   (t ,(if swap-args t nil)))))))
 
 (defun sys.int::generic-< (x y)
-  (number-dispatch (x :expected-type 'real)
+  (number-dispatch (x :expected-type real)
     (fixnum
-     (number-dispatch (y :expected-type 'real)
+     (number-dispatch (y :expected-type real)
        (fixnum (%fixnum-< x y))
        (bignum (not (sys.int::%bignum-negative-p y)))
        (ratio (mezzano.internals.numbers.ratio:ratio-< x y))
