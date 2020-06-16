@@ -3,112 +3,6 @@
 
 (in-package :mezzano.internals)
 
-(declaim (inline ratiop))
-(defun ratiop (object)
-  (%object-of-type-p object +object-tag-ratio+))
-
-(defun numerator (rational)
-  (etypecase rational
-    (ratio (%object-ref-t rational +ratio-numerator+))
-    (integer rational)))
-
-(defun denominator (rational)
-  (etypecase rational
-    (ratio (%object-ref-t rational +ratio-denominator+))
-    (integer 1)))
-
-(declaim (inline complexp))
-(defun complexp (object)
-  (sys.int::%object-of-type-range-p
-   object
-   sys.int::+first-complex-object-tag+
-   sys.int::+last-complex-object-tag+))
-
-(defun complex (realpart &optional imagpart)
-  (check-type realpart real)
-  (check-type imagpart (or real null))
-  (unless imagpart
-    (setf imagpart (coerce 0 (type-of realpart))))
-  (cond ((or (typep realpart 'double-float)
-             (typep imagpart 'double-float))
-         (let ((r (%double-float-as-integer (float realpart 0.0d0)))
-               (i (%double-float-as-integer (float imagpart 0.0d0)))
-               (result (mezzano.runtime::%allocate-object +object-tag-complex-double-float+ 0 2 nil)))
-           (setf (%object-ref-unsigned-byte-64 result sys.int::+complex-realpart+) r
-                 (%object-ref-unsigned-byte-64 result sys.int::+complex-imagpart+) i)
-           result))
-        ((or (typep realpart 'single-float)
-             (typep imagpart 'single-float))
-         (let ((r (%single-float-as-integer (float realpart 0.0f0)))
-               (i (%single-float-as-integer (float imagpart 0.0f0)))
-               (result (mezzano.runtime::%allocate-object +object-tag-complex-single-float+ 0 1 nil)))
-           (setf (%object-ref-unsigned-byte-32 result sys.int::+complex-realpart+) r
-                 (%object-ref-unsigned-byte-32 result sys.int::+complex-imagpart+) i)
-           result))
-        ((or (typep realpart 'short-float)
-             (typep imagpart 'short-float))
-         (let ((r (%short-float-as-integer (float realpart 0.0s0)))
-               (i (%short-float-as-integer (float imagpart 0.0s0)))
-               (result (mezzano.runtime::%allocate-object +object-tag-complex-short-float+ 0 1 nil)))
-           (setf (%object-ref-unsigned-byte-16 result sys.int::+complex-realpart+) r
-                 (%object-ref-unsigned-byte-16 result sys.int::+complex-imagpart+) i)
-           result))
-        ((not (zerop imagpart))
-         (let ((result (mezzano.runtime::%allocate-object +object-tag-complex-rational+ 0 2 nil)))
-           (setf (%object-ref-t result sys.int::+complex-realpart+) realpart
-                 (%object-ref-t result sys.int::+complex-imagpart+) imagpart)
-           result))
-        (t
-         realpart)))
-
-(defun realpart (number)
-  (cond
-    ((%object-of-type-p number +object-tag-complex-rational+)
-     (%object-ref-t number +complex-realpart+))
-    ((%object-of-type-p number +object-tag-complex-short-float+)
-     (%integer-as-short-float (%object-ref-unsigned-byte-16 number +complex-realpart+)))
-    ((%object-of-type-p number +object-tag-complex-single-float+)
-     (%integer-as-single-float (%object-ref-unsigned-byte-32 number +complex-realpart+)))
-    ((%object-of-type-p number +object-tag-complex-double-float+)
-     (%integer-as-double-float (%object-ref-unsigned-byte-64 number +complex-realpart+)))
-    (t
-     (check-type number number)
-     number)))
-
-(defun imagpart (number)
-  (cond
-    ((%object-of-type-p number +object-tag-complex-rational+)
-     (%object-ref-t number +complex-imagpart+))
-    ((%object-of-type-p number +object-tag-complex-short-float+)
-     (%integer-as-short-float (%object-ref-unsigned-byte-16 number +complex-imagpart+)))
-    ((%object-of-type-p number +object-tag-complex-single-float+)
-     (%integer-as-single-float (%object-ref-unsigned-byte-32 number +complex-imagpart+)))
-    ((%object-of-type-p number +object-tag-complex-double-float+)
-     (%integer-as-double-float (%object-ref-unsigned-byte-64 number +complex-imagpart+)))
-    (t
-     (check-type number number)
-     (* 0 number))))
-
-(defun expt (base power)
-  (etypecase power
-    (integer
-     (cond ((minusp power)
-            (/ (expt base (- power))))
-           (t (let ((accum 1))
-                (dotimes (i power accum)
-                  (setf accum (* accum base)))))))
-    (float
-     (cond ((eql (float (truncate power) power) power)
-            ;; Moderately integer-like?
-            (expt base (truncate power)))
-           ((zerop base)
-            (assert (not (minusp power)))
-            (float 0.0 power))
-           (t
-            ;; Slower...
-            (exp (* power (log base))))))
-    (ratio (exp (* power (log base))))))
-
 (defstruct (large-byte (:constructor make-large-byte (size position)))
   (size 0 :type (integer 0) :read-only t)
   (position 0 :type (integer 0) :read-only t))
@@ -219,17 +113,6 @@
                   (float x 1.0s0)
                   (float y 1.0s0)))))
 
-(defun ratio-truncate (number divisor)
-  (cond ((integerp number)
-         (multiple-value-bind (quot rem)
-             (truncate (* number (denominator divisor))
-                       (numerator divisor))
-           (values quot (/ rem (denominator divisor)))))
-        (t
-         (let ((q (truncate (numerator number)
-                            (* (denominator number) divisor))))
-           (values q (- number (* q divisor)))))))
-
 (defun sys.int::full-truncate (number divisor)
   (check-type number real)
   (check-type divisor real)
@@ -257,28 +140,12 @@
                                 (double-float
                                  (mezzano.runtime::%truncate-double-float val)))))
            (values integer-part (* (- val integer-part) divisor))))
-        ((or (sys.int::ratiop number)
-             (sys.int::ratiop divisor))
-         (ratio-truncate number divisor))
+        ((or (typep number 'ratio)
+             (typep divisor 'ratio))
+         (mezzano.internals.numbers.ratio:ratio-truncate number divisor))
         (t (check-type number number)
            (check-type divisor number)
            (error "Argument combination ~S and ~S not supported." number divisor))))
-
-(defun complex-/ (x y)
-  (complex (/ (+ (* (realpart x) (realpart y))
-                 (* (imagpart x) (imagpart y)))
-              (+ (expt (realpart y) 2)
-                 (expt (imagpart y) 2)))
-           (/ (- (* (imagpart x) (realpart y))
-                 (* (realpart x) (imagpart y)))
-              (+ (expt (realpart y) 2)
-                 (expt (imagpart y) 2)))))
-
-(defun ratio-/ (x y)
-  (cond ((eql y 1) x)
-        (t
-         (/ (* (numerator x) (denominator y))
-            (* (denominator x) (numerator y))))))
 
 (defun sys.int::full-/ (x y)
   (cond ((and (typep x 'integer)
@@ -293,33 +160,23 @@
                                       (not (minusp y))
                                       (minusp y)))
                         (gcd (gcd x y)))
-                    (sys.int::make-ratio (if negative
-                                             (- (/ (abs x) gcd))
-                                             (/ (abs x) gcd))
-                                         (/ (abs y) gcd)))))))
+                    (mezzano.internals.numbers.ratio:%make-ratio
+                     (if negative
+                         (- (/ (abs x) gcd))
+                         (/ (abs x) gcd))
+                     (/ (abs y) gcd)))))))
         ((or (complexp x)
              (complexp y))
-         (complex-/ x y))
+         (mezzano.internals.numbers.complex:complex-/ x y))
         ((or (floatp x)
              (floatp y))
          (call-with-float-contagion x y #'%%single-float-/ #'%%double-float-/ #'%%short-float-/))
-        ((or (sys.int::ratiop x) (sys.int::ratiop y))
-         (ratio-/ x y))
+        ((or (typep x 'ratio)
+             (typep y 'ratio))
+         (mezzano.internals.numbers.ratio:ratio-/ x y))
         (t (check-type x number)
            (check-type y number)
            (error "Argument combination ~S and ~S not supported." x y))))
-
-(defun complex-+ (x y)
-  (complex (+ (realpart x) (realpart y))
-           (+ (imagpart x) (imagpart y))))
-
-(defun ratio-+ (x y)
-  (cond ((eql x 0) y)
-        ((eql y 0) x)
-        (t
-         (/ (+ (* (numerator x) (denominator y))
-               (* (numerator y) (denominator x)))
-            (* (denominator x) (denominator y))))))
 
 (defun sys.int::full-+ (x y)
   (cond ((and (sys.int::fixnump x)
@@ -336,27 +193,16 @@
          (sys.int::%%bignum-+ x y))
         ((or (complexp x)
              (complexp y))
-         (complex-+ x y))
+         (mezzano.internals.numbers.complex:complex-+ x y))
         ((or (floatp x)
              (floatp y))
          (call-with-float-contagion x y #'%%single-float-+ #'%%double-float-+ #'%%short-float-+))
-        ((or (sys.int::ratiop x)
-             (sys.int::ratiop y))
-         (ratio-+ x y))
+        ((or (typep x 'ratio)
+             (typep y 'ratio))
+         (mezzano.internals.numbers.ratio:ratio-+ x y))
         (t (check-type x number)
            (check-type y number)
            (error "Argument combination ~S and ~S not supported." x y))))
-
-(defun complex-- (x y)
-  (complex (- (realpart x) (realpart y))
-           (- (imagpart x) (imagpart y))))
-
-(defun ratio-- (x y)
-  (cond ((eql y 0) x)
-        (t
-         (/ (- (* (numerator x) (denominator y))
-               (* (numerator y) (denominator x)))
-            (* (denominator x) (denominator y))))))
 
 (defun sys.int::full-- (x y)
   (cond ((and (sys.int::fixnump x)
@@ -373,29 +219,16 @@
          (sys.int::%%bignum-- x y))
         ((or (complexp x)
              (complexp y))
-         (complex-- x y))
+         (mezzano.internals.numbers.complex:complex-- x y))
         ((or (floatp x)
              (floatp y))
          (call-with-float-contagion x y #'%%single-float-- #'%%double-float-- #'%%short-float--))
-        ((or (sys.int::ratiop x)
-             (sys.int::ratiop y))
-         (ratio-- x y))
+        ((or (typep x 'ratio)
+             (typep y 'ratio))
+         (mezzano.internals.numbers.ratio:ratio-- x y))
         (t (check-type x number)
            (check-type y number)
            (error "Argument combination ~S and ~S not supported." x y))))
-
-(defun complex-* (x y)
-  (complex (- (* (realpart x) (realpart y))
-              (* (imagpart x) (imagpart y)))
-           (+ (* (imagpart x) (realpart y))
-              (* (realpart x) (imagpart y)))))
-
-(defun ratio-* (x y)
-  (cond ((eql x 1) y)
-        ((eql y 1) x)
-        (t
-         (/ (* (numerator x) (numerator y))
-            (* (denominator x) (denominator y))))))
 
 (defun sys.int::full-* (x y)
   (cond ((and (sys.int::fixnump x)
@@ -412,50 +245,16 @@
          (sys.int::%%bignum-multiply-signed x y))
         ((or (complexp x)
              (complexp y))
-         (complex-* x y))
+         (mezzano.internals.numbers.complex:complex-* x y))
         ((or (floatp x)
              (floatp y))
          (call-with-float-contagion x y #'%%single-float-* #'%%double-float-* #'%%short-float-*))
-        ((or (sys.int::ratiop x)
-             (sys.int::ratiop y))
-         (ratio-* x y))
+        ((or (typep x 'ratio)
+             (typep y 'ratio))
+         (mezzano.internals.numbers.ratio:ratio-* x y))
         (t (check-type x number)
            (check-type y number)
            (error "Argument combination ~S and ~S not supported." x y))))
-
-(defun abs (number)
-  (check-type number number)
-  (etypecase number
-    (complex
-     (sqrt (+ (expt (realpart number) 2)
-              (expt (imagpart number) 2))))
-    (single-float
-     (%integer-as-single-float
-      (logand #x7FFFFFFF
-              (%single-float-as-integer number))))
-    (double-float
-     (%integer-as-double-float
-      (logand #x7FFFFFFFFFFFFFFF
-              (%double-float-as-integer number))))
-    (real
-     (if (minusp number)
-         (- number)
-         number))))
-
-(defun sqrt (number)
-  (check-type number number)
-  (etypecase number
-    (double-float
-     (%%double-float-sqrt number))
-    (short-float
-     (%%short-float-sqrt number))
-    (real
-     (%%single-float-sqrt (float number 0.0f0)))
-    (complex
-     (exp (/ (log number) 2)))))
-
-(defun isqrt (number)
-  (values (floor (sqrt number))))
 
 (macrolet ((def (name bignum-name)
              `(defun ,name (x y)
@@ -544,383 +343,6 @@
     (boole-set -1)
     (boole-xor (logxor integer-1 integer-2))))
 
-(defun signum (number)
-  (if (zerop number)
-      number
-      (/ number (abs number))))
-
-;;; Mathematical horrors!
-
-(defconstant pi 3.14159265358979323846264338327950288419716939937511d0)
-
-;;; Derived from SLEEF: https://github.com/shibatch/sleef
-
-(defconstant +sleef-pi4-af+ 0.78515625f0)
-(defconstant +sleef-pi4-bf+ 0.00024187564849853515625f0)
-(defconstant +sleef-pi4-cf+ 3.7747668102383613586f-08)
-(defconstant +sleef-pi4-df+ 1.2816720341285448015f-12)
-
-(defun sleef-mulsignf (x y)
-  (sys.int::%integer-as-single-float
-   (logxor
-    (sys.int::%single-float-as-integer x)
-    (logand (sys.int::%single-float-as-integer y)
-            (ash 1 31)))))
-
-(defun sleef-signf (d)
-  (sleef-mulsignf 1.0f0 d))
-
-(declaim (inline sleef-mlaf))
-(defun sleef-mlaf (x y z)
-  (declare (type single-float x y z))
-  (+ (* x y) z))
-
-(declaim (inline sleef-rintf))
-(defun sleef-rintf (x)
-  (declare (type single-float x))
-  (if (< x 0.0f0)
-      (the fixnum (truncate (- x 0.5f0)))
-      (the fixnum (truncate (+ x 0.5f0)))))
-
-(defconstant +sleef-pi4-a+ 0.78539816290140151978d0)
-(defconstant +sleef-pi4-b+ 4.9604678871439933374d-10)
-(defconstant +sleef-pi4-c+ 1.1258708853173288931d-18)
-(defconstant +sleef-pi4-d+ 1.7607799325916000908d-27)
-
-(declaim (inline sleef-mla))
-(defun sleef-mla (x y z)
-  (declare (type double-float x y z))
-  (+ (* x y) z))
-
-(declaim (inline sleef-rint))
-(defun sleef-rint (x)
-  (declare (type double-float x))
-  (if (< x 0.0d0)
-      (the fixnum (truncate (- x 0.5d0)))
-      (the fixnum (truncate (+ x 0.5d0)))))
-
-(declaim (inline finish-sincos-single-float))
-(defun finish-sincos-single-float (s d)
-  (declare (type single-float s d))
-  (let ((u 2.6083159809786593541503f-06))
-    (declare (type single-float u))
-    (setf u (sleef-mlaf u s -0.0001981069071916863322258f0))
-    (setf u (sleef-mlaf u s 0.00833307858556509017944336f0))
-    (setf u (sleef-mlaf u s -0.166666597127914428710938f0))
-
-    (setf u (sleef-mlaf s (* u d) d))
-
-    (cond ((float-infinity-p d)
-           (/ 0.0f0 0.0f0))
-          (t
-           u))))
-
-(defun sin-single-float (d)
-  (declare (type single-float d)
-           (optimize (speed 3) (safety 0) (debug 0)))
-  (let* ((q (sleef-rintf (* d (/ (float pi 0.0f0)))))
-         (q-float (float q 0.0f0)))
-    (declare (type fixnum q)
-             (type single-float q-float))
-    (setf d (sleef-mlaf q-float (* +sleef-pi4-af+ -4) d))
-    (setf d (sleef-mlaf q-float (* +sleef-pi4-bf+ -4) d))
-    (setf d (sleef-mlaf q-float (* +sleef-pi4-cf+ -4) d))
-    (setf d (sleef-mlaf q-float (* +sleef-pi4-df+ -4) d))
-    (let ((s (* d d)))
-      (declare (type single-float s))
-      (when (logtest q 1)
-        (setf d (- 0.0f0 d)))
-      (finish-sincos-single-float s d))))
-
-(defun cos-single-float (d)
-  (declare (type single-float d)
-           (optimize (speed 3) (safety 0) (debug 0)))
-  (let* ((q (+ 1 (* 2 (sleef-rintf (- (* d (/ (float pi 0.0f0))) 0.5f0)))))
-         (q-float (float q 0.0f0)))
-    (declare (type fixnum q)
-             (type single-float q-float))
-    (setf d (sleef-mlaf q-float (* +sleef-pi4-af+ -2) d))
-    (setf d (sleef-mlaf q-float (* +sleef-pi4-bf+ -2) d))
-    (setf d (sleef-mlaf q-float (* +sleef-pi4-cf+ -2) d))
-    (setf d (sleef-mlaf q-float (* +sleef-pi4-df+ -2) d))
-    (let ((s (* d d)))
-      (declare (type single-float s))
-      (when (not (logtest q 2))
-        (setf d (- 0.0f0 d)))
-      (finish-sincos-single-float s d))))
-
-(declaim (inline finish-sincos-double-float))
-(defun finish-sincos-double-float (s d)
-  (declare (type double-float s d))
-  (let ((u -7.97255955009037868891952d-18))
-    (declare (type double-float u))
-    (setf u (sleef-mla u s 2.81009972710863200091251d-15))
-    (setf u (sleef-mla u s -7.64712219118158833288484d-13))
-    (setf u (sleef-mla u s 1.60590430605664501629054d-10))
-    (setf u (sleef-mla u s -2.50521083763502045810755d-08))
-    (setf u (sleef-mla u s 2.75573192239198747630416d-06))
-    (setf u (sleef-mla u s -0.000198412698412696162806809d0))
-    (setf u (sleef-mla u s 0.00833333333333332974823815d0))
-    (setf u (sleef-mla u s -0.166666666666666657414808d0))
-
-    (sleef-mla s (* u d) d)))
-
-(defun sin-double-float (d)
-  (declare (type double-float d)
-           (optimize (speed 3) (safety 0) (debug 0)))
-  (let* ((q (sleef-rint (* d (/ (float pi 0.0d0)))))
-         (q-float (float q 0.0d0)))
-    (declare (type fixnum q)
-             (type double-float q-float))
-    (setf d (sleef-mla q-float (* +sleef-pi4-a+ -4) d))
-    (setf d (sleef-mla q-float (* +sleef-pi4-b+ -4) d))
-    (setf d (sleef-mla q-float (* +sleef-pi4-c+ -4) d))
-    (setf d (sleef-mla q-float (* +sleef-pi4-d+ -4) d))
-    (let ((s (* d d)))
-      (declare (type double-float s))
-      (when (logtest q 1)
-        (setf d (- 0.0d0 d)))
-      (finish-sincos-double-float s d))))
-
-(defun cos-double-float (d)
-  (declare (type double-float d)
-           (optimize (speed 3) (safety 0) (debug 0)))
-  (let* ((q (+ 1 (* 2 (sleef-rint (- (* d (/ (float pi 0.0d0))) 0.5d0)))))
-         (q-float (float q 0.0d0)))
-    (declare (type fixnum q)
-             (type double-float q-float))
-    (setf d (sleef-mla q-float (* +sleef-pi4-a+ -2) d))
-    (setf d (sleef-mla q-float (* +sleef-pi4-b+ -2) d))
-    (setf d (sleef-mla q-float (* +sleef-pi4-c+ -2) d))
-    (setf d (sleef-mla q-float (* +sleef-pi4-d+ -2) d))
-    (let ((s (* d d)))
-      (declare (type double-float s))
-      (when (not (logtest q 2))
-        (setf d (- 0.0d0 d)))
-      (finish-sincos-double-float s d))))
-
-(defun sin (x)
-  (etypecase x
-    (complex
-     (let ((real (realpart x))
-           (imag (imagpart x)))
-       (complex (* (sin real) (cosh imag))
-                (* (cos real) (sinh imag)))))
-    (double-float
-     (sin-double-float x))
-    (short-float
-     (float (sin-single-float (float x 0.0f0)) 0.0s0))
-    (real
-     (sin-single-float (float x 0.0f0)))))
-
-(defun cos (x)
-  (etypecase x
-    (complex
-     (let ((real (realpart x))
-           (imag (imagpart x)))
-       (complex (* (cos real) (cosh imag))
-                (- (* (sin real) (sinh imag))))))
-    (double-float
-     (cos-double-float x))
-    (short-float
-     (float (cos-single-float (float x 0.0f0)) 0.0s0))
-    (real
-     (cos-single-float (float x 0.0f0)))))
-
-(defun tan-single-float (d)
-  (declare (type single-float d))
-  (let* ((q (sleef-rintf (* d 2 (/ (float pi 0.0f0)))))
-         (q-float (float q 0.0f0))
-         u s
-         (x d))
-    (declare (type fixnum q)
-             (type single-float q-float x))
-    (setf x (sleef-mlaf q-float (* +sleef-pi4-af+ -4 0.5f0) x))
-    (setf x (sleef-mlaf q-float (* +sleef-pi4-bf+ -4 0.5f0) x))
-    (setf x (sleef-mlaf q-float (* +sleef-pi4-cf+ -4 0.5f0) x))
-    (setf x (sleef-mlaf q-float (* +sleef-pi4-df+ -4 0.5f0) x))
-
-    (setf s (* x x))
-
-    (when (not (eql (logand q 1) 0))
-      (setf x (- x)))
-
-    (setf u 0.00927245803177356719970703f0)
-    (setf u (sleef-mlaf u s 0.00331984995864331722259521f0))
-    (setf u (sleef-mlaf u s 0.0242998078465461730957031f0))
-    (setf u (sleef-mlaf u s 0.0534495301544666290283203f0))
-    (setf u (sleef-mlaf u s 0.133383005857467651367188f0))
-    (setf u (sleef-mlaf u s 0.333331853151321411132812f0))
-
-    (setf u (sleef-mlaf s (* u x) x))
-
-    (when (not (eql (logand q 1) 0))
-      (setf u (/ u)))
-
-    (when (float-infinity-p d)
-      (setf u (/ 0.0f0 0.0f0)))
-
-    (if (floatp d)
-        (float u d)
-        u)))
-
-(defun tan (radians)
-  (etypecase radians
-    (double-float
-     (float (tan-single-float (float radians 0.0f0)) 0.0d0))
-    (real
-     (tan-single-float (float radians 0.0f0)))))
-
-(defconstant +sleef-r-ln2f+ 1.442695040888963407359924681001892137426645954152985934135449406931f0)
-(defconstant +sleef-l2uf+ 0.693145751953125f0)
-(defconstant +sleef-l2lf+ 1.428606765330187045f-06)
-
-(defun sleef-ldexpkf (x q)
-  (let (u m)
-    (setf m (ash q -31))
-    (setf m (ash (- (ash (+ m q) -6) m) 4))
-    (setf q (- q (ash m 2)))
-    (incf m 127)
-    (setf m (if (< m 0) 0 m))
-    (setf m (if (> m 255) 255 m))
-    (setf u (sys.int::%integer-as-single-float (ash m 23)))
-    (setf x (* x u u u u))
-    (setf u (sys.int::%integer-as-single-float (ash (+ q #x7f) 23)))
-    (* x u)))
-
-(defun sleef-ilogbkf (d)
-  (let (m q)
-    (setf m (< d 5.421010862427522f-20))
-    (setf d (if m
-                (* 1.8446744073709552f19 d)
-                d))
-    (setf q (logand (ash (sys.int::%single-float-as-integer d) -23) #xFF))
-    (if m
-        (- q (+ 64 #x7F))
-        (- q #x7F))))
-
-(defun exp-single-float (d)
-  (declare (type single-float d))
-  (let* ((q (sleef-rintf (* d +sleef-r-ln2f+)))
-         (q-float (float q 0.0f0))
-         (s d)
-         u)
-    (declare (type fixnum q)
-             (type single-float q-float s))
-    (setf s (sleef-mlaf q-float (- +sleef-l2uf+) s))
-    (setf s (sleef-mlaf q-float (- +sleef-l2lf+) s))
-
-    (setf u 0.000198527617612853646278381f0)
-    (setf u (sleef-mlaf u s 0.00139304355252534151077271f0))
-    (setf u (sleef-mlaf u s 0.00833336077630519866943359f0))
-    (setf u (sleef-mlaf u s 0.0416664853692054748535156f0))
-    (setf u (sleef-mlaf u s 0.166666671633720397949219f0))
-    (setf u (sleef-mlaf u s 0.5f0))
-
-    (setf u (+ (* s s u) s 1.0f0))
-    (setf u (sleef-ldexpkf u q))
-
-    (if (< d -104) (setf u 0))
-    (if (> d  104) (setf u single-float-positive-infinity))
-
-    u))
-
-(defun exp (number)
-  (etypecase number
-    (double-float
-     (float (exp-single-float (float number 0.0f0)) 0.0d0))
-    (real
-     (exp-single-float (float number 0.0f0)))))
-
-(defun log-e (number)
-  (let ((d (float number 0.0f0))
-        x x2 tt m e)
-    (setf e (sleef-ilogbkf (* d (/ 0.75f0))))
-    (setf m (sleef-ldexpkf d (- e)))
-
-    (setf x (/ (- m 1.0f0) (+ m 1.0f0)))
-    (setf x2 (* x x))
-
-    (setf tt 0.2392828464508056640625f0)
-    (setf tt (sleef-mlaf tt x2 0.28518211841583251953125f0))
-    (setf tt (sleef-mlaf tt x2 0.400005877017974853515625f0))
-    (setf tt (sleef-mlaf tt x2 0.666666686534881591796875f0))
-    (setf tt (sleef-mlaf tt x2 2.0f0))
-
-    (setf x (+ (* x tt) (* 0.693147180559945286226764f0 e)))
-
-    (when (float-infinity-p d)
-      (setf x single-float-positive-infinity))
-    (when (< d 0)
-      (setf x (/ 0.0f0 0.0f0)))
-    (when (= d 0)
-      (setf x single-float-negative-infinity))
-
-    (if (floatp number)
-        (float x number)
-        x)))
-
-(defun log (number &optional base)
-  (cond (base
-         (/ (log number) (log base)))
-        ((complexp number)
-         (complex (log (abs number)) (phase number)))
-        (t
-         (log-e number))))
-
-(defun atan (number1 &optional number2)
-  (if number2
-      (atan2 number1 number2)
-      (let ((s (float number1 0.0f0))
-            (q 0)
-            tt u)
-        (when (= (sleef-signf s) -1)
-          (setf s (- s))
-          (setf q 2))
-        (when (> s 1)
-          (setf s (/ s))
-          (setf q (logior q 1)))
-
-        (setf tt (* s s))
-
-        (setf u 0.00282363896258175373077393f0)
-        (setf u (sleef-mlaf u tt -0.0159569028764963150024414f0))
-        (setf u (sleef-mlaf u tt 0.0425049886107444763183594f0))
-        (setf u (sleef-mlaf u tt -0.0748900920152664184570312f0))
-        (setf u (sleef-mlaf u tt 0.106347933411598205566406f0))
-        (setf u (sleef-mlaf u tt -0.142027363181114196777344f0))
-        (setf u (sleef-mlaf u tt 0.199926957488059997558594f0))
-        (setf u (sleef-mlaf u tt -0.333331018686294555664062f0))
-
-        (setf tt (+ s (* s tt u)))
-
-        (when (not (eql (logand q 1) 0))
-          (setf tt (- 1.570796326794896557998982f0 tt)))
-        (when (not (eql (logand q 2) 0))
-          (setf tt (- tt)))
-        (if (floatp number1)
-            (float tt number1)
-            tt))))
-
-(defun atan2 (y x)
-  (let ((n (cond ((> x 0) (atan (/ y x)))
-                 ((and (>= y 0) (< x 0))
-                  (+ (atan (/ y x)) pi))
-                 ((and (< y 0) (< x 0))
-                  (- (atan (/ y x)) pi))
-                 ((and (> y 0) (zerop x))
-                  (/ pi 2))
-                 ((and (< y 0) (zerop x))
-                  (- (/ pi 2)))
-                 (t 0))))
-    (cond ((and (floatp x) (floatp y))
-           (float (float n x) y))
-          ((floatp x)
-           (float n x))
-          ((floatp y)
-           (float n y))
-          (t n))))
-
 (defun two-arg-gcd (a b)
   (check-type a integer)
   (check-type b integer)
@@ -930,15 +352,6 @@
           (return a))
      (psetf b (mod a b)
             a b)))
-
-(defun conjugate (number)
-  (if (complexp number)
-      (complex (realpart number)
-               (- (imagpart number)))
-      number))
-
-(defun phase (number)
-  (atan (imagpart number) (realpart number)))
 
 (defun fix-fdiv-quotient (quotient number divisor)
   (cond ((or (double-float-p number)
@@ -1323,105 +736,6 @@
      (decode-double-float f))
     (short-float
      (decode-short-float f))))
-
-;;; These functions let us create floats from bits with the
-;;; significand uniformly represented as an integer. This is less
-;;; efficient for double floats, but is more convenient when making
-;;; special values, etc.
-(defun single-from-bits (sign exp sig)
-  (declare (type bit sign) (type (unsigned-byte 24) sig)
-           (type (unsigned-byte 8) exp))
-  (%integer-as-single-float
-   (dpb exp +single-float-exponent-byte+
-        (dpb sig +single-float-significand-byte+
-             (if (zerop sign) 0 #x80000000)))))
-(defun double-from-bits (sign exp sig)
-  (declare (type bit sign) (type (unsigned-byte 53) sig)
-           (type (unsigned-byte 11) exp))
-  (%integer-as-double-float
-   (logior (ash (dpb exp +double-float-exponent-byte+
-                     (dpb (ash sig -32)
-                          +double-float-significand-byte+
-                          (if (zerop sign) 0 #x80000000)))
-                32)
-           (ldb (byte 32 0) sig))))
-(defun short-from-bits (sign exp sig)
-  (declare (type bit sign) (type (unsigned-byte 11) sig)
-           (type (unsigned-byte 5) exp))
-  (%integer-as-short-float
-   (dpb exp +short-float-exponent-byte+
-        (dpb sig +short-float-significand-byte+
-             (if (zerop sign) 0 #x8000)))))
-
-;;; Ratio to float conversion from SBCL 1.4.2
-
-;;; Convert a ratio to a float. We avoid any rounding error by doing an
-;;; integer division. Accuracy is important to preserve print-read
-;;; consistency, since this is ultimately how the reader reads a float. We
-;;; scale the numerator by a power of two until the division results in the
-;;; desired number of fraction bits, then do round-to-nearest.
-(defun ratio-to-float (x format)
-  (let* ((signed-num (numerator x))
-         (plusp (plusp signed-num))
-         (num (if plusp signed-num (- signed-num)))
-         (den (denominator x))
-         (digits (ecase format
-                   (short-float +short-float-digits+)
-                   (single-float +single-float-digits+)
-                   (double-float +double-float-digits+)))
-         (scale 0))
-    (declare (type fixnum digits scale))
-    ;; Strip any trailing zeros from the denominator and move it into the scale
-    ;; factor (to minimize the size of the operands.)
-    (let ((den-twos (1- (integer-length (logxor den (1- den))))))
-      (declare (type fixnum den-twos))
-      (decf scale den-twos)
-      (setq den (ash den (- den-twos))))
-    ;; Guess how much we need to scale by from the magnitudes of the numerator
-    ;; and denominator. We want one extra bit for a guard bit.
-    (let* ((num-len (integer-length num))
-           (den-len (integer-length den))
-           (delta (- den-len num-len))
-           (shift (1+ (the fixnum (+ delta digits))))
-           (shifted-num (ash num shift)))
-      (declare (type fixnum delta shift))
-      (decf scale delta)
-      (labels ((float-and-scale (bits)
-                 (let* ((bits (ash bits -1))
-                        (len (integer-length bits)))
-                   (cond ((> len digits)
-                          (assert (= len (the fixnum (1+ digits))))
-                          (scale-float (floatit (ash bits -1)) (1+ scale)))
-                         (t
-                          (scale-float (floatit bits) scale)))))
-               (floatit (bits)
-                 (let ((sign (if plusp 0 1)))
-                   (case format
-                     (short-float
-                      (short-from-bits sign +short-float-bias+ bits))
-                     (single-float
-                      (single-from-bits sign +single-float-bias+ bits))
-                     (double-float
-                      (double-from-bits sign +double-float-bias+ bits))))))
-        (loop
-          (multiple-value-bind (fraction-and-guard rem)
-              (truncate shifted-num den)
-            (let ((extra (- (integer-length fraction-and-guard) digits)))
-              (declare (type fixnum extra))
-              (cond ((/= extra 1)
-                     (assert (> extra 1)))
-                    ((oddp fraction-and-guard)
-                     (return
-                      (if (zerop rem)
-                          (float-and-scale
-                           (if (zerop (logand fraction-and-guard 2))
-                               fraction-and-guard
-                               (1+ fraction-and-guard)))
-                          (float-and-scale (1+ fraction-and-guard)))))
-                    (t
-                     (return (float-and-scale fraction-and-guard)))))
-            (setq shifted-num (ash shifted-num -1))
-            (incf scale)))))))
 
 (defun rational (number)
   (check-type number real)

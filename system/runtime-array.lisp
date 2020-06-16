@@ -182,15 +182,15 @@
     (#.+object-tag-array-signed-byte-64+
      (%object-ref-signed-byte-64 array index))
     (#.+object-tag-array-short-float+
-     (%integer-as-short-float (%object-ref-unsigned-byte-16 array index)))
+     (%object-ref-short-float array index))
     (#.+object-tag-array-single-float+
      (%object-ref-single-float array index))
     (#.+object-tag-array-double-float+
      (%object-ref-double-float array index))
     (#.+object-tag-array-complex-short-float+
      (complex
-      (%integer-as-short-float (%object-ref-unsigned-byte-16 array (* index 2)))
-      (%integer-as-short-float (%object-ref-unsigned-byte-16 array (1+ (* index 2))))))
+      (%object-ref-short-float array (* index 2))
+      (%object-ref-short-float array (1+ (* index 2)))))
     (#.+object-tag-array-complex-single-float+
      (complex
       (%object-ref-single-float array (* index 2))
@@ -274,9 +274,8 @@
      (setf (%object-ref-signed-byte-64 array index)
            value))
     (#.+object-tag-array-short-float+
-     (check-type value short-float)
-     (setf (%object-ref-unsigned-byte-16 array index)
-           (%short-float-as-integer value)))
+     (setf (%object-ref-short-float array index)
+           value))
     (#.+object-tag-array-single-float+
      (setf (%object-ref-single-float array index)
            value))
@@ -284,11 +283,8 @@
      (setf (%object-ref-double-float array index)
            value))
     (#.+object-tag-array-complex-short-float+
-     (check-type value (complex short-float))
-     (let ((realpart (%short-float-as-integer (realpart value)))
-           (imagpart (%short-float-as-integer (imagpart value))))
-       (setf (%object-ref-unsigned-byte-16 array (* index 2)) realpart
-             (%object-ref-unsigned-byte-16 array (1+ (* index 2))) imagpart)))
+     (setf (%object-ref-short-float array (* index 2)) (realpart value)
+           (%object-ref-short-float array (1+ (* index 2))) (imagpart value)))
     (#.+object-tag-array-complex-single-float+
      (setf (%object-ref-single-float array (* index 2)) (realpart value)
            (%object-ref-single-float array (1+ (* index 2))) (imagpart value)))
@@ -330,12 +326,7 @@
     (#.+object-tag-array-signed-byte-64+
      (cas (%object-ref-signed-byte-64 array index) old new))
     (#.+object-tag-array-short-float+
-     (check-type old short-float)
-     (check-type new short-float)
-     (%integer-as-short-float
-      (cas (%object-ref-unsigned-byte-16 array index)
-           (%short-float-as-integer old)
-           (%short-float-as-integer new))))
+     (cas (%object-ref-short-float array index) old new))
     (#.+object-tag-array-single-float+
      (cas (%object-ref-single-float array index) old new))
     (#.+object-tag-array-double-float+

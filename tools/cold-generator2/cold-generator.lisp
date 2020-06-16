@@ -99,6 +99,9 @@
     "system/string.lisp"
     "system/hash-table.lisp"
     "system/numbers/runtime-numbers.lisp"
+    "system/numbers/transcendental.lisp"
+    "system/numbers/ratio.lisp"
+    "system/numbers/complex.lisp"
     "system/numbers/bignum.lisp"
     "system/numbers/float.lisp"
     ("system/numbers/bignum-x86-64.lisp" :x86-64)
@@ -572,6 +575,7 @@
     "system/cold-start.lisp"
     "system/cons.lisp"
     "system/numbers/runtime-numbers.lisp"
+    "system/numbers/ratio.lisp"
     "supervisor/time.lisp"
     "supervisor/thread.lisp"
     "supervisor/interrupts.lisp"

@@ -390,7 +390,7 @@
 (%define-type-symbol 'fixnum 'fixnump)
 (%define-type-symbol 'bignum 'bignump)
 (%define-type-symbol 'integer 'integerp)
-(%define-type-symbol 'ratio 'ratiop)
+(%define-type-symbol 'ratio 'mezzano.internals.numbers.ratio:ratiop)
 (%define-type-symbol 'rational 'rationalp)
 (%define-type-symbol 'short-float 'short-float-p)
 (%define-type-symbol 'single-float 'single-float-p)
@@ -974,6 +974,10 @@
                (= (list-length type-specifier) 2)
                (eql (first type-specifier) 'quote))
     (return-from typep whole))
+  ;; Special-case COMPLEX here or typeexpand will turn it into a more
+  ;; complicated OR type.
+  (when (eql (second type-specifier) 'complex)
+    (return-from typep `(complexp ,object)))
   (or (compile-typep-expression object
                                 (typeexpand (second type-specifier) environment))
       whole))

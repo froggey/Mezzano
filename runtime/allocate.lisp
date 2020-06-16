@@ -850,12 +850,6 @@
             (sys.int::%object-ref-t object sys.int::+weak-pointer-finalizer+) finalizer))
     object))
 
-(defun sys.int::make-ratio (numerator denominator)
-  (let ((value (%allocate-object sys.int::+object-tag-ratio+ 0 2 nil)))
-    (setf (sys.int::%object-ref-t value sys.int::+ratio-numerator+) numerator
-          (sys.int::%object-ref-t value sys.int::+ratio-denominator+) denominator)
-    value))
-
 ;;; In the supervisor package for historical reasons.
 (in-package :mezzano.supervisor)
 

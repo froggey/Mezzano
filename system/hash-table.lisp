@@ -418,7 +418,7 @@ is below the rehash-threshold."
   ;; special-cased here as well.
   (cond ((bignump object)
          (hash-bignum object))
-        ((ratiop object)
+        ((typep object 'ratio)
          (logxor (eql-hash (numerator object))
                  (eql-hash (denominator object))))
         ((complexp object)

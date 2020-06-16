@@ -92,10 +92,11 @@
        (double-float
         (%%coerce-short-float-to-double-float number))))
     (ratio
-     (sys.int::ratio-to-float number (etypecase prototype
-                                       ((or null single-float) 'single-float)
-                                       (double-float 'double-float)
-                                       (short-float 'short-float))))))
+     (mezzano.internals.numbers.ratio:ratio-to-float
+      number (etypecase prototype
+               ((or null single-float) 'single-float)
+               (double-float 'double-float)
+               (short-float 'short-float))))))
 
 (defun sys.int::float-nan-p (float)
   "Returns true if FLOAT is a trapping NaN or a quiet NaN."
@@ -227,11 +228,6 @@
               ,@(reverse targets)
               ,error-target
               (error 'type-error :datum ,value-sym :expected-type ',expected-type)))))))
-
-(declaim (inline ratio-<))
-(defun ratio-< (x y)
-  (< (* (numerator x) (denominator y))
-     (* (numerator y) (denominator x))))
 
 (defmacro fixnum-float-compare (the-fixnum the-float float-type swap-args)
   (multiple-value-bind (float< float= truncate-float fix-to-float float-zero m-p-f-float m-n-f-float)
@@ -371,7 +367,7 @@
      (number-dispatch (y :expected-type 'real)
        (fixnum (%fixnum-< x y))
        (bignum (not (sys.int::%bignum-negative-p y)))
-       (ratio (ratio-< x y))
+       (ratio (mezzano.internals.numbers.ratio:ratio-< x y))
        (short-float
         (fixnum-float-compare x y short-float nil))
        (single-float
@@ -382,7 +378,7 @@
      (number-dispatch (y :expected-type 'real)
        (fixnum (sys.int::%bignum-negative-p x))
        (bignum (sys.int::%%bignum-< x y))
-       (ratio (ratio-< x y))
+       (ratio (mezzano.internals.numbers.ratio:ratio-< x y))
        (short-float
         (bignum-float-compare x y short-float nil))
        (single-float
@@ -391,9 +387,9 @@
         (bignum-float-compare x y double-float nil))))
     (ratio
      (number-dispatch (y :expected-type 'real)
-       ((fixnum bignum ratio) (ratio-< x y))
+       ((fixnum bignum ratio) (mezzano.internals.numbers.ratio:ratio-< x y))
        ((short-float single-float double-float)
-        (ratio-< x (rational y)))))
+        (mezzano.internals.numbers.ratio:ratio-< x (rational y)))))
     (short-float
      (number-dispatch (y :expected-type 'real)
        (fixnum
@@ -401,7 +397,7 @@
        (bignum
         (bignum-float-compare y x short-float t))
        (ratio
-        (ratio-< (rational x) y))
+        (mezzano.internals.numbers.ratio:ratio-< (rational x) y))
        (short-float
         (sys.int::%%short-float-< x y))
        (single-float
@@ -415,7 +411,7 @@
        (bignum
         (bignum-float-compare y x single-float t))
        (ratio
-        (ratio-< (rational x) y))
+        (mezzano.internals.numbers.ratio:ratio-< (rational x) y))
        (short-float
         (sys.int::%%single-float-< x (float y 0.0f0)))
        (single-float
@@ -429,7 +425,7 @@
        (bignum
         (bignum-float-compare y x double-float t))
        (ratio
-        (ratio-< (rational x) y))
+        (mezzano.internals.numbers.ratio:ratio-< (rational x) y))
        (short-float
         (sys.int::%%double-float-< x (float y 0.0d0)))
        (single-float
@@ -448,15 +444,6 @@
 
 (defun sys.int::generic-<= (x y)
   (not (sys.int::generic-< y x)))
-
-(declaim (inline ratio-= complex-=))
-(defun ratio-= (x y)
-  (and (= (numerator x) (numerator y))
-       (= (denominator x) (denominator y))))
-
-(defun complex-= (x y)
-  (and (= (realpart x) (realpart y))
-       (= (imagpart x) (imagpart y))))
 
 (declaim (inline fixnum-fits-in-short-float-p
                  fixnum-fits-in-single-float-p
@@ -501,7 +488,7 @@
          sys.int::complex-single-float
          sys.int::complex-double-float)
         ;; Float complexes may have 0 in their imaginary part.
-        (complex-= x y))))
+        (mezzano.internals.numbers.complex:complex-= x y))))
     (bignum
      (number-dispatch y
        (fixnum nil)
@@ -527,20 +514,20 @@
          sys.int::complex-single-float
          sys.int::complex-double-float)
         ;; Float complexes may have 0 in their imaginary part.
-        (complex-= x y))))
+        (mezzano.internals.numbers.complex:complex-= x y))))
     (ratio
      (number-dispatch y
        (fixnum nil)
        (bignum nil)
-       (ratio (ratio-= x y))
+       (ratio (mezzano.internals.numbers.ratio:ratio-= x y))
        ((short-float single-float double-float)
-        (ratio-= x (rational y)))
+        (mezzano.internals.numbers.ratio:ratio-= x (rational y)))
        (sys.int::complex-rational nil)
        ((sys.int::complex-short-float
          sys.int::complex-single-float
          sys.int::complex-double-float)
         ;; Float complexes may have 0 in their imaginary part.
-        (complex-= x y))))
+        (mezzano.internals.numbers.complex:complex-= x y))))
     (short-float
      (number-dispatch y
        (fixnum
@@ -548,7 +535,7 @@
              (sys.int::%%short-float-= x (float y 0.0s0))))
        (bignum nil)
        (ratio
-        (ratio-= (rational x) y))
+        (mezzano.internals.numbers.ratio:ratio-= (rational x) y))
        (short-float
         (sys.int::%%short-float-= x y))
        (single-float
@@ -560,7 +547,7 @@
          sys.int::complex-single-float
          sys.int::complex-double-float)
         ;; Float complexes may have 0 in their imaginary part.
-        (complex-= x y))))
+        (mezzano.internals.numbers.complex:complex-= x y))))
     (single-float
      (number-dispatch y
        (fixnum
@@ -573,7 +560,7 @@
             (= (%%truncate-single-float-to-integer x) y)
             nil))
        (ratio
-        (ratio-= (rational x) y))
+        (mezzano.internals.numbers.ratio:ratio-= (rational x) y))
        (short-float
         (sys.int::%%short-float-= x (float y 0.0f0)))
        (single-float
@@ -585,7 +572,7 @@
          sys.int::complex-single-float
          sys.int::complex-double-float)
         ;; Float complexes may have 0 in their imaginary part.
-        (complex-= x y))))
+        (mezzano.internals.numbers.complex:complex-= x y))))
     (double-float
      (number-dispatch y
        (fixnum
@@ -598,7 +585,7 @@
             (= (%%truncate-double-float-to-integer x) y)
             nil))
        (ratio
-        (ratio-= (rational x) y))
+        (mezzano.internals.numbers.ratio:ratio-= (rational x) y))
        (short-float
         (sys.int::%%short-float-= x (float y 0.0d0)))
        (single-float
@@ -610,7 +597,7 @@
          sys.int::complex-single-float
          sys.int::complex-double-float)
         ;; Float complexes may have 0 in their imaginary part.
-        (complex-= x y))))
+        (mezzano.internals.numbers.complex:complex-= x y))))
     (sys.int::complex-rational
      (number-dispatch y
        ((fixnum bignum ratio short-float single-float double-float)
@@ -619,11 +606,11 @@
          sys.int::complex-short-float
          sys.int::complex-single-float
          sys.int::complex-double-float)
-        (complex-= x y))))
+        (mezzano.internals.numbers.complex:complex-= x y))))
     ((sys.int::complex-short-float
       sys.int::complex-single-float
       sys.int::complex-double-float)
-     (complex-= x y))))
+     (mezzano.internals.numbers.complex:complex-= x y))))
 
 (defun %truncate-short-float (number)
   (if (<= sys.int::most-negative-fixnum-short-float

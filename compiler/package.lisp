@@ -1016,3 +1016,53 @@
    :dp-partition-type
    :dp-start-lba
    :dp-size))
+
+(defpackage :mezzano.internals.numbers.transcendental
+  (:use :cl)
+  (:local-nicknames (:int :mezzano.internals))
+  ;; Figure 12-2. Defined names relating to Exponentials,
+  ;; Logarithms, and Trigonometry.
+  (:export #:abs    #:cos    #:signum
+           #:acos   #:cosh   #:sin
+           #:acosh  #:exp    #:sinh
+           #:asin   #:expt   #:sqrt
+           #:asinh  #:isqrt  #:tan
+           #:atan   #:log    #:tanh
+           #:atanh  #:phase
+           #:cis    #:pi))
+
+(defpackage :mezzano.internals.numbers.ratio
+  (:use :cl)
+  (:local-nicknames (:int :mezzano.internals))
+  (:export #:ratio
+           #:ratiop
+           #:%make-ratio
+           #:numerator
+           #:denominator
+           #:ratio-=
+           #:ratio-<
+           #:ratio-+
+           #:ratio--
+           #:ratio-*
+           #:ratio-/
+           #:ratio-truncate
+           #:ratio-to-float))
+
+(defpackage :mezzano.internals.numbers.complex
+  (:use :cl)
+  (:local-nicknames (:int :mezzano.internals))
+  (:export #:complex
+           #:complexp
+           #:realpart
+           #:imagpart
+           #:complex-=
+           #:complex-+
+           #:complex--
+           #:complex-*
+           #:complex-/
+           #:complex-abs
+           #:complex-sqrt
+           #:complex-sin
+           #:complex-cos
+           #:complex-log-e
+           #:conjugate))
