@@ -355,6 +355,11 @@
 A passive drag sends no drag events to the window.")
 (defvar *resize-origin* nil)
 
+(defvar *previous-mouse-window* nil
+  "Window the mouse was over when the last mouse event was sent.
+Mouse events are sent to both the current mouse window and the previous window
+so that windows can notice when they lose their mouse visibility.")
+
 (defun activate-window (window)
   "Make WINDOW the active window."
   (when (not (eql window *active-window*))
@@ -479,7 +484,21 @@ A passive drag sends no drag events to the window.")
                                            :x-position win-x
                                            :y-position win-y
                                            :x-motion x-motion
-                                           :y-motion y-motion))))))
+                                           :y-motion y-motion)))
+          (when (not (eql win *previous-mouse-window*))
+            (when *previous-mouse-window*
+              (multiple-value-bind (win-x win-y)
+                  (screen-to-window-coordinates *previous-mouse-window* *mouse-x* *mouse-y*)
+                (send-event *previous-mouse-window*
+                            (make-instance 'mouse-event
+                                           :window *previous-mouse-window*
+                                           :button-state *mouse-buttons*
+                                           :button-change changes
+                                           :x-position win-x
+                                           :y-position win-y
+                                           :x-motion x-motion
+                                           :y-motion y-motion))))
+            (setf *previous-mouse-window* win)))))
     (when (or (not (zerop x-motion))
               (not (zerop y-motion)))
       (when *drag-window*
