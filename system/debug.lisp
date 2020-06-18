@@ -291,6 +291,12 @@ Returns NIL if the function captures no variables."
 (defun frame-locals (frame &key show-hidden)
   (multiple-value-bind (fn offset)
       (function-from-frame frame)
+    (when (function-reference-p fn)
+      (let ((real-fn (function-reference-function fn)))
+        (when (not real-fn)
+          (return-from frame-locals '()))
+        (setf fn real-fn
+              offset 0)))
     (let* ((info (function-debug-info fn))
            (var-id -1)
            (result '())
@@ -564,6 +570,9 @@ Returns the function that was called, the actual function object being
 executed, and the offset into it."
   (multiple-value-bind (actual-function offset)
       (function-from-frame (list nil (frame-fp frame) nil))
+    (when (function-reference-p actual-function)
+      (return-from frame-function
+        (values actual-function actual-function offset)))
     (let ((function actual-function)
           (name (function-name actual-function)))
       ;; Poke around in some CLOS discriminating functions to get
