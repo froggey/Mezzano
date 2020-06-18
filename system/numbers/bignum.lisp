@@ -87,6 +87,10 @@ Implements the dumb mp_div algorithm from BigNum Math."
     (error 'division-by-zero
            :operands (list a b)
            :operation 'truncate))
+  (when (eql b 1)
+    (return-from %%bignum-truncate (values a 0)))
+  (when (eql b -1)
+    (return-from %%bignum-truncate (values (- a) 0)))
   (let ((ta (abs a))
         (tb (abs b))
         (tq 1)
@@ -144,6 +148,16 @@ Implements the dumb mp_div algorithm from BigNum Math."
 
 (defun %%bignum-multiply-signed (a b)
   "Multiply two integers together. A and B can be bignums or fixnums."
+  (cond ((eql a 1)
+         (return-from %%bignum-multiply-signed b))
+        ((eql b 1)
+         (return-from %%bignum-multiply-signed a))
+        ((eql a -1)
+         (return-from %%bignum-multiply-signed (- b)))
+        ((eql b -1)
+         (return-from %%bignum-multiply-signed (- a)))
+        ((or (eql a 0) (eql b 0))
+         (return-from %%bignum-multiply-signed 0)))
   (let ((a-negative (< a 0))
         (b-negative (< b 0))
         (c nil))
