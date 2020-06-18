@@ -518,8 +518,10 @@ so that windows can notice when they lose their mouse visibility.")
                (setf (window-y *drag-window*) (- *mouse-y* *drag-y*))
                (expand-clip-rectangle-by-window *drag-window*))))
       ;; Mouse position changed, redraw the screen.
-      (update-mouse-cursor)
+      ;; Make sure to damage the old cursor before changing the cursor style,
+      ;; otherwise it'll use the shape of the new cursor and potentially miss bits.
       (damage-mouse-region old-x old-y)
+      (update-mouse-cursor)
       (damage-mouse-region new-x new-y))
     (when (and (not (logbitp 0 buttons))
                (logbitp 0 changes)
