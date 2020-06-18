@@ -603,6 +603,12 @@ executed, and the offset into it."
     (make-source-location :file pathname
                           :top-level-form-number tlf)))
 
+(defmethod function-source-location ((function standard-generic-function) &key offset)
+  (declare (ignore offset))
+  (let ((location (slot-value function 'mezzano.clos::source-location)))
+    (when location
+      (function-source-location location))))
+
 (defun map-backtrace (fn)
   (%map-backtrace
    (lambda (depth fp)
