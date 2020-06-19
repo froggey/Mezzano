@@ -644,6 +644,9 @@ so that windows can notice when they lose their mouse visibility.")
                                (truncate (width win) 2))
              (window-y win) (- (truncate (mezzano.supervisor:framebuffer-height *main-screen*) 2)
                                (truncate (height win) 2)))))
+    ;; Send the event back to the window to indicate that the window has
+    ;; been created.
+    (send-event win event)
     (when (and *active-window*
                (eql (initial-z-order event) :top))
       (send-event *active-window* (make-instance 'window-activation-event

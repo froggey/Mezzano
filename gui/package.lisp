@@ -74,6 +74,7 @@
            #:submit-mouse-absolute
            #:global-mouse-state
            #:make-window
+           #:window-create-event
            #:with-window
            #:window-close-event
            #:close-window
