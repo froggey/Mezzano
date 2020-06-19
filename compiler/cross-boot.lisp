@@ -95,6 +95,9 @@
 (defun sys.int::set-type-docstring (name docstring)
   (declare (ignore name docstring)))
 
+(defun sys.int::set-variable-source-location (name source-location &optional style)
+  (declare (ignore name source-location style)))
+
 (defvar *variable-types* (make-hash-table))
 
 ;; Enough to load the full DEFMACRO.
@@ -124,8 +127,8 @@
     (setf (cl:macro-function name) lambda))
   (setf (gethash name *system-macros*) lambda))
 
-(defun sys.int::%defconstant (name value &optional docstring)
-  (declare (ignore docstring))
+(defun sys.int::%defconstant (name value source-location &optional docstring)
+  (declare (ignore source-location docstring))
   (when (or (not (boundp name))
             (not (loose-constant-equal (symbol-value name) value)))
     (eval `(cl:defconstant ,name ',value))))

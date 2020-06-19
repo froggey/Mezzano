@@ -449,6 +449,9 @@
   `(eval-when (:compile-toplevel :load-toplevel :execute)
      ,@(mapcar (lambda (x) `(proclaim ',x)) declaration-specifiers)))
 
+(defmacro current-source-location (&optional name)
+  `(lambda () (declare (lambda-name ,(or name source-location)))))
+
 ;;; DEFVAR.
 (defmacro defvar (name &optional (initial-value nil initial-valuep) (docstring nil docstringp))
   (when docstringp
@@ -460,6 +463,7 @@
              (setq ,name ,initial-value))))
      ,@(when docstringp
          `((set-variable-docstring ',name ',docstring)))
+     (set-variable-source-location ',name (current-source-location (defvar ,name)) 'defvar)
      ',name))
 
 ;;; DEFPARAMETER.
@@ -471,6 +475,7 @@
      (setq ,name ,initial-value)
      ,@(when docstringp
          `((set-variable-docstring ',name ',docstring)))
+     (set-variable-source-location ',name (current-source-location (defparameter ,name)) 'defparameter)
      ',name))
 
 (defmacro defconstant (name initial-value &optional (docstring nil docstringp))
@@ -478,11 +483,12 @@
     (check-type docstring string))
   `(eval-when (:compile-toplevel :load-toplevel :execute)
      (%defconstant ',name ,initial-value
+                   (current-source-location (defconstant ,name))
                    ,@(when docstring `(',docstring)))))
 
 (defmacro define-symbol-macro (symbol expansion)
   `(eval-when (:compile-toplevel :load-toplevel :execute)
-     (%define-symbol-macro ',symbol ',expansion)))
+     (%define-symbol-macro ',symbol ',expansion (current-source-location (define-symbol-macro ,symbol)))))
 
 (defmacro defglobal (name &optional (initial-value nil initial-valuep) (docstring nil docstringp))
   (when docstringp
@@ -494,6 +500,7 @@
              (setq ,name ,initial-value))))
      ,@(when docstringp
          `((set-variable-docstring ',name ',docstring)))
+     (set-variable-source-location ',name (current-source-location (defglobal ,name)) 'defglobal)
      ',name))
 
 (defmacro defun (&environment env name lambda-list &body body)

@@ -302,6 +302,7 @@ structures to exist, and for memory to be allocated, but not much beyond that."
   (setf *compiler-macro-documentation* (make-hash-table :test #'equal :synchronized t))
   (setf *setf-documentation* (make-hash-table :synchronized t :weakness :key))
   (setf *variable-documentation* (make-hash-table :synchronized t :weakness :key))
+  (setf *variable-source-locations* (make-hash-table :test 'eq :synchronized t :weakness :key))
   ;; Transfer the initial function documentation over.
   (loop
      for (name doc) in *initial-function-docstrings*

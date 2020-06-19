@@ -565,3 +565,11 @@ second element."
                      (mezzano.compiler::transform-body xform))))))
     result))
 (add-find-definitions-hook 'find-compiler-definitions)
+
+;; Source locations for variables.
+(defun find-variable-definitions (name)
+  (multiple-value-bind (location style)
+      (variable-source-location name)
+    (when location
+      (list (list (list style name) (mezzano.debug:function-source-location location))))))
+(add-find-definitions-hook 'find-variable-definitions)

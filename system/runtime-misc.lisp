@@ -272,12 +272,13 @@ The file will only be recompiled if the source is newer than the output file, or
           (t
            (values symbol nil)))))
 
-(defun %define-symbol-macro (name expansion)
+(defun %define-symbol-macro (name expansion source-location)
   (check-type name symbol)
   (when (not (member (symbol-mode name) '(nil :symbol-macro)))
     (cerror "Redefine as a symbol-macro" "Symbol ~S already defined as a ~A" name (symbol-mode name)))
   (setf (symbol-mode name) :symbol-macro)
   (setf (gethash name *symbol-macro-expansions*) expansion)
+  (set-variable-source-location name source-location 'define-symbol-macro)
   name)
 
 (define-condition defconstant-uneql (error)

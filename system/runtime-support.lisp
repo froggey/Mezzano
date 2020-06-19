@@ -507,7 +507,7 @@
 (defparameter *incompatible-constant-redefinition-is-an-error* nil)
 (defparameter *defconstant-redefinition-comparator* 'eql)
 
-(defun %defconstant (name value &optional docstring)
+(defun %defconstant (name value source-location &optional docstring)
   (cond ((boundp name)
          (let ((old-value (symbol-value name)))
            (when (not (funcall (or (and (boundp '*defconstant-redefinition-comparator*)
@@ -527,6 +527,7 @@
   (setf (symbol-mode name) :constant)
   (when docstring
     (set-variable-docstring name docstring))
+  (set-variable-source-location name source-location 'defconstant)
   name)
 
 ;;; Documentation helpers.
@@ -555,6 +556,17 @@
   (if docstring
       (setf (gethash name *setf-documentation*) docstring)
       (remhash name *setf-documentation*)))
+
+(defvar *variable-source-locations*)
+
+(defun set-variable-source-location (name source-location &optional (style 'defvar))
+  (if source-location
+      (setf (gethash name *variable-source-locations*) (cons source-location style))
+      (remhash name *variable-source-locations*)))
+
+(defun variable-source-location (name)
+  (let ((entry (gethash name *variable-source-locations*)))
+    (values (car entry) (cdr entry))))
 
 ;;; Function references, FUNCTION, et al.
 
