@@ -638,8 +638,10 @@ executed, and the offset into it."
 ;;; There is additional support in (setf function-reference-function) for trace wrappers.
 (defclass trace-wrapper ()
   ((%name :initarg :name :reader trace-wrapper-name)
-   (%original :initarg :original :accessor trace-wrapper-original))
-  (:metaclass mezzano.clos:funcallable-standard-class))
+   (%original :initarg :original :accessor trace-wrapper-original)
+   (%break-on-trace :initarg :break-on-trace :accessor trace-wrapper-break-on-trace))
+  (:metaclass mezzano.clos:funcallable-standard-class)
+  (:default-initargs :break-on-trace nil))
 
 (defmethod print-object ((instance trace-wrapper) stream)
   (print-unreadable-object (instance stream :identity t)
@@ -654,6 +656,9 @@ executed, and the offset into it."
                 (*print-length* 5)
                 (*print-level* 5))
             (format *trace-output* "~D: Enter ~A ~:S~%" *trace-depth* name args))
+          (let ((bot-condition (trace-wrapper-break-on-trace wrapper)))
+            (when (and bot-condition (eval bot-condition))
+              (break "Trace break for ~S with args ~:S" old-definition args)))
           (let ((result :error))
             (unwind-protect
                  (handler-bind ((error (lambda (condition) (setf result condition))))
@@ -666,23 +671,37 @@ executed, and the offset into it."
                 (format *trace-output* "~D: Leave ~A ~:S~%" *trace-depth* name result)))
             (values-list result))))))
 
+(defun trace-function (name &rest options)
+  (when (fboundp name)
+    (pushnew name *traced-functions* :test #'equal)
+    (let* ((fref (function-reference name))
+           (fn (function-reference-function fref)))
+      (cond ((typep fn 'trace-wrapper)
+             (apply #'reinitialize-instance fn options))
+            (t
+             (let ((wrapper (apply #'make-instance
+                                   'trace-wrapper
+                                   :name name
+                                   :original fn
+                                   options)))
+               (mezzano.clos:set-funcallable-instance-function
+                wrapper
+                (lambda (&rest args)
+                  (declare (dynamic-extent args)
+                           (lambda-name trace-wrapper))
+                  (trace-wrapper name wrapper args)))
+               (setf (function-reference-function fref) wrapper)))))))
+
 (defun %trace (&rest functions)
-  (dolist (name functions)
-    (when (fboundp name)
-      (pushnew name *traced-functions* :test #'equal)
-      (let* ((fref (function-reference name))
-             (fn (function-reference-function fref)))
-        (when (not (typep fn 'trace-wrapper))
-          (let ((wrapper (make-instance 'trace-wrapper
-                                        :name name
-                                        :original fn)))
-            (mezzano.clos:set-funcallable-instance-function
-             wrapper
-             (lambda (&rest args)
-               (declare (dynamic-extent args)
-                        (lambda-name trace-wrapper))
-               (trace-wrapper name wrapper args)))
-            (setf (function-reference-function fref) wrapper))))))
+  (loop
+     with break-on-trace = nil
+     while functions
+     for name = (pop functions)
+     do
+       (cond ((eql name :break)
+              (setf break-on-trace (pop functions)))
+             (t
+              (trace-function name :break-on-trace break-on-trace))))
   *traced-functions*)
 
 (defun untrace-function (name)
