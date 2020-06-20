@@ -35,7 +35,8 @@
    (declarations :initarg :declarations :initarg :declare :initform nil)
    (documentation :initform nil :initarg :documentation)
    (dependents :initform '())
-   (source-location :initform nil :initarg :source-location))
+   (source-location :initform nil :initarg :source-location)
+   (tracep :initform nil))
   (:default-initargs
    :name nil
    :lambda-list '()

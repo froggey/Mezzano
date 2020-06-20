@@ -308,6 +308,7 @@
            #:generic-function-method-class
            #:generic-function-method-combination
            #:generic-function-argument-precedence-order
+           #:generic-function-trace-p
            #:method-lambda-list #:method-qualifiers #:method-specializers
            #:method-generic-function #:method-function
            #:slot-definition-name #:slot-definition-initfunction

@@ -10,6 +10,9 @@
    (%combiner :initarg :combiner :reader method-combination-combiner)
    (documentation :initform nil :initarg :documentation)))
 
+(defmethod method-combination-name ((method-combination null))
+  'standard)
+
 (defun register-method-combination (name combiner)
   (check-type name symbol)
   (check-type combiner function)

@@ -647,6 +647,26 @@ executed, and the offset into it."
   (print-unreadable-object (instance stream :identity t)
     (format stream "Trace wrapper for ~A" (trace-wrapper-name instance))))
 
+(defun trace-method-invocation (gf method function args)
+  (if *suppress-trace*
+      (apply function args)
+      (let ((*suppress-trace* t))
+        (let ((*print-readably* nil)
+              (*print-length* 5)
+              (*print-level* 5))
+          (format *trace-output* "~D: Enter ~A ~A ~:S~%" *trace-depth* gf method args))
+        (let ((result :error))
+          (unwind-protect
+               (handler-bind ((error (lambda (condition) (setf result condition))))
+                 (setf result (multiple-value-list (let ((*trace-depth* (1+ *trace-depth*))
+                                                         (*suppress-trace* nil))
+                                                     (apply function args)))))
+            (let ((*print-readably* nil)
+                  (*print-length* 5)
+                  (*print-level* 5))
+              (format *trace-output* "~D: Leave ~A ~A ~:S~%" *trace-depth* gf method result)))
+          (values-list result)))))
+
 (defun trace-wrapper (name wrapper args)
   (let ((old-definition (trace-wrapper-original wrapper)))
     (if *suppress-trace*
@@ -695,13 +715,21 @@ executed, and the offset into it."
 (defun %trace (&rest functions)
   (loop
      with break-on-trace = nil
+     with methods = nil
      while functions
      for name = (pop functions)
      do
        (cond ((eql name :break)
               (setf break-on-trace (pop functions)))
+             ((eql name :methods)
+              (setf methods (pop functions)))
              (t
-              (trace-function name :break-on-trace break-on-trace))))
+              (trace-function name :break-on-trace break-on-trace)
+              (when (and methods
+                         (fboundp name))
+                (let ((f (fdefinition name)))
+                  (when (typep f 'standard-generic-function)
+                    (setf (mezzano.clos:generic-function-trace-p f) t)))))))
   *traced-functions*)
 
 (defun untrace-function (name)
@@ -709,8 +737,11 @@ executed, and the offset into it."
          (fn (function-reference-function fref)))
     (setf *traced-functions* (remove name *traced-functions* :test #'equal))
     (when (typep fn 'trace-wrapper)
+      (let ((original (trace-wrapper-original fn)))
+        (when (typep original 'standard-generic-function)
+          (setf (mezzano.clos:generic-function-trace-p original) nil))
       ;; Directly set the fref to override the existing trace wrapper.
-      (setf (function-reference-function fref) (trace-wrapper-original fn)))))
+        (setf (function-reference-function fref) original)))))
 
 (defun %untrace (&rest functions)
   (dolist (name (or functions

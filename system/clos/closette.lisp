@@ -1558,12 +1558,15 @@ has only has class specializer."
           (setf (bit relevant-args i) 1))))
     (setf (safe-generic-function-relevant-arguments gf) relevant-args))
   (reset-gf-emf-table gf)
-  (setf (classes-to-emf-table gf) (cond ((generic-function-single-dispatch-p gf)
-                                         (make-single-dispatch-emf-table gf))
-                                        ((generic-function-unspecialized-dispatch-p gf)
-                                         nil)
-                                        (t
-                                         (make-emf-cache gf))))
+  (let ((tracep (safe-generic-function-trace-p gf)))
+    (setf (classes-to-emf-table gf) (cond ((and (not tracep)
+                                                (generic-function-single-dispatch-p gf))
+                                           (make-single-dispatch-emf-table gf))
+                                          ((and (not tracep)
+                                                (generic-function-unspecialized-dispatch-p gf))
+                                           nil)
+                                          (t
+                                           (make-emf-cache gf)))))
   (set-funcallable-instance-function
    gf
    (funcall (if (standard-generic-function-instance-p gf)
@@ -1596,6 +1599,7 @@ has only has class specializer."
   (setf (safe-generic-function-argument-precedence-order gf) argument-precedence-order)
   (setf (safe-generic-function-method-class gf) method-class)
   (setf (std-slot-value gf 'source-location) source-location)
+  (setf (std-slot-value gf 'tracep) 'nil)
   (finalize-generic-function gf))
 
 (defun make-instance-standard-generic-function
@@ -2124,19 +2128,27 @@ has only has class specializer."
                  (compute-1-effective-discriminator gf emf-table argument-offset))
                 (slow-single-dispatch-method-lookup gf args (class-of (nth argument-offset args))))))))))
 
+(defun safe-generic-function-trace-p (generic-function)
+  (if (standard-generic-function-instance-p generic-function)
+      (std-slot-value generic-function 'tracep)
+      (generic-function-trace-p generic-function)))
+
 (defun std-compute-discriminating-function (gf)
   (lambda (&rest args)
     (multiple-value-bind (single-dispatch-p argument-offset)
         (generic-function-single-dispatch-p gf)
-      (cond (single-dispatch-p
-             (slow-single-dispatch-method-lookup* gf argument-offset args :never-called))
-            ((generic-function-unspecialized-dispatch-p gf)
-             (slow-unspecialized-dispatch-method-lookup gf args))
-            (t
-             (set-funcallable-instance-function
-              gf
-              (compute-n-effective-discriminator gf (classes-to-emf-table gf) (length (gf-required-arglist gf))))
-             (apply gf args))))))
+      (let ((tracep (safe-generic-function-trace-p gf)))
+        ;; Force the n-effective discriminator when tracing, that
+        ;; eliminate special cases for reader/writer methods too.
+        (cond ((and (not tracep) single-dispatch-p)
+               (slow-single-dispatch-method-lookup* gf argument-offset args :never-called))
+              ((and (not tracep) (generic-function-unspecialized-dispatch-p gf))
+               (slow-unspecialized-dispatch-method-lookup gf args))
+              (t
+               (set-funcallable-instance-function
+                gf
+                (compute-n-effective-discriminator gf (classes-to-emf-table gf) (length (gf-required-arglist gf))))
+               (apply gf args)))))))
 
 (defun slow-method-lookup (gf args)
   (let ((std-gf-p (eq (class-of gf) *the-class-standard-gf*))
@@ -2493,7 +2505,8 @@ always match."
     (let* ((method-args (gensym "ARGS"))
            (gf-lambda-list-info (analyze-lambda-list (safe-generic-function-lambda-list gf)))
            (key-arg-index (+ (length (getf gf-lambda-list-info :required-names))
-                             (length (getf gf-lambda-list-info :optional-args)))))
+                             (length (getf gf-lambda-list-info :optional-args))))
+           (tracep (safe-generic-function-trace-p gf)))
       ;; TODO: make the lambda-list here refect the actual lambda list more accurately.
       `(lambda (&rest ,method-args)
          (declare (sys.int::lambda-name (effective-method ,@name)))
@@ -2507,26 +2520,30 @@ always match."
                              (assert (eql (length method) 2))
                              (second method))
                             (t
-                             `(apply (method-fast-function
-                                      ',method
-                                      ,(if next-method-list
-                                           `(lambda (&rest ,',method-args)
-                                              (call-method ,(first next-method-list)
-                                                           ,(rest next-method-list)))
-                                           nil)
-                                      ;; Ugh.
-                                      (list ,@(loop
-                                                 for next in next-method-list
-                                                 collect (cond ((listp next)
-                                                                (assert (eql (first next) 'make-method))
-                                                                (assert (eql (length next) 2))
-                                                                ;; ???
-                                                                `(make-instance 'standard-method
-                                                                                :function (lambda (,',method-args .next-methods.)
-                                                                                            (declare (ignore .next-methods.))
-                                                                                            (progn ,(second next)))))
-                                                               (t `',next)))))
-                                     ,',method-args))))
+                             `(,(if ',tracep
+                                    `(lambda (ff args)
+                                       (mezzano.internals::trace-method-invocation ',',gf ',method ff args))
+                                    'apply)
+                                (method-fast-function
+                                 ',method
+                                 ,(if next-method-list
+                                      `(lambda (&rest ,',method-args)
+                                         (call-method ,(first next-method-list)
+                                                      ,(rest next-method-list)))
+                                      nil)
+                                 ;; Ugh.
+                                 (list ,@(loop
+                                            for next in next-method-list
+                                            collect (cond ((listp next)
+                                                           (assert (eql (first next) 'make-method))
+                                                           (assert (eql (length next) 2))
+                                                           ;; ???
+                                                           `(make-instance 'standard-method
+                                                                           :function (lambda (,',method-args .next-methods.)
+                                                                                       (declare (ignore .next-methods.))
+                                                                                       (progn ,(second next)))))
+                                                          (t `',next)))))
+                                ,',method-args))))
                     (make-method (form)
                       (declare (ignore form))
                       (error "MAKE-METHOD must be either the method argument or a next-method supplied to CALL-METHOD.")))
@@ -2595,7 +2612,8 @@ always match."
   (let ((mc (safe-generic-function-method-combination gf)))
     ;; FIXME: Still should call COMPUTE-EFFECTIVE-METHOD when
     ;; the generic function is not a standard-generic-function and mc is the standard method combination.
-    (cond (mc
+    (cond ((or mc
+               (safe-generic-function-trace-p gf))
            (let* ((mc-object (method-combination-object-method-combination mc))
                   (effective-method-body (compute-effective-method gf mc methods))
                   (name (generate-method-combination-effective-method-name gf mc-object methods)))
@@ -3756,3 +3774,15 @@ Does not handle subclasses."
 (defmethod print-object ((instance class-reference) stream)
   (print-unreadable-object (instance stream :type t :identity t)
     (format stream "~S~:[ [undefined]~;~]" (class-reference-name instance) (class-reference-class instance))))
+
+(defgeneric generic-function-trace-p (generic-function))
+(defgeneric (setf generic-function-trace-p) (value generic-function))
+
+(defmethod generic-function-trace-p ((generic-function standard-generic-function))
+  (slot-value generic-function 'tracep))
+
+(defmethod (setf generic-function-trace-p) (value (generic-function standard-generic-function))
+  (setf (slot-value generic-function 'tracep) value)
+  ;; Refinalize the GF to update the discriminating function and the emf cache.
+  (finalize-generic-function generic-function)
+  value)
