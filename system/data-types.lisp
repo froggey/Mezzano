@@ -314,7 +314,7 @@ Internal to sg-vec, should not be used by other code.")
 reserved on the disk, but no specific block has been allocated.")
 (defconstant +block-map-id-not-allocated+ 0)
 
-(defparameter *llf-version* 34)
+(defparameter *llf-version* 35)
 
 (defconstant +llf-arch-x86-64+ 1)
 (defconstant +llf-arch-arm64+ 2)
