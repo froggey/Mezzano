@@ -307,6 +307,10 @@
   (write-sequence string stream :start start :end end)
   string)
 
+(defmethod stream-file-position ((stream fundamental-stream) &optional position-spec)
+  (declare (ignore position-spec))
+  nil)
+
 ;;; Unread-char mixin.
 
 (defclass unread-char-mixin ()
