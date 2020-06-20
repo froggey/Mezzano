@@ -351,10 +351,11 @@
   (declare (ignore end))
   (multiple-value-bind (colon atsign params)
       (parse-params start '(0 1 0 #\Space))
-    (declare (ignore atsign params))
+    (declare (ignore atsign))
     `(let ((*print-escape* ,escape-value)
            ,@(when readably-is-nil
                `((*print-readably* nil))))
+       ,@params
        ,(if colon
             `(let ((arg ,(get-arg)))
                (if arg
