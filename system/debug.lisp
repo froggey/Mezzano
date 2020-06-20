@@ -609,6 +609,12 @@ executed, and the offset into it."
     (when location
       (function-source-location location))))
 
+(defmethod function-source-location ((function function-reference) &key offset)
+  (declare (ignore offset))
+  (let ((fn (function-reference-function function)))
+    (when fn
+      (function-source-location fn))))
+
 (defun map-backtrace (fn)
   (%map-backtrace
    (lambda (depth fp)
