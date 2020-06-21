@@ -42,6 +42,8 @@
 
 (defun ratio-- (x y)
   (cond ((eql y 0) x)
+        ((eql x 0)
+         (%make-ratio (- (numerator y)) (denominator y)))
         (t
          (/ (- (* (numerator x) (denominator y))
                (* (numerator y) (denominator x)))
@@ -50,12 +52,15 @@
 (defun ratio-* (x y)
   (cond ((eql x 1) y)
         ((eql y 1) x)
+        ((or (eql x 0) (eql y 0)) 0)
         (t
          (/ (* (numerator x) (numerator y))
             (* (denominator x) (denominator y))))))
 
 (defun ratio-/ (x y)
-  (cond ((eql y 1) x)
+  (cond ((eql x 0) 0)
+        ((eql y 1) x)
+        ((eql y -1) (- x))
         (t
          (/ (* (numerator x) (denominator y))
             (* (denominator x) (numerator y))))))
