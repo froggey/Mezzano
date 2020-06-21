@@ -140,21 +140,62 @@
   (let ((layout (instance-access-by-name structure-class 'mezzano.clos::slot-storage-layout)))
     (sys.int::%allocate-instance layout)))
 
+(defun %copy-structure-slow (structure class new)
+  ;; Copy STRUCTURE slot-by-slot.
+  (loop
+     for slot in (mezzano.clos:class-slots class)
+     for slot-name = (mezzano.clos:slot-definition-name slot)
+     for fixed-vector = (mezzano.clos:structure-slot-definition-fixed-vector slot)
+     do
+       (if fixed-vector
+           (dotimes (i fixed-vector)
+             (setf (sys.int::%struct-vector-slot new class slot-name i)
+                   (sys.int::%struct-vector-slot structure class slot-name i)))
+           (setf (sys.int::%struct-slot new class slot-name)
+                 (sys.int::%struct-slot structure class slot-name)))))
+
+#-x86-64
+(defun %copy-structure-fast (structure class new)
+  (declare (ignore structure class new))
+  nil)
+
+#+x86-64
+(sys.int::define-lap-function %copy-structure-fast ((structure class new))
+  ;; Copy STRUCTURE by blasting words across.
+  ;; STRUCTURE and NEW must have the same layout, neither instance must be obsolete.
+  ;; Runs in a GC-restart region to avoid GC issues.
+  (:gc :no-frame :layout #*0 :restart t)
+  ;; Both objects must have the same layout (not obsolete!)
+  (sys.lap-x86:mov64 :rax (:object :r8 -1)) ; rax = instance-header for STRUCTURE
+  (sys.lap-x86:cmp64 :rax (:object :r10 -1)) ; compare with instance-header for NEW
+  (sys.lap-x86:jne BAIL)
+  ;; Turn the instance-header into a layout-like.
+  (sys.lap-x86:shr64 :rax #.sys.int::+object-data-shift+)
+  ;; Make sure it really is a layout
+  (sys.lap-x86:mov64 :rcx (:object :rax -1))
+  (sys.lap-x86:or64 :rcx 3)
+  (sys.lap-x86:cmp64 :rcx :layout-instance-header)
+  (sys.lap-x86:jne BAIL)
+  ;; :RAX holds the layout for STRUCTURE & NEW, pull up the heap size and
+  ;; start copying words.
+  (sys.lap-x86:mov64 :rcx (:object-location :rax #.sys.int::+layout-heap-size+))
+  (sys.lap-x86:sar64 :rcx #.sys.int::+n-fixnum-bits+)
+  (sys.lap-x86:lea64 :rsi (:object :r8 0))
+  (sys.lap-x86:lea64 :rdi (:object :r10 0))
+  (sys.lap-x86:rep)
+  (sys.lap-x86:movs64)
+  (:gc :no-frame :layout #*0)
+  (sys.lap-x86:ret) ; Return success, STRUCTURE is still in R8, it's not NIL.
+  BAIL
+  (sys.lap-x86:mov32 :r8d nil)
+  (sys.lap-x86:ret))
+
 (defun copy-structure (structure)
   (check-type structure structure-object)
   (let* ((class (class-of structure))
          (new (sys.int::%allocate-struct class)))
-    (loop
-       for slot in (mezzano.clos:class-slots class)
-       for slot-name = (mezzano.clos:slot-definition-name slot)
-       for fixed-vector = (mezzano.clos:structure-slot-definition-fixed-vector slot)
-       do
-         (if fixed-vector
-             (dotimes (i fixed-vector)
-               (setf (sys.int::%struct-vector-slot new class slot-name i)
-                     (sys.int::%struct-vector-slot structure class slot-name i)))
-             (setf (sys.int::%struct-slot new class slot-name)
-                   (sys.int::%struct-slot structure class slot-name))))
+    (when (not (%copy-structure-fast structure class new))
+      (%copy-structure-slow structure class new))
     new))
 
 (defun sys.int::make-struct-definition (name slots parent area size layout sealed docstring has-standard-constructor)

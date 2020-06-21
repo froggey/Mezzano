@@ -237,7 +237,8 @@
 
 (defstruct (layout
              (:area :wired)
-             :sealed)
+             :sealed
+             :slot-locations)
   (class nil :read-only t)
   (obsolete nil)
   (heap-size nil)

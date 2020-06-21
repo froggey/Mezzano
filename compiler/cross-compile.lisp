@@ -568,7 +568,8 @@
          :initial-symbols '((nil . :fixup)
                             (t . :fixup)
                             (:unbound-value . :fixup)
-                            (:symbol-binding-cache-sentinel . :fixup))
+                            (:symbol-binding-cache-sentinel . :fixup)
+                            (:layout-instance-header . :fixup))
          :info (list name debug-info)))
     (declare (ignore symbols))
     (make-cross-function :mc mc

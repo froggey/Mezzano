@@ -234,6 +234,7 @@
 
 (define-support-object sys.int::%unbound-value :unbound-value)
 (define-support-object sys.int::%symbol-binding-cache-sentinel :symbol-binding-cache-sentinel)
+(define-support-object sys.int::%layout-instance-header :layout-instance-header)
 
 (define-builtin eq ((lhs rhs) :e)
   (cond ((constant-value-p rhs '(eql nil))

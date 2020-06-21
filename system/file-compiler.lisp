@@ -965,7 +965,8 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
        :initial-symbols '((nil . :fixup)
                           (t . :fixup)
                           (:unbound-value . :fixup)
-                          (:symbol-binding-cache-sentinel . :fixup))
+                          (:symbol-binding-cache-sentinel . :fixup)
+                          (:layout-instance-header . :fixup))
        :info (list name debug-info))
     (declare (ignore symbols))
     (let ((fn (make-function sys.int::+object-tag-function+

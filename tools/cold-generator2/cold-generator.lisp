@@ -479,6 +479,12 @@
   (env:add-special environment nil nil)
   (env:add-special environment t t)
   (env:add-special environment :unbound-value (env:make-structure environment 'mezzano.runtime::unbound-value :tag :unbound-symbol))
+  (env:add-special environment :layout-instance-header
+                   (env:make-instance-header
+                    environment
+                    (env:find-structure-definition
+                     environment
+                     (env:translate-symbol environment 'sys.int::layout))))
   (configure-system-for-target environment (env:environment-target environment))
   (clos:configure-clos environment #'load-source-file)
   (values))

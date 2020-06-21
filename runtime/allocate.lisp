@@ -751,6 +751,8 @@
                                (sys.int::lisp-object-address (sys.int::%unbound-value)))
                               (:symbol-binding-cache-sentinel
                                (sys.int::lisp-object-address (sys.int::%symbol-binding-cache-sentinel)))
+                              (:layout-instance-header
+                               (sys.int::lisp-object-address (sys.int::%layout-instance-header)))
                               (t (error "Unsupported fixup ~S." fixup)))))
                  (setf (sys.int::%object-ref-unsigned-byte-32-unscaled object (+ -8 byte-offset))
                        value)))

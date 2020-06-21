@@ -325,6 +325,8 @@
                            (push (format nil "'~S" (sys.int::%unbound-value)) annotations))
                           ((eql operand (sys.int::lisp-object-address (sys.int::%symbol-binding-cache-sentinel)))
                            (push (format nil "'~S" (sys.int::%symbol-binding-cache-sentinel)) annotations))
+                          ((eql operand (sys.int::lisp-object-address (sys.int::%layout-instance-header)))
+                           (push (format nil "'~S" (sys.int::%layout-instance-header)) annotations))
                           ((not (logbitp 0 operand))
                            (push (format nil "'~D" (ash operand -1)) annotations))
                           ((eql (logand operand 15) sys.int::+tag-immediate+)
