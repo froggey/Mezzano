@@ -1837,18 +1837,18 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
 
 (defmethod close ((stream fat-file-stream) &key abort)
   (let* ((host (host stream))
-         (file-length (file-length* stream))
+         (file-length (file-%length stream))
          (block-device (file-host-mount-device host)))
     (multiple-value-bind (parent-dir parent-cluster file-offset)
         (open-file-metadata host (file-stream-pathname stream))
       (cond ((not abort)
              (multiple-value-bind (time date) (get-fat-time)
-               (when (member (direction stream) '(:output :io))
+               (when (member (file-%direction stream) '(:output :io))
                  (write-file (fat-structure host)
                              block-device
                              (buffer-position stream)
                              (fat host)
-                             (buffer stream)
+                             (file-%buffer stream)
                              file-length)
                  (setf (read-write-time parent-dir file-offset) time
                        (read-write-date parent-dir file-offset) date
