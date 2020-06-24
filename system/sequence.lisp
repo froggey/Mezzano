@@ -417,10 +417,18 @@
                (loop while (>= start 0) do
                     (sift-down start (1- (length sequence)))
                     (decf start))))
+           (get-elt (index)
+             (if (simple-vector-p sequence)
+                 (svref sequence index)
+                 (aref sequence index)))
+           ((setf get-elt) (value index)
+             (if (simple-vector-p sequence)
+                 (setf (svref sequence index) value)
+                 (setf (aref sequence index) value)))
            (cmp (a b)
              (funcall predicate
-                      (funcall key (aref sequence a))
-                      (funcall key (aref sequence b))))
+                      (funcall key (get-elt a))
+                      (funcall key (get-elt b))))
            (sift-down (start end)
              (let ((root start))
                (loop while (<= (i-left-child root) end) do
@@ -434,13 +442,13 @@
                       (cond ((eql swap root)
                              (return))
                             (t
-                             (rotatef (aref sequence root)
-                                      (aref sequence swap))
+                             (rotatef (get-elt root)
+                                      (get-elt swap))
                              (setf root swap))))))))
     (heapify)
     (let ((end (1- (length sequence))))
       (loop while (> end 0) do
-           (rotatef (aref sequence end) (aref sequence 0))
+           (rotatef (get-elt end) (get-elt 0))
            (decf end)
            (sift-down 0 end)))
     sequence))
