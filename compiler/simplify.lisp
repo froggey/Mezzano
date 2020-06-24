@@ -322,6 +322,27 @@ Returns NIL if there is no THE form.")
 (defmethod simp-form ((form ast-multiple-value-call))
   (setf (function-form form) (simp-form (function-form form))
         (value-form form) (simp-form (value-form form)))
+  (when (typep (unwrap-the (function-form form)) '(or ast-quote ast-function lexical-variable lambda-information))
+    ;; Shunt MVC downward.
+    (let ((value-form (value-form form)))
+      (cond ((typep value-form 'ast-progn)
+             (change-made)
+             (setf form
+                   (simp-form
+                    (ast `(progn
+                            ,@(butlast (ast-forms value-form))
+                            (multiple-value-call ,(function-form form)
+                              ,(first (last (ast-forms value-form)))))
+                         form))))
+            ((and (typep value-form 'ast-let)
+                  (not (let-binds-special-variable-p value-form)))
+             (change-made)
+             (setf form
+                   (simp-form
+                   (ast `(let ,(ast-bindings value-form)
+                           (multiple-value-call ,(function-form form)
+                             ,(ast-body value-form)))
+                        form)))))))
   form)
 
 (defmethod simp-form ((form ast-multiple-value-prog1))
