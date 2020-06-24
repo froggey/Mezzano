@@ -66,6 +66,8 @@
 (defun sys.int::full-/ (x y)
   (cond ((and (typep x 'integer)
               (typep y 'integer))
+         (when (and (eql x 0) (not (eql y 0)))
+           (return-from sys.int::full-/ 0))
          (multiple-value-bind (quot rem)
              (truncate x y)
            (cond ((zerop rem)
