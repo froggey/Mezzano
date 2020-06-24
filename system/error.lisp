@@ -224,6 +224,7 @@
                      (unknown-type-specifier-error-type-specifier condition)))))
 
 (defun error (datum &rest arguments)
+  (mezzano.supervisor::check-supervisor-error datum arguments)
   (let ((condition datum))
     (let ((*infinite-error-protect* (1+ *infinite-error-protect*)))
       (cond ((<= *infinite-error-protect* 10)
@@ -245,6 +246,7 @@
     (invoke-debugger condition)))
 
 (defun cerror (continue-format-control datum &rest arguments)
+  (mezzano.supervisor::check-supervisor-error datum arguments)
   (let ((condition (if (typep datum 'condition)
                        datum
                        (coerce-to-condition 'simple-error datum arguments))))

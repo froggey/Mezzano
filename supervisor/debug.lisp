@@ -424,6 +424,10 @@
   ;; Read is not currently implemented for any debug stream.
   nil)
 
+(defun check-supervisor-error (datum arguments)
+  (when (eql (current-thread) sys.int::*pager-thread*)
+    (panic "Error in pager: " datum " " arguments)))
+
 ;;; Early error functions, replaced later as part of cold load.
 
 (defun sys.int::assert-error (test-form datum &rest arguments)
