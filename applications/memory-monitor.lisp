@@ -29,6 +29,7 @@
   ((%frame :initarg :frame :accessor frame)
    (%window :initarg :window :accessor window)
    (%fifo :initarg :fifo :accessor fifo)
+   (%font :initarg :font :accessor font)
    (%mode :initarg :mode :accessor mode)
    (%samplers :initarg :samplers :accessor samplers)
    (%graph-column :initform 0 :accessor graph-column)))
@@ -57,7 +58,28 @@
   (handler-case
       (mezzano.gui.widgets:frame-mouse-event (frame app) event)
     (mezzano.gui.widgets:close-button-clicked ()
-      (throw 'quit nil))))
+      (throw 'quit nil)))
+  ;; Tab clicky clicky.
+  (when (and (not (logbitp 0 (mezzano.gui.compositor:mouse-button-state event)))
+             (logbitp 0 (mezzano.gui.compositor:mouse-button-change event)))
+    (multiple-value-bind (left right top bottom)
+        (mezzano.gui.widgets:frame-size (frame app))
+      (declare (ignore bottom))
+      (let* ((mx (mezzano.gui.compositor:mouse-x-position event))
+             (my (mezzano.gui.compositor:mouse-y-position event))
+             (fb (mezzano.gui.compositor:window-buffer
+                  (window app)))
+             (width (- (mezzano.gui:surface-width fb) left right))
+             (half-width (truncate width 2))
+             (line-height (mezzano.gui.font:line-height (font app))))
+        (when (and (<= left mx (+ left half-width))
+                   (<= top my (+ top line-height)))
+          (setf (mode app) :graphs)
+          (throw 'redraw nil))
+        (when (and (<= (+ left half-width) mx (+ left width right))
+                   (<= top my (+ top line-height)))
+          (setf (mode app) :physical-visualizer)
+          (throw 'redraw nil))))))
 
 (defmethod dispatch-event (app (event mezzano.gui.compositor:window-close-event))
   (throw 'quit nil))
@@ -105,8 +127,52 @@
            (t                   #x200)))
         (t 0)))
 
-(defun update-display (fb x y w h)
-  (let* ((n-pixels (* w h))
+(defun draw-tab-bar (app)
+  (multiple-value-bind (left right top bottom)
+      (mezzano.gui.widgets:frame-size (frame app))
+    (declare (ignore bottom))
+    (let* ((fb (mezzano.gui.compositor:window-buffer
+                (window app)))
+           (width (- (mezzano.gui:surface-width fb) left right))
+           (half-width (truncate width 2))
+           (font (font app))
+           (line-height (mezzano.gui.font:line-height font)))
+      (mezzano.gui:bitset :set
+                          width 1
+                          mezzano.gui.theme:*foreground*
+                          fb left (+ top line-height))
+      (multiple-value-bind (graphs-colour pv-colour)
+          (ecase (mode app)
+            (:physical-visualizer
+             (values mezzano.gui.theme:*background* mezzano.gui.theme:*foreground*))
+            (:graphs
+             (values mezzano.gui.theme:*foreground* mezzano.gui.theme:*background*)))
+        (mezzano.gui:bitset :set
+                            half-width line-height
+                            graphs-colour
+                            fb left top)
+        (mezzano.gui:bitset :set
+                            half-width line-height
+                            pv-colour
+                            fb (+ left half-width) top)
+        (flet ((draw-string* (string offset colour)
+                 (let ((swidth (string-display-width string font)))
+                   (draw-string string font
+                                fb
+                                (+ left offset (truncate half-width 2) (- (truncate swidth 2)))
+                                (+ top (mezzano.gui.font:ascender font))
+                                colour))))
+          (draw-string* "Graphs" 0 pv-colour)
+          (draw-string* "Physical Vizualizer" half-width graphs-colour)))
+      (1+ (mezzano.gui.font:line-height font)))))
+
+(defun update-display (app x y w h)
+  (let ((tb-height (draw-tab-bar app)))
+    (incf y tb-height)
+    (decf h tb-height))
+  (let* ((fb (mezzano.gui.compositor:window-buffer
+              (window app)))
+         (n-pixels (* w h))
          (flag-array (make-array n-pixels :initial-element 0)))
     ;; Get page flags for each pixel.
     (mezzano.supervisor:with-pseudo-atomic ()
@@ -213,6 +279,7 @@
                     fb left top)
         (mezzano.gui.compositor:damage-window
          (window app) left top (- width left right) (- height top bottom))
+        (incf top (draw-tab-bar app))
         (dolist (sampler (samplers app))
           (when (and (sampler-history sampler)
                      (eql (length (sampler-history sampler)) (- width left right)))
@@ -302,6 +369,52 @@
       (int::area-usage :wired-function)
     (/ (float used) commit)))
 
+(defun make-graph-samplers ()
+  (list (make-instance 'graph-sampler
+                       :function 'general-area-usage
+                       :colour theme:*memory-monitor-general-area-usage*
+                       :name "General area usage")
+        (make-instance 'graph-sampler
+                       :function 'general-area-alloc
+                       :colour theme:*memory-monitor-general-area-alloc*
+                       :name "General area bytes allocated"
+                       :scale t)
+        (make-instance 'graph-sampler
+                       :function 'general-area-commit
+                       :colour theme:*memory-monitor-general-area-commit*
+                       :name "General area bytes committed"
+                       :scale t)
+        (make-instance 'graph-sampler
+                       :function 'cons-area-usage
+                       :colour theme:*memory-monitor-cons-area-usage*
+                       :name "Cons area usage")
+        (make-instance 'graph-sampler
+                       :function 'cons-area-alloc
+                       :colour theme:*memory-monitor-cons-area-alloc*
+                       :name "Cons area bytes allocated"
+                       :scale t)
+        (make-instance 'graph-sampler
+                       :function 'cons-area-commit
+                       :colour theme:*memory-monitor-cons-area-commit*
+                       :name "Cons area bytes committed"
+                       :scale t)
+        (make-instance 'graph-sampler
+                       :function 'pinned-area-usage
+                       :colour theme:*memory-monitor-pinned-area-usage*
+                       :name "Pinned area usage")
+        (make-instance 'graph-sampler
+                       :function 'wired-area-usage
+                       :colour theme:*memory-monitor-wired-area-usage*
+                       :name "Wired area usage")
+        (make-instance 'graph-sampler
+                       :function 'function-area-usage
+                       :colour theme:*memory-monitor-function-area-usage*
+                       :name "Function area usage")
+        (make-instance 'graph-sampler
+                       :function 'wired-function-area-usage
+                       :colour theme:*memory-monitor-wired-function-area-usage*
+                       :name "Wired function area usage")))
+
 (defun main (open-width open-height)
   (with-simple-restart (abort "Close memory monitor")
     (catch 'quit
@@ -318,51 +431,11 @@
                                      :fifo fifo
                                      :window window
                                      :frame frame
+                                     :font (mezzano.gui.font:open-font
+                                            mezzano.gui.font:*default-monospace-font*
+                                            mezzano.gui.font:*default-monospace-font-size*)
                                      :mode :graphs
-                                     :samplers (list (make-instance 'graph-sampler
-                                                                    :function 'general-area-usage
-                                                                    :colour theme:*memory-monitor-general-area-usage*
-                                                                    :name "General area usage")
-                                                     (make-instance 'graph-sampler
-                                                                    :function 'general-area-alloc
-                                                                    :colour theme:*memory-monitor-general-area-alloc*
-                                                                    :name "General area bytes allocated"
-                                                                    :scale t)
-                                                     (make-instance 'graph-sampler
-                                                                    :function 'general-area-commit
-                                                                    :colour theme:*memory-monitor-general-area-commit*
-                                                                    :name "General area bytes committed"
-                                                                    :scale t)
-                                                     (make-instance 'graph-sampler
-                                                                    :function 'cons-area-usage
-                                                                    :colour theme:*memory-monitor-cons-area-usage*
-                                                                    :name "Cons area usage")
-                                                     (make-instance 'graph-sampler
-                                                                    :function 'cons-area-alloc
-                                                                    :colour theme:*memory-monitor-cons-area-alloc*
-                                                                    :name "Cons area bytes allocated"
-                                                                    :scale t)
-                                                     (make-instance 'graph-sampler
-                                                                    :function 'cons-area-commit
-                                                                    :colour theme:*memory-monitor-cons-area-commit*
-                                                                    :name "Cons area bytes committed"
-                                                                    :scale t)
-                                                     (make-instance 'graph-sampler
-                                                                    :function 'pinned-area-usage
-                                                                    :colour theme:*memory-monitor-pinned-area-usage*
-                                                                    :name "Pinned area usage")
-                                                     (make-instance 'graph-sampler
-                                                                    :function 'wired-area-usage
-                                                                    :colour theme:*memory-monitor-wired-area-usage*
-                                                                    :name "Wired area usage")
-                                                     (make-instance 'graph-sampler
-                                                                    :function 'function-area-usage
-                                                                    :colour theme:*memory-monitor-function-area-usage*
-                                                                    :name "Function area usage")
-                                                     (make-instance 'graph-sampler
-                                                                    :function 'wired-function-area-usage
-                                                                    :colour theme:*memory-monitor-wired-function-area-usage*
-                                                                    :name "Wired function area usage")))))
+                                     :samplers (make-graph-samplers))))
             (mezzano.gui.widgets:draw-frame frame)
             (mezzano.gui.compositor:damage-window window
                                                   0 0
@@ -371,13 +444,12 @@
             (loop
                (multiple-value-bind (left right top bottom)
                    (mezzano.gui.widgets:frame-size frame)
-                 (let ((framebuffer (mezzano.gui.compositor:window-buffer window))
-                       (width (- (mezzano.gui.compositor:width window) left right))
+                 (let ((width (- (mezzano.gui.compositor:width window) left right))
                        (height (- (mezzano.gui.compositor:height window) top bottom)))
                    (catch 'redraw
                      (ecase (mode app)
                        (:physical-visualizer
-                        (update-display framebuffer left top width height)
+                        (update-display app left top width height)
                         (mezzano.gui.compositor:damage-window window
                                                               left top
                                                               width height)
