@@ -689,7 +689,8 @@ so that windows can notice when they lose their mouse visibility.")
   ())
 
 (defmethod process-event ((event window-close-event))
-  (let ((win (window event)))
+  (let ((win (window event))
+        (old-mwin (window-at-point *mouse-x* *mouse-y*)))
     (when *compositor-debug-enable*
       (format t "Closing window ~S. Goodbye!~%" win))
     (setf *window-list* (remove win *window-list*))
@@ -703,7 +704,20 @@ so that windows can notice when they lose their mouse visibility.")
                                                    :state t))))
     (expand-clip-rectangle-by-window win)
     (setf *m-tab-list* (remove win *window-list*))
-    (send-event win event)))
+    (send-event win event)
+    (let ((new-mwin (window-at-point *mouse-x* *mouse-y*)))
+      (when (not (eql old-mwin new-mwin))
+        ;; Mouse is now directly over a different window.
+        (multiple-value-bind (win-x win-y)
+            (screen-to-window-coordinates new-mwin *mouse-x* *mouse-y*)
+          (send-event new-mwin (make-instance 'mouse-event
+                                              :window win
+                                              :button-state *mouse-buttons*
+                                              :button-change 0
+                                              :x-position win-x
+                                              :y-position win-y
+                                              :x-motion 0
+                                              :y-motion 0)))))))
 
 (defun close-window (window)
   (submit-compositor-event (make-instance 'window-close-event
