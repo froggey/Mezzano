@@ -11,7 +11,9 @@
 
 (defmethod print-object ((object surface) stream)
   (print-unreadable-object (object stream :type t :identity t)
-    (format stream "~S" (surface-format object))))
+    (format stream "~Dx~D ~S"
+            (surface-width object) (surface-height object)
+            (surface-format object))))
 
 (defun make-surface (width height &key (format :argb32) (initial-colour 0))
   "Create a new surface of the specified WIDTH, HEIGHT and FORMAT.
