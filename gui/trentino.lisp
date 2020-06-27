@@ -15,7 +15,8 @@
    (%font :initarg :font :reader font)
    (%frame :initarg :frame :reader frame)))
 
-(defgeneric dispatch-event (viewer event))
+(defgeneric dispatch-event (viewer event)
+  (:method (viewer event) nil))
 
 (defmethod dispatch-event (window (event null)))
 

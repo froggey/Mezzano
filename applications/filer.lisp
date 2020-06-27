@@ -33,7 +33,8 @@
    (%clickables :initarg :clickables :accessor clickables))
   (:default-initargs :clickables '()))
 
-(defgeneric dispatch-event (viewer event))
+(defgeneric dispatch-event (viewer event)
+  (:method (viewer event) nil))
 
 (defmethod dispatch-event (window (event mezzano.gui.compositor:window-activation-event))
   (setf (mezzano.gui.widgets:activep (frame window)) (mezzano.gui.compositor:state event))

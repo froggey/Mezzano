@@ -74,7 +74,8 @@
           (slot-value instance '%text-widget) term
           (slot-value instance '%waiting-input-count) 0)))
 
-(defgeneric dispatch-event (stream event))
+(defgeneric dispatch-event (stream event)
+  (:method (viewer event) nil))
 
 (defmethod dispatch-event (window (event mezzano.gui.compositor:window-activation-event))
   (setf (mezzano.gui.widgets:activep (frame window)) (mezzano.gui.compositor:state event))
