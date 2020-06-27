@@ -3,6 +3,7 @@
 
 (defpackage :mezzano.gui.filer
   (:use :cl)
+  (:local-nicknames (:font :mezzano.gui.font))
   (:export #:spawn))
 
 (in-package :mezzano.gui.filer)
@@ -126,23 +127,6 @@
 (defmethod dispatch-event (app (event mezzano.gui.compositor:resize-event))
   (change-path app (path app)))
 
-(defun draw-string (string font framebuffer x y colour)
-  (loop
-     with pen = x
-     for ch across string
-     for glyph = (mezzano.gui.font:character-to-glyph font ch)
-     for mask = (mezzano.gui.font:glyph-mask glyph)
-     do
-       (mezzano.gui:bitset :blend
-                           (mezzano.gui:surface-width mask) (mezzano.gui:surface-height mask)
-                           colour
-                           framebuffer
-                           (+ pen (mezzano.gui.font:glyph-xoff glyph))
-                           (- y (mezzano.gui.font:glyph-yoff glyph))
-                           mask 0 0)
-       (incf pen (mezzano.gui.font:glyph-advance glyph))
-     finally (return pen)))
-
 (defun change-path (viewer new-path)
   (setf (path viewer) new-path
         (mezzano.gui.widgets:frame-title (frame viewer)) (namestring new-path))
@@ -174,11 +158,12 @@
             (next-left-margin 0)
             (column-y))
         (flet ((wr (string &optional (offset 0) (min-line-height 0))
-                 (draw-string string
-                              font
-                              framebuffer
-                              (+ left offset) (+ y (mezzano.gui.font:ascender font))
-                              mezzano.gui.theme:*foreground*)
+                 (font:draw-string
+                  string
+                  font
+                  framebuffer
+                  (+ left offset) (+ y (mezzano.gui.font:ascender font))
+                  mezzano.gui.theme:*foreground*)
                  (incf y (max min-line-height (mezzano.gui.font:line-height font))))
                (separator ()
                  (mezzano.gui:bitset :set
@@ -193,11 +178,12 @@
                                      icon 0 0
                                      framebuffer
                                      (1+ left-margin) y)
-                 (let ((end (draw-string name
-                                         font
-                                         framebuffer
-                                         (+ left-margin 16 2) (+ y 2 (mezzano.gui.font:ascender font))
-                                         colour)))
+                 (let ((end (font:draw-string
+                             name
+                             font
+                             framebuffer
+                             (+ left-margin 16 2) (+ y 2 (mezzano.gui.font:ascender font))
+                             colour)))
                    (setf next-left-margin (max next-left-margin end))
                    (push (list left-margin y end (+ y (max 16 (mezzano.gui.font:line-height font)))
                                thing)
@@ -216,27 +202,27 @@
               (let ((before pen))
                 (incf pen 10)
                 (cond ((eql host (pathname-host new-path))
-                       (let ((text-width (draw-string (mezzano.file-system:host-name host)
-                                                      font
-                                                      framebuffer
-                                                      0 0
-                                                      #x00000000)))
+                       (let ((text-width (font:string-display-width
+                                          (mezzano.file-system:host-name host)
+                                          font)))
                          (mezzano.gui:bitset :set
                                              (+ 10 text-width 10)
                                              (mezzano.gui.font:line-height font)
                                              mezzano.gui.theme:*foreground*
                                              framebuffer
                                              (- pen 10) y)
-                         (setf pen (draw-string (mezzano.file-system:host-name host)
-                                                font
-                                                framebuffer
-                                                pen (+ y (mezzano.gui.font:ascender font))
-                                                mezzano.gui.theme:*background*))))
-                      (t (setf pen (draw-string (mezzano.file-system:host-name host)
-                                                font
-                                                framebuffer
-                                                pen (+ y (mezzano.gui.font:ascender font))
-                                                mezzano.gui.theme:*foreground*))))
+                         (setf pen (font:draw-string
+                                    (mezzano.file-system:host-name host)
+                                    font
+                                    framebuffer
+                                    pen (+ y (mezzano.gui.font:ascender font))
+                                    mezzano.gui.theme:*background*))))
+                      (t (setf pen (font:draw-string
+                                    (mezzano.file-system:host-name host)
+                                    font
+                                    framebuffer
+                                    pen (+ y (mezzano.gui.font:ascender font))
+                                    mezzano.gui.theme:*foreground*))))
                 (incf pen 10)
                 (push (list before y pen (+ y (mezzano.gui.font:line-height font))
                             (make-pathname :host host

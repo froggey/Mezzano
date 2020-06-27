@@ -171,7 +171,9 @@
            #:*default-monospace-font*
            #:*default-monospace-font-size*
            #:*default-monospace-bold-font*
-           #:*default-monospace-bold-font-size*))
+           #:*default-monospace-bold-font-size*
+           #:string-display-width
+           #:draw-string))
 
 (defpackage :mezzano.gui.image
   (:use :cl)

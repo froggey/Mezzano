@@ -73,25 +73,9 @@
     (throw 'quit nil)))
 
 (defun rasterize-string (string font colour)
-  (let* ((width (loop
-                   for ch across string
-                   for glyph = (font:character-to-glyph font ch)
-                   summing (font:glyph-advance glyph)))
+  (let* ((width (font:string-display-width string font))
          (result (gui:make-surface width (font:line-height font))))
-    (loop
-       with pen = 0
-       for ch across string
-       for glyph = (font:character-to-glyph font ch)
-       for mask = (font:glyph-mask glyph)
-       do
-         (gui:bitset :blend
-                     (gui:surface-width mask) (gui:surface-height mask)
-                     colour
-                     result
-                     (+ pen (font:glyph-xoff glyph))
-                     (- (font:ascender font) (font:glyph-yoff glyph))
-                     mask 0 0)
-         (incf pen (font:glyph-advance glyph)))
+    (font:draw-string string font result 0 (font:ascender font) colour)
     result))
 
 (defun build-text-cache (icons font colour)

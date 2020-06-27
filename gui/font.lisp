@@ -252,3 +252,26 @@
             #+(or)(format t "Creating new font ~S with typeface ~S.~%" font typeface)
             (setf (gethash font-key *font-cache*) font)
             font))))))
+
+(defun string-display-width (string font)
+  (loop
+     for ch across string
+     for glyph = (mezzano.gui.font:character-to-glyph font ch)
+     summing (mezzano.gui.font:glyph-advance glyph)))
+
+(defun draw-string (string font surface x y colour)
+  (loop
+     with pen = x
+     for ch across string
+     for glyph = (mezzano.gui.font:character-to-glyph font ch)
+     for mask = (mezzano.gui.font:glyph-mask glyph)
+     do
+       (mezzano.gui:bitset :blend
+                           (mezzano.gui:surface-width mask) (mezzano.gui:surface-height mask)
+                           colour
+                           surface
+                           (+ pen (mezzano.gui.font:glyph-xoff glyph))
+                           (- y (mezzano.gui.font:glyph-yoff glyph))
+                           mask 0 0)
+       (incf pen (mezzano.gui.font:glyph-advance glyph))
+     finally (return pen)))
