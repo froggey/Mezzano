@@ -137,7 +137,8 @@
 (defun window-thread (stream)
   (let ((*terminal-io* sys.int::*cold-stream*))
     (mezzano.gui.compositor:with-window (window (fifo stream) (mezzano.gui:surface-width (framebuffer stream)) (mezzano.gui:surface-height (framebuffer stream))
-                                                :initial-z-order :below-current)
+                                                :initial-z-order :below-current
+                                                :name stream)
       (setf (slot-value stream '%window) window
             (mezzano.gui.widgets:activep (frame stream)) nil)
       (mezzano.gui.widgets:draw-frame (frame stream))

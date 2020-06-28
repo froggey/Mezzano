@@ -21,7 +21,8 @@
   (mezzano.sync:mailbox-send event *event-queue*))
 
 (defclass window ()
-  ((%x :initarg :x :accessor window-x)
+  ((%name :initarg :name :accessor name)
+   (%x :initarg :x :accessor window-x)
    (%y :initarg :y :accessor window-y)
    (%thread :initarg :thread :accessor window-thread)
    (%mailbox :initarg :mailbox :reader mailbox)
@@ -36,12 +37,21 @@
    (%grab-y1 :initarg :grab-y1 :accessor grab-y1)
    (%grab-x2 :initarg :grab-x2 :accessor grab-x2)
    (%grab-y2 :initarg :grab-y2 :accessor grab-y2))
-  (:default-initargs :layer nil
-                     :notifications '()
-                     :unresponsive nil
-                     :thread nil
-                     :cursor :default
-                     :grabp nil))
+  (:default-initargs
+    :name nil
+    :layer nil
+    :notifications '()
+    :unresponsive nil
+    :thread nil
+    :cursor :default
+    :grabp nil))
+
+(defmethod print-object ((instance window) stream)
+  (let ((name (name instance)))
+    (if name
+        (print-unreadable-object (instance stream :type t :identity t)
+          (format stream "~S" name))
+        (print-unreadable-object (instance stream :type t :identity t)))))
 
 (defclass event ()
   ((%window :initarg :window :reader window))
@@ -116,20 +126,31 @@
                 :initial-contents data)))
 
 (defclass mouse-cursor ()
-  ((%surface :initarg :surface :reader mouse-cursor-surface)
+  ((%name :initarg :name :accessor name)
+   (%surface :initarg :surface :reader mouse-cursor-surface)
    (%hot-x :initarg :hot-x :reader mouse-cursor-hot-x)
-   (%hot-y :initarg :hot-y :reader mouse-cursor-hot-y)))
+   (%hot-y :initarg :hot-y :reader mouse-cursor-hot-y))
+  (:default-initargs :name nil))
+
+(defmethod print-object ((instance mouse-cursor) stream)
+  (let ((name (name instance)))
+    (if name
+        (print-unreadable-object (instance stream :type t :identity t)
+          (format stream "~S" name))
+        (print-unreadable-object (instance stream :type t :identity t)))))
 
 (defvar *mouse-cursor-library* (make-hash-table :synchronized t))
 
-(defun make-mouse-cursor (surface &key (hot-x 0) (hot-y 0))
+(defun make-mouse-cursor (surface &key name (hot-x 0) (hot-y 0))
   (assert (eql (mezzano.gui:surface-format surface) :argb32))
   (make-instance 'mouse-cursor
+                 :name name
                  :surface surface
                  :hot-x hot-x
                  :hot-y hot-y))
 
 (defun register-mouse-cursor (cursor name)
+  (when (not (name cursor)) (setf (name cursor) name))
   (setf (gethash name *mouse-cursor-library*) cursor))
 
 (defvar *default-mouse-pointer-surface*
@@ -155,6 +176,7 @@
 
 (defvar *default-mouse-pointer*
   (make-instance 'mouse-cursor
+                 :name :default
                  :surface *default-mouse-pointer-surface*
                  :hot-x 0
                  :hot-y 0))
@@ -166,6 +188,7 @@
 
 (defvar *none-mouse-pointer*
   (make-instance 'mouse-cursor
+                 :name :none
                  :surface *none-mouse-pointer-surface*
                  :hot-x 0
                  :hot-y 0))
@@ -712,8 +735,9 @@ so that windows can notice when they lose their mouse visibility.")
        (when ,window
          (mezzano.gui.compositor:close-window ,window)))))
 
-(defun make-window (mailbox width height &key layer initial-z-order kind)
+(defun make-window (mailbox width height &key name layer initial-z-order kind)
   (let ((window (make-instance 'window
+                               :name name
                                :mailbox mailbox
                                :thread (mezzano.supervisor:current-thread)
                                :buffer (mezzano.gui:make-surface width height)

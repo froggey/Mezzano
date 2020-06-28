@@ -132,6 +132,7 @@
                                         :comm-lock (mezzano.supervisor:make-mutex "Music player lock")
                                         :comm-cvar (mezzano.supervisor:make-condition-variable "Music player cvar")
                                         :state :playing)))
+            (setf (mezzano.gui.compositor:name window) player)
             (unwind-protect
                  (progn
                    (setf (slot-value player '%audio-thread)

@@ -316,6 +316,7 @@ party to perform, the indicated option.")
                                           :frame frame
                                           :xterm xterm
                                           :terminal-type terminal-type)))
+              (setf (mezzano.gui.compositor:name window) telnet)
               (mezzano.gui.widgets:draw-frame frame)
               (mezzano.gui.compositor:damage-window window
                                                     0 0

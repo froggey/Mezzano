@@ -234,6 +234,7 @@
                                                           :layer :bottom
                                                           :initial-z-order :below-current
                                                           :kind :desktop))
+    (setf (mezzano.gui.compositor:name (slot-value desktop '%window)) desktop)
     ;; Subscribe to screen geometry change notifications.
     (comp:subscribe-notification (window desktop) :screen-geometry)
     (unwind-protect

@@ -50,7 +50,8 @@
 
 (defpackage :mezzano.gui.compositor
   (:use :cl :mezzano.gui)
-  (:export #:window
+  (:export #:name
+           #:window
            #:window-buffer
            #:x
            #:y

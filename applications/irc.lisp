@@ -662,6 +662,7 @@ If ORIGIN is a server name, then only the host is valid. Nick and ident will be 
                                    :display-pane display-pane
                                    :input-pane input-pane
 				   :nickname *default-nick*)))
+          (setf (mezzano.gui.compositor:name window) irc)
           (setf (slot-value input-pane '%irc) irc)
           (draw-seperating-line irc (mezzano.gui.compositor:width window) (mezzano.gui.compositor:height window) framebuffer)
           (mezzano.gui.widgets:draw-frame frame)

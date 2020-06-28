@@ -236,6 +236,7 @@
              (*query-io* *standard-input*)
              (*trace-output* *standard-input*)
              (*debug-io* *standard-input*))
+        (setf (mezzano.gui.compositor:name window) term)
         (mezzano.gui.widgets:draw-frame frame)
         (mezzano.gui.compositor:damage-window window
                                               0 0

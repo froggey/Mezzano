@@ -137,7 +137,7 @@
 			  (video-width (cl-video:width container))
 			  (video-height (cl-video:height container))
 			  (quit nil))
-
+                     (setf (mezzano.gui.compositor:name window) viewer)
 		     ;; Handling the window events in own thread
 		     (mezzano.supervisor:make-thread
 		      #'(lambda ()

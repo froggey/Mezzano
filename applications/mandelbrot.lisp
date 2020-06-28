@@ -163,6 +163,7 @@
                                      :window window
                                      :frame frame
                                      :juliap nil)))
+            (setf (mezzano.gui.compositor:name window) app)
             (mezzano.gui.widgets:draw-frame (frame app))
             (mezzano.gui.compositor:damage-window window
                                                   0 0

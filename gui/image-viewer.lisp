@@ -66,6 +66,7 @@
                                         :thread (mezzano.supervisor:current-thread)
                                         :font font
                                         :frame frame)))
+            (setf (mezzano.gui.compositor:name window) viewer)
             (multiple-value-bind (left right top bottom)
                 (mezzano.gui.widgets:frame-size frame)
               (ecase (mezzano.gui:surface-format image)

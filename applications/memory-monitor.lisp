@@ -436,6 +436,7 @@
                                             mezzano.gui.font:*default-monospace-font-size*)
                                      :mode :graphs
                                      :samplers (make-graph-samplers))))
+            (setf (mezzano.gui.compositor:name window) app)
             (mezzano.gui.widgets:draw-frame frame)
             (mezzano.gui.compositor:damage-window window
                                                   0 0

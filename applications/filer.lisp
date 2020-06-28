@@ -280,6 +280,7 @@
                                      :font font
                                      :frame frame
                                      :path default-path)))
+          (setf (mezzano.gui.compositor:name window) filer)
           (change-path filer default-path)
           (loop
              (handler-case

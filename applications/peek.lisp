@@ -369,6 +369,7 @@
                                                                    (when (not ev) (return))
                                                                    (dispatch-event peek ev)))
                                                               (apply #'mezzano.gui.compositor:damage-window window args)))))
+            (setf (mezzano.gui.compositor:name window) peek)
             (setf (slot-value peek '%text-pane) text-pane)
             (mezzano.gui.widgets:draw-frame frame)
             (mezzano.gui.compositor:damage-window window

@@ -18,7 +18,7 @@
            (,height-sym ,height))
        (multiple-value-bind (,frame-left ,frame-right ,frame-top ,frame-bottom)
            (widgets:frame-size (make-instance 'widgets:frame))
-         (comp:with-window (,window ,mailbox (+ ,width-sym ,frame-left ,frame-right) (+ ,height-sym ,frame-top ,frame-bottom))
+         (comp:with-window (,window ,mailbox (+ ,width-sym ,frame-left ,frame-right) (+ ,height-sym ,frame-top ,frame-bottom) :name "Virgl demo")
            (let ((,frame (make-instance 'widgets:frame
                                         :framebuffer (comp:window-buffer ,window)
                                         :title ',title

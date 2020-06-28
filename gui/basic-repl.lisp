@@ -198,6 +198,7 @@
          (*query-io* *standard-input*)
          (*trace-output* *standard-input*)
          (*debug-io* *standard-input*))
+    (setf (mezzano.gui.compositor:name window) term)
     (mezzano.gui::2d-array-bitset (mezzano.gui.compositor:height window)
                                   (mezzano.gui.compositor:width window)
                                   (background-colour term)
