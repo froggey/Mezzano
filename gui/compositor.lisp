@@ -227,7 +227,77 @@
         (if shift
             (char-downcase key)
             (char-upcase key))
-      key)))
+        key)))
+
+(defun command-next-keymap ()
+  ;; Switch keymaps.
+  (let ((index (1+ (or (position *current-keymap* *keymap-list*) -1))))
+    (when (>= index (length *keymap-list*))
+      (setf index 0))
+    (setf *current-keymap* (elt *keymap-list* index))))
+
+(defun command-open-fancy-repl ()
+  (eval (read-from-string "(mezzano.gui.fancy-repl:spawn)")))
+
+(defun command-open-basic-repl ()
+  (eval (read-from-string "(mezzano.gui.basic-repl:spawn)")))
+
+(defun command-interrupt-active-window ()
+  (when (and *active-window*
+             (window-thread *active-window*))
+    ;; BREAK into the thread associated with the current window.
+    (mezzano.supervisor:establish-thread-foothold
+     (window-thread *active-window*)
+     (lambda () (break "Keyboard break")))))
+
+(defun command-interrupt-active-window-cerror ()
+  (when (and *active-window*
+             (window-thread *active-window*))
+    (mezzano.supervisor:establish-thread-foothold
+     (window-thread *active-window*)
+     (lambda () (cerror "Continue" "Keyboard break")))))
+
+(defun command-quit-active-window ()
+  (when *active-window*
+    ;; Send a quit request.
+    (send-event *active-window*
+                (make-instance 'quit-event :window *active-window*))))
+
+(defun command-force-quit-active-window ()
+  (when *active-window*
+    ;; Zap the window.
+    (process-event (make-instance 'window-close-event
+                                  :window *active-window*))))
+
+(defparameter *global-shortcuts*
+  '((#\M-F12 command-next-keymap)
+    (#\M-F10 command-open-fancy-repl)
+    (#\C-M-F10 command-open-basic-repl)
+    (#\M-Esc command-interrupt-active-window)
+    (#\C-M-Esc command-interrupt-active-window-cerror)
+    (#\M-F1 damage-whole-screen)
+    (#\M-F4 command-quit-active-window)
+    (#\C-M-F4 command-force-quit-active-window)))
+
+(defparameter *shift-meta-is-ctrl-meta* t
+  "When running in a VM under Linux, ctrl + alt + a function key will switch VTs.
+This treats alt + shift as an alternative to ctrl + alt.")
+
+(defun apply-key-modifiers (key)
+  (if (intersection '(:control :meta :super :hyper) *keyboard-modifier-state*)
+      ;; Force character to uppercase when a modifier key is active, gets
+      ;; around weirdness in how character names are processed.
+      ;; #\C-a and #\C-A both parse as the same character (C-LATIN_CAPITAL_LETTER_A).
+      (mezzano.internals::make-character
+       (char-code (char-upcase key))
+       :control (or (find :control *keyboard-modifier-state*)
+                    (and *shift-meta-is-ctrl-meta*
+                         (find :meta *keyboard-modifier-state*)
+                         (find :shift *keyboard-modifier-state*)))
+       :meta (find :meta *keyboard-modifier-state*)
+       :super (find :super *keyboard-modifier-state*)
+       :hyper (find :hyper *keyboard-modifier-state*))
+      key))
 
 (defmethod process-event ((event key-event))
   (setf *idle-time* 0)
@@ -255,68 +325,39 @@
                                  (and scancode
                                       (convert-scancode-to-key *current-keymap* scancode *keyboard-modifier-state*)))))
              (when translated
-               (cond
-                 ;; Global shortcuts.
-                 ((and (member :meta *keyboard-modifier-state*)
-                       (eql translated #\F12))
-                  (when (key-releasep event)
-                    ;; Switch keymaps.
-                    (let ((index (1+ (or (position *current-keymap* *keymap-list*) -1))))
-                      (when (>= index (length *keymap-list*))
-                        (setf index 0))
-                      (setf *current-keymap* (elt *keymap-list* index)))))
-                 ((and (member :meta *keyboard-modifier-state*)
-                       (eql translated #\Esc))
-                  (when (and (key-releasep event)
-                             *active-window*
-                             (window-thread *active-window*))
-                    ;; BREAK into the thread associated with the current window.
-                    (mezzano.supervisor:establish-thread-foothold
-                     (window-thread *active-window*)
-                     (if (member :control *keyboard-modifier-state*)
-                         (lambda () (cerror "Continue" "Keyboard break"))
-                         (lambda () (break))))))
-                 ((and (member :meta *keyboard-modifier-state*)
-                       (eql translated #\F1))
-                  (when (key-releasep event)
-                    (damage-whole-screen)))
-                 ((and (member :meta *keyboard-modifier-state*)
-                       (eql translated #\F4))
-                  (when (and (key-releasep event)
-                             *active-window*)
-                    (cond ((member :control *keyboard-modifier-state*)
-                           ;; Zap the window.
-                           (process-event (make-instance 'window-close-event
-                                                         :window *active-window*)))
-                          (t
-                           ;; Send a quit request.
-                           (send-event *active-window*
-                                       (make-instance 'quit-event :window *active-window*))))))
-                 ((and (member :meta *keyboard-modifier-state*)
-                       (eql translated #\Tab))
-                  (when (not (key-releasep event))
-                    (when (not *m-tab-active*)
-                      (setf *m-tab-active* t
-                            *m-tab-list* (remove-if-not #'allow-m-tab (copy-list *window-list*))))
-                    (let* ((p (position *active-window* *m-tab-list*))
-                           (n-windows (length *m-tab-list*))
-                           (next (if p
-                                     (elt *m-tab-list* (mod (+ p
-                                                               (if (member :shift *keyboard-modifier-state*)
-                                                                   -1
-                                                                   +1))
-                                                            n-windows))
-                                     (first *m-tab-list*))))
-                      (activate-window next))))
-                 ;; Otherwise, dispatch to active window.
-                 (*active-window*
-                  (send-event *active-window*
-                              (make-instance 'key-event
-                                             :window *active-window*
-                                             :scancode (key-scancode event)
-                                             :releasep (key-releasep event)
-                                             :key translated
-                                             :modifier-state (copy-list *keyboard-modifier-state*)))))))))))
+               (let* ((modified-key (apply-key-modifiers translated))
+                      (shortcut (second (assoc modified-key *global-shortcuts*))))
+                 (cond
+                   (shortcut
+                    (when (key-releasep event)
+                      (mezzano.internals::log-and-ignore-errors
+                        (funcall shortcut))))
+                   ;; ALt-tab handling.
+                   ((and (member :meta *keyboard-modifier-state*)
+                         (eql translated #\Tab))
+                    (when (not (key-releasep event))
+                      (when (not *m-tab-active*)
+                        (setf *m-tab-active* t
+                              *m-tab-list* (remove-if-not #'allow-m-tab (copy-list *window-list*))))
+                      (let* ((p (position *active-window* *m-tab-list*))
+                             (n-windows (length *m-tab-list*))
+                             (next (if p
+                                       (elt *m-tab-list* (mod (+ p
+                                                                 (if (member :shift *keyboard-modifier-state*)
+                                                                     -1
+                                                                     +1))
+                                                              n-windows))
+                                       (first *m-tab-list*))))
+                        (activate-window next))))
+                   ;; Otherwise, dispatch to active window.
+                   (*active-window*
+                    (send-event *active-window*
+                                (make-instance 'key-event
+                                               :window *active-window*
+                                               :scancode (key-scancode event)
+                                               :releasep (key-releasep event)
+                                               :key translated
+                                               :modifier-state (copy-list *keyboard-modifier-state*))))))))))))
 
 (defun submit-key (scancode releasep &key key)
   "Submit a key event into the input system."
