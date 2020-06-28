@@ -15,7 +15,7 @@
 (defvar *compositor-debug-enable* nil)
 
 (defvar *event-queue* (mezzano.sync:make-mailbox :name 'compositor-event-queue)
-  "Internal FIFO used to submit events to the compositor.")
+  "Internal mailbox used to submit events to the compositor.")
 
 (defun submit-compositor-event (event)
   (mezzano.sync:mailbox-send event *event-queue*))
@@ -24,7 +24,7 @@
   ((%x :initarg :x :accessor window-x)
    (%y :initarg :y :accessor window-y)
    (%thread :initarg :thread :accessor window-thread)
-   (%fifo :initarg :fifo :reader fifo)
+   (%mailbox :initarg :mailbox :reader mailbox)
    (%buffer :initarg :buffer :reader window-buffer)
    (%layer :initarg :layer :reader layer)
    (%subscribed-notifications :initarg :notifications :reader subscribed-notifications)
@@ -704,17 +704,17 @@ so that windows can notice when they lose their mouse visibility.")
       (push win *m-tab-list*))
     (expand-clip-rectangle-by-window win)))
 
-(defmacro with-window ((window fifo width height &rest options) &body body)
+(defmacro with-window ((window mailbox width height &rest options) &body body)
   `(let (,window)
      (unwind-protect
-          (progn (setf ,window (mezzano.gui.compositor:make-window ,fifo ,width ,height ,@options))
+          (progn (setf ,window (mezzano.gui.compositor:make-window ,mailbox ,width ,height ,@options))
                  ,@body)
        (when ,window
          (mezzano.gui.compositor:close-window ,window)))))
 
-(defun make-window (fifo width height &key layer initial-z-order kind)
+(defun make-window (mailbox width height &key layer initial-z-order kind)
   (let ((window (make-instance 'window
-                               :fifo fifo
+                               :mailbox mailbox
                                :thread (mezzano.supervisor:current-thread)
                                :buffer (mezzano.gui:make-surface width height)
                                :layer layer
@@ -1066,7 +1066,7 @@ Only works when the window is active."
 
 (defun send-event (window event)
   "Send an event to a window."
-  (cond ((mezzano.supervisor:fifo-push event (fifo window) nil)
+  (cond ((mezzano.sync:mailbox-send event (mailbox window) :wait-p nil)
          (when (window-unresponsive window)
            (expand-clip-rectangle-by-window window)
            (setf (window-unresponsive window) nil)))
