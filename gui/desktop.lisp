@@ -8,6 +8,7 @@
                   ("LOCAL:>Icons>Editor.png" "Editor" "(med:spawn)")
                   ("LOCAL:>Icons>Mandelbrot.png" "Mandelbrot" "(mezzano.mandelbrot:spawn)")
                   ("LOCAL:>Icons>Peek.png" "Peek" "(mezzano.gui.peek:spawn)")
+                  ("LOCAL:>Icons>Peek.png" "Spy" "(mezzano.gui.spy:spawn)")
                   ("LOCAL:>Icons>Peek.png" "Memory Monitor" "(mezzano.gui.memory-monitor:spawn)")
                   ("LOCAL:>Icons>Filer.png" "Filer" "(mezzano.gui.filer:spawn)")
                   ("LOCAL:>Icons>Telnet.png" "Telnet" "(mezzano.telnet:spawn)")))
