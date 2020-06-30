@@ -306,8 +306,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                      ;; byte-24 is pair of 12-bit cluster numbers - write as little endian
                      (setf (aref buf buf-idx)       (ldb (byte 8  0) byte-24)
                            (aref buf (+ buf-idx 1)) (ldb (byte 8  8) byte-24)
-                           (aref buf (+ buf-idx 2)) (ldb (byte 8 16) byte-24))))
-                 )))
+                           (aref buf (+ buf-idx 2)) (ldb (byte 8 16) byte-24)))))))
             (write-fat-sectors disk 0 fat12 fat-offset sector buf)))))
     (setf (aref dirty-bits 0) 0)))
 
@@ -747,8 +746,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
              (let ((short-name (if (= (length type) 0)
                                    name
                                    (concatenate 'string name "." type))))
-               (member short-name short-names :test #'string=)))
-           )
+               (member short-name short-names :test #'string=))))
       ;; convert invalid chars to _
       ;; not sure this is correct because it converts spaces and periods to _,
       ;; but later code processes these characters specially.
@@ -1281,24 +1279,86 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
         (write-char #\~ s))
       s)))
 
-(defclass fat-file-stream (mezzano.gray:fundamental-binary-input-stream
-                           mezzano.gray:fundamental-binary-output-stream
-                           file-cache-stream
-                           file-stream)
+(defclass fat-file-stream (file-cache-stream
+                           mezzano.gray:fundamental-binary-input-stream
+                           mezzano.gray:fundamental-binary-output-stream)
   ((pathname :initarg :pathname :reader file-stream-pathname)
    (host :initarg :host :reader host)
+   (if-exists :initarg :if-exists :reader if-exists)
    ;; File position where the buffer data starts.
    (buffer-position :initarg :buffer-position
                     :initform 0
                     :accessor buffer-position)
    (abort-action :initarg :abort-action :accessor abort-action)))
 
-(defclass fat-file-character-stream (mezzano.gray:fundamental-character-input-stream
-                                       mezzano.gray:fundamental-character-output-stream
-                                       file-cache-character-stream
-                                       fat-file-stream
-                                       mezzano.gray:unread-char-mixin)
+(defclass fat-file-character-stream (fat-file-stream
+                                     file-cache-character-stream
+                                     mezzano.gray:fundamental-character-input-stream
+                                     mezzano.gray:fundamental-character-output-stream
+                                     mezzano.gray:unread-char-mixin)
   ())
+
+(defmacro do-cluster (cluster start-cluster fat ffs (&rest vars) finally &body body)
+  `(do ((,cluster ,start-cluster (fat-value ,fat ,cluster))
+        ,@vars)
+       ((>= ,cluster (last-cluster-value ,ffs))
+        ,finally)
+     ,@body))
+
+(defun read-cluster-n (ffs disk start-cluster fat cluster-n)
+  (do-cluster cluster start-cluster fat ffs
+      ((n 0 (1+ n)))
+      nil
+    (when (= n cluster-n)
+      (return (block-device-read-sector disk
+                                        (first-sector-of-cluster ffs cluster)
+                                        (fat-%sectors-per-cluster ffs))))))
+
+(defun write-cluster-n (ffs disk start-cluster fat buffer cluster-n)
+  (do-cluster cluster start-cluster fat ffs
+      ((n 0 (1+ n)))
+      nil
+    (when (= n cluster-n)
+      (block-device-write-sector disk
+                                 (first-sector-of-cluster ffs cluster)
+                                 buffer
+                                 (fat-%sectors-per-cluster ffs)))))
+
+(defmethod allocate-new-block ((stream fat-file-stream) block-n)
+  (let* ((host (host stream))
+         (ffs (fat-structure host))
+         (fat (fat host))
+         (disk (file-host-mount-device host)))
+    (do-cluster cluster (buffer-position stream) fat ffs
+        ((last-cluster 0)
+         (n 0 (1+ n)))
+        (if (= block-n n)
+            (let ((next-cluster (next-free-cluster ffs fat 3)))
+              (when next-cluster
+                (setf (fat-value ffs fat last-cluster) next-cluster
+                      (fat-value ffs fat next-cluster) (last-cluster-value ffs))
+                (write-fat disk ffs fat)
+                (return (make-array `(,(bytes-per-cluster ffs)) :element-type '(unsigned-byte 8)))))
+            (error "Allocate-new-block can't skip blocks"))
+      (setf last-cluster cluster))))
+
+(defmethod read-file-block ((stream fat-file-stream) block-n)
+  (let ((host (host stream)))
+    (read-cluster-n (fat-structure host)
+                    (file-host-mount-device host)
+                    (buffer-position stream)
+                    (fat host)
+                    block-n)))
+
+(defmethod write-file-block ((stream fat-file-stream) buffer block-n)
+  (when (file-%dirty-bit stream)
+    (let ((host (host stream)))
+      (write-cluster-n (fat-structure host)
+                       (file-host-mount-device host)
+                       (buffer-position stream)
+                       (fat host)
+                       buffer
+                       block-n))))
 
 (defmacro with-fat-host-locked ((host) &body body)
   `(mezzano.supervisor:with-mutex ((fat-host-lock ,host))
@@ -1413,6 +1473,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                     :format-control ":if-exists ~S not implemented."
                     :format-arguments (list if-exists)))
             (:supersede
+             (error ":supersede temporarly disabled")
              ;; TODO instead of freeing the clusters, save cluster list
              ;; and set abort-action to something (:restore?) so that:
              ;;
@@ -1439,7 +1500,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                   buffer-position first-cluster
                   file-length 0)
             (setf buffer-position (read-first-cluster dir-array file-offset)
-                  buffer (read-file ffs disk buffer-position fat)
+                  buffer (read-cluster-n ffs disk buffer-position fat 0)
                   file-length (read-file-length dir-array file-offset)))
         (cond ((or (eql element-type :default)
                    (subtypep element-type 'character))
@@ -1447,7 +1508,9 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                               :pathname pathname
                               :host host
                               :direction direction
+                              :if-exists if-exists
                               :buffer buffer
+                              :dirty-bit createdp
                               :buffer-position buffer-position
                               :position file-position
                               :length file-length
@@ -1460,7 +1523,9 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                               :pathname pathname
                               :host host
                               :direction direction
+                              :if-exists if-exists
                               :buffer buffer
+                              :dirty-bit createdp
                               :buffer-position buffer-position
                               :position file-position
                               :length file-length
@@ -1634,8 +1699,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                                  (read-first-cluster dir-array offset)
                                  fat)
                       (cdr dir-list)
-                      pathname)))))))
-        ))
+                      pathname)))))))))
 
 (defmethod directory-using-host ((host fat-host) pathname &key)
   (let ((disk (file-host-mount-device host))
@@ -1844,12 +1908,12 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
       (cond ((not abort)
              (multiple-value-bind (time date) (get-fat-time)
                (when (member (file-%direction stream) '(:output :io))
-                 (write-file (fat-structure host)
-                             block-device
-                             (buffer-position stream)
-                             (fat host)
-                             (file-%buffer stream)
-                             file-length)
+                 (ecase (if-exists stream)
+                   ((:new-version :rename :rename-and-delete :supersede)
+                    ;; TODO
+                    )
+                   ((:overwrite :append)
+                    (write-file-block stream (file-%buffer stream) (file-%block-n stream))))
                  (setf (read-write-time parent-dir file-offset) time
                        (read-write-date parent-dir file-offset) date
                        (read-file-length parent-dir file-offset) file-length))

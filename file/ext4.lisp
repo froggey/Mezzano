@@ -561,7 +561,7 @@
                    (iter (for block-n :from (extent-start-block extent))
                          (repeat (extent-length extent))
                          (funcall fn (read-block disk superblock block-n))))))
-          ((logbitp +inline-data-flag+ inode-flags)
+          ((logbitp +inline-data-flag+ inode-flags) ;; fixme: it need to return 1 block sized array
            (funcall fn inode-block))
           (t
            (iter (for offset :from 0 :below 48 :by 4)
@@ -574,17 +574,12 @@
                  (never (zerop block-n))
                  (follow-pointer disk superblock block-n fn indirection))))))
 
-(defun read-file (disk superblock bgdt inode)
-  (let ((blocks))
+(defun read-block-n (disk superblock bgdt inode block-n)
+  (let ((n -1))
     (do-file #'(lambda (block)
-                 (push block blocks))
-      disk superblock bgdt inode)
-    (iter (with block-size := (block-size-in-bytes disk superblock))
-          (with result := (make-array (list (* block-size (length blocks))) :element-type '(unsigned-byte 8)))
-          (for block :in (nreverse blocks))
-          (for offset :from 0 :by block-size)
-          (replace result block :start1 offset)
-          (finally (return result)))))
+                 (when (= (incf n) block-n)
+                   (return-from read-block-n block)))
+      disk superblock bgdt inode)))
 
 (defmacro do-files ((arg var) disk superblock bgdt inode finally &body body)
   `(unless (do-file (lambda (,arg)
@@ -758,21 +753,31 @@
                     (return-from find-file
                       (read-inode disk superblock bgdt (linked-directory-entry-inode directory-entry))))))))))
 
-(defclass ext-file-stream (mezzano.gray:fundamental-binary-input-stream
-                           mezzano.gray:fundamental-binary-output-stream
-                           file-cache-stream
-                           file-stream)
+(defclass ext-file-stream (file-cache-stream
+                           mezzano.gray:fundamental-binary-input-stream
+                           mezzano.gray:fundamental-binary-output-stream)
   ((pathname :initarg :pathname :reader file-stream-pathname)
    (host :initarg :host :reader host)
    (file-inode :initarg :file-inode :accessor file-inode)
    (abort-action :initarg :abort-action :accessor abort-action)))
 
-(defclass ext-file-character-stream (mezzano.gray:fundamental-character-input-stream
-                                     mezzano.gray:fundamental-character-output-stream
+(defclass ext-file-character-stream (ext-file-stream
                                      file-cache-character-stream
-                                     ext-file-stream
+                                     mezzano.gray:fundamental-character-input-stream
+                                     mezzano.gray:fundamental-character-output-stream
                                      mezzano.gray:unread-char-mixin)
   ())
+
+(defmethod read-file-block ((stream ext-file-stream) block-n)
+  (let ((host (host stream)))
+    (read-block-n (file-host-mount-device host)
+                  (superblock host)
+                  (bgdt host)
+                  (file-inode stream)
+                  block-n)))
+
+(defmethod write-file-block ((stream ext-file-stream) buffer block-n)
+  nil)
 
 (defmacro with-ext4-host-locked ((host) &body body)
   `(mezzano.supervisor:with-mutex ((ext4-host-lock ,host))
@@ -788,7 +793,7 @@
           (created-file nil)
           (abort-action nil))
       (if file-inode
-          (setf buffer (read-file (file-host-mount-device host) (superblock host) (bgdt host) file-inode)
+          (setf buffer (read-block-n (file-host-mount-device host) (superblock host) (bgdt host) file-inode 0)
                 file-length (inode-size file-inode))
           (ecase if-does-not-exist
             (:error (error 'simple-file-error
