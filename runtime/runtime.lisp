@@ -162,15 +162,18 @@
         (t ;; No more to bind
          (funcall fn))))
 
+(defun within-functin-area-p (address)
+  (<= sys.int::*wired-function-area-limit*
+      address
+      sys.int::*function-area-limit*))
+
 (defun return-address-to-function (return-address)
   "Convert a return address to a function pointer.
 Dangerous! The return address must be kept live as a return address on a
 thread's stack if this function is called from normal code."
   ;; Return address must be within the function area.
   (mezzano.supervisor:ensure
-   (<= sys.int::*wired-function-area-limit*
-       return-address
-       sys.int::*function-area-limit*)
+   (within-functin-area-p return-address)
    "Return address " return-address " in wrong area")
   ;; Walk backwards looking for an object header with a function type and
   ;; an appropriate entry point.

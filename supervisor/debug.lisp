@@ -226,6 +226,27 @@
 
 (sys.int::defglobal *panic-in-progress* nil)
 
+(defun panic-print-backtrace-function (return-address)
+  (debug-write return-address)
+  (debug-write-char #\Space)
+  ;; Writing the name itself is fraught with danger. Print it in a seperate
+  ;; call from the frame-pointer & return address so that a page-fault
+  ;; won't abort the whole entry.
+  (with-page-fault-hook
+      (()
+       (debug-write-string "#<unknown>")
+       (abandon-page-fault))
+    (cond ((sys.int::within-functin-area-p return-address)
+           (let* ((function (sys.int::return-address-to-function return-address))
+                  (info (sys.int::%object-header-data function))
+                  (mc-size (ldb sys.int::+function-header-code-size+ info))
+                  ;; First entry in the constant pool.
+                  (address (logand (sys.int::lisp-object-address function) -16))
+                  (name (sys.int::memref-t address (* mc-size 2))))
+             (debug-write name)))
+          (t
+           (debug-write-string "#<invalid>")))))
+
 (defun panic-print-backtrace (initial-frame-pointer)
   (with-page-fault-hook
       (()
@@ -242,22 +263,7 @@
           (return))
         (debug-write fp)
         (debug-write-char #\Space)
-        (debug-write return-address)
-        (debug-write-char #\Space)
-        ;; Writing the name itself is fraught with danger. Print it in a seperate
-        ;; call from the frame-pointer & return address so that a page-fault
-        ;; won't abort the whole entry.
-        (with-page-fault-hook
-            (()
-             (debug-write-string "#<unknown>")
-             (abandon-page-fault))
-          (let* ((function (sys.int::return-address-to-function return-address))
-                 (info (sys.int::%object-header-data function))
-                 (mc-size (ldb sys.int::+function-header-code-size+ info))
-                 ;; First entry in the constant pool.
-                 (address (logand (sys.int::lisp-object-address function) -16))
-                 (name (sys.int::memref-t address (* mc-size 2))))
-            (debug-write name)))
+        (panic-print-backtrace-function return-address)
         (debug-print-line)))))
 
 (defun panic (&rest things)
@@ -279,20 +285,7 @@
       (debug-write-string "             ")
       (debug-write return-address)
       (debug-write-char #\Space)
-      ;; Writing the name itself is fraught with danger. Print it in a seperate
-      ;; call from the frame-pointer & return address so that a page-fault
-      ;; won't abort the whole entry.
-      (with-page-fault-hook
-          (()
-           (debug-write-string "#<unknown>")
-           (abandon-page-fault))
-        (let* ((function (sys.int::return-address-to-function return-address))
-               (info (sys.int::%object-header-data function))
-               (mc-size (ldb sys.int::+function-header-code-size+ info))
-               ;; First entry in the constant pool.
-               (address (logand (sys.int::lisp-object-address function) -16))
-               (name (sys.int::memref-t address (* mc-size 2))))
-          (debug-write name)))
+      (panic-print-backtrace-function return-address)
       (debug-print-line))))
 
 (defun dump-thread (thread fp)
