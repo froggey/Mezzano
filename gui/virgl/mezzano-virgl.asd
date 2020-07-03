@@ -4,4 +4,5 @@
                (:file "virgl-protocol")
                (:file "virgl")
                (:file "tgsi")
-               (:file "test")))
+               (:file "test")
+               (:file "demo-menu")))

@@ -13,6 +13,8 @@
            #:height
            #:depth
 
+           #:virgl-unsupported-error
+
            #:make-context
            #:with-context
 
@@ -64,21 +66,3 @@
            #:end #:mov #:add #:sub #:mul
            #:tex
            #:kill #:kill-if))
-
-(defpackage :mezzano.gui.virgl.test
-  (:use :cl)
-  (:local-nicknames (:gui :mezzano.gui)
-                    (:comp :mezzano.gui.compositor)
-                    (:widgets :mezzano.gui.widgets)
-                    (:sync :mezzano.sync)
-                    (:virgl :mezzano.gui.virgl)
-                    (:tgsi :mezzano.gui.virgl.tgsi)
-                    (:gpu :mezzano.supervisor.virtio-gpu)
-                    (:ext :mezzano.extensions)
-                    (:sup :mezzano.supervisor))
-  (:export #:test-clear
-           #:test-triangle
-           #:test-spin
-           #:test-cube
-           #:test-texture
-           #:demo))
