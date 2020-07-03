@@ -512,3 +512,31 @@ If TRIM-STEPPER-NOISE is true, then instructions executed as part of the trace p
       (with-output-to-string (s)
         (print-unreadable-object (obj s :identity t)
           (format s "unprintable object"))))))
+
+(defun %symbol-value-cell-in-thread (symbol thread)
+  (let ((symbol-value-cell (mezzano.runtime::symbol-global-value-cell symbol)))
+    (do ((ssp (mezzano.supervisor::thread-special-stack-pointer thread)
+              (sys.int::%object-ref-t ssp 0)))
+        ((null ssp)
+         symbol-value-cell)
+      (when (eq (sys.int::%object-ref-t ssp 1) symbol-value-cell)
+        (return ssp)))))
+
+(defun symbol-value-in-thread (symbol thread)
+  (mezzano.supervisor::stop-thread thread)
+  (when (eql (mezzano.supervisor:thread-state thread) :dead)
+    (return-from symbol-value-in-thread))
+  (unwind-protect
+       (mezzano.runtime::symbol-value-cell-value
+         (%symbol-value-cell-in-thread symbol thread))
+    (mezzano.supervisor::resume-thread thread)))
+
+(defun (setf symbol-value-in-thread) (value symbol thread)
+  (mezzano.supervisor::stop-thread thread)
+  (when (eql (mezzano.supervisor:thread-state thread) :dead)
+    (return-from symbol-value-in-thread value))
+  (unwind-protect
+       (setf (mezzano.runtime::symbol-value-cell-value
+              (%symbol-value-cell-in-thread symbol thread))
+             value)
+    (mezzano.supervisor::resume-thread thread)))
