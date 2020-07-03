@@ -88,7 +88,7 @@
       (let ((fifo (mezzano.supervisor:make-fifo 50))
             (stars (make-stars 100))
             (starfield (make-instance 'starfield)))
-        (mezzano.gui.compositor:with-window (window fifo 0 0 :initial-z-order :top :layer :top :name starfield)
+        (mezzano.gui.compositor:with-window (window fifo 0 0 :initial-z-order :top :layer :top :name starfield :kind :screensaver)
           (mezzano.gui.compositor:subscribe-notification window :screen-geometry)
           (mezzano.gui.compositor:set-window-data window :cursor :none)
           (setf (starfield-window starfield) window

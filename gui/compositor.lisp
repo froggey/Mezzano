@@ -79,6 +79,12 @@
 
 (defparameter *idle-time* 0)
 
+(defun reset-idle-time ()
+  (setf *idle-time* (get-internal-run-time)))
+
+(defun screensaver-running-p ()
+  (get-window-by-kind :screensaver))
+
 (defun damage-whole-screen ()
   (setf *clip-rect-width* (mezzano.supervisor:framebuffer-width *main-screen*)
         *clip-rect-height* (mezzano.supervisor:framebuffer-height *main-screen*)
@@ -332,7 +338,7 @@ This treats alt + shift as an alternative to ctrl + alt.")
       key))
 
 (defmethod process-event ((event key-event))
-  (setf *idle-time* 0)
+  (reset-idle-time)
   (let* ((scancode (key-scancode event))
          (modifier (assoc scancode *keyboard-modifiers*)))
     (cond ((and modifier (third modifier))
@@ -490,7 +496,7 @@ so that windows can notice when they lose their mouse visibility.")
                (max 1 (- old-height (- *drag-y-origin* *mouse-y*))))))))
 
 (defmethod process-event ((event mouse-event))
-  (setf *idle-time* 0)
+  (reset-idle-time)
   ;; Update positions and buttons
   (let* ((buttons (or (mouse-button-state event)
                       *mouse-buttons*))
@@ -1283,7 +1289,7 @@ Only works when the window is active."
 (defvar *compositor-update-interval* 1/60)
 (defparameter *last-frame-timestamp* 0)
 (defparameter *screensaver-spawn-function* nil)
-(defparameter *screensaver-time* (* 1 60))
+(defparameter *screensaver-time* (* 5 60))
 
 (defun screen-dirty-p ()
   (or (and (not (zerop *clip-rect-width*))
@@ -1294,6 +1300,7 @@ Only works when the window is active."
 (defun compositor-thread-body ()
   (when (not (eql *main-screen* (mezzano.supervisor:current-framebuffer)))
     ;; Framebuffer changed. Rebuild the screen.
+    (reset-idle-time)
     (setf *main-screen* (mezzano.supervisor:current-framebuffer)
           *screen-backbuffer* (mezzano.gui:make-surface
                                (mezzano.supervisor:framebuffer-width *main-screen*)
@@ -1313,13 +1320,15 @@ Only works when the window is active."
          (return))
        (mezzano.internals::log-and-ignore-errors
          (process-event event))))
-  ;; FIXME: reimplement the screensaver stuff. tricky bit is not spawing the screen saver over and over.
-  #+(or)
-  (when *screensaver-spawn-function*
-    (let ((old-idle *idle-time*))
-      (incf *idle-time* *compositor-update-interval*)
-      (when (and (< old-idle *screensaver-time*)
-                 (>= *idle-time* *screensaver-time*))
+  (when (and *screensaver-spawn-function*
+             (not (screensaver-running-p)))
+    (let ((idle-time (- (get-internal-run-time) *idle-time*)))
+      (when (>= idle-time (* *screensaver-time* internal-time-units-per-second))
+        ;; Set the idle time to a point shortly in the future so the screensaver has
+        ;; time to spawn and doesn't get reopened next frame.
+        (setf *idle-time* (+ (get-internal-run-time)
+                             (* *compositor-update-interval* 2
+                                internal-time-units-per-second)))
         (ignore-errors
           (funcall *screensaver-spawn-function*)))))
   (when (or *redisplay-pending*
@@ -1339,6 +1348,18 @@ Only works when the window is active."
                                                         (* *compositor-update-interval* internal-time-units-per-second)))
                                          :name 'compositor-redisplay)
            (mezzano.sync:wait-for-objects frame-timer
+                                          *event-queue*
+                                          (mezzano.supervisor:framebuffer-boot-id *main-screen*))))
+        ((and *screensaver-spawn-function*
+              (not (screensaver-running-p)))
+         ;; Screensaver enabled, nothing to draw,
+         ;; figure out how long until the screensaver needs to open.
+         (mezzano.supervisor:with-timer (idle-timer
+                                         :absolute (truncate
+                                                    (+ *idle-time*
+                                                       (* *screensaver-time* internal-time-units-per-second)))
+                                         :name 'compositor-screensaver-idle)
+           (mezzano.sync:wait-for-objects idle-timer
                                           *event-queue*
                                           (mezzano.supervisor:framebuffer-boot-id *main-screen*))))
         (t
