@@ -557,30 +557,30 @@ If ORIGIN is a server name, then only the host is valid. Nick and ident will be 
             (frame (frame app))
             (font (font app)))
         (mezzano.gui.widgets:resize-frame (frame app) new-framebuffer)
-        (mezzano.gui.widgets:resize-text-widget (display-pane app)
-                                                new-framebuffer
-                                                (nth-value 0 (mezzano.gui.widgets:frame-size frame))
-                                                (nth-value 2 (mezzano.gui.widgets:frame-size frame))
-                                                (- new-width
-                                                   (nth-value 0 (mezzano.gui.widgets:frame-size frame))
-                                                   (nth-value 1 (mezzano.gui.widgets:frame-size frame)))
-                                                (- new-height
-                                                   (nth-value 2 (mezzano.gui.widgets:frame-size frame))
-                                                   (nth-value 3 (mezzano.gui.widgets:frame-size frame))
-                                                   1
-                                                   (mezzano.gui.font:line-height font)))
-        (mezzano.gui.widgets:resize-text-widget (input-pane app)
-                                                new-framebuffer
-                                                (nth-value 0 (mezzano.gui.widgets:frame-size frame))
-                                                (+ (nth-value 2 (mezzano.gui.widgets:frame-size frame))
-                                                   (- new-height
-                                                      (nth-value 2 (mezzano.gui.widgets:frame-size frame))
-                                                      (nth-value 3 (mezzano.gui.widgets:frame-size frame))
-                                                      (mezzano.gui.font:line-height font)))
-                                                (- new-width
-                                                   (nth-value 0 (mezzano.gui.widgets:frame-size frame))
-                                                   (nth-value 1 (mezzano.gui.widgets:frame-size frame)))
-                                                (mezzano.gui.font:line-height font))
+        (mezzano.gui.widgets:resize-widget (display-pane app)
+                                           new-framebuffer
+                                           (nth-value 0 (mezzano.gui.widgets:frame-size frame))
+                                           (nth-value 2 (mezzano.gui.widgets:frame-size frame))
+                                           (- new-width
+                                              (nth-value 0 (mezzano.gui.widgets:frame-size frame))
+                                              (nth-value 1 (mezzano.gui.widgets:frame-size frame)))
+                                           (- new-height
+                                              (nth-value 2 (mezzano.gui.widgets:frame-size frame))
+                                              (nth-value 3 (mezzano.gui.widgets:frame-size frame))
+                                              1
+                                              (mezzano.gui.font:line-height font)))
+        (mezzano.gui.widgets:resize-widget (input-pane app)
+                                           new-framebuffer
+                                           (nth-value 0 (mezzano.gui.widgets:frame-size frame))
+                                           (+ (nth-value 2 (mezzano.gui.widgets:frame-size frame))
+                                              (- new-height
+                                                 (nth-value 2 (mezzano.gui.widgets:frame-size frame))
+                                                 (nth-value 3 (mezzano.gui.widgets:frame-size frame))
+                                                 (mezzano.gui.font:line-height font)))
+                                           (- new-width
+                                              (nth-value 0 (mezzano.gui.widgets:frame-size frame))
+                                              (nth-value 1 (mezzano.gui.widgets:frame-size frame)))
+                                           (mezzano.gui.font:line-height font))
         (draw-seperating-line app new-width new-height new-framebuffer)
         (mezzano.gui.compositor:resize-window
          (window app) new-framebuffer

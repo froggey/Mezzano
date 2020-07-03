@@ -315,16 +315,17 @@
   (let* ((fb (mezzano.gui.compositor:window-buffer (window app)))
          (new-width (mezzano.gui:surface-width fb))
          (new-height (mezzano.gui:surface-height fb)))
-    (mezzano.gui.widgets:resize-text-widget (text-pane app)
-                                            fb
-                                            (nth-value 0 (mezzano.gui.widgets:frame-size (frame app)))
-                                            (nth-value 2 (mezzano.gui.widgets:frame-size (frame app)))
-                                            (- new-width
-                                               (nth-value 0 (mezzano.gui.widgets:frame-size (frame app)))
-                                               (nth-value 1 (mezzano.gui.widgets:frame-size (frame app))))
-                                            (- new-height
-                                               (nth-value 2 (mezzano.gui.widgets:frame-size (frame app)))
-                                               (nth-value 3 (mezzano.gui.widgets:frame-size (frame app))))))
+    (mezzano.gui.widgets:resize-widget
+     (text-pane app)
+     fb
+     (nth-value 0 (mezzano.gui.widgets:frame-size (frame app)))
+     (nth-value 2 (mezzano.gui.widgets:frame-size (frame app)))
+     (- new-width
+        (nth-value 0 (mezzano.gui.widgets:frame-size (frame app)))
+        (nth-value 1 (mezzano.gui.widgets:frame-size (frame app))))
+     (- new-height
+        (nth-value 2 (mezzano.gui.widgets:frame-size (frame app)))
+        (nth-value 3 (mezzano.gui.widgets:frame-size (frame app))))))
   (setf (redraw app) t))
 
 (defmethod dispatch-event (peek (event mezzano.gui.compositor:window-close-event))

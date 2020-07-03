@@ -128,7 +128,7 @@
                               new-width new-height))
             (frame (frame app)))
         (mezzano.gui.widgets:resize-frame frame new-framebuffer)
-        (mezzano.gui.widgets:resize-text-widget
+        (mezzano.gui.widgets:resize-widget
          app
          new-framebuffer
          (nth-value 0 (mezzano.gui.widgets:frame-size frame))

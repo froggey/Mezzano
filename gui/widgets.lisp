@@ -21,12 +21,19 @@
            #:frame-size
            #:resize-frame
            #:text-widget
-           #:resize-text-widget
+           #:resize-widget
            #:reset
            #:cursor-visible
            #:in-frame-header-p
            #:in-frame-border-p
-           #:set-cursor-function))
+           #:set-cursor-function
+
+           #:widget-mouse-event
+           #:redraw-widget
+           #:button-box-button
+           #:vertical-button-box
+           #:compute-button-box-geometry
+           #:buttons))
 
 (in-package :mezzano.gui.widgets)
 
@@ -385,14 +392,25 @@
                    win
                    :mode :move)))))))
 
-(defclass text-widget (mezzano.gray:fundamental-character-output-stream)
+(defclass widget ()
   ((%framebuffer :initarg :framebuffer :reader framebuffer)
    (%x-position :initarg :x-position :reader x-position)
    (%y-position :initarg :y-position :reader y-position)
    (%width :initarg :width :reader width)
    (%height :initarg :height :reader height)
-   (%damage-fn :initarg :damage-function :reader damage-function)
-   (%x :accessor cursor-x)
+   (%damage-fn :initarg :damage-function :reader damage-function)))
+
+(defgeneric resize-widget (widget framebuffer x-position y-position width height))
+
+(defmethod resize-widget ((widget widget) framebuffer x-position y-position width height)
+  (setf (slot-value widget '%framebuffer) framebuffer
+        (slot-value widget '%x-position) x-position
+        (slot-value widget '%y-position) y-position
+        (slot-value widget '%width) width
+        (slot-value widget '%height) height))
+
+(defclass text-widget (widget mezzano.gray:fundamental-character-output-stream)
+  ((%x :accessor cursor-x)
    (%y :accessor cursor-y)
    (%column :accessor cursor-column)
    (%line :accessor cursor-line)
@@ -654,9 +672,7 @@
                  (incf (cursor-x stream) object-width)
                  (incf (cursor-column stream)))))))))
 
-(defgeneric resize-text-widget (widget framebuffer x-position y-position width height))
-
-(defmethod resize-text-widget ((widget text-widget) framebuffer x-position y-position width height)
+(defmethod resize-widget :around ((widget text-widget) framebuffer x-position y-position width height)
   ;; Fill the new framebuffer with the background colour.
   ;; The copy from the old framebuffer might not cover the entire new area.
   (mezzano.gui:bitset :set
@@ -678,11 +694,7 @@
                         (x-position widget) (+ (y-position widget) y-delta)
                         framebuffer
                         x-position y-position))
-  (setf (slot-value widget '%framebuffer) framebuffer
-        (slot-value widget '%x-position) x-position
-        (slot-value widget '%y-position) y-position
-        (slot-value widget '%width) width
-        (slot-value widget '%height) height)
+  (call-next-method)
   (funcall (damage-function widget) (x-position widget) (y-position widget) (width widget) (height widget)))
 
 (defmethod reset ((widget text-widget))
@@ -697,3 +709,94 @@
                       (framebuffer widget)
                       (x-position widget) (y-position widget))
   (funcall (damage-function widget) (x-position widget) (y-position widget) (width widget) (height widget)))
+
+(defclass button-box-button ()
+  ((%text :initarg :text :reader button-text)
+   (%on-click :initarg :on-click :reader button-on-click)
+   (%activep :initarg :activep :accessor activep))
+  (:default-initargs :activep nil))
+
+(defclass vertical-button-box (widget)
+  ((%font :initarg :font :reader font)
+   (%buttons :initarg :buttons :reader buttons)))
+
+(defun compute-button-box-geometry (button-box &key minimum-width)
+  (values (max (or minimum-width 10)
+             (loop
+                for button in (buttons button-box)
+                maximize (mezzano.gui.font:string-display-width
+                          (button-text button)
+                          (font button-box))))
+          (max 0
+               (1- (* (length (buttons button-box))
+                      (1+ (mezzano.gui.font:line-height (font button-box))))))))
+
+(defgeneric redraw-widget (widget))
+
+(defmethod redraw-widget ((widget vertical-button-box))
+  (loop
+     with width = (width widget)
+     with half-width = (truncate width 2)
+     with xoff = (x-position widget)
+     with yoff = (y-position widget)
+     with fb = (framebuffer widget)
+     with font = (font widget)
+     with line-height = (mezzano.gui.font:line-height font)
+     with ascender = (mezzano.gui.font:ascender font)
+     for i from 0
+     for button in (buttons widget)
+     do
+       (multiple-value-bind (fg-colour bg-colour)
+           (if (activep button)
+               (values theme:*background* theme:*foreground*)
+               (values theme:*foreground* theme:*background*))
+         (when (not (eql i (1- (length (buttons widget)))))
+           (mezzano.gui:bitset :set
+                               width 1
+                               theme:*foreground*
+                               fb xoff (+ yoff (* (1+ i) (1+ line-height)) -1)))
+         (let* ((text (button-text button))
+                (text-width (mezzano.gui.font:string-display-width text font)))
+           (mezzano.gui:bitset :set
+                               width line-height
+                               bg-colour
+                               fb xoff (+ yoff (* i (1+ line-height))))
+           (mezzano.gui.font:draw-string
+            text font
+            fb
+            (+ xoff half-width (- (truncate text-width 2)))
+            (+ yoff (* i (1+ line-height)) ascender)
+            fg-colour))))
+  (funcall (damage-function widget)
+           (x-position widget)
+           (y-position widget)
+           (width widget)
+           (height widget)))
+
+(defmethod resize-widget :around ((widget vertical-button-box) framebuffer x-position y-position width height)
+  (call-next-method)
+  (redraw-widget widget))
+
+(defgeneric widget-mouse-event (widget mouse-event))
+
+(defmethod widget-mouse-event ((widget vertical-button-box) mouse-event)
+  (when (and (not (logbitp 0 (mezzano.gui.compositor:mouse-button-state mouse-event)))
+             (logbitp 0 (mezzano.gui.compositor:mouse-button-change mouse-event)))
+    (loop
+       with mx = (mezzano.gui.compositor:mouse-x-position mouse-event)
+       with my = (mezzano.gui.compositor:mouse-y-position mouse-event)
+       with xoff = (x-position widget)
+       with yoff = (y-position widget)
+       with width = (width widget)
+       with line-height = (mezzano.gui.font:line-height (font widget))
+       for i from 0
+       for button in (buttons widget)
+       do
+         (when (and (<= xoff mx (+ xoff width -1))
+                    (<= (+ yoff (* i (1+ line-height)))
+                        my
+                        (+ yoff (1- (* (1+ i) (1+ line-height))))))
+           (funcall (button-on-click button) button)
+           (return t))
+       finally
+         (return nil))))

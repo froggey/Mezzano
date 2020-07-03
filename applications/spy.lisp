@@ -56,11 +56,12 @@
          (new-height (mezzano.gui:surface-height fb)))
     (multiple-value-bind (left right top bottom)
         (widgets:frame-size (frame app))
-      (widgets:resize-text-widget (text-pane app)
-                                  fb
-                                  left top
-                                  (- new-width left right)
-                                  (- new-height top bottom))))
+      (widgets:resize-widget
+       (text-pane app)
+       fb
+       left top
+       (- new-width left right)
+       (- new-height top bottom))))
   (setf (redraw app) t))
 
 (defmethod dispatch-event (app (event comp:window-close-event))

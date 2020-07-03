@@ -891,7 +891,10 @@ so that windows can notice when they lose their mouse visibility.")
                (+ (window-y window) delta-h)))
       (:top-left
        (values (window-x window)
-               (window-y window))))))
+               (window-y window)))
+      (:midpoint
+       (values (+ (window-x window) (truncate delta-w 2))
+               (+ (window-y window) (truncate delta-h 2)))))))
 
 (defmethod process-event ((event resize-event))
   (let* ((window (window event))

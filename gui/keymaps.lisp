@@ -14,10 +14,19 @@
   (print-unreadable-object (obj stream :type t :identity t)
     (format stream "~A" (name obj))))
 
-(defvar *keymap-list* (list))
+(defvar *keymap-list* '())
 
 (defmethod initialize-instance :after ((map simple-keymap) &key)
-  (pushnew map *keymap-list* :key #'(lambda (x) (name x)) :test #'string=))
+  (let ((existing (find (name map) *keymap-list*
+                        :key #'name
+                        :test #'string=)))
+    (cond (existing
+           ;; Replace any existing keymap with the same name.
+           (setf *keymap-list* (substitute map existing *keymap-list*))
+           (when (eql existing *current-keymap*)
+             (setf *current-keymap* map)))
+          (t
+           (setf *keymap-list* (append *keymap-list* (list map)))))))
 
 (defparameter *engb-keymap*
   (make-instance 'simple-keymap
