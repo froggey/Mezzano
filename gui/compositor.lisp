@@ -344,10 +344,11 @@ This treats alt + shift as an alternative to ctrl + alt.")
                        (list* (second modifier) *keyboard-modifier-state*)))))
           (modifier
            ;; Regular modifier.
-           (setf *keyboard-modifier-state*
-                 (if (key-releasep event)
-                     (remove (second modifier) *keyboard-modifier-state*)
-                     (list* (second modifier) *keyboard-modifier-state*)))
+           (cond ((key-releasep event)
+                  (setf *keyboard-modifier-state*
+                        (remove (second modifier) *keyboard-modifier-state*)))
+                 (t
+                  (pushnew (second modifier) *keyboard-modifier-state*)))
            (when (and (key-releasep event)
                       (eql (second modifier) :meta))
              (setf *m-tab-active* nil
