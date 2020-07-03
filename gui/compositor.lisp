@@ -259,6 +259,14 @@
       (setf index 0))
     (setf *current-keymap* (elt *keymap-list* index))))
 
+(defun command-prev-keymap ()
+  ;; Switch keymaps.
+  (let ((index (1- (or (position *current-keymap* *keymap-list*)
+                       (length *keymap-list*)))))
+    (when (< index 0)
+      (setf index (1- (length *keymap-list*))))
+    (setf *current-keymap* (elt *keymap-list* index))))
+
 (defun command-open-fancy-repl ()
   (eval (read-from-string "(mezzano.gui.fancy-repl:spawn)")))
 
@@ -294,6 +302,7 @@
 
 (defparameter *global-shortcuts*
   '((#\M-F12 command-next-keymap)
+    (#\C-M-F12 command-prev-keymap)
     (#\M-F10 command-open-fancy-repl)
     (#\C-M-F10 command-open-basic-repl)
     (#\M-Esc command-interrupt-active-window)
