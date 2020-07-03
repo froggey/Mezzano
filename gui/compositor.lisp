@@ -957,8 +957,10 @@ so that windows can notice when they lose their mouse visibility.")
 
 (defmethod process-event ((event move-event))
   (let ((window (window event)))
+    (expand-clip-rectangle-by-window window)
     (setf (window-x window) (new-x event)
-          (window-y window) (new-y event))))
+          (window-y window) (new-y event))
+    (expand-clip-rectangle-by-window window)))
 
 (defun move-window (window new-x new-y)
   (submit-compositor-event (make-instance 'move-event
