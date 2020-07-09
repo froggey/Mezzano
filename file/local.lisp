@@ -61,7 +61,9 @@
                                mezzano.gray:fundamental-binary-output-stream)
   ())
 
-(defclass translating-stream (file-stream mezzano.gray:fundamental-character-stream)
+(defclass translating-stream (mezzano.internals::external-format-mixin
+                              file-stream
+                              mezzano.gray:fundamental-character-stream)
   ((%underlying-stream :initarg :underlying-stream :reader translating-underlying-stream)))
 
 (defclass translating-input-stream (translating-stream
@@ -865,19 +867,15 @@ If ERRORP is true, then a file error will be signalled if any components are mis
   (when (not (and (subtypep element-type 'character)
                   (subtypep 'character element-type)))
     (error "Translation element-type must be CHARACTER, not ~S" element-type))
-  (when (not (member external-format '(:default :utf-8)))
-    (error "Unsupported external format ~S" external-format))
   (make-instance (ecase direction
                    (:input 'translating-input-stream)
                    (:output 'translating-output-stream))
-                 :underlying-stream underlying-stream))
+                 :underlying-stream underlying-stream
+                 :external-format (mezzano.internals::make-external-format 'character external-format)))
 
 (defmethod print-object ((instance translating-stream) stream)
   (print-unreadable-object (instance stream :type t)
     (format stream "for ~S" (translating-underlying-stream instance))))
-
-(defmethod mezzano.gray:stream-external-format ((stream translating-stream))
-  :utf-8)
 
 (defmethod close ((stream translating-stream) &rest keys)
   (apply #'close (translating-underlying-stream stream) keys))
@@ -896,8 +894,8 @@ If ERRORP is true, then a file error will be signalled if any components are mis
 (defmethod file-stream-pathname ((stream translating-stream))
   (file-stream-pathname (translating-underlying-stream stream)))
 
-(defmethod mezzano.gray:stream-read-char ((stream translating-input-stream))
-  (mezzano.file-system.remote::read-and-decode-char (translating-underlying-stream stream)))
-
 (defmethod mezzano.gray:stream-clear-input ((stream translating-input-stream))
   (clear-input (translating-underlying-stream stream)))
+
+(defmethod mezzano.gray:stream-read-byte ((stream translating-input-stream))
+  (read-byte (translating-underlying-stream stream) nil :eof))
