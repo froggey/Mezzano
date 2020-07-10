@@ -166,9 +166,6 @@
 (defun (sys.int::cas instance-access-by-name) (old new object slot-name &optional (index 0))
   (sys.int::cas (instance-access object (instance-slot-location object slot-name) index) old new))
 
-(deftype sys.int::instance-header ()
-  `(satisfies sys.int::instance-header-p))
-
 (defun sys.int::instance-header-p (object)
   (sys.int::%value-has-tag-p object sys.int::+tag-instance-header+))
 

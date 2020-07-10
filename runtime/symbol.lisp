@@ -15,8 +15,10 @@
                  symbol-value-cell-boundp
                  symbol-value-cell-makunbound))
 
-(deftype symbol-value-cell ()
-  '(satisfies symbol-value-cell-p))
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (sys.int::%define-type-symbol
+   'symbol-value-cell
+   'symbol-value-cell-p))
 
 (defun symbol-value-cell-p (object)
   (sys.int::%object-of-type-p object sys.int::+object-tag-symbol-value-cell+))

@@ -307,6 +307,9 @@ Arguments to FUNCTION:
       (#.+object-tag-delimited-continuation+
        nil))))
 
+;;; Not sure about the DEFTYPEs for COMPILED-FUNCTION and CLOSURE.
+;;; They need to be subtypes of FUNCTION.
+
 (deftype compiled-function ()
   '(satisfies compiled-function-p))
 

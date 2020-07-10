@@ -83,7 +83,10 @@
      (setq *package* (find-package-or-die ',name))))
 
 (deftype package-designator ()
-  `(or package (and string-designator (satisfies package-designator-p))))
+  `(or package
+       (and string-designator
+            ;; Must name a package that exists.
+            (satisfies package-designator-p))))
 
 (defun package-designator-p (object)
   (or (packagep object)

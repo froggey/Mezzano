@@ -657,8 +657,10 @@ then NIL will be returned."
 (defun function-reference-p (object)
   (%object-of-type-p object +object-tag-function-reference+))
 
-(deftype function-reference ()
-  '(satisfies function-reference-p))
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (sys.int::%define-type-symbol
+   'function-reference
+   'function-reference-p))
 
 (defun function-reference-name (fref)
   (check-type fref function-reference)

@@ -3,8 +3,10 @@
 
 (in-package :mezzano.delimited-continuations)
 
-(deftype delimited-continuation ()
-  `(satisfies delimited-continuation-p))
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (sys.int::%define-type-symbol
+   'delimited-continuation
+   'delimited-continuation-p))
 
 (declaim (inline delimited-continuation-p))
 (defun delimited-continuation-p (object)

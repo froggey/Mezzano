@@ -74,6 +74,8 @@
            (eql (length (string object)) 1))))
 
 (deftype character-designator ()
+  ;; Can't be a real type because of the requirement that
+  ;; symbol names be of length 1. There's no way to express that.
   `(satisfies character-designator-p))
 
 (defun character (character-designator)

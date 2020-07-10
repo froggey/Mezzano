@@ -402,6 +402,9 @@
 (%define-type-symbol 'structure-object 'structure-object-p)
 (%define-type-symbol 'keyword 'keywordp)
 (%define-type-symbol 't 'yes-its-true)
+
+;; Can't be done in instance.lisp. Too early, causes xcompiler issues.
+(%define-type-symbol 'instance-header 'instance-header-p)
 )
 
 (defun yes-its-true (object)

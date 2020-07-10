@@ -2209,8 +2209,10 @@ No type information will be provided."
        ;; Entry not found. Go back a card (TODO: should go back a whole bunch of cards.)
        (decf current-address +card-size+))))
 
-(deftype weak-pointer ()
-  '(satisfies weak-pointer-p))
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (sys.int::%define-type-symbol
+   'weak-pointer
+   'weak-pointer-p))
 
 (defun weak-pointer-p (object)
   (%object-of-type-p object +object-tag-weak-pointer+))
