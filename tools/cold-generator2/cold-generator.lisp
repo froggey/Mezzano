@@ -194,6 +194,7 @@
     "compiler/backend/x86-64/builtin.lisp"
     "compiler/backend/x86-64/misc.lisp"
     "compiler/backend/x86-64/object.lisp"
+    "compiler/backend/x86-64/cons.lisp"
     "compiler/backend/x86-64/memory.lisp"
     "compiler/backend/x86-64/number.lisp"
     "compiler/backend/x86-64/simd.lisp"

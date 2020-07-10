@@ -62,6 +62,7 @@
                (:file "compiler/backend/x86-64/builtin")
                (:file "compiler/backend/x86-64/misc")
                (:file "compiler/backend/x86-64/object")
+               (:file "compiler/backend/x86-64/cons")
                (:file "compiler/backend/x86-64/memory")
                (:file "compiler/backend/x86-64/number")
                (:file "compiler/backend/x86-64/simd")

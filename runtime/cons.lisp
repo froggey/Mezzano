@@ -44,3 +44,20 @@
         (t
          (sys.int::raise-type-error cons 'cons)
          (sys.int::%%unreachable))))
+
+(declaim (inline (mezzano.extensions:cas car) (mezzano.extensions:cas cdr)))
+(defun (mezzano.extensions:cas car) (old new cons)
+  (declare (optimize (debug 0)))
+  (cond ((consp cons)
+         (nth-value 1 (sys.int::%cas-cons-car cons old new)))
+        (t
+         (sys.int::raise-type-error cons 'cons)
+         (sys.int::%%unreachable))))
+
+(defun (mezzano.extensions:cas cdr) (old new cons)
+  (declare (optimize (debug 0)))
+  (cond ((consp cons)
+         (nth-value 1 (sys.int::%cas-cons-cdr cons old new)))
+        (t
+         (sys.int::raise-type-error cons 'cons)
+         (sys.int::%%unreachable))))

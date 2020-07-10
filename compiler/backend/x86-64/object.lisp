@@ -3,40 +3,6 @@
 
 (in-package :mezzano.compiler.backend.x86-64)
 
-(define-builtin mezzano.runtime::%car ((cons) result)
-  (emit (make-instance 'x86-instruction
-                       :opcode 'lap:mov64
-                       :operands (list result `(:car ,cons))
-                       :inputs (list cons)
-                       :outputs (list result))))
-
-(define-builtin mezzano.runtime::%cdr ((cons) result)
-  (emit (make-instance 'x86-instruction
-                       :opcode 'lap:mov64
-                       :operands (list result `(:cdr ,cons))
-                       :inputs (list cons)
-                       :outputs (list result))))
-
-(define-builtin (setf mezzano.runtime::%car) ((value cons) result)
-  (emit (make-instance 'x86-instruction
-                       :opcode 'lap:mov64
-                       :operands (list `(:car ,cons) value)
-                       :inputs (list cons value)
-                       :outputs '()))
-  (emit (make-instance 'ir:move-instruction
-                       :destination result
-                       :source value)))
-
-(define-builtin (setf mezzano.runtime::%cdr) ((value cons) result)
-  (emit (make-instance 'x86-instruction
-                       :opcode 'lap:mov64
-                       :operands (list `(:cdr ,cons) value)
-                       :inputs (list cons value)
-                       :outputs '()))
-  (emit (make-instance 'ir:move-instruction
-                       :destination result
-                       :source value)))
-
 (define-builtin sys.int::%value-has-tag-p ((object (:constant tag (typep tag '(unsigned-byte 4))))
                                            :z
                                            :has-wrapper nil)
