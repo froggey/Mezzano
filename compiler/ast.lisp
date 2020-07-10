@@ -135,6 +135,10 @@
                      :use-count 0
                      :used-in '()))
 
+(defmethod print-object ((object go-tag) stream)
+  (print-unreadable-object (object stream :type t :identity t)
+    (format stream "~S" (go-tag-name object))))
+
 (defun go-tag-p (object)
   (typep object 'go-tag))
 
@@ -234,10 +238,6 @@
 (defclass ast-jump-table (ast-node)
   ((%value :initarg :value :accessor value :accessor ast-value)
    (%targets :initarg :targets :accessor targets :accessor ast-targets)))
-
-(defmethod print-object ((object go-tag) stream)
-  (print-unreadable-object (object stream :type t :identity t)
-    (format stream "~S" (go-tag-name object))))
 
 ;;; Deep copying ASTs.
 
