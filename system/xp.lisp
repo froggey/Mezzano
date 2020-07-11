@@ -1142,12 +1142,12 @@
   nil)
 
 (defmethod mezzano.gray:stream-clear-output ((stream xp-structure))
-  (let ((old-l-c (locating-circularities xp)))
+  (let ((old-l-c (locating-circularities stream)))
     (unwind-protect
-         (progn (setf (locating-circularities xp) 0) ;hack to prevent visible output
+         (progn (setf (locating-circularities stream) 0) ;hack to prevent visible output
                 (attempt-to-output stream T T)
                 (clear-output (base-stream stream)))
-      (setf (locating-circularities xp) old-l-c)))
+      (setf (locating-circularities stream) old-l-c)))
   nil)
 
 ;note we are assuming that if a structure is defined using xp::defstruct,
