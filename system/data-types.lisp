@@ -19,7 +19,7 @@
 ;; be detected trivially: (eql (logand val #b111) 1)
 (defconstant +tag-cons+             #b0001)
 (defconstant +tag-fixnum-001+       #b0010)
-(defconstant +tag-dx-root-object+   #b0011)
+;;#b0011
 (defconstant +tag-fixnum-010+       #b0100)
 (defconstant +tag-immediate+        #b0101)
 (defconstant +tag-fixnum-011+       #b0110)
@@ -32,7 +32,7 @@
 (defconstant +tag-fixnum-101+       #b1010)
 ;;#b1011
 (defconstant +tag-fixnum-110+       #b1100)
-;;#b1101
+(defconstant +tag-dx-root-object+   #b1101)
 (defconstant +tag-fixnum-111+       #b1110)
 (defconstant +tag-gc-forward+       #b1111)
 
@@ -314,7 +314,7 @@ Internal to sg-vec, should not be used by other code.")
 reserved on the disk, but no specific block has been allocated.")
 (defconstant +block-map-id-not-allocated+ 0)
 
-(defparameter *llf-version* 35)
+(defparameter *llf-version* 36)
 
 (defconstant +llf-arch-x86-64+ 1)
 (defconstant +llf-arch-arm64+ 2)
