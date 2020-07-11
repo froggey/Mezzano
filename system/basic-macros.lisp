@@ -450,7 +450,7 @@
      ,@(mapcar (lambda (x) `(proclaim ',x)) declaration-specifiers)))
 
 (defmacro current-source-location (&optional name)
-  `(lambda () (declare (lambda-name ,(or name source-location)))))
+  `(lambda () (declare (lambda-name ,(or name 'source-location)))))
 
 ;;; DEFVAR.
 (defmacro defvar (name &optional (initial-value nil initial-valuep) (docstring nil docstringp))
