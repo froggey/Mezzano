@@ -507,20 +507,27 @@
   (let ((base-name (if (consp name)
                        (second name)
                        name)))
-  (multiple-value-bind (body-forms declares docstring)
-      (parse-declares body :permit-docstring t)
-    (let ((the-lambda `(lambda ,lambda-list
-                         (declare ,@declares
-                                  (lambda-name ,name))
-                         ,docstring
-                         (block ,base-name ,@body-forms))))
-      `(progn
-         (eval-when (:compile-toplevel :load-toplevel :execute)
-           ;; Don't emit source information if there's an environment.
-           ;; Currently inlining a DEFUN defined in a macrolet doesn't work.
-           (%compiler-defun ',name ',(if env 'nil the-lambda)))
-         (%defun ',name ,the-lambda ',docstring)
-         ',name)))))
+    (multiple-value-bind (body-forms declares docstring)
+        (parse-declares body :permit-docstring t)
+      (let ((the-lambda `(lambda ,lambda-list
+                           (declare ,@declares
+                                    (lambda-name ,name))
+                           ,docstring
+                           (block ,base-name ,@body-forms))))
+        `(progn
+           (eval-when (:compile-toplevel :load-toplevel :execute)
+             ;; Don't emit source information if there's an environment.
+             ;; Currently inlining a DEFUN defined in a macrolet doesn't work.
+             (%compiler-defun ',name ',(if env 'nil the-lambda)))
+           (%defun ',name ,the-lambda ',docstring)
+           ',name)))))
+
+;; Like DEFUN, but behave as though the function is defined in the empty
+;; environment for the purposes of inlining.
+;; This is to work around DEFUN not being able to inline functions
+;; that are wrapped in a MACROLET.
+(defmacro defun* (name lambda-list &body body)
+  (macroexpand-1 `(defun ,name ,lambda-list ,@body) nil))
 
 (defmacro prog (variables &body body)
   (multiple-value-bind (body-forms declares)
