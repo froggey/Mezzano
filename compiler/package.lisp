@@ -1085,3 +1085,57 @@
            #:complex-cos
            #:complex-log-e
            #:conjugate))
+
+(defpackage :mezzano.garbage-collection.weak-objects
+  (:use :cl)
+  (:import-from :mezzano.extensions
+                #:make-weak-pointer
+                #:weak-pointer-key
+                #:weak-pointer-value
+                #:weak-pointer-pair)
+  (:export
+   #:weak-reference
+   #:weak-reference-p
+   #:make-weak-reference
+   #:weak-reference-value
+
+   #:weak-list
+   #:weak-list-p
+   #:make-weak-list
+   #:weak-list-list
+
+   #:weak-and-relation
+   #:weak-and-relation-p
+   #:make-weak-and-relation
+   #:weak-and-relation-list
+
+   #:weak-or-relation
+   #:weak-or-relation-p
+   #:make-weak-or-relation
+   #:weak-or-relation-list
+
+   #:weak-mapping
+   #:weak-mapping-p
+   #:make-weak-mapping
+   #:weak-mapping-pair
+   #:weak-mapping-value
+
+   #:weak-and-mapping
+   #:weak-and-mapping-p
+   #:make-weak-and-mapping
+   #:weak-and-mapping-pair
+   #:weak-and-mapping-value
+
+   #:weak-or-mapping
+   #:weak-or-mapping-p
+   #:make-weak-or-mapping
+   #:weak-or-mapping-pair
+   #:weak-or-mapping-value
+
+   #:weak-alist
+   #:weak-alist-p
+   #:make-weak-alist
+   #:weak-alist-contents
+   #:weak-alist-assoc
+   #:weak-alist-rassoc
+   #:weak-alist-value))

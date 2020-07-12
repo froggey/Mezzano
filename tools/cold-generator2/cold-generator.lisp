@@ -109,6 +109,7 @@
     ;;("system/numbers/bignum-arm64.lisp" :arm64)
     "system/numbers/numbers.lisp"
     "system/gc.lisp"
+    "system/weak-objects.lisp"
     "system/room.lisp"
     "system/reader.lisp"
     "system/character.lisp"
@@ -133,6 +134,7 @@
     "system/clos/closette.lisp"
     "system/clos/struct.lisp"
     "system/clos/method-combination.lisp"
+    "system/weak-objects-printers.lisp"
     "system/sync.lisp"
     "system/thread-pool.lisp"
     "system/describe.lisp"
@@ -570,6 +572,7 @@
     "system/sequence.lisp"
     "system/hash-table.lisp"
     "system/packages.lisp"
+    "system/weak-objects.lisp"
     "system/gray-streams.lisp"
     "system/stream.lisp"
     "system/reader.lisp"
