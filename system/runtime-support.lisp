@@ -609,11 +609,7 @@
 (defun decode-function-name (name)
   (cond ((symbolp name)
          (values name 'symbol))
-        ((and (consp name)
-              (consp (rest name))
-              (null (rest (rest name)))
-              (member (first name) '(setf cas))
-              (symbolp (second name)))
+        ((and (consp name) (valid-function-name-p name))
          (values (second name) (first name)))
         (t
          (error 'type-error

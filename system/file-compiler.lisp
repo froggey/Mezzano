@@ -657,9 +657,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
 
 ;; One of:
 ;;   'symbol
-;;   #'symbol
-;;   #'(SETF symbol)
-;;   #'(CAS symbol)
+;;   #'function-name
 (defun valid-funcall-function-p (form)
   (and (consp form)
        (consp (cdr form))
@@ -667,13 +665,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
        (or (and (eql (first form) 'quote)
                 (symbolp (second form)))
            (and (eql (first form) 'function)
-                (let ((name (second form)))
-                  (or (symbolp name)
-                      (and (consp name)
-                           (consp (cdr name))
-                           (null (cddr name))
-                           (member (first name) '(setf sys.int::cas))
-                           (symbolp (second name)))))))))
+                (valid-function-name-p (second form))))))
 
 ;; Convert a valid funcall function to the function name.
 (defun funcall-function-name (form)
