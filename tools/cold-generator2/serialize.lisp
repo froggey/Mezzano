@@ -172,6 +172,12 @@ Must not call SERIALIZE-OBJECT."))
     (nibbles:ub64ref/le (area-data area)
                         (object-slot-area-offset image object slot))))
 
+(defun replace-object-data-octets (image object sequence &key (slot 0) (offset 0) (start 0) (end nil))
+  (let ((area (object-area image object)))
+    (replace (area-data area) sequence
+             :start1 (+ (object-slot-area-offset image object slot) offset)
+             :start2 start :end2 end)))
+
 (defun (setf object-slot) (value image object slot)
   (let ((area (object-area image object)))
     (setf (nibbles:ub64ref/le (area-data area)
@@ -308,16 +314,10 @@ Must not call SERIALIZE-OBJECT."))
 
 (defmethod initialize-object ((object env:cross-compiled-function) object-value image environment)
   ;; Copy machine code.
-  (let* ((data (env:function-machine-code object))
-         (origin 1) ; After the header & entry point
-         (n-bytes (length data)))
-    (dotimes (i (ceiling n-bytes 8))
-      (let ((value 0))
-        (dotimes (j 8)
-          (when (< (+ (* i 8) j) n-bytes)
-            (setf (ldb (byte 8 64) value) (aref data (+ (* i 8) j))))
-          (setf value (ash value -8)))
-        (setf (object-slot image object-value (+ origin i)) value))))
+  (replace-object-data-octets
+   image object-value (env:function-machine-code object)
+   ;; After the header & entry point
+   :slot 1)
   ;; Copy constants.
   (let ((origin (+ 1
                    (* (ceiling (length (env:function-machine-code object)) 16) 2))))
@@ -326,19 +326,12 @@ Must not call SERIALIZE-OBJECT."))
             (serialize-object (aref (env:function-constants object) i)
                               image environment))))
   ;; Copy GC metadata.
-  (let* ((data (env:function-gc-metadata object))
-         ;; After the header, machine code, and constants.
-         (origin (+ 1
-                    (* (ceiling (length (env:function-machine-code object)) 16) 2)
-                    (length (env:function-constants object))))
-         (n-bytes (length data)))
-    (dotimes (i (ceiling n-bytes 8))
-      (let ((value 0))
-        (dotimes (j 8)
-          (when (< (+ (* i 8) j) n-bytes)
-            (setf (ldb (byte 8 64) value) (aref data (+ (* i 8) j))))
-          (setf value (ash value -8)))
-        (setf (object-slot image object-value (+ origin i)) value))))
+  (replace-object-data-octets
+   image object-value (env:function-gc-metadata object)
+   ;; After the header, machine code, and constants.
+   :slot (+ 1
+            (* (ceiling (length (env:function-machine-code object)) 16) 2)
+            (length (env:function-constants object))))
   ;; Initialize header.
   (setf (object-slot image object-value -1)
         (function-header (length (env:function-machine-code object))
@@ -446,17 +439,20 @@ Must not call SERIALIZE-OBJECT."))
              (total-data-words (ceiling (* n-elements element-size) 64))
              (image-array (allocate (1+ total-data-words) image area sys.int::+tag-object+)))
         (initialize-object-header image image-array object-type n-elements)
-        (when (not (eql element-type 't))
-          ;; Numeric array. write the data directly.
-          (dotimes (i total-data-words)
-            (let ((value 0))
-              (dotimes (j elements-per-word)
-                (let ((idx (+ (* i elements-per-word) j)))
-                  (when (< idx n-elements)
-                    (setf (ldb (byte element-size 64) value)
-                          (aref object idx))))
-                (setf value (ash value (- element-size))))
-              (setf (object-slot image image-array i) value))))
+        ;; Write the data directly for numeric arrays.
+        (cond
+          ((equal element-type '(unsigned-byte 8))
+           (replace-object-data-octets image image-array object))
+          ((not (eql element-type 't))
+           (dotimes (i total-data-words)
+             (let ((value 0))
+               (dotimes (j elements-per-word)
+                 (let ((idx (+ (* i elements-per-word) j)))
+                   (when (< idx n-elements)
+                     (setf (ldb (byte element-size 64) value)
+                           (aref object idx))))
+                 (setf value (ash value (- element-size))))
+               (setf (object-slot image image-array i) value)))))
         image-array))))
 
 (defmethod initialize-object ((object array) value image environment)
