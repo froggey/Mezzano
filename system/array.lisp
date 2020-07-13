@@ -653,14 +653,21 @@
 (defun array-row-major-index (array &rest subscripts)
   (declare (dynamic-extent subscripts))
   (assert (eql (array-rank array) (length subscripts)))
-  (apply #'+ (maplist (lambda (x y)
-                        (check-type (car x) integer)
-                        (unless (<= 0 (car x) (1- (car y)))
-                          (raise-complex-bounds-error
-                           array (car x) (car y) nil))
-                        (* (car x) (apply #'* (cdr y))))
-                      subscripts
-                      (array-dimensions array))))
+  (loop
+     for axis below (array-rank array)
+     for subscript in subscripts
+     for dimension = (array-dimension array axis)
+     do
+       (check-type subscript integer)
+       (unless (<= 0 subscript (1- dimension))
+         (raise-complex-bounds-error
+          array subscript dimension nil))
+     summing
+       (* subscript (loop
+                       with result = 1
+                       for remaining-axis from (1+ axis) below (array-rank array)
+                       do (setf result (* result (array-dimension array remaining-axis)))
+                       finally (return result)))))
 
 (defun check-vector-has-fill-pointer (vector)
   (unless (array-has-fill-pointer-p vector)
