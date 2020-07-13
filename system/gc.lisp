@@ -2214,6 +2214,7 @@ No type information will be provided."
    'weak-pointer
    'weak-pointer-p))
 
+(declaim (inline weak-pointer-p))
 (defun weak-pointer-p (object)
   (%object-of-type-p object +object-tag-weak-pointer+))
 
@@ -2227,7 +2228,7 @@ No type information will be provided."
   "Returns the key, the value, and T if the key is still live, otherwise NIL, NIL and NIL."
   (check-type weak-pointer weak-pointer)
   ;; Make a strong reference to key & value first.
-  ;; It'll be set to some other live value if the weak pointer is dead.
+  ;; They'll be set to NIL if the weak pointer is dead.
   (let ((key (%object-ref-t weak-pointer +weak-pointer-key+))
         (value (%object-ref-t weak-pointer +weak-pointer-value+)))
     ;; Inspect the livep header bit.
@@ -2239,7 +2240,7 @@ No type information will be provided."
   "Returns the key and T if the key is still live, otherwise NIL and NIL."
   (check-type weak-pointer weak-pointer)
   ;; Make a strong reference to key first.
-  ;; It'll be set to some other live value if the weak pointer is dead.
+  ;; It'll be set to NIL if the weak pointer is dead.
   (let ((key (%object-ref-t weak-pointer +weak-pointer-key+)))
     ;; Inspect the livep header bit.
     (if (logbitp +weak-pointer-header-livep+ (%object-header-data weak-pointer))
@@ -2250,7 +2251,7 @@ No type information will be provided."
   "Returns the value and T if the key is still live, otherwise NIL and NIL."
   (check-type weak-pointer weak-pointer)
   ;; Make a strong reference to value first.
-  ;; It'll be set to some other live value if the weak pointer is dead.
+  ;; It'll be set to NIL if the weak pointer is dead.
   (let ((value (%object-ref-t weak-pointer +weak-pointer-value+)))
     ;; Inspect the livep header bit.
     (if (logbitp +weak-pointer-header-livep+ (%object-header-data weak-pointer))
@@ -2259,6 +2260,7 @@ No type information will be provided."
 
 (defun weak-pointer-live-p (weak-pointer)
   "Returns true if the weak pointer is still live."
+  (check-type weak-pointer weak-pointer)
   (logbitp +weak-pointer-header-livep+ (%object-header-data weak-pointer)))
 
 (defun examine-weak-pointer-key (key)
