@@ -1931,6 +1931,7 @@ has only has class specializer."
              (slow-single-dispatch-method-lookup* gf argument-offset (list new-value object) :writer))))))
 
 (defun compute-1-effective-discriminator (gf emf-table argument-offset)
+  ;; TODO: This table should be a weak-alist, but that's not thread-safe.
   (let ((eql-table (compute-1-effective-eql-table gf argument-offset)))
     ;; Generate specialized dispatch functions for various combinations of
     ;; arguments.

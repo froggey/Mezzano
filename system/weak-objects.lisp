@@ -2,6 +2,9 @@
 
 (in-package :mezzano.garbage-collection.weak-objects)
 
+;;; TODO: The weak collections should be modified to prune their collections
+;;; in a wait-free way.
+
 ;;; Weak References
 ;;;
 ;;; A weak reference holds a reference to an object without preventing it

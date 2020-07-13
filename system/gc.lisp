@@ -2258,6 +2258,16 @@ No type information will be provided."
         (values value t)
         (values nil nil))))
 
+;;; Fast unsafe readers for key/value.
+;;; These return NIL when the weak-pointer is dead.
+(declaim (inline %weak-pointer-key))
+(defun %weak-pointer-key (weak-pointer)
+  (%object-ref-t weak-pointer +weak-pointer-key+))
+
+(declaim (inline %weak-pointer-value))
+(defun %weak-pointer-value (weak-pointer)
+  (%object-ref-t weak-pointer +weak-pointer-value+))
+
 (defun weak-pointer-live-p (weak-pointer)
   "Returns true if the weak pointer is still live."
   (check-type weak-pointer weak-pointer)
