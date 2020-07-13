@@ -2266,17 +2266,27 @@ No type information will be provided."
     ;; Immediate objects are always live.
     (return-from examine-weak-pointer-key
       (values key t)))
-  (let ((address (object-base-address key)))
-    (ecase (ldb (byte +address-tag-size+ +address-tag-shift+) address)
+  (let* ((address (object-base-address key))
+         (address-tag (ldb (byte +address-tag-size+ +address-tag-shift+) address)))
+    (ecase address-tag
       ((#.+address-tag-general+
         #.+address-tag-cons+)
        ;; Look for a forwarding pointer.
-       (let ((first-word (memref-t address 0)))
-         (cond ((%value-has-tag-p first-word +tag-gc-forward+)
+       (let ((header-byte (memref-unsigned-byte-8 address 0)))
+         (cond ((eql (ldb +tag-field+ header-byte) +tag-gc-forward+)
                 ;; Object is still live.
-                (values (%%assemble-value (object-base-address first-word)
+                (values (%%assemble-value (object-base-address (memref-t address 0))
                                           (%tag-field key))
                         t))
+               ;; Look for a heap number, treat these as live so that
+               ;; weak pointers are more useful for arbitrary keys.
+               ;; Thinking about EQL caches for GF discriminators.
+               ;; This object's header is still intact, it's fine
+               ;; to do a type test on it.
+               ((and (eql address-tag +address-tag-general+)
+                     (numberp key))
+                ;; Value is a heap number. Treat it as live.
+                (values (transport-object key :major) t))
                (t ;; Object is dead.
                 (values nil nil)))))
       (#.+address-tag-pinned+
