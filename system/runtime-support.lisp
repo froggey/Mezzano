@@ -426,7 +426,7 @@
     (setf (mezzano.runtime::instance-access-by-name new-class 'mezzano.clos::dependents)
           '())
     (setf (mezzano.runtime::instance-access-by-name new-class 'mezzano.clos::direct-subclasses)
-          '())
+          (mezzano.garbage-collection.weak-objects:make-weak-list '()))
     (setf (mezzano.runtime::instance-access-by-name new-class 'mezzano.clos::direct-methods)
           '())
     (setf (mezzano.runtime::instance-access-by-name new-class 'mezzano.clos::hash)
@@ -442,7 +442,9 @@
                        :instance-slots (convert-structure-definition-instance-slots sdef)))
     (setf (mezzano.runtime::instance-access-by-name new-class 'mezzano.clos::source-location)
           source-location)
-    (push new-class (mezzano.runtime::instance-access-by-name parent-class 'mezzano.clos::direct-subclasses))
+    (pushnew new-class
+             (mezzano.garbage-collection.weak-objects:weak-list-list
+              (mezzano.runtime::instance-access-by-name parent-class 'mezzano.clos::direct-subclasses)))
     new-class))
 
 (defun structure-slot-definition-trivially-compatible-p (existing-structure-class new-slot)

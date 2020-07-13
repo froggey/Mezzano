@@ -624,14 +624,26 @@ the old or new values are expected to be unbound.")
 (defun (setf safe-class-direct-slots) (value class)
   (setf (std-slot-value class 'direct-slots) value))
 
+(defun std-class-direct-subclasses (class)
+  (let ((list (std-slot-value class 'direct-subclasses)))
+    (and list ; list might not be initialized at this point.
+         (mezzano.garbage-collection.weak-objects:weak-list-list list))))
+
 (defun safe-class-direct-subclasses (class)
   (cond ((clos-class-instance-p class)
-         (std-slot-value class 'direct-subclasses))
+         (std-class-direct-subclasses class))
         (t
          (class-direct-subclasses class))))
 
 (defun std-add-direct-subclass (superclass subclass)
-  (push subclass (std-slot-value superclass 'direct-subclasses))
+  (let ((list (std-slot-value superclass 'direct-subclasses)))
+    ;; The DIRECT-SUBCLASSES slot is initialized to NIL because the
+    ;; cold-generator is unable to create weak lists.
+    ;; Lazily initialize the list here, if needed.
+    (when (not list)
+      (setf (std-slot-value superclass 'direct-subclasses)
+            (setf list (mezzano.garbage-collection.weak-objects:make-weak-list '()))))
+    (pushnew subclass (mezzano.garbage-collection.weak-objects:weak-list-list list)))
   (values))
 
 (defun safe-add-direct-subclass (superclass subclass)
@@ -642,8 +654,10 @@ the old or new values are expected to be unbound.")
          (add-direct-subclass superclass subclass))))
 
 (defun std-remove-direct-subclass (superclass subclass)
-  (setf (std-slot-value superclass 'direct-subclasses)
-        (remove subclass (std-slot-value superclass 'direct-subclasses)))
+  (let ((list (std-slot-value superclass 'direct-subclasses)))
+    (when list
+      (setf (mezzano.garbage-collection.weak-objects:weak-list-list list)
+            (remove subclass (mezzano.garbage-collection.weak-objects:weak-list-list list)))))
   (values))
 
 (defun safe-remove-direct-subclass (superclass subclass)
@@ -2861,8 +2875,7 @@ always match."
 
 (defgeneric class-direct-subclasses (class)
   (:method ((class class))
-    (declare (notinline slot-value)) ; bootstrap hack
-    (slot-value class 'direct-subclasses)))
+    (std-class-direct-subclasses class)))
 
 (defgeneric add-direct-subclass (superclass subclass)
   (:method ((superclass class) (subclass class))

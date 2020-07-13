@@ -96,7 +96,7 @@
   ((direct-methods :initform ())))
 
 (defclass class (specializer)
-  ((direct-subclasses :initform '())
+  ((direct-subclasses :initform nil)
    (source-location :initform nil :initarg :source-location)))
 
 (defclass forward-referenced-class (class)

@@ -126,6 +126,15 @@
         slot-name)
        (error "Slot ~S missing from ~S?" slot-name object))))
 
+(defun (setf primordial-slot-value) (value object slot-name)
+  (setf (mezzano.runtime::instance-access
+         object
+         (or (primordial-slot-location-in-layout
+              (sys.int::%instance-layout object)
+              slot-name)
+             (error "Slot ~S missing from ~S?" slot-name object)))
+        value))
+
 (defun initialize-clos ()
   ;; Known important classes.
   (setf *the-class-standard-class* (find-class 'standard-class)
@@ -162,7 +171,15 @@
     (setf *funcallable-standard-class-hash-location* (primordial-slot-location-in-layout f-s-c-layout 'hash)))
   (let ((b-i-c-layout (primordial-slot-value (find-class 'built-in-class) 'slot-storage-layout)))
     (setf *built-in-class-precedence-list-location* (primordial-slot-location-in-layout b-i-c-layout 'precedence-list)
-          *built-in-class-hash-location* (primordial-slot-location-in-layout b-i-c-layout 'hash))))
+          *built-in-class-hash-location* (primordial-slot-location-in-layout b-i-c-layout 'hash)))
+  ;; Patch slots in classes.
+  ;; The cold generator leaves these as lists, but they need to be weak lists.
+  (loop
+     for (name . class) across *initial-class-table*
+     do
+       (setf (primordial-slot-value class 'direct-subclasses)
+              (mezzano.garbage-collection.weak-objects:make-weak-list
+               (primordial-slot-value class 'direct-subclasses)))))
 
 ;; Initial version of class-constructor, replaced after the compiler is loaded.
 (defun safe-class-constructor (class)
