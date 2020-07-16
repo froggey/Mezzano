@@ -341,6 +341,11 @@
   (/ (ash 1024 (superblock-log-block-size superblock))
      (block-device-sector-size disk)))
 
+(defun bytes-per-block (disk superblock)
+  "Return block size in bytes"
+  (* (block-size disk superblock)
+     (block-device-sector-size disk)))
+
 (defun read-block (disk superblock block-n &optional (n-blocks 1))
   (let* ((block-size (block-size disk superblock))
          (sector-n (* block-size
@@ -787,14 +792,12 @@
                             &key direction element-type if-exists if-does-not-exist external-format)
   (with-ext4-host-locked (host)
     (let ((file-inode (find-file host pathname))
-          (buffer nil)
           (file-position 0)
           (file-length 0)
           (created-file nil)
           (abort-action nil))
       (if file-inode
-          (setf buffer (read-block-n (file-host-mount-device host) (superblock host) (bgdt host) file-inode 0)
-                file-length (inode-size file-inode))
+          (setf file-length (inode-size file-inode))
           (ecase if-does-not-exist
             (:error (error 'simple-file-error
                            :pathname pathname
@@ -812,7 +815,7 @@
                             :host host
                             :direction direction
                             :file-inode file-inode
-                            :buffer buffer
+                            :block-size (bytes-per-block (file-host-mount-device host) (superblock host))
                             :position file-position
                             :length file-length
                             :abort-action abort-action
@@ -825,7 +828,7 @@
                             :host host
                             :direction direction
                             :file-inode file-inode
-                            :buffer buffer
+                            :block-size (bytes-per-block (file-host-mount-device host) (superblock host))
                             :position file-position
                             :length file-length
                             :abort-action abort-action))

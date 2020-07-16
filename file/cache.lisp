@@ -7,13 +7,7 @@
            #:file-cache-character-stream
            #:allocate-new-block
            #:read-file-block
-           #:write-file-block
-           #:file-%direction
-           #:file-%buffer
-           #:file-%block-n
-           #:file-%dirty-bit
-           #:file-%position
-           #:file-%length))
+           #:write-file-block))
 
 (in-package :mezzano.file-system-cache)
 
@@ -21,10 +15,11 @@
   ((%direction :initarg :direction :reader file-%direction)
    (%buffer :initarg :buffer :accessor file-%buffer)
    (%block-n :initarg :block-n :accessor file-%block-n)
+   (%block-size :initarg :block-size :accessor file-%block-size)
    (%dirty-bit :initarg :dirty-bit :accessor file-%dirty-bit)
    (%position :initarg :position :accessor file-%position)
    (%length :initarg :length :accessor file-%length))
-  (:default-initargs :block-n 0 :dirty-bit nil :position 0 :length 0))
+  (:default-initargs :buffer nil :block-n -1 :dirty-bit nil :position 0 :length 0))
 
 (defclass file-cache-character-stream (mezzano.internals::external-format-mixin
                                        file-cache-stream)
@@ -54,16 +49,20 @@
 (defmethod output-stream-p ((stream file-cache-stream))
   (member (file-%direction stream) '(:output :io)))
 
+(defmethod mezzano.gray:stream-finish-output ((stream file-cache-stream))
+  (when (file-%dirty-bit stream)
+    (write-file-block stream (file-%buffer stream) (file-%block-n stream))
+    (setf (file-%dirty-bit stream) nil)))
+
 (defmethod mezzano.gray:stream-write-byte ((stream file-cache-stream) byte)
-  (assert (member (file-%direction stream) '(:output :io)))
+  (assert (output-stream-p stream))
   (multiple-value-bind (block-n block-offset)
-      (floor (file-%position stream) (length (file-%buffer stream)))
+      (floor (file-%position stream) (file-%block-size stream))
     (cond ((= block-n (file-%block-n stream))
            (when (>= (file-%position stream) (file-%length stream))
              (setf (file-%length stream) (1+ (file-%position stream)))))
           (t
-           ;; update file length?
-           (write-file-block stream (file-%buffer stream) (file-%block-n stream))
+           (finish-output stream)
            (setf (file-%buffer stream) (if (>= (file-%position stream) (file-%length stream))
                                            (allocate-new-block stream block-n)
                                            (read-file-block stream block-n))
@@ -74,13 +73,13 @@
     (incf (file-%position stream))))
 
 (defmethod mezzano.gray:stream-read-byte ((stream file-cache-stream))
-  (assert (member (file-%direction stream) '(:input :io)))
+  (assert (input-stream-p stream))
   (if (>= (file-%position stream) (file-%length stream))
       :eof
       (multiple-value-bind (block-n block-offset)
-          (floor (file-%position stream) (length (file-%buffer stream)))
-        (unless (= block-n (file-%block-n stream))
-          (write-file-block stream (file-%buffer stream) (file-%block-n stream))
+          (floor (file-%position stream) (file-%block-size stream))
+        (when (/= block-n (file-%block-n stream))
+          (finish-output stream)
           (setf (file-%block-n stream) block-n
                 (file-%buffer stream) (read-file-block stream block-n)))
         (prog1 (aref (file-%buffer stream) block-offset)
@@ -88,7 +87,7 @@
 
 ;; TODO
 ;; (defmethod mezzano.gray:stream-write-sequence ((stream file-cache-stream) sequence &optional (start 0) end)
-;;   (assert (member (file-%direction stream) '(:output :io)))
+;;   (assert (output-stream-p stream))
 ;;   (let* ((end (or end (file-%length stream)))
 ;;          (end2 (min end (length sequence))))
 ;;     (when (> end2 (file-%length stream))
@@ -101,16 +100,16 @@
 ;;     (incf (file-%position stream) (- end2 start))))
 
 (defmethod mezzano.gray:stream-read-sequence ((stream file-cache-stream) sequence &optional (start 0) end)
-  (assert (member (file-%direction stream) '(:input :io)))
-  (let* ((buffer-length (length (file-%buffer stream)))
+  (assert (input-stream-p stream))
+  (let* ((buffer-length (file-%block-size stream))
          (end1 (or end (length sequence)))
          (end2 (+ (file-%position stream) (min end1 (file-%length stream)))))
     (multiple-value-bind (first-block-n start-offset)
         (floor (file-%position stream) buffer-length)
       (multiple-value-bind (last-block-n end-offset)
           (floor (- end2 start) buffer-length)
-        (unless (= (file-%block-n stream) last-block-n)
-          (write-file-block stream (file-%buffer stream) (file-%block-n stream)))
+        (when (/= (file-%block-n stream) last-block-n)
+          (finish-output stream))
         (let ((block-n first-block-n))
           (do ((file-block (if (= first-block-n (file-%block-n stream))
                                (file-%buffer stream)
