@@ -1137,7 +1137,7 @@ First return value is a list of elements, second is the final dotted component (
                            (if (source-fragment (typep old ',(mezzano.clos:slot-definition-type slot-def)))
                                'nil
                                (progn
-                                 (call sys.int::raise-type-error new ',(mezzano.clos:slot-definition-type slot-def))
+                                 (call sys.int::raise-type-error old ',(mezzano.clos:slot-definition-type slot-def))
                                  (call sys.int::%%unreachable)))
                            (if (source-fragment (typep new ',(mezzano.clos:slot-definition-type slot-def)))
                                'nil
