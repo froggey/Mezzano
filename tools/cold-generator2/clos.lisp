@@ -257,6 +257,7 @@
                                        :fixed-vector (env:structure-slot-definition-fixed-vector slot-def)
                                        :align (env:structure-slot-definition-align slot-def)
                                        :location (env:structure-slot-definition-location slot-def)
+                                       :dcas-sibling (env:structure-slot-definition-dcas-sibling slot-def)
                                        :documentation (primordial-slot-value (first direct-slots) (env:translate-symbol environment 'mezzano.clos::documentation)))))
           (t
            (let ((initer (find-if-not #'null direct-slots
@@ -443,6 +444,7 @@
                                                :initform (env:structure-slot-definition-initform slot)
                                                :fixed-vector (env:structure-slot-definition-fixed-vector slot)
                                                :align (env:structure-slot-definition-align slot)
+                                               :dcas-sibling (env:structure-slot-definition-dcas-sibling slot)
                                                :documentation (env:structure-slot-definition-documentation slot)))))))
 
 (defun configure-clos (environment load-source-file)

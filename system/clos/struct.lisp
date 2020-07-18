@@ -43,6 +43,10 @@
   (:method ((slot-definition structure-slot-definition))
     (declare (notinline slot-value)) ; bootstrap hack
     (slot-value slot-definition 'align)))
+(defgeneric structure-slot-definition-dcas-sibling (slot-definition)
+  (:method ((slot-definition structure-slot-definition))
+    (declare (notinline slot-value)) ; bootstrap hack
+    (slot-value slot-definition 'dcas-sibling)))
 
 (defmethod allocate-instance ((class structure-class) &rest initargs)
   (declare (ignore initargs))

@@ -195,6 +195,7 @@
 (defun load-llf-structure-slot-definition (stream stack)
   (declare (ignore stream))
   (let* ((documentation (vector-pop stack))
+         (dcas-sibling (vector-pop stack))
          (align (vector-pop stack))
          (fixed-vector (vector-pop stack))
          (location (vector-pop stack))
@@ -203,7 +204,10 @@
          (initform (vector-pop stack))
          (accessor (vector-pop stack))
          (name (vector-pop stack)))
-    (make-struct-slot-definition name accessor initform type read-only location fixed-vector align documentation)))
+    (make-struct-slot-definition
+     name accessor initform type
+     read-only location fixed-vector
+     align dcas-sibling documentation)))
 
 (defun load-llf-array (stream stack)
   (let* ((n-dimensions (load-integer stream))

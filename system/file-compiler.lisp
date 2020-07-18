@@ -330,6 +330,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                (mezzano.clos:slot-definition-location slot)
                (mezzano.clos:structure-slot-definition-fixed-vector slot)
                (mezzano.clos:structure-slot-definition-align slot)
+               (mezzano.clos:structure-slot-definition-dcas-sibling slot)
                (mezzano.clos:slot-definition-documentation slot)))
    (if (eql class (find-class 'structure-object))
        nil
@@ -373,6 +374,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
   (save-object (structure-slot-definition-location object) omap stream)
   (save-object (structure-slot-definition-fixed-vector object) omap stream)
   (save-object (structure-slot-definition-align object) omap stream)
+  (save-object (structure-slot-definition-dcas-sibling object) omap stream)
   (save-object (structure-slot-definition-documentation object) omap stream)
   (write-byte +llf-structure-slot-definition+ stream))
 

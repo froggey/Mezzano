@@ -70,6 +70,40 @@
       (sys.int::cas (instance-access (mezzano.clos::fetch-up-to-date-instance-slots-and-layout object) loc)
                     old new))))
 
+(defun sys.int::%dcas-struct-slot (object
+                                   place-1-class-name place-1-slot-name
+                                   place-2-class-name place-2-slot-name
+                                   old-1 old-2 new-1 new-2)
+  (let ((class-1 (sys.int::get-structure-type place-1-class-name))
+        (class-2 (sys.int::get-structure-type place-2-class-name)))
+    (when (not (sys.int::structure-type-p object class-1))
+      (raise-struct-type-error object class-1 place-1-slot-name)
+      (sys.int::%%unreachable))
+    (when (not (sys.int::structure-type-p object class-2))
+      (raise-struct-type-error object class-2 place-2-slot-name)
+      (sys.int::%%unreachable))
+    (let* ((slot-1 (find-struct-slot class-1 place-1-slot-name))
+           (slot-2 (find-struct-slot class-2 place-2-slot-name))
+           (type-1 (mezzano.clos:slot-definition-type slot-1))
+           (type-2 (mezzano.clos:slot-definition-type slot-2))
+           (loc-1 (mezzano.clos:slot-definition-location slot-1))
+           (loc-2 (mezzano.clos:slot-definition-location slot-2)))
+      (when (not (eq type-1 't))
+        (assert (typep old-1 type-1))
+        (assert (typep new-1 type-1)))
+      (when (not (eq type-2 't))
+        (assert (typep old-2 type-2))
+        (assert (typep new-2 type-2)))
+      (when (mezzano.clos:structure-slot-definition-read-only slot-1)
+        (error "Slot ~S in structure type ~S is read-only" slot-1 class-1))
+      (when (mezzano.clos:structure-slot-definition-read-only slot-2)
+        (error "Slot ~S in structure type ~S is read-only" slot-2 class-2))
+      (when (not (eql (mezzano.clos:structure-slot-definition-dcas-sibling slot-1) place-2-slot-name))
+        (error "Slots ~S and ~S in structure types ~S and ~S are not DCAS siblings"
+               slot-1 slot-2 class-1 class-2))
+      (instance-dcas (mezzano.clos::fetch-up-to-date-instance-slots-and-layout object)
+                     loc-1 loc-2 old-1 old-2 new-1 new-2))))
+
 (defun check-vector-slot-bounds (slot index)
   (check-type index fixnum)
   (assert (<= 0 index (1- (mezzano.clos:structure-slot-definition-fixed-vector slot)))))
@@ -257,7 +291,7 @@
 (defstruct (structure-slot-definition
              (:area :wired)
              (:constructor make-struct-slot-definition
-                           (name accessor initform type read-only location fixed-vector align documentation))
+                           (name accessor initform type read-only location fixed-vector align dcas-sibling documentation))
              :sealed)
   (name nil :read-only t)
   (accessor nil :read-only t)
@@ -267,4 +301,5 @@
   (location nil :read-only t)
   (fixed-vector nil :read-only t)
   (align nil :read-only t)
+  (dcas-sibling nil :read-only t)
   (documentation nil :read-only t))

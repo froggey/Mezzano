@@ -37,12 +37,6 @@
 
 (in-package :mezzano.internals)
 
-(defun mezzano.clos:class-precedence-list (class)
-  (c2mop:class-precedence-list class))
-
-(defun mezzano.clos::safe-class-precedence-list (class)
-  (c2mop:class-precedence-list class))
-
 (defclass structure-definition ()
   ((name :initarg :name :reader structure-definition-name)
    (slots :initarg :slots :reader structure-definition-slots)
@@ -68,6 +62,17 @@
 
 (defun sys.int::structure-definition-p (object)
   (typep object 'structure-definition))
+
+(defun mezzano.clos:class-precedence-list (class)
+  ;; Materialize slightly-broken precedence lists for structure definitions too.
+  (if (typep class 'structure-definition)
+      (if (structure-definition-parent class)
+          (list* class (mezzano.clos:class-precedence-list (structure-definition-parent class)))
+          (list class))
+      (c2mop:class-precedence-list class)))
+
+(defun mezzano.clos::safe-class-precedence-list (class)
+  (mezzano.clos:class-precedence-list class))
 
 (defstruct layout
   class
@@ -99,9 +104,10 @@
    (location :initarg :location :reader structure-slot-definition-location)
    (fixed-vector :initarg :fixed-vector :reader structure-slot-definition-fixed-vector)
    (align :initarg :align :reader structure-slot-definition-align)
+   (dcas-sibling :initarg :dcas-sibling :reader structure-slot-definition-dcas-sibling :reader mezzano.clos:structure-slot-definition-dcas-sibling)
    (documentation :initarg :documentation :reader structure-slot-definition-documentation)))
 
-(defun sys.int::make-struct-slot-definition (name accessor initform type read-only location fixed-vector align documentation)
+(defun sys.int::make-struct-slot-definition (name accessor initform type read-only location fixed-vector align dcas-sibling documentation)
   (make-instance 'structure-slot-definition
                  :name name
                  :accessor accessor
@@ -111,6 +117,7 @@
                  :location location
                  :fixed-vector fixed-vector
                  :align align
+                 :dcas-sibling dcas-sibling
                  :documentation documentation))
 
 (defmethod print-object ((object structure-slot-definition) stream)
@@ -124,6 +131,7 @@
                   :location (structure-slot-definition-location object)
                   :fixed-vector (structure-slot-definition-fixed-vector object)
                   :align (structure-slot-definition-align object)
+                  :dcas-sibling (structure-slot-definition-dcas-sibling object)
                   :documentation (structure-slot-definition-documentation object)))))
 
 (defstruct (instance-header
@@ -734,6 +742,7 @@
   (save-object (sys.int::structure-slot-definition-location object) omap stream)
   (save-object (sys.int::structure-slot-definition-fixed-vector object) omap stream)
   (save-object (sys.int::structure-slot-definition-align object) omap stream)
+  (save-object (sys.int::structure-slot-definition-dcas-sibling object) omap stream)
   (save-object (sys.int::structure-slot-definition-documentation object) omap stream)
   (write-byte sys.int::+llf-structure-slot-definition+ stream))
 

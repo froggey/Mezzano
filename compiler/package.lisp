@@ -158,6 +158,7 @@
    #:get-cas-expansion
    #:atomic-incf
    #:atomic-decf
+   #:double-compare-and-swap
 
    ;; Package local nicknames
    #:find-global-package
@@ -362,6 +363,7 @@
            #:structure-slot-definition-read-only
            #:structure-slot-definition-fixed-vector
            #:structure-slot-definition-align
+           #:structure-slot-definition-dcas-sibling
 
            #:+slot-unbound+
 

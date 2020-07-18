@@ -238,16 +238,35 @@
          (values mezzano.runtime::+location-type-t+ 8))))
 
 ;; Parses slot-description and returns a struct slot definition
-(defun parse-defstruct-slot (conc-name slot current-index default-slot-type)
-  (destructuring-bind (name &optional initform &key (type default-slot-type) read-only fixed-vector align documentation)
+(defun parse-defstruct-slot (conc-name slot current-index default-slot-type previous-slot-definition)
+  (destructuring-bind (name &optional initform &key (type default-slot-type) read-only fixed-vector align dcas-sibling documentation)
       (if (symbolp slot)
           (list slot)
           slot)
     (let ((accessor (concat-symbols conc-name name)))
       (check-type fixed-vector (or null (integer 0)))
       (check-type align (member nil 1 2 4 8 16))
+      (check-type dcas-sibling symbol)
+      (when (and dcas-sibling fixed-vector)
+        (error ":DCAS-SIBLING and :FIXED-VECTOR are mutually incompatible"))
+      ;; DCAS siblings pairs must have the first word be 16 byte aligned and
+      ;; the second must immediately follow it.
+      (when dcas-sibling
+        (cond ((and previous-slot-definition (eql dcas-sibling (structure-slot-definition-name previous-slot-definition)))
+               ;; This is the second half of a DCAS sibling pair.
+               ;; It must not have an alignment greater than 8.
+               (assert (or (not align) (<= align 8)))
+               ;; And the previous slot's sibling must match this one.
+               (assert (eql (structure-slot-definition-dcas-sibling previous-slot-definition) name)))
+              (t
+               ;; This is the second half of a DCAS sibling pair.
+               ;; It must be 16-byte aligned.
+               (setf align 16))))
       (multiple-value-bind (location-type element-size)
           (compute-struct-slot-accessor-and-size type)
+        (when (and dcas-sibling
+                   (not (eql location-type mezzano.runtime::+location-type-t+)))
+          (error ":DCAS-SIBLING not supported on slots of type ~S" type))
         ;; Align current index.
         (let ((effective-alignment (or align element-size)))
           (when (and (eql location-type mezzano.runtime::+location-type-t+)
@@ -260,7 +279,7 @@
           (incf current-index 8)
           (values (make-struct-slot-definition name accessor initform type read-only
                                                (mezzano.runtime::make-location location-type current-index)
-                                               fixed-vector align documentation)
+                                               fixed-vector align dcas-sibling documentation)
                   current-index
                   (+ current-index (* element-size (max (or fixed-vector 1) 1)))
                   (eql location-type mezzano.runtime::+location-type-t+)))))))
@@ -482,6 +501,7 @@
                                           :read-only (structure-slot-definition-read-only x)
                                           :fixed-vector (structure-slot-definition-fixed-vector x)
                                           :align (structure-slot-definition-align x)
+                                          :dcas-sibling (structure-slot-definition-dcas-sibling x)
                                           :documentation (structure-slot-definition-documentation x)))
                                   (structure-definition-slots included-structure)))))
     (dolist (is included-slot-descriptions)
@@ -494,10 +514,12 @@
     (loop
        with current-index = 0
        with layout = (make-array 0 :element-type 'bit :adjustable t)
+       with prev-slot-def = nil
        for s in (append included-slots
                         slot-descriptions)
        collect (multiple-value-bind (def slot-index next-index boxedp)
-                   (parse-defstruct-slot conc-name s current-index default-slot-type)
+                   (parse-defstruct-slot conc-name s current-index default-slot-type prev-slot-def)
+                 (setf prev-slot-def def)
                  (adjust-array layout (truncate (+ next-index 7) 8) :initial-element 0)
                  (when boxedp
                    (dotimes (i (ceiling (- next-index slot-index) 8))

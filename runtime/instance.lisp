@@ -145,6 +145,34 @@
   (def setf (value))
   (def sys.int::cas (new old)))
 
+(defun %instance-dcas (instance offset old-1 old-2 new-1 new-2)
+  (sys.int::%dcas-object instance offset old-1 old-2 new-1 new-2))
+
+(defun instance-dcas (instance loc-1 loc-2 old-1 old-2 new-1 new-2)
+  ;; TODO: Eventually combinations of same-width locations could be supported.
+  ;; T and UB64, or UB32 and SINGLE-FLOAT, etc
+  (when (not (eql (location-type loc-1) (location-type loc-2)))
+    (error "DCAS is not supported on locations of disparate types"))
+  ;; TODO: Support DCAS on unboxed slots at all.
+  (when (not (eql (location-type loc-1) +location-type-t+))
+    (error "DCAS is only supported on locations of type T"))
+  ;; The compiler has some trouble compiling this function because of the
+  ;; large number of registers used by the dcas instruction, exacerbated
+  ;; by the non-constant offset.
+  ;; Call out to an external function to help it out.
+  (let ((ofs-1 (location-offset-t loc-1))
+        (ofs-2 (location-offset-t loc-2)))
+    (cond ((eql (1+ ofs-1) ofs-2)
+           ;; Normal location ordering.
+           (%instance-dcas instance ofs-1 old-1 old-2 new-1 new-2))
+          ((eql (1+ ofs-2) ofs-1)
+           ;; Reversed location ordering.
+           (multiple-value-bind (successp value-2 value-1)
+               (%instance-dcas instance ofs-2 old-2 old-1 new-2 new-1)
+             (values successp value-1 value-2)))
+          (t
+           (error "DCAS is not supported on discontigious locations ~S and ~S" loc-1 loc-2)))))
+
 (defun slot-location-in-layout (layout slot-name)
   (let ((instance-slots (sys.int::layout-instance-slots layout)))
     (loop

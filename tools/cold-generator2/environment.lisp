@@ -71,6 +71,7 @@
            #:structure-slot-definition-location
            #:structure-slot-definition-fixed-vector
            #:structure-slot-definition-align
+           #:structure-slot-definition-dcas-sibling
            #:structure-slot-definition-documentation
            #:make-instance-header
            #:instance-header
@@ -237,7 +238,9 @@
   (assert (eql (structure-slot-definition-fixed-vector existing-slot)
                (structure-slot-definition-fixed-vector new-slot)))
   (assert (eql (structure-slot-definition-align existing-slot)
-               (structure-slot-definition-align new-slot))))
+               (structure-slot-definition-align new-slot)))
+  (assert (eql (structure-slot-definition-dcas-sibling existing-slot)
+               (structure-slot-definition-dcas-sibling new-slot))))
 
 (defun check-structure-definition-compatibility (environment existing new-sdef)
   (declare (ignore environment))
@@ -283,9 +286,10 @@
    (%location :initarg :location :reader structure-slot-definition-location)
    (%fixed-vector :initarg :fixed-vector :reader structure-slot-definition-fixed-vector)
    (%align :initarg :align :reader structure-slot-definition-align)
+   (%dcas-sibling :initarg :dcas-sibling :reader structure-slot-definition-dcas-sibling)
    (%documentation :initarg :documentation :reader structure-slot-definition-documentation)))
 
-(defun make-structure-slot-definition (environment name accessor initform type read-only location fixed-vector align documentation)
+(defun make-structure-slot-definition (environment name accessor initform type read-only location fixed-vector align dcas-sibling documentation)
   (declare (ignore environment))
   (make-instance 'structure-slot-definition
                  :name name
@@ -296,6 +300,7 @@
                  :location location
                  :fixed-vector fixed-vector
                  :align align
+                 :dcas-sibling dcas-sibling
                  :documentation documentation))
 
 (defmethod print-object ((object structure-slot-definition) stream)
@@ -309,6 +314,7 @@
                   :location (structure-slot-definition-location object)
                   :fixed-vector (structure-slot-definition-fixed-vector object)
                   :align (structure-slot-definition-align object)
+                  :dcas-sibling (structure-slot-definition-dcas-sibling object)
                   :documentation (structure-slot-definition-documentation object)))))
 
 (defclass instance-header ()

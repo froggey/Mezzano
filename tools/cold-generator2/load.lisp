@@ -174,6 +174,7 @@
 
 (defun load-structure-slot-definition (loader)
   (let ((documentation (stack-pop loader))
+        (dcas-sibling (stack-pop loader))
         (align (stack-pop loader))
         (fixed-vector (stack-pop loader))
         (location (stack-pop loader))
@@ -185,7 +186,8 @@
     (env:make-structure-slot-definition
      (loader-environment loader)
      name accessor initform type read-only
-     location fixed-vector align documentation)))
+     location fixed-vector align dcas-sibling
+     documentation)))
 
 (defun load-one-object (loader command)
   (ecase command

@@ -1153,6 +1153,113 @@ First return value is a list of elements, second is the final dotted component (
                                          ',(ast-value slot-name))))
                 form))))))
 
+(defun test-dcas-struct-slot-transform-viability
+    (structure-name-1 slot-name-1 structure-name-2 slot-name-2)
+  (let ((slot-1 (find-struct-slot structure-name-1 slot-name-1))
+        (slot-2 (find-struct-slot structure-name-2 slot-name-2)))
+    (when (and
+           ;; Both structures & slots must be known.
+           slot-1 slot-2
+           ;; Both must be writable.
+           (not (mezzano.clos:structure-slot-definition-read-only slot-1))
+           (not (mezzano.clos:structure-slot-definition-read-only slot-2))
+           ;; They must be DCAS pairs.
+           (eql (mezzano.clos:structure-slot-definition-dcas-sibling slot-1)
+                (mezzano.clos:slot-definition-name slot-2))
+           (eql (mezzano.clos:slot-definition-name slot-1)
+                (mezzano.clos:structure-slot-definition-dcas-sibling slot-2)))
+      ;; The structures must be the same, or one must be a child of the other.
+      (let ((struct-1 (sys.int::get-structure-type (ast-value structure-name-1)))
+            (struct-2 (sys.int::get-structure-type (ast-value structure-name-2))))
+        (or (eql struct-1 struct-2)
+            (member struct-2 (mezzano.clos:class-precedence-list struct-1))
+            (member struct-1 (mezzano.clos:class-precedence-list struct-2)))))))
+
+(defun generate-dcas-form (slot-1 slot-2 object old-1 old-2 new-1 new-2)
+  (let ((loc-1 (mezzano.clos:slot-definition-location slot-1))
+        (loc-2 (mezzano.clos:slot-definition-location slot-2)))
+    (assert (eql (mezzano.runtime::location-type loc-1) mezzano.runtime::+location-type-t+))
+    (assert (eql (mezzano.runtime::location-type loc-2) mezzano.runtime::+location-type-t+))
+    (let ((ofs-1 (mezzano.runtime::location-offset-t loc-1))
+          (ofs-2 (mezzano.runtime::location-offset-t loc-2)))
+      (cond ((eql (1+ ofs-1) ofs-2)
+             (assert (oddp ofs-1))
+             ;; FIXME: The result from %DCAS-OBJECT should be wrapped in
+             ;; THE, but the compiler has issues with VALUES types here.
+             `(call sys.int::%dcas-object
+                    ,object ',ofs-1
+                    ,old-1 ,old-2 ,new-1 ,new-2))
+            ((eql (1+ ofs-2) ofs-1)
+             ;; Inverted slots.
+             (assert (oddp ofs-2))
+             `(multiple-value-bind (successp value-2 value-1)
+                  (call sys.int::%dcas-object
+                        ,object ',ofs-2
+                        ,old-2 ,old-1 ,new-2 ,new-1)
+                (call values
+                      successp
+                      (the ,(mezzano.clos:slot-definition-type slot-1) value-1)
+                      (the ,(mezzano.clos:slot-definition-type slot-2) value-2))))
+            (t
+             (error "Discontigious dcas siblings?"))))))
+
+(defun simplify-dcas-struct-slot (form)
+  (change-made)
+  (destructuring-bind (object
+                       structure-name-1 slot-name-1
+                       structure-name-2 slot-name-2
+                       old-1 old-2
+                       new-1 new-2)
+      (arguments form)
+    (let* ((slot-def-1 (find-struct-slot structure-name-1 slot-name-1))
+           (slot-def-2 (find-struct-slot structure-name-2 slot-name-2))
+           (struct-1 (sys.int::get-structure-type (ast-value structure-name-1)))
+           (struct-2 (sys.int::get-structure-type (ast-value structure-name-2)))
+           ;; Get the most relevant struct type.
+           (struct (if (member struct-2 (mezzano.clos:class-precedence-list struct-1))
+                       struct-2
+                       struct-1)))
+      (cond ((match-optimize-settings form '((= safety 0) (= speed 3)))
+             (ast `(let ((old-1 ,old-1) (old-2 ,old-2)
+                         (new-1 ,new-1) (new-2 ,new-2)
+                         (obj ,object))
+                     ,(generate-dcas-form slot-def-1 slot-def-2 'obj 'old-1 'old-2 'new-1 'new-2))
+                  form))
+            (t
+             (ast `(let ((old-1 ,old-1) (old-2 ,old-2)
+                         (new-1 ,new-1) (new-2 ,new-2)
+                         (obj ,object))
+                     (if ,(struct-type-test-form 'obj struct)
+                         (progn
+                           (if (source-fragment (typep old-1 ',(mezzano.clos:slot-definition-type slot-def-1)))
+                               'nil
+                               (progn
+                                 (call sys.int::raise-type-error old-1 ',(mezzano.clos:slot-definition-type slot-def-1))
+                                 (call sys.int::%%unreachable)))
+                           (if (source-fragment (typep old-2 ',(mezzano.clos:slot-definition-type slot-def-2)))
+                               'nil
+                               (progn
+                                 (call sys.int::raise-type-error old-2 ',(mezzano.clos:slot-definition-type slot-def-2))
+                                 (call sys.int::%%unreachable)))
+                           (if (source-fragment (typep new-1 ',(mezzano.clos:slot-definition-type slot-def-1)))
+                               'nil
+                               (progn
+                                 (call sys.int::raise-type-error new-1 ',(mezzano.clos:slot-definition-type slot-def-1))
+                                 (call sys.int::%%unreachable)))
+                           (if (source-fragment (typep new-2 ',(mezzano.clos:slot-definition-type slot-def-2)))
+                               'nil
+                               (progn
+                                 (call sys.int::raise-type-error new-2 ',(mezzano.clos:slot-definition-type slot-def-2))
+                                 (call sys.int::%%unreachable)))
+                           ,(generate-dcas-form slot-def-1 slot-def-2 'obj 'old-1 'old-2 'new-1 'new-2))
+                         (notinline-call sys.int::%dcas-struct-slot
+                                         obj
+                                         ',(ast-value structure-name-1) ',(ast-value slot-name-1)
+                                         ',(ast-value structure-name-2) ',(ast-value slot-name-2)
+                                         old-1 old-2
+                                         new-1 new-2)))
+                form))))))
+
 (defun simplify-struct-vector-slot-check-bounds (index slot-def)
   `(tagbody foo
       (ENTRY (if (call sys.int::fixnump ,index)
@@ -1530,6 +1637,14 @@ least one value."
               (= (length (arguments form)) 5)
               (find-struct-slot (fourth (arguments form)) (fifth (arguments form))))
          (simplify-cas-struct-slot form))
+        ;; (%dcas-struct-slot object 'struct-1 'slot-1 'struct-2 'slot-2 old-1 old-2 new-1 new-2) => fast-dcas
+        ((and (equal (name form) 'sys.int::%dcas-struct-slot)
+              (local-inlining-permitted-p form)
+              (= (length (arguments form)) 9)
+              (test-dcas-struct-slot-transform-viability
+               (second (arguments form)) (third (arguments form))
+               (fourth (arguments form)) (fifth (arguments form))))
+         (simplify-dcas-struct-slot form))
         ;; (%struct-vector-slot s 'def 'slot index) => fast-reader
         ((and (eql (name form) 'sys.int::%struct-vector-slot)
               (local-inlining-permitted-p form)

@@ -142,6 +142,7 @@
    (initform :initform nil :initarg :initform)
    (fixed-vector :initform nil :initarg :fixed-vector)
    (align :initform nil :initarg :align)
+   (dcas-sibling :initform nil :initarg :dcas-sibling)
    (documentation :initform nil :initarg :documentation)))
 
 (defclass structure-direct-slot-definition (structure-slot-definition direct-slot-definition)
