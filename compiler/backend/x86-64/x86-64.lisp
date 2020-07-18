@@ -223,6 +223,10 @@
   (setf (x86-cmpxchg16b-new-1 instruction) (funcall substitution-function (x86-cmpxchg16b-new-1 instruction)))
   (setf (x86-cmpxchg16b-new-2 instruction) (funcall substitution-function (x86-cmpxchg16b-new-2 instruction))))
 
+(defmethod ra:allow-memory-operand-p ((instruction x86-cmpxchg16b-instruction) operand (architecture c:x86-64-target))
+  (not (or (eql operand (x86-cmpxchg16b-object instruction))
+           (eql operand (x86-cmpxchg16b-index instruction)))))
+
 (defmethod ir:print-instruction ((instruction x86-cmpxchg16b-instruction))
   (format t "   ~S~%"
           `(:x86-cmpxchg16b ,(x86-instruction-prefix instruction)

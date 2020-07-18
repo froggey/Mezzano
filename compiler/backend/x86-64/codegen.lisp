@@ -489,13 +489,18 @@
                                  ,(x86-cmpxchg-new instruction))))))
   (emit `(lap:mov64 ,(x86-cmpxchg-result instruction) :rax)))
 
+(defun preg-or-ea (preg-or-vreg)
+  (if (typep preg-or-vreg 'ir:virtual-register)
+      (effective-address preg-or-vreg)
+      preg-or-vreg))
+
 (defmethod emit-lap (backend-function (instruction x86-cmpxchg16b-instruction) uses defs)
-  (emit `(lap:mov64 :rbx ,(x86-cmpxchg16b-new-1 instruction)))
-  (emit `(lap:mov64 :rax ,(x86-cmpxchg16b-old-1 instruction)))
+  (emit `(lap:mov64 :rbx ,(preg-or-ea (x86-cmpxchg16b-new-1 instruction))))
+  (emit `(lap:mov64 :rax ,(preg-or-ea (x86-cmpxchg16b-old-1 instruction))))
   (emit-gc-info :extra-registers :rax)
-  (emit `(lap:mov64 :rcx ,(x86-cmpxchg16b-new-2 instruction)))
+  (emit `(lap:mov64 :rcx ,(preg-or-ea (x86-cmpxchg16b-new-2 instruction))))
   (emit-gc-info :extra-registers :rax-rcx)
-  (emit `(lap:mov64 :rdx ,(x86-cmpxchg16b-old-2 instruction)))
+  (emit `(lap:mov64 :rdx ,(preg-or-ea (x86-cmpxchg16b-old-2 instruction))))
   (emit-gc-info :extra-registers :rax-rcx-rdx)
   (when (x86-instruction-prefix instruction)
     (emit (x86-instruction-prefix instruction)))
@@ -515,8 +520,8 @@
                                              0
                                              ,(x86-cmpxchg16b-index instruction)
                                              4))))))
-  (emit `(lap:mov64 ,(x86-cmpxchg16b-result-1 instruction) :rax))
-  (emit `(lap:mov64 ,(x86-cmpxchg16b-result-2 instruction) :rdx)))
+  (emit `(lap:mov64 ,(preg-or-ea (x86-cmpxchg16b-result-1 instruction)) :rax))
+  (emit `(lap:mov64 ,(preg-or-ea (x86-cmpxchg16b-result-2 instruction)) :rdx)))
 
 (defstruct predicate-instruction
   inverse jump-instruction cmov-instruction)
