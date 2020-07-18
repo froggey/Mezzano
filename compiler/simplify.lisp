@@ -737,6 +737,10 @@ Returns NIL if there is no THE form.")
 
 (defun simp-eql (form)
   (when (eql (list-length (arguments form)) 2)
+    ;; (eql X X) => T
+    (when (eql (first (arguments form)) (second (arguments form)))
+      (change-made)
+      (return-from simp-eql (ast ''t form)))
     ;; (eql constant non-constant) => (eql non-constant constant)
     (when (and (quoted-form-p (first (arguments form)))
                (not (quoted-form-p (second (arguments form)))))
@@ -1411,6 +1415,12 @@ least one value."
     (setf (car i) (simp-form (hoist-the-form-to-edge (car i)))))
   (cond ((eql (name form) 'eql)
          (simp-eql form))
+        ((and (eql (name form) 'eq)
+              (eql (length (arguments form)) 2)
+              (eql (first (arguments form)) (second (arguments form))))
+         ;; (eq X X) => T
+         (change-made)
+         (ast ''t form))
         ((eql (name form) 'ash)
          (simp-ash form))
         ((and (eql (name form) 'eq)
