@@ -876,6 +876,8 @@
       v)))
 
 (defmacro check-type (&environment environment place typespec &optional string)
+  (when (typep typespec '(cons (eql quote)))
+    (error "CHECK-TYPE TYPESPEC ~S must not be quoted" typespec))
   (multiple-value-bind (vars vals store-vars writer-form reader-form)
       (get-setf-expansion place environment)
     (let ((value (gensym))
