@@ -92,8 +92,7 @@
 (defstruct (mutex
              (:include wait-queue)
              (:constructor make-mutex (&optional name))
-             (:area :wired)
-             :slot-offsets)
+             (:area :wired))
   ;; Thread holding the lock, or NIL if it is free.
   ;; May not be correct when the lock is being acquired/released.
   (owner nil)
@@ -106,7 +105,7 @@
   (state :unlocked)
   (stack-next nil)
   ;; Number of times ACQUIRE-MUTEX failed to immediately acquire the lock.
-  (contested-count 0))
+  (contested-count 0 :type fixnum))
 
 (defun acquire-mutex (mutex &optional (wait-p t))
   (check-type mutex mutex)
@@ -125,7 +124,7 @@
                  :format-control "Recursive locking detected on ~S ~S"
                  :format-arguments (list mutex (mutex-name mutex)))))
     ;; Increment MUTEX-CONTESTED-COUNT
-    (sys.int::%atomic-fixnum-add-object mutex +mutex-contested-count+ 1)
+    (sys.int::atomic-incf (mutex-contested-count mutex))
     (when wait-p
       (ensure-interrupts-enabled)
       (unless (not *pseudo-atomic*)
@@ -141,7 +140,7 @@
   (lock-wait-queue mutex)
   ;; Put the lock into the contested state.
   ;; Try to acquire again, release may have been running.
-  (when (eql (sys.int::%xchg-object mutex +mutex-state+ :contested) :unlocked)
+  (when (eql (sys.int::atomic-swapf (mutex-state mutex) :contested) :unlocked)
     ;; We got it.
     (setf (mutex-owner mutex) self)
     (unlock-wait-queue mutex)
@@ -406,16 +405,15 @@ May be used from an interrupt handler, assuming the associated mutex is interrup
 
 (defstruct (rw-lock
              (:constructor %make-rw-lock (name))
-             (:area :wired)
-             :slot-offsets)
+             (:area :wired))
   name
-  (state +rw-lock-state-unlocked+)
+  (state +rw-lock-state-unlocked+ :type fixnum)
   (lock (place-spinlock-initializer))
   writer-wait-queue
   reader-wait-queue
-  (n-pending-readers 0)
-  (read-contested-count 0)
-  (write-contested-count 0)
+  (n-pending-readers 0 :type fixnum)
+  (read-contested-count 0 :type fixnum)
+  (write-contested-count 0 :type fixnum)
   write-owner)
 
 (defun make-rw-lock (&optional name)
@@ -455,7 +453,7 @@ May be used from an interrupt handler, assuming the associated mutex is interrup
         (release-place-spinlock (rw-lock-lock rw-lock))
         (return-from rw-lock-read-acquire-slow t))
     ;; Successfully contested the lock (or it was already contested).
-    (sys.int::%atomic-fixnum-add-object rw-lock +rw-lock-read-contested-count+ 1)
+    (sys.int::atomic-incf (rw-lock-read-contested-count rw-lock))
     ;; Now we can safely sleep on the reader wait queue.
     ;; The unlock paths will directly transfer ownership to this thread.
     (push-wait-queue self (rw-lock-reader-wait-queue rw-lock))
@@ -500,7 +498,7 @@ May be used from an interrupt handler, assuming the associated mutex is interrup
             (let ((state (rw-lock-state rw-lock)))
               (when (logtest (logior +rw-lock-mode-write-bit+ +rw-lock-mode-contested-bit+) state)
                 ;; Lock is contested or write-locked. Fail.
-                (sys.int::%atomic-fixnum-add-object rw-lock +rw-lock-read-contested-count+ 1)
+                (sys.int::atomic-incf (rw-lock-read-contested-count rw-lock))
                 (return nil))
               ;; Try to acquire as an uncontested reader.
               ;; Retry if the lock state changed under us.
@@ -597,7 +595,7 @@ May be used from an interrupt handler, assuming the associated mutex is interrup
       (release-place-spinlock (rw-lock-lock rw-lock))
       (return-from rw-lock-write-acquire-slow t))
     ;; Successfully contested the lock (or it was already contested).
-    (sys.int::%atomic-fixnum-add-object rw-lock +rw-lock-write-contested-count+ 1)
+    (sys.int::atomic-incf (rw-lock-write-contested-count rw-lock))
     ;; Now we can safely sleep on the writer wait queue.
     ;; The unlock paths will directly transfer ownership to this thread.
     (push-wait-queue self (rw-lock-writer-wait-queue rw-lock))
@@ -633,7 +631,7 @@ May be used from an interrupt handler, assuming the associated mutex is interrup
                   :format-arguments (list rw-lock (rw-lock-name rw-lock)))))
      (thread-pool-blocking-hijack rw-lock-write-acquire rw-lock wait-p)
      (when (not wait-p)
-       (sys.int::%atomic-fixnum-add-object rw-lock +rw-lock-write-contested-count+ 1)
+       (sys.int::atomic-incf (rw-lock-write-contested-count rw-lock))
        (return nil))
      (when (not (%call-on-wired-stack-without-interrupts
                  #'rw-lock-write-acquire-slow nil rw-lock))
