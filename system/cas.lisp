@@ -88,40 +88,124 @@ If NAME does not name a struct accessor, then NIL is returned."
             (values (second (third potential-struct-slot-form))
                     (second (fourth potential-struct-slot-form)))))))))
 
-(defmacro atomic-incf (place &optional (delta 1) &environment environment)
-  "Atomically increment PLACE by DELTA.
+(defmacro define-atomic-rmw-operation (name lambda-list function symbol-function struct-slot-function &key require-fixnum no-result documentation)
+  (multiple-value-bind (required optional rest enable-keys keys allow-other-keys aux)
+      (parse-ordinary-lambda-list lambda-list)
+    (when (or enable-keys keys allow-other-keys aux)
+      (error "&KEYS and &AUX not permitted in define-atomic-rmw-operation lambda list"))
+    ;; Use MAKE-SYMBOL instead of GENSYM to avoid producing a name like PLACE1234.
+    ;; This is visible in the lambda list and is shown by Slime.
+    (let* ((place (make-symbol "PLACE"))
+           (env (gensym "ENV"))
+           (all-names (append required (mapcar #'car optional) (if rest (list rest) '())))
+           (all-name-syms (loop for name in all-names collect (gensym (string name)))))
+      `(defmacro ,name (&environment ,env ,place ,@lambda-list)
+         ,documentation
+         (multiple-value-bind (vars vals old-sym new-sym cas-form read-form)
+             (get-cas-expansion ,place ,env)
+           (let ,(loop
+                    for name in all-names
+                    for sym in all-name-syms
+                    collect (list sym `(gensym ,(string name))))
+             `(let (,@(mapcar #'list vars vals)
+                    ,,@(loop
+                          for name in all-names
+                          for sym in all-name-syms
+                          collect ``(,,sym ,,name)))
+                ,(cond
+                   ;; If READ-FORM is of the form (SYMBOL-GLOBAL-VALUE 'foo), then we know
+                   ;; this is a global symbol and can touch it directly.
+                   ((and (typep read-form '(cons (eql symbol-global-value)
+                                            (cons (cons (eql quote) (cons symbol null))
+                                             null)))
+                         ,(if require-fixnum
+                              `(type-equal (mezzano.runtime::symbol-type (second (second read-form))) 'fixnum ,env)
+                              't))
+                    (,(if rest 'list* 'list)
+                      ',symbol-function
+                      `',(second (second read-form))
+                      ,@all-name-syms))
+                   ;; If it names a structure slot accessor, then perform that
+                   ;; operation.
+                   ((and (typep read-form '(cons symbol (cons t null)))
+                         (struct-accessor-info (first read-form) ,env))
+                    ;; Try for structure accessors
+                    (multiple-value-bind (struct-name slot-name)
+                        (struct-accessor-info (first read-form) ,env)
+                      (,(if rest 'list* 'list)
+                        ',struct-slot-function
+                        (second read-form)
+                        `',struct-name `',slot-name
+                        ,@all-name-syms)))
+                   (t
+                    ;; Fall back on a CAS loop.
+                    ;; TODO: Support directly on struct slots that have been declared fixnum.
+                    `(loop
+                        for ,old-sym = ,read-form
+                        for ,new-sym = ,(,(if rest 'list* 'list)
+                                          ',function
+                                          old-sym
+                                          ,@all-name-syms)
+                        when (eq ,cas-form ,old-sym)
+                        return ,,(if no-result '(values) 'old-sym)))))))))))
+
+(define-atomic-rmw-operation atomic-incf (&optional (delta 1))
+  wrapping-fixnum-+
+  %atomic-fixnum-add-symbol
+  %atomic-fixnum-add-struct-slot
+  :require-fixnum t
+  :documentation "Atomically increment PLACE by DELTA.
 PLACE must contain a fixnum and if overflow occurs then the resulting value
 will be wrapped as though it were a fixnum-sized signed 2's complement integer.
-Returns the old value of PLACE."
-  (multiple-value-bind (vars vals old-sym new-sym cas-form read-form)
-      (get-cas-expansion place environment)
-    (let ((delta-sym (gensym "DELTA")))
-      ;; If READ-FORM is of the form (SYMBOL-GLOBAL-VALUE 'foo), then we know
-      ;; this is a global symbol and can touch it directly.
-      ;; Only do this when the symbol has been declaimed fixnum.
-      (cond ((and (typep read-form '(cons (eql symbol-global-value)
-                                     (cons (cons (eql quote) (cons symbol null))
-                                      null)))
-                  (type-equal (mezzano.runtime::symbol-type (second (second read-form))) 'fixnum environment))
-             `(let ((,delta-sym ,delta))
-                (when (not (fixnump ,delta-sym))
-                  (raise-type-error ,delta-sym 'fixnum)
-                  (%%unreachable))
-                (%atomic-fixnum-add-symbol ',(second (second read-form)) ,delta-sym)))
-          (t
-           ;; Fall back on a CAS loop.
-           ;; TODO: Support directly on struct slots that have been declared fixnum.
-           `(let (,@(mapcar #'list vars vals)
-                  (,delta-sym ,delta))
-              (loop
-                 for ,old-sym = ,read-form
-                 for ,new-sym = (wrapping-fixnum-+ ,old-sym ,delta-sym)
-                 when (eq ,cas-form ,old-sym)
-                 return ,old-sym)))))))
+DELTA must be a fixnum.
+Returns the old value of PLACE.")
 
 (defmacro atomic-decf (place &optional (delta 1))
-  "Like ATOMIC-INCF, but subtracting."
+  "Atomically decrement PLACE by DELTA.
+PLACE must contain a fixnum and if overflow occurs then the resulting value
+will be wrapped as though it were a fixnum-sized signed 2's complement integer.
+DELTA must be a fixnum.
+Returns the old value of PLACE."
+  ;; FIXME: This won't work for subtracting MOST-NEGATIVE-FIXNUM.
+  ;; Negating it produces (1+ MOST-POSITIVE-FIXNUM)
   `(atomic-incf ,place (- ,delta)))
+
+(define-atomic-rmw-operation atomic-logandf (integer)
+  logand
+  %atomic-fixnum-logand-symbol
+  %atomic-fixnum-logand-struct-slot
+  :require-fixnum t
+  :no-result t
+  :documentation "Atomically perform (setf place (logxor place INTEGER)).
+PLACE must contain a fixnum and INTEGER must be a fixnum.
+Returns no values.")
+
+(define-atomic-rmw-operation atomic-logiorf (integer)
+  logior
+  %atomic-fixnum-logior-symbol
+  %atomic-fixnum-logior-struct-slot
+  :require-fixnum t
+  :no-result t
+  :documentation "Atomically perform (setf place (logxor place INTEGER)).
+PLACE must contain a fixnum and INTEGER must be a fixnum.
+Returns no values.")
+
+(define-atomic-rmw-operation atomic-logxorf (integer)
+  logxor
+  %atomic-fixnum-logxor-symbol
+  %atomic-fixnum-logxor-struct-slot
+  :require-fixnum t
+  :no-result t
+  :documentation "Atomically perform (setf place (logxor place INTEGER)).
+PLACE must contain a fixnum and INTEGER must be a fixnum.
+Returns no values.")
+
+(define-atomic-rmw-operation atomic-swapf (new-value)
+  (lambda (old new) (declare (ignore old)) new)
+  %atomic-swap-symbol
+  %atomic-swap-struct-slot
+  :documentation "Atomically set PLACE to NEW-VALUE.
+Returns the old value of PLACE.")
 
 (defmacro double-compare-and-swap (&environment env place-1 place-2 old-1 old-2 new-1 new-2)
   (let ((place-1 (macroexpand place-1 env))

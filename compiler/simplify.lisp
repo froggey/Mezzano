@@ -1153,6 +1153,107 @@ First return value is a list of elements, second is the final dotted component (
                                          ',(ast-value slot-name))))
                 form))))))
 
+(defun test-atomic-fixnum-op-struct-slot-transform-viability (form)
+  (destructuring-bind (object structure-name slot-name value)
+      (arguments form)
+    (declare (ignore object value))
+    (let ((slot (find-struct-slot structure-name slot-name)))
+      (and
+       ;; Structures & slots must be known.
+       slot
+       ;; Must be writable.
+       (not (mezzano.clos:structure-slot-definition-read-only slot))
+       ;; Must be exactly of type fixnum.
+       (compiler-valid-type-equal-p (mezzano.clos:slot-definition-type slot)
+                                    'fixnum)))))
+
+(defun atomic-op-for-atomic-struct-slot-op (struct-slot-op)
+  (ecase struct-slot-op
+    (sys.int::%atomic-fixnum-add-struct-slot
+     'sys.int::%atomic-fixnum-add-object)
+    (sys.int::%atomic-fixnum-logand-struct-slot
+     'sys.int::%atomic-fixnum-logand-object)
+    (sys.int::%atomic-fixnum-logior-struct-slot
+     'sys.int::%atomic-fixnum-logior-object)
+    (sys.int::%atomic-fixnum-logxor-struct-slot
+     'sys.int::%atomic-fixnum-logxor-object)))
+
+(defun simplify-atomic-fixnum-op-struct-slot (form)
+  (change-made)
+  (destructuring-bind (object structure-name slot-name value)
+      (arguments form)
+    (let ((slot-def (find-struct-slot structure-name slot-name))
+          (struct (sys.int::get-structure-type (ast-value structure-name)))
+          (op (atomic-op-for-atomic-struct-slot-op (name form))))
+      (cond ((match-optimize-settings form '((= safety 0) (= speed 3)))
+             (ast `(let ((obj ,object)
+                         (value ,value))
+                     (call ,op obj ',(struct-slot-accessor-index slot-def) value))
+                  form))
+            (t
+             (ast `(let ((obj ,object)
+                         (value ,value))
+                     (if ,(struct-type-test-form 'obj struct)
+                         (progn
+                           (if (source-fragment (typep value 'fixnum))
+                               'nil
+                               (progn
+                                 (call sys.int::raise-type-error value 'fixnum)
+                                 (call sys.int::%%unreachable)))
+                           (call ,op obj ',(struct-slot-accessor-index slot-def) value))
+                         (notinline-call ,(name form)
+                                         obj
+                                         ',(ast-value structure-name)
+                                         ',(ast-value slot-name)
+                                         value)))
+                form))))))
+
+(defun test-atomic-swap-struct-slot-transform-viability (form)
+  (destructuring-bind (object structure-name slot-name value)
+      (arguments form)
+    (declare (ignore object value))
+    (let ((slot (find-struct-slot structure-name slot-name)))
+      (and
+       ;; Structures & slots must be known.
+       slot
+       ;; Must be writable.
+       (not (mezzano.clos:structure-slot-definition-read-only slot))))))
+
+(defun simplify-atomic-swap-struct-slot (form)
+  (change-made)
+  (destructuring-bind (object structure-name slot-name value)
+      (arguments form)
+    (let ((slot-def (find-struct-slot structure-name slot-name))
+          (struct (sys.int::get-structure-type (ast-value structure-name))))
+      (cond ((match-optimize-settings form '((= safety 0) (= speed 3)))
+             (ast `(let ((obj ,object)
+                         (value ,value))
+                     (call sys.int::%xchg-object
+                           obj
+                           ',(struct-slot-accessor-index slot-def)
+                           value))
+                  form))
+            (t
+             (ast `(let ((obj ,object)
+                         (value ,value))
+                     (if ,(struct-type-test-form 'obj struct)
+                         (progn
+                           (if (source-fragment (typep value ',(mezzano.clos:slot-definition-type slot-def)))
+                               'nil
+                               (progn
+                                 (call sys.int::raise-type-error value ',(mezzano.clos:slot-definition-type slot-def))
+                                 (call sys.int::%%unreachable)))
+                           (call sys.int::%xchg-object
+                                 obj
+                                 ',(struct-slot-accessor-index slot-def)
+                                 value))
+                         (notinline-call ,(name form)
+                                         obj
+                                         ',(ast-value structure-name)
+                                         ',(ast-value slot-name)
+                                         value)))
+                form))))))
+
 (defun test-dcas-struct-slot-transform-viability
     (structure-name-1 slot-name-1 structure-name-2 slot-name-2)
   (let ((slot-1 (find-struct-slot structure-name-1 slot-name-1))
@@ -1637,6 +1738,21 @@ least one value."
               (= (length (arguments form)) 5)
               (find-struct-slot (fourth (arguments form)) (fifth (arguments form))))
          (simplify-cas-struct-slot form))
+        ;; (%atomic-fixnum-add-struct-slot object 'struct-name 'slot-name value)
+        ((and (member (name form) '(sys.int::%atomic-fixnum-add-struct-slot
+                                    sys.int::%atomic-fixnum-logand-struct-slot
+                                    sys.int::%atomic-fixnum-logior-struct-slot
+                                    sys.int::%atomic-fixnum-logxor-struct-slot))
+              (local-inlining-permitted-p form)
+              (= (length (arguments form)) 4)
+              (test-atomic-fixnum-op-struct-slot-transform-viability form))
+         (simplify-atomic-fixnum-op-struct-slot form))
+        ;; (%atomic-swap-struct-slot object 'struct-name 'slot-name value)
+        ((and (eql (name form) 'sys.int::%atomic-swap-struct-slot)
+              (local-inlining-permitted-p form)
+              (= (length (arguments form)) 4)
+              (test-atomic-swap-struct-slot-transform-viability form))
+         (simplify-atomic-swap-struct-slot form))
         ;; (%dcas-struct-slot object 'struct-1 'slot-1 'struct-2 'slot-2 old-1 old-2 new-1 new-2) => fast-dcas
         ((and (equal (name form) 'sys.int::%dcas-struct-slot)
               (local-inlining-permitted-p form)

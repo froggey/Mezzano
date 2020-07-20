@@ -158,6 +158,10 @@
    #:get-cas-expansion
    #:atomic-incf
    #:atomic-decf
+   #:atomic-logandf
+   #:atomic-logiorf
+   #:atomic-logxorf
+   #:atomic-swapf
    #:double-compare-and-swap
 
    ;; Package local nicknames

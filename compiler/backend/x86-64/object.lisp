@@ -491,6 +491,60 @@
                        :result result
                        :prefix '(lap:lock))))
 
+;; Perform LOGAND of the slot at SLOT in OBJECT and VALUE.
+;; Returns no values.
+;; DELTA and the value of the slot must both be fixnums.
+;; (defun fixnum-logand (object slot value)
+;;   (setf (%object-ref-t object slot)
+;;         (logand (%object-ref-t object slot) value))
+;;   (values))
+(define-builtin sys.int::%atomic-fixnum-logand-object ((object offset value) ())
+  (emit (make-instance 'x86-atomic-instruction
+                       :opcode 'lap:and64
+                       :object object
+                       :index (if (constant-value-p offset '(signed-byte 29))
+                                  (fetch-constant-value offset)
+                                  offset)
+                       :rhs value
+                       :result nil
+                       :prefix '(lap:lock))))
+
+;; Perform LOGIOR of the slot at SLOT in OBJECT and VALUE.
+;; Returns no values.
+;; DELTA and the value of the slot must both be fixnums.
+;; (defun fixnum-logior (object slot value)
+;;   (setf (%object-ref-t object slot)
+;;         (logior (%object-ref-t object slot) value))
+;;   (values))
+(define-builtin sys.int::%atomic-fixnum-logior-object ((object offset value) ())
+  (emit (make-instance 'x86-atomic-instruction
+                       :opcode 'lap:or64
+                       :object object
+                       :index (if (constant-value-p offset '(signed-byte 29))
+                                  (fetch-constant-value offset)
+                                  offset)
+                       :rhs value
+                       :result nil
+                       :prefix '(lap:lock))))
+
+;; Perform LOGXOR of the slot at SLOT in OBJECT and VALUE.
+;; Returns no values.
+;; DELTA and the value of the slot must both be fixnums.
+;; (defun fixnum-logxor (object slot value)
+;;   (setf (%object-ref-t object slot)
+;;         (logxor (%object-ref-t object slot) value))
+;;   (values))
+(define-builtin sys.int::%atomic-fixnum-logxor-object ((object offset value) ())
+  (emit (make-instance 'x86-atomic-instruction
+                       :opcode 'lap:xor64
+                       :object object
+                       :index (if (constant-value-p offset '(signed-byte 29))
+                                  (fetch-constant-value offset)
+                                  offset)
+                       :rhs value
+                       :result nil
+                       :prefix '(lap:lock))))
+
 ;; Set the value in SLOT to NEW, and return the old value.
 ;; (defun xchg (object slot new)
 ;;   (prog1 (%object-ref-t object slot)

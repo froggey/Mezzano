@@ -70,6 +70,49 @@
       (sys.int::cas (instance-access (mezzano.clos::fetch-up-to-date-instance-slots-and-layout object) loc)
                     old new))))
 
+(macrolet ((def (name fn)
+             `(defun ,name (object class-name slot-name value)
+                (check-type value fixnum)
+                (let ((class (sys.int::get-structure-type class-name)))
+                  (when (not (sys.int::structure-type-p object class))
+                    (raise-struct-type-error object class slot-name)
+                    (sys.int::%%unreachable))
+                  (let* ((slot (find-struct-slot class slot-name))
+                         (type (mezzano.clos:slot-definition-type slot))
+                         (loc (mezzano.clos:slot-definition-location slot)))
+                    (when (not (or (eq type 'fixnum)
+                                   (and (subtypep type 'fixnum)
+                                        (subtypep 'fixnum type))))
+                      (error "Slot ~S in struct ~S ~S is not of type FIXNUM"
+                             slot-name object class-name))
+                    (when (mezzano.clos:structure-slot-definition-read-only slot)
+                      (error "Slot ~S in structure type ~S is read-only" slot class))
+                    (,fn
+                     (mezzano.clos::fetch-up-to-date-instance-slots-and-layout object)
+                     (location-offset-t loc)
+                     value))))))
+  (def sys.int::%atomic-fixnum-add-struct-slot sys.int::%atomic-fixnum-add-object)
+  (def sys.int::%atomic-fixnum-logand-struct-slot sys.int::%atomic-fixnum-logand-object)
+  (def sys.int::%atomic-fixnum-logior-struct-slot sys.int::%atomic-fixnum-logior-object)
+  (def sys.int::%atomic-fixnum-logxor-struct-slot sys.int::%atomic-fixnum-logxor-object))
+
+(defun sys.int::%atomic-swap-struct-slot (object class-name slot-name value)
+  (let ((class (sys.int::get-structure-type class-name)))
+    (when (not (sys.int::structure-type-p object class))
+      (raise-struct-type-error object class slot-name)
+      (sys.int::%%unreachable))
+    (let* ((slot (find-struct-slot class slot-name))
+           (type (mezzano.clos:slot-definition-type slot))
+           (loc (mezzano.clos:slot-definition-location slot)))
+      (when (not (eq type 't))
+        (assert (typep value type)))
+      (when (mezzano.clos:structure-slot-definition-read-only slot)
+        (error "Slot ~S in structure type ~S is read-only" slot class))
+      (sys.int::%xchg-object
+       (mezzano.clos::fetch-up-to-date-instance-slots-and-layout object)
+       (location-offset-t loc)
+       value))))
+
 (defun sys.int::%dcas-struct-slot (object
                                    place-1-class-name place-1-slot-name
                                    place-2-class-name place-2-slot-name

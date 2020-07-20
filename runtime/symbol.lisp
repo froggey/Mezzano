@@ -249,6 +249,44 @@
 
 (declaim (inline sys.int::%atomic-fixnum-add-symbol))
 (defun sys.int::%atomic-fixnum-add-symbol (symbol value)
+  (when (not (sys.int::fixnump value))
+    (sys.int::raise-type-error value 'fixnum))
+  (modifying-symbol-value symbol)
   (sys.int::%atomic-fixnum-add-object (symbol-value-cell symbol)
                                       sys.int::+symbol-value-cell-value+
                                       value))
+
+(declaim (inline sys.int::%atomic-fixnum-logand-symbol))
+(defun sys.int::%atomic-fixnum-logand-symbol (symbol value)
+  (when (not (sys.int::fixnump value))
+    (sys.int::raise-type-error value 'fixnum))
+  (modifying-symbol-value symbol)
+  (sys.int::%atomic-fixnum-logand-object (symbol-value-cell symbol)
+                                         sys.int::+symbol-value-cell-value+
+                                         value))
+
+(declaim (inline sys.int::%atomic-fixnum-logior-symbol))
+(defun sys.int::%atomic-fixnum-logior-symbol (symbol value)
+  (when (not (sys.int::fixnump value))
+    (sys.int::raise-type-error value 'fixnum))
+  (modifying-symbol-value symbol)
+  (sys.int::%atomic-fixnum-logior-object (symbol-value-cell symbol)
+                                         sys.int::+symbol-value-cell-value+
+                                         value))
+
+(declaim (inline sys.int::%atomic-fixnum-logxor-symbol))
+(defun sys.int::%atomic-fixnum-logxor-symbol (symbol value)
+  (when (not (sys.int::fixnump value))
+    (sys.int::raise-type-error value 'fixnum))
+  (modifying-symbol-value symbol)
+  (sys.int::%atomic-fixnum-logxor-object (symbol-value-cell symbol)
+                                         sys.int::+symbol-value-cell-value+
+                                         value))
+
+(declaim (inline sys.int::%atomic-swap-symbol))
+(defun sys.int::%atomic-swap-symbol (symbol new-value)
+  (modifying-symbol-value symbol)
+  (check-symbol-value-type new-value symbol)
+  (sys.int::%xchg-object (symbol-value-cell symbol)
+                         sys.int::+symbol-value-cell-value+
+                         new-value))

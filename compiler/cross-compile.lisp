@@ -100,7 +100,7 @@
    (accessor :initarg :accessor :reader structure-slot-definition-accessor)
    (initform :initarg :initform :reader structure-slot-definition-initform)
    (type :initarg :type :reader structure-slot-definition-type)
-   (read-only :initarg :read-only :reader structure-slot-definition-read-only)
+   (read-only :initarg :read-only :reader structure-slot-definition-read-only :reader mezzano.clos:structure-slot-definition-read-only)
    (location :initarg :location :reader structure-slot-definition-location)
    (fixed-vector :initarg :fixed-vector :reader structure-slot-definition-fixed-vector)
    (align :initarg :align :reader structure-slot-definition-align)
