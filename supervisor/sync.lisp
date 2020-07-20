@@ -785,13 +785,11 @@ EVENT can be any object that supports GET-OBJECT-EVENT."
 
 (defstruct (object-pool
              (:constructor make-object-pool (name object-limit field-getter field-setter))
-             (:area :wired)
-             :slot-offsets)
+             (:area :wired))
   name
   ;; Using a generation count avoids the ABA problem.
-  ;; It and the head slots must be adjacent.
-  (generation 0 :type fixnum)
-  (head nil)
+  (generation 0 :dcas-sibling head :type fixnum)
+  (head nil :dcas-sibling generation)
   ;; An approximate count of the number of objects in the pool.
   (n-objects 0 :type fixnum)
   (object-limit (error "not specified") :type fixnum)
@@ -813,8 +811,8 @@ EVENT can be any object that supports GET-OBJECT-EVENT."
        ;; Point the new object's link field at the head object.
        (funcall (object-pool-field-setter pool)
                 current-object object)
-       (when (sys.int::%dcas-object
-              pool +object-pool-generation+
+       (when (sys.int::double-compare-and-swap
+              (object-pool-generation pool) (object-pool-head pool)
               current-generation current-object
               ;; Avoid fixnum overflow when writing the generation.
               (sys.int::wrapping-fixnum-+ current-generation 1)
@@ -830,8 +828,8 @@ EVENT can be any object that supports GET-OBJECT-EVENT."
          (sys.int::atomic-incf (object-pool-miss-count pool))
          (return nil))
        (let ((next-object (funcall (object-pool-field-getter pool) current-object)))
-       (when (sys.int::%dcas-object
-              pool +object-pool-generation+
+       (when (sys.int::double-compare-and-swap
+              (object-pool-generation pool) (object-pool-head pool)
               current-generation current-object
               ;; Avoid fixnum overflow when writing the generation.
               (sys.int::wrapping-fixnum-+ current-generation 1) next-object)
