@@ -45,7 +45,11 @@
 
 )
 
-(defmacro cas (place old new &environment environment)
+(defmacro cas (place old new)
+  "Synonym for COMPARE-AND-SWAP."
+  `(compare-and-swap ,place ,old ,new))
+
+(defmacro compare-and-swap (place old new &environment environment)
   (multiple-value-bind (vars vals old-sym new-sym cas-form)
       (get-cas-expansion place environment)
     `(let (,@(mapcar #'list vars vals)

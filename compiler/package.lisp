@@ -155,6 +155,7 @@
 
    ;; Atomics
    #:cas
+   #:compare-and-swap
    #:get-cas-expansion
    #:atomic-incf
    #:atomic-decf
