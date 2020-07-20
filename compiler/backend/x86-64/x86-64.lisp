@@ -431,30 +431,32 @@ The resulting code is not in SSA form so this pass must be late in the compiler.
                     :outputs (list (x86-fake-three-operand-result inst))
                     :prefix nil))
     (when (typep inst 'x86-atomic-instruction)
-      (ir:insert-before backend-function inst
-                        (make-instance 'ir:move-instruction
-                                       :destination (x86-atomic-result inst)
-                                       :source (x86-atomic-rhs inst)))
-      (multiple-value-bind (ea ea-inputs)
-          (cond ((x86-atomic-displacement inst)
-                 (if (integerp (x86-atomic-index inst))
-                     (values `(,(x86-atomic-object inst) ,(+ (* (x86-atomic-index inst) 8) (x86-atomic-displacement inst)))
-                             (list (x86-atomic-object inst)))
-                     (values `(,(x86-atomic-object inst) ,(x86-atomic-displacement inst) (,(x86-atomic-index inst) 4))
-                             (list (x86-atomic-object inst) (x86-atomic-index inst)))))
-                (t
-                 (if (integerp (x86-atomic-index inst))
-                     (values `(:object ,(x86-atomic-object inst) ,(x86-atomic-index inst))
-                             (list (x86-atomic-object inst)))
-                     (values `(:object ,(x86-atomic-object inst) 0 ,(x86-atomic-index inst))
-                             (list (x86-atomic-object inst) (x86-atomic-index inst))))))
-        (change-class inst 'x86-instruction
-                      :operands (list ea (x86-atomic-result inst))
-                      :inputs (list* (x86-atomic-result inst) ea-inputs)
-                      :outputs (list (x86-atomic-result inst))
-                      :prefix (x86-instruction-prefix inst)
-                      :clobbers '()
-                      :early-clobber nil)))))
+      (let ((output-reg (or (x86-atomic-result inst)
+                            (make-instance 'ir:virtual-register))))
+        (ir:insert-before backend-function inst
+                          (make-instance 'ir:move-instruction
+                                         :destination output-reg
+                                         :source (x86-atomic-rhs inst)))
+        (multiple-value-bind (ea ea-inputs)
+            (cond ((x86-atomic-displacement inst)
+                   (if (integerp (x86-atomic-index inst))
+                       (values `(,(x86-atomic-object inst) ,(+ (* (x86-atomic-index inst) 8) (x86-atomic-displacement inst)))
+                               (list (x86-atomic-object inst)))
+                       (values `(,(x86-atomic-object inst) ,(x86-atomic-displacement inst) (,(x86-atomic-index inst) 4))
+                               (list (x86-atomic-object inst) (x86-atomic-index inst)))))
+                  (t
+                   (if (integerp (x86-atomic-index inst))
+                       (values `(:object ,(x86-atomic-object inst) ,(x86-atomic-index inst))
+                               (list (x86-atomic-object inst)))
+                       (values `(:object ,(x86-atomic-object inst) 0 ,(x86-atomic-index inst))
+                               (list (x86-atomic-object inst) (x86-atomic-index inst))))))
+          (change-class inst 'x86-instruction
+                        :operands (list ea output-reg)
+                        :inputs (list* output-reg ea-inputs)
+                        :outputs (list output-reg)
+                        :prefix (x86-instruction-prefix inst)
+                        :clobbers '()
+                        :early-clobber nil))))))
 
 (defmethod ir:perform-target-lowering (backend-function (target c:x86-64-target))
   (lower-builtins backend-function)
