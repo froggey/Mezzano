@@ -145,6 +145,15 @@
                  (doit)))
              (doit))))))
 
+(defun hash-table-update-gc-invariant (hash-table key)
+  (when (and (hash-table-gc-invariant hash-table)
+             (not (object-hash-gc-invariant-under-test key (hash-table-test hash-table))))
+    (when (eql (hash-table-gc-invariant hash-table) :mandatory)
+      (error "Hash-table key ~S is not gc-invariant under hash-table test ~S"
+             key (hash-table-test hash-table)))
+    ;; Hash table is no longer invariant.
+    (setf (hash-table-gc-invariant hash-table) nil)))
+
 (defun gethash (key hash-table &optional default)
   (check-type hash-table hash-table)
   (with-hash-table-lock (hash-table)
@@ -158,17 +167,15 @@
 (defun (setf gethash) (value key hash-table &optional default)
   (check-type hash-table hash-table)
   (with-hash-table-lock (hash-table)
-    (when (and (hash-table-gc-invariant hash-table)
-               (not (object-hash-gc-invariant-under-test key (hash-table-test hash-table))))
-      (when (eql (hash-table-gc-invariant hash-table) :mandatory)
-        (error "Hash-table key ~S is not gc-invariant under hash-table test ~S"
-               key (hash-table-test hash-table)))
-      ;; Hash table is no longer invariant.
-      (setf (hash-table-gc-invariant hash-table) nil))
     (when (hash-table-weakness hash-table)
       (return (setf (gethash-weak key hash-table default) value)))
     (multiple-value-bind (slot free-slot)
         (find-hash-table-slot key hash-table)
+      ;; Finding the slot can cause a rehash, which can reset the invariant state.
+      ;; So update the invariant state *after* finding it, to avoid the update getting lost.
+      ;; This can occur if this is the first key being put in an a hash table that
+      ;; was created in an older GC epoch.
+      (hash-table-update-gc-invariant hash-table key)
       (cond
         (slot
          ;; Replacing an existing entry
@@ -202,17 +209,11 @@
 (defun (cas gethash) (old-value new-value key hash-table &optional default)
   (check-type hash-table hash-table)
   (with-hash-table-lock (hash-table)
-    (when (and (hash-table-gc-invariant hash-table)
-               (not (object-hash-gc-invariant-under-test key (hash-table-test hash-table))))
-      (when (eql (hash-table-gc-invariant hash-table) :mandatory)
-        (error "Hash-table key ~S is not gc-invariant under hash-table test ~S"
-               key (hash-table-test hash-table)))
-      ;; Hash table is no longer invariant.
-      (setf (hash-table-gc-invariant hash-table) nil))
     (when (hash-table-weakness hash-table)
       (return (cas (gethash-weak key hash-table default) old-value new-value)))
     (multiple-value-bind (slot free-slot)
         (find-hash-table-slot key hash-table)
+      (hash-table-update-gc-invariant hash-table key)
       (cond
         (slot
          ;; Replacing an existing entry
@@ -513,6 +514,7 @@ is below the rehash-threshold."
   (declare (ignore default))
   (multiple-value-bind (slot free-slot)
       (find-weak-hash-table-slot key hash-table)
+    (hash-table-update-gc-invariant hash-table key)
     (cond
       (slot
        ;; Replacing an existing entry
@@ -545,6 +547,7 @@ is below the rehash-threshold."
 (defun (cas gethash-weak) (old-value new-value key hash-table &optional default)
   (multiple-value-bind (slot free-slot)
       (find-weak-hash-table-slot key hash-table)
+    (hash-table-update-gc-invariant hash-table key)
     (cond
       (slot
        ;; Replacing an existing entry
