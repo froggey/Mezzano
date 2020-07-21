@@ -218,17 +218,18 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
   (save-integer (function-pool-size object) stream)
   (multiple-value-bind (gc-info-address gc-info-length)
       (function-gc-info object)
+    (declare (ignore gc-info-address))
     (save-integer gc-info-length stream)
     ;; Accumulate the code & gc metadata into a single big octet vector
     ;; and blat that out in one go. Faster than calling write-byte a
     ;; bunch of time.
-    (let* ((n-code-bytes (- (function-code-size object) 16))
-           (data (make-array (+ n-code-bytes gc-info-length) :element-type '(unsigned-byte 8))))
-      (dotimes (i n-code-bytes)
-        (setf (aref data i) (function-code-byte object (+ i 16))))
-      (dotimes (i gc-info-length)
-        (setf (aref data (+ n-code-bytes i)) (function-gc-metadata-byte object i)))
-      (when (not *llf-dry-run*)
+    (when (not *llf-dry-run*)
+      (let* ((n-code-bytes (- (function-code-size object) 16))
+             (data (make-array (+ n-code-bytes gc-info-length) :element-type '(unsigned-byte 8))))
+        (dotimes (i n-code-bytes)
+          (setf (aref data i) (function-code-byte object (+ i 16))))
+        (dotimes (i gc-info-length)
+          (setf (aref data (+ n-code-bytes i)) (function-gc-metadata-byte object i)))
         (write-sequence data stream)))))
 
 ;;; From Alexandria.
