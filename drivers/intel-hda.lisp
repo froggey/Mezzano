@@ -1,5 +1,7 @@
-;;;; Copyright (c) 2015-2017 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; Intel High-Definition Audio codec support
+
+;;;; "High Definition Audio Specification Revision 1.0a"
+;;;; https://www.intel.com/content/www/us/en/standards/high-definition-audio-specification.html
 
 (defpackage :mezzano.driver.intel-hda
   (:use :cl)

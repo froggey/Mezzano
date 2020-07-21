@@ -1,7 +1,4 @@
-;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
-
-;;; Support code with no specific home.
+;;;; Support code with no specific home.
 
 (in-package :mezzano.supervisor)
 

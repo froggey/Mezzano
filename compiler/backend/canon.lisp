@@ -1,7 +1,4 @@
-;;;; Copyright (c) 2017 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
-
-;;; Canonicalization for various instructions.
+;;;; Canonicalization for various instructions.
 
 (in-package :mezzano.compiler.backend.register-allocator)
 

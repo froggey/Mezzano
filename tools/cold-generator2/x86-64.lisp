@@ -1,5 +1,4 @@
-;;;; Copyright (c) 2018 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; x86-64 target support
 
 (defpackage :mezzano.cold-generator.x86-64
   (:use :cl)

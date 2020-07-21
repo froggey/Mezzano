@@ -1,5 +1,4 @@
-;;;; Copyright (c) 2018 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; Writes an in-memory image to a file
 
 (defpackage :mezzano.cold-generator.write
   (:use :cl)

@@ -1,5 +1,4 @@
-;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; Drivers for the PS/2 keyboard and mouse
 
 (in-package :mezzano.gui.input-drivers)
 

@@ -1,5 +1,4 @@
-;;;; Copyright (c) 2016 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; PL011 UART driver
 
 (in-package :mezzano.supervisor)
 

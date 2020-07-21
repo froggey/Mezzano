@@ -1,5 +1,4 @@
-;;;; Copyright (c) 2016 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; Virtio-gpu driver
 
 (defpackage :mezzano.supervisor.virtio-gpu
   (:use :cl)

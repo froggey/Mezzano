@@ -1,6 +1,3 @@
-;;;; Copyright (c) 2015-2016 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
-
 ;;;; The high-level part of the profiler.
 ;;;; Takes raw samples and turns them into a more useful form.
 

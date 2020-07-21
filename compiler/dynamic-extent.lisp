@@ -1,10 +1,9 @@
-;;;; Copyright (c) 2018 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; Dynamic-extent lowering
+;;;;
+;;;; Convert variables bindings that have been declared dynamic-extent and have
+;;;; supported initializers to calls to their appropriate internal functions.
 
 (in-package :mezzano.compiler)
-
-;;; Convert variables bindings that have been declared dynamic-extent and have
-;;; supported initializers to calls to their appropriate internal functions.
 
 (defun convert-dynamic-extent (lambda architecture)
   (declare (ignore architecture))

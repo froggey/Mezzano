@@ -1,5 +1,4 @@
-;;;; Copyright (c) 2017 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; x86-64 builtin function support
 
 (in-package :mezzano.compiler.backend.x86-64)
 

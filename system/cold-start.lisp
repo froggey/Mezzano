@@ -1,5 +1,6 @@
-;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; Cold initialization
+;;;;
+;;;; This code is run when an image is booted for the first time
 
 (in-package :mezzano.internals)
 

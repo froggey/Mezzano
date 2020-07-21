@@ -1,11 +1,8 @@
-;;;; Copyright (c) 2017 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
-
-;;; Removal of redundant return-from forms.
-;;;
-;;; This pass tracks which blocks are active along the tail position.
-;;; When a return-from is reached whose target is active, it can be
-;;; reduced down to just the value.
+;;;; Removal of redundant return-from forms.
+;;;;
+;;;; This pass tracks which blocks are active along the tail position.
+;;;; When a return-from is reached whose target is active, it can be
+;;;; reduced down to just the value.
 
 (in-package :mezzano.compiler)
 

@@ -1,6 +1,3 @@
-;;;; Copyright (c) 2011-2017 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
-
 ;;;; MMIO transport for virtio devices.
 
 (defpackage :mezzano.supervisor.virtio-mmio-transport

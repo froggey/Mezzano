@@ -1,6 +1,3 @@
-;;;; Copyright (c) 2015-2016 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
-
 ;;;; Simplify complicated control flow in TAGBODY forms.
 
 (in-package :mezzano.compiler)

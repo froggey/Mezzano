@@ -1,7 +1,4 @@
-;;;; Copyright (c) 2011-2018 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
-
-;;; Implementations of the standard stream types.
+;;;; Implementations of the standard stream types.
 
 (in-package :mezzano.internals)
 

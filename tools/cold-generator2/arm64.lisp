@@ -1,5 +1,4 @@
-;;;; Copyright (c) 2018 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; ARM64 target support
 
 (defpackage :mezzano.cold-generator.arm64
   (:use :cl)

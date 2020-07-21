@@ -1,5 +1,4 @@
-;;;; Copyright (c) 2017 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; General optimization passes.
 
 (in-package :mezzano.compiler.backend)
 

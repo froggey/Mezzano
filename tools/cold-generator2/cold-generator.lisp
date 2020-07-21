@@ -1,5 +1,6 @@
-;;;; Copyright (c) 2018 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; The cold image generator.
+;;;;
+;;;; Cross-compiles source files and produces a cold image.
 
 (defpackage :mezzano.cold-generator
   (:use :cl)

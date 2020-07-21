@@ -1,7 +1,6 @@
-;;;; Copyright (c) 2011-2017 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
-
 ;;;; Simplifiy the ast by removing empty nodes and unused variables.
+;;;;
+;;;; This has become a grab-bag of random optimizations.
 
 (in-package :mezzano.compiler)
 

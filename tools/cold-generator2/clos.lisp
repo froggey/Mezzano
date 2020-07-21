@@ -1,5 +1,6 @@
-;;;; Copyright (c) 2018 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; CLOS bootstrapping.
+;;;;
+;;;; Generates the initial class hierarchy.
 
 (defpackage :mezzano.cold-generator.clos
   (:use :cl)

@@ -1,6 +1,3 @@
-;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
-
 ;;;; Persistent storage management.
 ;;;; This is completely protected by *VM-LOCK*. It must be write-locked
 ;;;; before calling STORE-ALLOC, STORE-FREE, or REGENERATE-STORE-FREELIST.

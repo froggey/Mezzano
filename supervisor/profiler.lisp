@@ -1,6 +1,3 @@
-;;;; Copyright (c) 2015-2016 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
-
 ;;;; The low-level part of the profiler.
 ;;;; Deals with setting up/tearing down the profile buffer and actually
 ;;;; taking samples.

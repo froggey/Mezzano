@@ -1,5 +1,4 @@
-;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; Supervisor-side of the PS/2 keyboard and mouse drivers.
 
 (in-package :mezzano.supervisor)
 

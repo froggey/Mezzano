@@ -1,8 +1,3 @@
-;;;; Copyright (c) 2018 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
-;;;; Copyright (c) 2020 Philip Mueller (phil.mueller@fittestbits.com)
-;;;; This code is licensed under the MIT license.
-
 ;;======================================================================
 ;; UUID Layout and Byte Order (per RFC 4122)
 ;;

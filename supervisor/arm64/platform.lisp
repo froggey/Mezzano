@@ -1,6 +1,3 @@
-;;;; Copyright (c) 2016 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
-
 (in-package :mezzano.supervisor)
 
 (defun initialize-fdt-dw-apb-uart-console (fdt-node address-cells size-cells)

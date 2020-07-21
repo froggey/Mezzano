@@ -1,6 +1,3 @@
-;;;; Copyright (c) 2017 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
-
 ;;; The interface that all sound device drivers must conform to.
 
 (defpackage :mezzano.driver.sound

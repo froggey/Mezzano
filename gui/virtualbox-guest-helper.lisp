@@ -1,5 +1,4 @@
-;;;; Copyright (c) 2017 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; Additional support for VirtualBox's guest integration
 
 (defpackage :mezzano.gui.virtualbox-helper
   (:use :cl))

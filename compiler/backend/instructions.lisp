@@ -1,7 +1,4 @@
-;;;; Copyright (c) 2017 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
-
-;;; Backend IR instruction definitions.
+;;;; Backend IR instruction definitions.
 
 (in-package :mezzano.compiler.backend)
 

@@ -1,7 +1,6 @@
-;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
-
-;;; This is the compiler pass that performs lambda-lifting.
+;;;; This is the compiler pass that performs lambda-lifting.
+;;;;
+;;;; Conversion of calls to known lambdas to LET AST nodes.
 
 (in-package :mezzano.compiler)
 

@@ -1,3 +1,7 @@
+;;;; DMA buffers
+;;;;
+;;;; These provide access to physical memory in a safe and structured way.
+
 (in-package :mezzano.supervisor)
 
 (defstruct (dma-buffer

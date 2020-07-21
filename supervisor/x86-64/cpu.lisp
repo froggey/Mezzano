@@ -1,6 +1,3 @@
-;;;; Copyright (c) 2011-2017 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
-
 (in-package :mezzano.supervisor)
 
 (defconstant +msr-ia32-apic-base+ #x0000001B)

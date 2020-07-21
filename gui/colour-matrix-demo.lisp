@@ -1,3 +1,5 @@
+;;;; Demo of the compositor's display post-processing effects.
+
 (defpackage :colour-matrix-demo
   (:use :cl)
   (:local-nicknames (:gui :mezzano.gui)

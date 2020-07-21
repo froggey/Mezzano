@@ -1,5 +1,4 @@
-;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; Display compositor and window manager.
 
 (in-package :mezzano.gui.compositor)
 

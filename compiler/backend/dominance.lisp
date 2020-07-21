@@ -1,7 +1,4 @@
-;;;; Copyright (c) 2017 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
-
-;;; The dominator tree, immediate dominators and the dominance frontier.
+;;;; The dominator tree, immediate dominators and the dominance frontier.
 
 (in-package :mezzano.compiler.backend.dominance)
 

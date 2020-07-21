@@ -1,5 +1,4 @@
-;;;; Copyright (c) 2015-2016 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; Generic interface for disks and other superviser-level block devices
 
 (in-package :mezzano.supervisor)
 

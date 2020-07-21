@@ -1,7 +1,7 @@
-;;;; Copyright (c) 2015-2016 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
-
-;; Simple tool for visually displaying how physical memory is used.
+;;;; Memory monitor
+;;;;
+;;;; Visually displays how physical memory is used and for monitoring
+;;;; virtual memory usage.
 
 (defpackage :mezzano.gui.memory-monitor
   (:use :cl :mezzano.gui.font)

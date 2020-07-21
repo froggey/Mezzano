@@ -1,5 +1,4 @@
-;;;; Copyright (c) 2011-2017 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; Main entry point for the supervisor from the bootloader
 
 (in-package :mezzano.supervisor)
 

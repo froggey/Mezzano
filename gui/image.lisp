@@ -1,5 +1,4 @@
-;;;; Copyright (c) 2011-2017 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; Image support
 
 (in-package :mezzano.gui.image)
 

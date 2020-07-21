@@ -1,7 +1,4 @@
-;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
-
-;;; The fast evaluator, passes most forms to the compiler
+;;;; The fast evaluator, passes most forms to the compiler
 
 (defpackage :mezzano.fast-eval
   (:export #:eval-in-lexenv)

@@ -1,5 +1,4 @@
-;;;; Copyright (c) 2019 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; A thread pool
 
 (defpackage :mezzano.sync.thread-pool
   (:use :cl)

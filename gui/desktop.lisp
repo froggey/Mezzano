@@ -1,5 +1,6 @@
-;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; Desktop application.
+;;;;
+;;;; Displays the GUI background and icons for launching programs.
 
 (in-package :mezzano.gui.desktop)
 

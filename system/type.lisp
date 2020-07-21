@@ -1,6 +1,3 @@
-;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
-
 ;;;; type.lisp - Type management.
 
 (in-package :mezzano.internals)

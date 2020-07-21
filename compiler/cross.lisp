@@ -1,6 +1,3 @@
-;;;; Copyright (c) 2011-2017 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
-
 ;;;; Packages used for cross-compilation.
 
 (defpackage :cross-cl

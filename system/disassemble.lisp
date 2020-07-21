@@ -1,5 +1,4 @@
-;;;; Copyright (c) 2018 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; DISASSEMBLE for x86-64
 
 (defpackage :mezzano.disassemble
   (:use :cl)

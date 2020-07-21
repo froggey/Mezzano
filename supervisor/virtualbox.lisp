@@ -1,5 +1,4 @@
-;;;; Copyright (c) 2017 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; Supervisor-side driver for VirtualBox Guest Integration
 
 (defpackage :mezzano.supervisor.virtualbox
   (:use :cl)

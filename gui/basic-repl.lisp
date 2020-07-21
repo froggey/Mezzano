@@ -1,5 +1,4 @@
-;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; A very simple Lisp REPL, with minimal line editing support.
 
 (defpackage :mezzano.gui.basic-repl
   (:use :cl)

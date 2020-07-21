@@ -1,5 +1,4 @@
-;;;; Copyright (c) 2011-2017 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; PCI bus driver
 
 (defpackage :mezzano.supervisor.pci
   (:use :cl)

@@ -1,5 +1,6 @@
-;;;; Copyright (c) 2017 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; Type-based transforms.
+;;;;
+;;;; Generally used for unboxed arithmetic and fast array accesses.
 
 (in-package :mezzano.compiler)
 

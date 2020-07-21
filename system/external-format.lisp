@@ -1,5 +1,4 @@
-;;;; Copyright (c) 2019 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; External formats
 
 (in-package :mezzano.internals)
 

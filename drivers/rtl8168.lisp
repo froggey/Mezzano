@@ -1,5 +1,4 @@
-;;;; Copyright (c) 2015-2017 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; RTL8168 network card driver.
 
 (defpackage :mezzano.driver.rtl8168
   (:use :cl :mezzano.supervisor)

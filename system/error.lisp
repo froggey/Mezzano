@@ -1,7 +1,4 @@
-;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
-
-;;; ERROR and the debugger.
+;;;; ERROR and other error related functions/macros.
 
 (in-package :mezzano.internals)
 

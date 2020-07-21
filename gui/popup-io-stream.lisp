@@ -1,5 +1,4 @@
-;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; A console stream for GUI applications
 
 (defpackage :mezzano.gui.popup-io-stream
   (:use :cl :mezzano.gui.font)

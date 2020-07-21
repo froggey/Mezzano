@@ -1,5 +1,4 @@
-;;;; Copyright (c) 2018 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; Basic evaluator used while loading compiled files
 
 (defpackage :mezzano.cold-generator.eval
   (:use :cl)

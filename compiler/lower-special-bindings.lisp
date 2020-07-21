@@ -1,6 +1,3 @@
-;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
-
 ;;;; Lower anything that modifies the special stack to explicit compiler builtins.
 
 (in-package :mezzano.compiler)

@@ -1,7 +1,4 @@
-;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
-
-;;; Simple local file system, based on the automatic persistence system.
+;;;; Simple local file system, based on the automatic persistence system.
 
 (defpackage :mezzano.file-system.local
   (:export #:add-local-file-host)

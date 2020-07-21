@@ -1,6 +1,3 @@
-;;;; Copyright (c) 2016-2018 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
-
 ;;;; CLOS bootstrapping.
 ;;;;
 ;;;; This file defines the standard class hierarchy.

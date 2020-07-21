@@ -1,5 +1,4 @@
-;;;; Copyright (c) 2015-2016 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; DSL for creating AST objects.
 
 (in-package :mezzano.compiler)
 

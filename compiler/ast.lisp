@@ -1,9 +1,6 @@
-;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; AST objects.
 
 (in-package :mezzano.compiler)
-
-;;; AST objects.
 
 (defclass ast-node ()
   ((%optimize-qualities :initarg :optimize :accessor ast-optimize)

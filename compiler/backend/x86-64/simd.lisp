@@ -1,5 +1,4 @@
-;;;; Copyright (c) 2017 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; Builtins wrapping x86-64 SIMD instructions
 
 (in-package :mezzano.compiler.backend.x86-64)
 

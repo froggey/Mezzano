@@ -1,5 +1,4 @@
-;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; A Lisp REPL with line-editing, history and completion.
 
 (defpackage :mezzano.gui.fancy-repl
   (:use :cl :mezzano.gui.font)

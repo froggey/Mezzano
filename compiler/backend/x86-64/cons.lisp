@@ -1,4 +1,4 @@
-;;; Cons-related primitives
+;;;; Cons-related primitives
 
 (in-package :mezzano.compiler.backend.x86-64)
 

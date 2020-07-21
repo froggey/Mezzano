@@ -1,7 +1,4 @@
-;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
-
-;;;; Optimized pluggable blitter functions.
+;;;; Optimized 2D array blitting and filling functions.
 
 (in-package :mezzano.gui)
 

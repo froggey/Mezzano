@@ -1,5 +1,4 @@
-;;;; Copyright (c) 2011-2017 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; GUI-related packages
 
 (defpackage :mezzano.gui
   (:use :cl)

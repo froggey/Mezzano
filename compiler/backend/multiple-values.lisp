@@ -1,10 +1,7 @@
-;;;; Copyright (c) 2017 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
-
-;;; Analysis to detect flow of multiple values.
-;;;
-;;; Multiple values are restricted to forward, combining flow only.
-;;; They are produced, then must be consumed immediately after 0 or more jumps.
+;;;; Analysis to detect flow of multiple values.
+;;;;
+;;;; Multiple values are restricted to forward, combining flow only.
+;;;; They are produced, then must be consumed immediately after 0 or more jumps.
 
 (in-package :mezzano.compiler.backend)
 

@@ -1,5 +1,4 @@
-;;;; Copyright (c) 2015-2016 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; Network initialization and link management
 
 (in-package :mezzano.network)
 

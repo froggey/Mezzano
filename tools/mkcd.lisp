@@ -1,6 +1,3 @@
-;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
-
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (require :cl-fad)
   (require :external-program))

@@ -1,5 +1,4 @@
-;;;; Copyright (c) 2018 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; Loads compiled files into an cold-generator environment
 
 (defpackage :mezzano.cold-generator.load
   (:use :cl)

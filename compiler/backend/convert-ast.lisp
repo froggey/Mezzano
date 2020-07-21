@@ -1,7 +1,4 @@
-;;;; Copyright (c) 2017 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
-
-;;; Convert a lambda in AST form to a backend-lambda.
+;;;; Convert a lambda in AST form to a backend-lambda.
 
 (in-package :mezzano.compiler.backend.ast-convert)
 

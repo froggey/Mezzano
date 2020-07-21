@@ -1,7 +1,5 @@
-;;;; Copyright (c) 2016 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; A very basic driver for SCSI-attached CD-ROM drives.
 
-;;; A very basic driver for SCSI-attached CD-ROM drives.
 ;;; Due to deficiencies in the disk layer, this driver does not support
 ;;; changing disks.
 

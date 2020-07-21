@@ -1,5 +1,7 @@
-;;;; Copyright (c) 2015-2016 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; HTTP-based file-system host.
+;;;;
+;;;; This implements a simple host that allows simple HTTP requests to
+;;;; be performed via the standard file functions.
 
 (require :babel)
 

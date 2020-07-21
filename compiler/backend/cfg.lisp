@@ -1,7 +1,4 @@
-;;;; Copyright (c) 2017 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
-
-;;; CFG-related functions.
+;;;; CFG-related functions.
 
 (in-package :mezzano.compiler.backend)
 

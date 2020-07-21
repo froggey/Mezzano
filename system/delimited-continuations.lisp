@@ -1,6 +1,3 @@
-;;;; Copyright (c) 2018 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
-
 (in-package :mezzano.delimited-continuations)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)

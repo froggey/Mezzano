@@ -1,5 +1,4 @@
-;;;; Copyright (c) 2017 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; Object and memory related ARM64 builtins.
 
 (in-package :mezzano.compiler.backend.arm64)
 

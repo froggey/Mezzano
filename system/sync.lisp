@@ -1,6 +1,3 @@
-;;;; Copyright (c) 2019 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
-
 ;;;; Syncronization primitives.
 ;;;;
 ;;;; This is the high-level side, expanding on what the supervisor provides.

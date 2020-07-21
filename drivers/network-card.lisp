@@ -1,7 +1,4 @@
-;;;; Copyright (c) 2017 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
-
-;;; The interface that all network card drivers must conform to.
+;;;; The interface that all network card drivers must conform to.
 
 (defpackage :mezzano.driver.network-card
   (:use :cl)

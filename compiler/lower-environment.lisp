@@ -1,6 +1,3 @@
-;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
-
 ;;;; Lower non-local lexical variable accesses so they refer directly
 ;;;; to environment objects.
 ;;;; This is done in two passes.

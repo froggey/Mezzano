@@ -1,6 +1,3 @@
-;;;; Copyright (c) 2018 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
-
 (in-package :mezzano.delimited-continuations)
 
 (sys.int::define-lap-function %call-with-prompt ((prompt-tag thunk handler stack))

@@ -1,7 +1,4 @@
-;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
-
-;;; The full evaluator, interprets all forms.
+;;;; The full evaluator, interprets all forms.
 
 (defpackage :mezzano.full-eval
   (:export #:eval-in-lexenv)

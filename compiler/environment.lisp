@@ -1,3 +1,5 @@
+;;;; Environment introspection and modification.
+
 (in-package :mezzano.compiler)
 
 (defclass symbol-macro ()

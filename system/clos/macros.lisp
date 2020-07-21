@@ -1,6 +1,3 @@
-;;;; Copyright (c) 2016 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
-
 ;;;; CLOS User Interface Macros.
 
 (in-package :mezzano.clos)

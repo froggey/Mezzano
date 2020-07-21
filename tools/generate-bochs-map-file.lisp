@@ -1,6 +1,3 @@
-;;;; Copyright (c) 2015-2016 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
-
 ;;; Generate a Bochs-compatible map file containing every function in the current image.
 
 (in-package :mezzano.internals)

@@ -1,5 +1,4 @@
-;;;; Copyright (c) 2018 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; Serializes an environment to an in-memory image
 
 (defpackage :mezzano.cold-generator.serialize
   (:use :cl)

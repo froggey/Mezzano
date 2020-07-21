@@ -1,5 +1,7 @@
-;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; Miscellaneous runtime functions
+;;;;
+;;;; This is loaded late, once most of the system is working, so can
+;;;; declaim types and define generic functions.
 
 (in-package :mezzano.internals)
 

@@ -1,5 +1,4 @@
-;;;; Copyright (c) 2015-2016 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; Supervisor level support for various partitioning schemes
 
 (in-package :mezzano.supervisor)
 

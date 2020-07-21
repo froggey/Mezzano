@@ -1,7 +1,7 @@
-;;;; Copyright (c) 2018 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
-
 ;;;; Low-level support functions for instances.
+;;;;
+;;;; Instances are the underlying representation of STRUCTURE-OBJECTs,
+;;;; STANDARD-OBJECTs, and FUNCALLABLE-STANDARD-OBJECTs.
 
 (in-package :mezzano.runtime)
 

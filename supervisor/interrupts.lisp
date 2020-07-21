@@ -1,7 +1,4 @@
-;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
-
-;;; High-level interrupt management.
+;;;; High-level interrupt management.
 
 (in-package :mezzano.supervisor)
 

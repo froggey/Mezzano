@@ -1,6 +1,3 @@
-;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
-
 ;;;; Physical memory management.
 ;;;; Currently supports up to (expt 2 39) bytes of physical memory (512GB).
 

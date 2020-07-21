@@ -1,7 +1,4 @@
-;;;; Copyright (c) 2015-2016 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
-
-;;; Faster hash table for doing single-dispatch class to effective method lookup.
+;;;; Faster hash table for doing single-dispatch class to effective method lookup.
 
 (in-package :mezzano.clos)
 

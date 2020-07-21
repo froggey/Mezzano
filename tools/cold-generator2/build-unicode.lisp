@@ -1,5 +1,4 @@
-;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; Generate Unicode data tables
 
 (defpackage :mezzano.cold-generator.build-unicode
   (:export :decode-glyph :generate-unifont-table

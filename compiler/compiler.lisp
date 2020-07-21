@@ -1,5 +1,4 @@
-;;;; Copyright (c) 2011-2017 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; Top-level compiler driver
 
 (in-package :mezzano.compiler)
 

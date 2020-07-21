@@ -1,5 +1,4 @@
-;;;; Copyright (c) 2011-2018 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; Definitions of Gray streams classes and functions.
 
 (defpackage :mezzano.gray
   (:use :cl)

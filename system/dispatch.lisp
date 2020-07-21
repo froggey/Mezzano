@@ -1,6 +1,3 @@
-;;;; Copyright (c) 2019 Henry Harrington <henry.harrington28@gmail.com>
-;;;; This code is licensed under the MIT license.
-
 ;;;; libdispatch inspired concurrency API.
 
 (defpackage :mezzano.sync.dispatch

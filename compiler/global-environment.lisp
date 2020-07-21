@@ -1,6 +1,6 @@
-(in-package :mezzano.compiler)
+;;;; Global environment.
 
-;;; Global environment.
+(in-package :mezzano.compiler)
 
 (defmethod lookup-variable-in-environment (symbol (environment null))
   (multiple-value-bind (expansion expandedp)

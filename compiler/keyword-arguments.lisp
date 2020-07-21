@@ -1,7 +1,4 @@
-;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
-
-;;; Lowering pass implementing &KEY parameters.
+;;;; Lowering pass implementing &KEY parameters.
 
 (in-package :mezzano.compiler)
 

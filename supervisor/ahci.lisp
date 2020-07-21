@@ -1,5 +1,4 @@
-;;;; Copyright (c) 2015-2016 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; AHCI controller driver
 
 (defpackage :mezzano.supervisor.ahci
   (:use :cl)

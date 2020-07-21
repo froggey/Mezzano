@@ -1,7 +1,4 @@
-;;;; Copyright (c) 2018 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
-
-;;; MOP support for structures.
+;;;; MOP support for structures.
 
 (in-package :mezzano.clos)
 

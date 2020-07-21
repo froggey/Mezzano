@@ -1,5 +1,6 @@
-;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; Peek
+;;;;
+;;;; Display basic system information.
 
 (defpackage :mezzano.gui.peek
   (:use :cl)

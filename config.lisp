@@ -1,5 +1,4 @@
-;;;; Copyright (c) 2016 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; Basic system configuration used during cold-load.
 
 (in-package :mezzano.internals)
 

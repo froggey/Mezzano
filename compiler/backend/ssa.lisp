@@ -1,7 +1,4 @@
-;;;; Copyright (c) 2017 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
-
-;;; SSA-related functions.
+;;;; SSA-related functions.
 
 (in-package :mezzano.compiler.backend)
 

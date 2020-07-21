@@ -1,5 +1,7 @@
-;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; Initial Program Load.
+;;;;
+;;;; This file loads loads and configures the rest of the system,
+;;;; once the core Lisp environment is operational.
 
 (in-package :mezzano.internals)
 

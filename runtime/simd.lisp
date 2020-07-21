@@ -1,5 +1,4 @@
-;;;; Copyright (c) 2017-2018 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; Functions wrapping x86-64 SIMD instructions
 
 (in-package :mezzano.simd)
 

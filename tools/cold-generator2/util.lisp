@@ -1,6 +1,3 @@
-;;;; Copyright (c) 2018 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
-
 (defpackage :mezzano.cold-generator.util
   (:use :cl)
   (:export #:load-binary-file

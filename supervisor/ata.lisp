@@ -1,5 +1,4 @@
-;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
+;;;; Legacy PCI ATA disk driver
 
 (defpackage :mezzano.supervisor.ata
   (:use :cl)

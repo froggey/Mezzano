@@ -1,6 +1,3 @@
-;;;; Copyright (c) 2011-2017 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
-
 ;;;; PCI transport for virtio devices.
 
 (defpackage :mezzano.supervisor.virtio-pci-transport

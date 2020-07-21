@@ -1,7 +1,4 @@
-;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
-;;;; This code is licensed under the MIT license.
-
-;;; Function for parsing various parts of CL.
+;;;; Function for parsing various parts of CL.
 
 (in-package :mezzano.internals)
 
