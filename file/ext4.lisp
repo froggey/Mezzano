@@ -422,7 +422,8 @@
               (iter (with block-group-size := (if (logbitp +incompat-64bit+ (superblock-feature-incompat superblock))
                                                   (superblock-desc-size superblock) 32))
                     (with n-octets := (* block-group-size (n-block-groups superblock)))
-                    (with block := (read-block disk superblock 1
+                    (with block := (read-block disk superblock
+                                               (+ (superblock-first-data-block superblock) 1)
                                                (ceiling (/ n-octets
                                                            (block-device-sector-size disk)
                                                            (block-size disk superblock)))))
