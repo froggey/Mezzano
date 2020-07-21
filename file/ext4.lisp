@@ -632,7 +632,14 @@
         (when (null name)
           ;; no host name found, try using volume name
           (multiple-value-bind (host-name valid-p)
-              (make-host-name (superblock-volume-name superblock))
+              (make-host-name (superblock-volume-name superblock)
+                              :replace-invalid-characters t)
+            (when valid-p
+              (setf name host-name))))
+        (when (null name)
+          ;; Fall back on the UUID
+          (multiple-value-bind (host-name valid-p)
+              (make-host-name (concatenate 'string "EXT4-" uuid))
             (when valid-p
               (setf name host-name))))
         (when name

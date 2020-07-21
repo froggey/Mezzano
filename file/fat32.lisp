@@ -1103,9 +1103,17 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
       (probe-block-device block-device)
     (when uuid
       (let ((name (cadr (assoc uuid name-alist :test #'string-equal))))
-        (when (null name)
+        (when (and (null name)
+                   (not (string-equal label "NO NAME    ")))
           ;; no host name found, try using label
-          (multiple-value-bind (host-name valid-p) (make-host-name label)
+          (multiple-value-bind (host-name valid-p)
+              (make-host-name label :replace-invalid-characters t)
+            (when valid-p
+              (setf name host-name))))
+        (when (null name)
+          ;; Fall back on the UUID
+          (multiple-value-bind (host-name valid-p)
+              (make-host-name (concatenate 'string "FAT-" uuid))
             (when valid-p
               (setf name host-name))))
         (when name

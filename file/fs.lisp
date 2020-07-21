@@ -478,9 +478,11 @@ NAMESTRING as the second."
         (return (values nil namestring)))
       (vector-push-extend ch hostname))))
 
-(defun make-host-name (label)
+(defun make-host-name (label &key replace-invalid-characters)
   "Convert a label into a valid host name if possible. Returns host-name and valid-p"
   (let ((host-name (string-upcase (string-right-trim '(#\Space #\Null) label))))
+    (when replace-invalid-characters
+      (setf host-name (substitute-if-not #\- #'valid-hostname-character-p host-name)))
     (when (/= (length host-name) 0)
       (loop
          for ch across host-name
