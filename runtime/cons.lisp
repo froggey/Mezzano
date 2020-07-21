@@ -61,3 +61,15 @@
         (t
          (sys.int::raise-type-error cons 'cons)
          (sys.int::%%unreachable))))
+
+(declaim (inline sys.int::%atomic-swap-car))
+(defun sys.int::%atomic-swap-car (cons value)
+  (when (not (consp cons))
+    (sys.int::raise-type-error cons 'cons))
+  (sys.int::%xchg-car cons value))
+
+(declaim (inline sys.int::%atomic-swap-cdr))
+(defun sys.int::%atomic-swap-cdr (cons value)
+  (when (not (consp cons))
+    (sys.int::raise-type-error cons 'cons))
+  (sys.int::%xchg-cdr cons value))

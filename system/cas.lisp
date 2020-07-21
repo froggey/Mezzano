@@ -92,7 +92,9 @@ If NAME does not name a struct accessor, then NIL is returned."
             (values (second (third potential-struct-slot-form))
                     (second (fourth potential-struct-slot-form)))))))))
 
-(defmacro define-atomic-rmw-operation (name lambda-list function symbol-function struct-slot-function &key require-fixnum no-result documentation)
+(defmacro define-atomic-rmw-operation (name lambda-list function symbol-function struct-slot-function &key require-fixnum no-result cons-operations documentation)
+  (assert (not (and require-fixnum cons-operations)) ()
+          "Can't require fixnum type with CAR/CDR slots")
   (multiple-value-bind (required optional rest enable-keys keys allow-other-keys aux)
       (parse-ordinary-lambda-list lambda-list)
     (when (or enable-keys keys allow-other-keys aux)
@@ -129,6 +131,17 @@ If NAME does not name a struct accessor, then NIL is returned."
                       ',symbol-function
                       `',(second (second read-form))
                       ,@all-name-syms))
+                   ,@(when cons-operations
+                       `(((typep read-form '(cons (member car first) (cons t null)))
+                          (,(if rest 'list* 'list)
+                            ',(car cons-operations)
+                            (second read-form)
+                            ,@all-name-syms))
+                         ((typep read-form '(cons (member cdr rest) (cons t null)))
+                          (,(if rest 'list* 'list)
+                            ',(cdr cons-operations)
+                            (second read-form)
+                            ,@all-name-syms))))
                    ;; If it names a structure slot accessor, then perform that
                    ;; operation.
                    ((and (typep read-form '(cons symbol (cons t null)))
@@ -208,6 +221,7 @@ Returns no values.")
   (lambda (old new) (declare (ignore old)) new)
   %atomic-swap-symbol
   %atomic-swap-struct-slot
+  :cons-operations (%atomic-swap-car . %atomic-swap-cdr)
   :documentation "Atomically set PLACE to NEW-VALUE.
 Returns the old value of PLACE.")
 
