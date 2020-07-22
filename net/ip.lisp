@@ -174,9 +174,7 @@ ADDRESS must be an ipv4-address designator."
              (optimize speed (safety 0) (debug 0)))
     (let ((true-end (or end (length buffer))))
       (declare (type fixnum start true-end))
-      ;; ODDP open-coded because the compiler is too dumb to optimize
-      ;; away the check-type inside.
-      (when (logtest 1 (the fixnum (- true-end start)))
+      (when (oddp (the fixnum (- true-end start)))
         (decf true-end)
         (incf total (the (unsigned-byte 16)
                          (ash (the (unsigned-byte 8)
@@ -185,14 +183,7 @@ ADDRESS must be an ipv4-address designator."
       (do ((i start (+ i 2)))
           ((>= i true-end))
         (declare (type fixnum i))
-        ;; Open-coded UB16REF/BE. TODO: Optimize...
-        (incf total (the fixnum
-                         (logior (the (unsigned-byte 16)
-                                      (ash (the (unsigned-byte 8)
-                                                (aref buffer i))
-                                           8))
-                                 (the (unsigned-byte 8)
-                                      (aref buffer (the fixnum (1+ i)))))))))
+        (incf total (mezzano.extensions:ub16ref/be buffer i))))
     total))
 
 (defun finalize-ip-checksum (checksum)
