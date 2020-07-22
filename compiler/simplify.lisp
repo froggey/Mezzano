@@ -833,6 +833,13 @@ Returns NIL if there is no THE form.")
     sys.int::binary-logior sys.int::binary-logxor sys.int::binary-logand
     mezzano.runtime::left-shift mezzano.runtime::%fixnum-left-shift))
 
+(defun unwrap-progn (form)
+  (loop
+     while (and (typep form 'ast-progn)
+                (ast-forms form))
+     do (setf form (first (last (ast-forms form))))
+     finally (return form)))
+
 (defun mod-n-transform-candidate-p (value mask mask-type)
   ;; Mask must be a known positive power-of-two minus 1 fixnum.
   (when (not (and (typep mask 'ast-quote)
@@ -842,36 +849,37 @@ Returns NIL if there is no THE form.")
                                  (1+ (ast-value mask))))))
     (return-from mod-n-transform-candidate-p
       nil))
-  (when (and (typep value 'ast-call)
-             (eql (name value) 'sys.int::%truncate)
-             (eql (length (arguments value)) 2)
-             (match-transform-argument 'float (first (arguments value)))
-             (match-transform-argument '(eql 1) (second (arguments value))))
-    ;; Conversion from float to integer.
-    (return-from mod-n-transform-candidate-p
-      t))
-  (when (or (and (typep value 'ast-call)
-                 (member (name value) '(mezzano.simd:mmx-vector-value mezzano.simd::%mmx-vector-value))
-                 (eql (length (arguments value)) 1)
-                 (match-transform-argument 'mezzano.simd:mmx-vector (first (arguments value))))
-            (and (typep value 'ast-call)
-                 (member (name value) '(mezzano.simd:sse-vector-value mezzano.simd::%sse-vector-value))
-                 (eql (length (arguments value)) 1)
-                 (match-transform-argument 'mezzano.simd:sse-vector (first (arguments value)))))
-    ;; Conversion from mmx/sse--vector to integer.
-    (return-from mod-n-transform-candidate-p
-      t))
-  ;; The value must be a call to one of the arithmetic functions.
-  ;; Both sides must be fixnums. This will cause the fixnum arithmetic
-  ;; transforms to fire, and the calls to be transformed to their
-  ;; fixnum-appropriate functions.
-  (when (not (and (typep value 'ast-call)
-                  (member (name value) *mod-n-arithmetic-functions*)
-                  (eql (length (arguments value)) 2)
-                  (match-transform-argument mask-type (first (arguments value)))
-                  (match-transform-argument mask-type (second (arguments value)))))
-    (return-from mod-n-transform-candidate-p
-      nil))
+  (let ((value (unwrap-progn value)))
+    (when (and (typep value 'ast-call)
+               (eql (name value) 'sys.int::%truncate)
+               (eql (length (arguments value)) 2)
+               (match-transform-argument 'float (first (arguments value)))
+               (match-transform-argument '(eql 1) (second (arguments value))))
+      ;; Conversion from float to integer.
+      (return-from mod-n-transform-candidate-p
+        t))
+    (when (or (and (typep value 'ast-call)
+                   (member (name value) '(mezzano.simd:mmx-vector-value mezzano.simd::%mmx-vector-value))
+                   (eql (length (arguments value)) 1)
+                   (match-transform-argument 'mezzano.simd:mmx-vector (first (arguments value))))
+              (and (typep value 'ast-call)
+                   (member (name value) '(mezzano.simd:sse-vector-value mezzano.simd::%sse-vector-value))
+                   (eql (length (arguments value)) 1)
+                   (match-transform-argument 'mezzano.simd:sse-vector (first (arguments value)))))
+      ;; Conversion from mmx/sse--vector to integer.
+      (return-from mod-n-transform-candidate-p
+        t))
+    ;; The value must be a call to one of the arithmetic functions.
+    ;; Both sides must be fixnums. This will cause the fixnum arithmetic
+    ;; transforms to fire, and the calls to be transformed to their
+    ;; fixnum-appropriate functions.
+    (when (not (and (typep value 'ast-call)
+                    (member (name value) *mod-n-arithmetic-functions*)
+                    (eql (length (arguments value)) 2)
+                    (match-transform-argument mask-type (first (arguments value)))
+                    (match-transform-argument mask-type (second (arguments value)))))
+      (return-from mod-n-transform-candidate-p
+        nil)))
   t)
 
 ;;; Fast(ish) mod-n arithmetic.
