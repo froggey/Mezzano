@@ -154,6 +154,12 @@ Returns NIL if there is no THE form.")
            (simp-form (if (not (eql (value (test form)) 'nil))
                           (if-then form)
                           (if-else form))))
+          ((and (typep (unwrap-the (test form)) 'ast-call)
+                (member (name (unwrap-the (test form))) '(sys.int::binary-+)))
+           ;; (if (known-to-return-true) then else) => (progn (known-to-return-true) then)
+           (change-made)
+           (simp-form (ast `(progn ,(test form) ,(if-then form))
+                           form)))
           (t
            (setf (test form) (simp-form (test form))
                  (if-then form) (simp-form (if-then form))
@@ -170,7 +176,9 @@ Returns NIL if there is no THE form.")
              (eql (lexical-variable-write-count unwrapped) 0))
         ;; FIXME: This needs to check the number of arguments.
         (and (typep unwrapped 'ast-call)
-             (member (ast-name unwrapped) *pure-functions* :test #'equal)
+             (or (member (ast-name unwrapped) *pure-functions* :test #'equal)
+                 (and (match-optimize-settings unwrapped '((= safety 0)))
+                      (member (ast-name unwrapped) *pure-functions-at-low-safety* :test #'equal)))
              (every #'pure-p (ast-arguments unwrapped))))))
 
 (defmethod simp-form ((form ast-let))
@@ -201,8 +209,8 @@ Returns NIL if there is no THE form.")
   (dolist (b (bindings form))
     (setf (second b) (simp-form (hoist-the-form-to-edge (second b)))))
   (setf (body form) (simp-form (body form)))
-  ;; Rewrite (let (... (foo ([progn,let] x y)) ...) ...) to (let (...) ([progn,let] x (let ((foo y) ...) ...))) when possible.
   (when (not (let-binds-special-variable-p form))
+    ;; Rewrite (let (... (foo ([progn,let] x y)) ...) ...) to (let (...) ([progn,let] x (let ((foo y) ...) ...))) when possible.
     (loop
        for binding-position from 0
        for (variable initform) in (bindings form)
@@ -229,6 +237,21 @@ Returns NIL if there is no THE form.")
                         (,variable ,(ast-body initform))
                         ,@(subseq (bindings form) (1+ binding-position)))
                     ,(ast-body form))
+                 form))))
+    ;; Rewrite (let (... (foo initform) ...) ...) to (let (...) (progn initform (let (...) ...))) when foo is unused.
+    (loop
+       for binding-position from 0
+       for (variable initform) in (bindings form)
+       when (zerop (lexical-variable-use-count variable))
+       do
+         (change-made)
+         (return-from simp-form
+           (simp-form
+            (ast `(let ,(subseq (bindings form) 0 binding-position)
+                    (progn
+                      ,initform
+                      (let ,(subseq (bindings form) (1+ binding-position))
+                        ,(ast-body form))))
                  form)))))
   ;; Remove the LET if there are no values.
   (cond ((bindings form)
@@ -391,10 +414,7 @@ Returns NIL if there is no THE form.")
                (setf (cdr tail) (cons (ast `(quote nil)) nil)
                      tail (cdr tail))))
             ((and (rest i) ; not at end.
-                  (or (typep form 'ast-quote)
-                      (typep form 'ast-function)
-                      (lexical-variable-p form)
-                      (lambda-information-p form)))
+                  (pure-p form))
              ;; This is a constantish value not at the end.
              ;; Remove it.
              (change-made))

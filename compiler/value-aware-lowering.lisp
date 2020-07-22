@@ -178,7 +178,8 @@
         (cleanup-function form) (value-aware-lowering-1 (cleanup-function form) :single))
   form)
 
-(defparameter *pure-functions* '(consp sys.int::fixnump cons list list* copy-list byte byte-size byte-position))
+(defparameter *pure-functions* '(consp sys.int::fixnump cons list list* copy-list byte byte-size byte-position mezzano.internals::%object-header-data))
+(defparameter *pure-functions-at-low-safety* '(length sys.int::binary-+ sys.int::binary--))
 
 (defmethod value-aware-lowering-1 ((form ast-call) mode)
   (cond ((and (eql (name form) 'values)
