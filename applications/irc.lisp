@@ -612,7 +612,8 @@ If ORIGIN is a server name, then only the host is valid. Nick and ident will be 
     (let ((font (mezzano.gui.font:open-font
                  mezzano.gui.font:*default-monospace-font*
                  mezzano.gui.font:*default-monospace-font-size*))
-          (fifo (mezzano.supervisor:make-fifo 50)))
+          (fifo (mezzano.supervisor:make-fifo 50))
+          (*print-circle* nil))
       (ignore-errors
         (load *irc-init-file* :if-does-not-exist nil))
       (mezzano.gui.compositor:with-window (window fifo 640 480)
