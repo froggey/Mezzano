@@ -616,6 +616,7 @@ so that windows can notice when they lose their mouse visibility.")
                                                    :origin origin
                                                    :width new-width
                                                    :height new-height)))
+        (expand-clip-rectangle-by-window *drag-window*)
         (setf *resize-origin* nil))
       (setf *drag-window* nil))))
 
@@ -860,7 +861,9 @@ so that windows can notice when they lose their mouse visibility.")
             *passive-drag* nil
             *resize-origin* (if (eql mode :move)
                                 nil
-                                mode)))))
+                                mode))
+      (unless (eql mode :move)
+        (expand-clip-rectangle-by-window window)))))
 
 (defun begin-window-drag (window &key (mode :move))
   "Send a begin drag event to the compositor."
