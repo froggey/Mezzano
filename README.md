@@ -15,7 +15,30 @@ These releases are designed to be run in VirtualBox, though QEMU is also support
 
 See the MBuild repo: (https://github.com/froggey/MBuild)
 
-For help & support, join #mezzano on Freenode (irc.freenode.net)
+For help & support or to follow development, join the #mezzano IRC channel on Freenode (irc.freenode.net)
+
+## Major changes since Demo 4
+
+* USB stack by fittestbits
+* Improved overall file system support by fittestbits
+* EXT2/3/4 support has been implemented by Bruno Cichon (ebrasca)
+* GMA950 modesetting display driver
+* Hardware accelerated 3D support via qemu's Virgl device
+* Multicore/SMP support
+* Improved atomic operations
+* Async APIs: wait-for-objects, dispatch, and thread pools
+* Networking improvements: Server support, DHCP, TCP retransmit
+* Source locations are tracked for many kinds of definitions
+* Weak hash tables and other weak objects
+* Cleanup of object representation and unifcation of standard-object/structure-object
+* Unboxed structure slots
+* Short floats implemented using IEEE half floats
+* Unboxed (unsigned-byte 64) arithmetic
+* Stack overflows and memory faults are trapped and can be recovered from
+* Support for building on Windows
+* Major improvements to CLOS and MOP conformance
+* Keymap picker
+* More bug fixes, performance improvements and features
 
 ## Major changes since Demo 3
 

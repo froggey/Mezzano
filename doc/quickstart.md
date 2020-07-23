@@ -9,8 +9,27 @@ Alphabetic keys typed with control or meta ignore case. `C-A` and `C-a` are the 
 The default keymap is En-GB, use M-F12 to switch between En-GB, En-US, No-BK, PanCyr, German, and ES-ESP keymaps.
 Windows can be moved by dragging their titlebar or by holding the Alt key and dragging.
 
-`M-Esc` will attempt to interrupt the thread associated with the current window.
-This won't work if the thread is stuck in a tight loop or if the thread is blocked.
+# Global Shortcut Keys
+
+`M-F12`        Switch to the next keymap.
+
+`C-M-F12`      Switch to the previous keymap.
+
+`M-F11`        Print debugging information to the serial port.
+
+`M-F10`        Open a REPL.
+
+`C-M-F10`      Open a less featureful REPL.
+
+`M-Esc`        Attempt to interrupt the thread associated with the current window.
+
+`C-M-Esc`      Like `M-Esc`, but use `CERROR` instead of `BREAK`.
+
+`M-F1`         Force the compositor to redraw the whole screen.
+
+`M-F4`         Quit the current application.
+
+`C-M-F4`       Forcibly close the current window.
 
 # Line editing
 
@@ -162,8 +181,32 @@ From left to right:
 
 # Memory Monitor
 
-The memory monitor displays a bitmap indicating how each page of physical memory
-is used. Colours indicate type.
+The memory monitor has two modes. The first mode displays a graph of virtual
+memory usage. The second mode displays a bitmap indicating how each page
+of physical memory is used, with colours indicating type.
+
+Virtual Memory Graph Colours:
+-----
+
+`Dark Blue`    General area % usage.
+
+`Purple`       General area bytes allocated and committed.
+
+`Green`        Cons area % usage.
+
+`Lime Green`   Cons area bytes allocated and committed.
+
+`Red`          Pinned area % usage.
+
+`Hot Pink`     Wired area % usage.
+
+`Brown`        Function area % usage.
+
+`Lilac`        Wired Function area % usage.
+
+Physical Memory Colours:
+-----
+
 `Blue`         Free memory.
 
 `Red`          Wired memory.
@@ -186,7 +229,7 @@ is used. Colours indicate type.
 
 # Swank
 
-This release includes Swank 2016-03-04.
+This release includes Swank 2.24.
 The Swank server is listening on port 4005.
 
 Forwarding for port 4005 will need to be enabled in the virtual
