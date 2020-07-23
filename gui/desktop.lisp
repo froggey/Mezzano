@@ -75,14 +75,18 @@
     ;; Either the desktop window or the notification window was closed. Exit.
     (throw 'quit nil)))
 
-(defun rasterize-string (string font colour)
+(defun rasterize-string (string font colour geometry-only)
   (let* ((width (font:string-display-width string font))
-         (result (gui:make-surface width (font:line-height font))))
-    (font:draw-string string font result 0 (font:ascender font) colour)
+         (stroke-width 3)
+         (result (gui:make-surface (+ width (* (ceiling stroke-width) 2)) (+ (font:line-height font) (* (ceiling stroke-width) 2)))))
+    (when (not geometry-only)
+      (font:draw-stroked-string
+       string font result (ceiling stroke-width) (+ (ceiling stroke-width) (font:ascender font)) colour #xFF000000 stroke-width))
     result))
 
-(defun build-text-cache (icons font colour)
-  (let ((cache (make-hash-table :test 'equal)))
+(defun build-text-cache (icons font &key geometry-only)
+  (let ((colour theme:*desktop-text*)
+        (cache (make-hash-table :test 'equal)))
     (loop
        for icon-repr in icons
        when (consp icon-repr)
@@ -90,7 +94,7 @@
          (destructuring-bind (icon name fn) icon-repr
            (declare (ignore fn icon))
            (when (not (gethash name cache))
-             (setf (gethash name cache) (rasterize-string name font colour)))))
+             (setf (gethash name cache) (rasterize-string name font colour geometry-only)))))
     cache))
 
 (defparameter *icon-vertical-space* 20)
@@ -111,7 +115,7 @@
   (let* ((font (font desktop))
          (window (window desktop))
          (desktop-height (comp:height window))
-         (text-cache (build-text-cache *icons* font theme:*desktop-text*)))
+         (text-cache (build-text-cache *icons* font :geometry-only t)))
     (loop
        with icon-pen = 0
        with column = *icon-horizontal-offset*
@@ -162,7 +166,7 @@
          (desktop-height (comp:height window))
          (framebuffer (comp:window-buffer window))
          (font (font desktop))
-         (text-cache (build-text-cache *icons* font theme:*desktop-text*)))
+         (text-cache (build-text-cache *icons* font)))
     (gui:bitset :set
                 desktop-width desktop-height
                 (colour desktop)
