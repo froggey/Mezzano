@@ -106,46 +106,50 @@
     (values form did-replace)))
 
 (defmethod kt-form ((form ast-let) &optional target-variable replacement-form)
-  (let ((bindings (bindings form))
-        (new-bindings '())
-        (body (body form)))
-    (cond ((null bindings)
-           (multiple-value-bind (new-body did-replace)
-               (kt-form body target-variable replacement-form)
-             (values new-body
-                     did-replace)))
-          (t ;; Try to push the active replacement into the first binding.
-           (multiple-value-bind (new-form did-replace)
-               (kt-form (second (first bindings)) target-variable replacement-form)
-             (setf (second (first bindings)) new-form)
-             ;; Try to push bindings down into the next binding.
-             (do ((b bindings (cdr b)))
-                 ((null (cdr b)))
-               (if (temporary-p (first (car b)))
-                   (multiple-value-bind (new-form did-replace)
-                       (kt-form (second (cadr b)) (first (car b)) (second (car b)))
-                     (setf (second (cadr b)) new-form)
-                     (unless did-replace
-                       ;; No replacement, preserve this binding.
-                       (push (car b) new-bindings)))
-                   ;; Not a temp, preserve.
-                   (push (car b) new-bindings)))
-             ;; Descend into binding init-forms.
-             (dolist (b bindings)
-               (setf (second b) (kt-form (second b))))
-             ;; Now push the last binding into the body.
-             (multiple-value-bind (new-form replaced-last-binding)
-                 (if (temporary-p (first (car (last bindings))))
-                     (kt-form body
-                              (first (car (last bindings)))
-                              (second (car (last bindings))))
-                     (kt-form body))
-               (unless replaced-last-binding
-                 (push (car (last bindings)) new-bindings))
-               (values (ast `(let ,(reverse new-bindings)
-                               ,new-form)
-                            form)
-                       did-replace)))))))
+  (cond ((null (bindings form))
+         (multiple-value-bind (new-body did-replace)
+             (kt-form (body form) target-variable replacement-form)
+           (values new-body
+                   did-replace)))
+        (t ;; Try to push the active replacement into the first binding.
+         (multiple-value-bind (new-form did-replace)
+             (kt-form (second (first (bindings form))) target-variable replacement-form)
+           (setf (second (first (bindings form))) new-form)
+           ;; Try to push bindings down into the next binding.
+           (do ((prev nil)
+                (b (bindings form) (cdr b)))
+               ((null (cdr b)))
+             (if (temporary-p (first (car b)))
+                 (multiple-value-bind (new-form did-replace)
+                     (kt-form (second (cadr b)) (first (car b)) (second (car b)))
+                   (setf (second (cadr b)) new-form)
+                   (cond (did-replace
+                          ;; Replaced, zap this binding.
+                          (if prev
+                              (setf (cdr prev) (cdr b))
+                              (setf (bindings form) (cdr b))))
+                         (t
+                          ;; No replacement, preserve this binding.
+                          (setf prev b))))
+                 ;; Not a temp, preserve.
+                 (setf prev b)))
+           ;; Descend into binding init-forms.
+           (dolist (b (bindings form))
+             (setf (second b) (kt-form (second b))))
+           ;; Now push the last binding into the body.
+           (multiple-value-bind (new-form replaced-last-binding)
+               (let ((last-binding (car (last (bindings form)))))
+                 (if (temporary-p (first last-binding))
+                     (kt-form (body form)
+                              (first last-binding)
+                              (second last-binding))
+                     (kt-form (body form))))
+             (when replaced-last-binding
+               (setf (bindings form) (butlast (bindings form))))
+             (values (ast `(let ,(bindings form)
+                             ,new-form)
+                          form)
+                     did-replace))))))
 
 (defmethod kt-form ((form ast-multiple-value-bind) &optional target-variable replacement-form)
   (multiple-value-bind (new-form did-replace)
