@@ -102,11 +102,15 @@ Currently disabled by default as it has a severe performance impact.")
     (setf form (lower-environment form))
     (when run-optimizations
       ;; Run a final simplify pass to kill off any useless bindings.
-      (setf form (simplify form target)))
+      (let ((*prohibit-tagbody-fusion* t))
+        (declare (special *prohibit-tagbody-fusion*))
+        (setf form (simplify form target))))
     ;; Make the dynamic environment explicit.
     (setf form (lower-special-bindings form))
     (when run-optimizations
-      (setf form (simplify form target)))
+      (let ((*prohibit-tagbody-fusion* t))
+        (declare (special *prohibit-tagbody-fusion*))
+        (setf form (simplify form target))))
     ;; Lower the complicated DX list functions.
     (setf form (lower-dynamic-extent-list form))
     form))
