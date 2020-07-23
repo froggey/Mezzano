@@ -56,7 +56,7 @@
   ((%framebuffer :initarg :framebuffer :initform NIL :reader framebuffer)
    (%damage-function :initarg :damage-function :reader damage-function)
    (%set-cursor-function :initarg :set-cursor-function :reader set-cursor-function)
-   (%title :initarg :title :accessor frame-title)
+   (%title :initarg :title :reader frame-title)
    (%title-width           :accessor title-width)
    (%title-origin          :accessor title-origin)
    (%title-vert            :accessor title-vert)
@@ -78,6 +78,13 @@
     :close-button-hover nil
     :activep nil
     :resizablep nil))
+
+(defgeneric (setf frame-title) (value frame))
+
+(defmethod (setf frame-title) (value (frame frame))
+  (setf (slot-value frame '%title) value)
+  (set-frame-draw-enables frame)
+  value)
 
 (defvar *frame-title-font* (open-font *default-font* *default-font-size*))
 
