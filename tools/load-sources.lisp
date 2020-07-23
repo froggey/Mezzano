@@ -119,7 +119,6 @@
              *default-pathname-defaults*
              #p"LOCAL:>Mezzano>"
              :filter 'file-filter)
-
   ;; And everything else.
   (copy-many (merge-pathnames "*/**/*.*" (user-homedir-pathname))
              (user-homedir-pathname)
@@ -127,6 +126,7 @@
              :filter (lambda (path)
                        (not (or (member ".git" (pathname-directory path) :test #'string-equal)
                                 (member "Fonts" (pathname-directory path) :test #'string-equal)
+                                (member "Iota" (pathname-directory path) :test #'string-equal)
                                 (eql (pathname-version path) :previous)
                                 (string-equal (pathname-name path) ".git")
                                 (string-equal (pathname-type path) "llf")
@@ -148,10 +148,9 @@
 (defun load-iota ()
   ;; Doom & Quake
   ;; It's assumed that prboom.lisp and sdlquake.lisp have already been built
-  (let ((*default-pathname-defaults* (merge-pathnames "../Iota/"))
+  (let ((*default-pathname-defaults* (merge-pathnames "Iota/" (user-homedir-pathname)))
         (mezzano.compiler::*max-optimizer-iterations* 200))
-    (let ((asdf:*central-registry* (list* *default-pathname-defaults* asdf:*central-registry*)))
-      (asdf:load-system :iota))
+    (asdf:load-system :iota)
     (defpackage :prboom
       (:use :cl :llvm-runtime)
       (:export #:make-context #:spawn))
@@ -161,11 +160,12 @@
 "(defun spawn ()
   (mezzano.supervisor:make-thread
    (lambda ()
-     (llvm-runtime:main-1
-      (make-context :current-directory #p\"LOCAL:>Games>Doom>\")
-      ;; -nosfx avoids the delay when quitting, SDL sound doesn't work anyway.
-      '(\"prboom\" \"-nosfx\")
-      '(\"HOME=/Games/Doom/\")))
+     (with-simple-restart (quit \"Quit Doom\")
+       (llvm-runtime:main-1
+        (make-context :current-directory #p\"LOCAL:>Games>Doom>\")
+        ;; -nosfx avoids the delay when quitting, SDL sound doesn't work anyway.
+        '(\"prboom\" \"-nosfx\")
+        '(\"HOME=/Games/Doom/\"))))
    :name \"prboom\"
    :initial-bindings `((*terminal-io* ,(make-broadcast-stream))
                        (*standard-input* ,(make-synonym-stream '*terminal-io*))
@@ -191,10 +191,11 @@
 "(defun spawn ()
   (mezzano.supervisor:make-thread
    (lambda ()
-     (llvm-runtime:main-1
-      (make-context :current-directory #p\"LOCAL:>Games>Quake>\")
-      '(\"sdlquake\")
-      '(\"HOME=/Games/Quake/\")))
+     (with-simple-restart (quit \"Quit Quake\")
+       (llvm-runtime:main-1
+        (make-context :current-directory #p\"LOCAL:>Games>Quake>\")
+        '(\"sdlquake\")
+        '(\"HOME=/Games/Quake/\"))))
    :name \"sdlquake\"
    :initial-bindings `((*terminal-io* ,(make-broadcast-stream))
                        (*standard-input* ,(make-synonym-stream '*terminal-io*))
@@ -213,6 +214,7 @@
 
 ;; Cutting a release:
 ;; Start from a clean checkout of mbuild
+;; Ensure that Iota is present (or linked) and built in the home directory
 ;; Set *lisp-implementation-version* appropriately (system/environment.lisp)
 ;; Optional: Point ASDF source registry at (pathname "SYS:HOME;") (ipl.lisp, HOME-SOURCE-REGISTRY) instead of (user-homedir-pathname). This gets the source paths right for ED.
 ;; Build as normal
@@ -238,7 +240,7 @@
   (copy-sources)
   (mcclim-setup)
   (load-quicklisp)
-  (cal "SYS;SOURCE;GUI;COLOUR-MATRIX-DEMO.LISP")
+  (cal "SYS:SOURCE;GUI;COLOUR-MATRIX-DEMO.LISP")
   (setf mezzano.gui.desktop::*icons*
         (append mezzano.gui.desktop::*icons*
                 '(("LOCAL:>Icons>Mandelbrot.png" "Postprocessing Demo" "(mezzano.gui.fancy-repl:spawn :initial-function 'colour-matrix-demo:demo :title \"Display Postprocessing Demo\" :width 450 :height 90)"))))
