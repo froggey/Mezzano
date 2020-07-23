@@ -92,9 +92,10 @@
                                                           for demo-fn in (get-virgl-demos)
                                                           collect (make-instance 'widgets:button-box-button
                                                                                  :text (format nil "~:(~A~)" demo-fn)
-                                                                                 :on-click (lambda (button)
-                                                                                             (declare (ignore button))
-                                                                                             (run-demo demo-menu demo-fn)))))))
+                                                                                 :on-click (let ((demo-fn demo-fn))
+                                                                                             (lambda (button)
+                                                                                               (declare (ignore button))
+                                                                                               (run-demo demo-menu demo-fn))))))))
               (setf (comp:name window) demo-menu)
               (setf (slot-value demo-menu '%button-box) button-box)
               ;; Adjust the window size now that sizes are knowable.
