@@ -35,7 +35,8 @@
    (%colour :initarg :colour :reader colour)
    (%image :initarg :image :reader image)
    (%image-pathname :initarg :image-pathname :reader image-pathname)
-   (%clicked-icon :initarg :clicked-icon :accessor clicked-icon))
+   (%clicked-icon :initarg :clicked-icon :accessor clicked-icon)
+   (%text-cache :initform (make-hash-table :test 'equal) :reader text-cache))
   (:default-initargs :window nil :colour #xFF00FF00 :image nil :image-pathname nil :clicked-icon nil))
 
 (defgeneric dispatch-event (desktop event)
@@ -75,37 +76,28 @@
     ;; Either the desktop window or the notification window was closed. Exit.
     (throw 'quit nil)))
 
-(defun rasterize-string (string font colour geometry-only)
+(defun rasterize-string (string font colour)
   (let* ((width (font:string-display-width string font))
          (stroke-width 3)
          (result (gui:make-surface (+ width (* (ceiling stroke-width) 2)) (+ (font:line-height font) (* (ceiling stroke-width) 2)))))
-    (when (not geometry-only)
-      (font:draw-stroked-string
-       string font result (ceiling stroke-width) (+ (ceiling stroke-width) (font:ascender font)) colour #xFF000000 stroke-width))
+    (font:draw-stroked-string
+     string font result (ceiling stroke-width) (+ (ceiling stroke-width) (font:ascender font)) colour #xFF000000 stroke-width)
     result))
 
-(defun build-text-cache (icons font &key geometry-only)
-  (let ((colour theme:*desktop-text*)
-        (cache (make-hash-table :test 'equal)))
-    (loop
-       for icon-repr in icons
-       when (consp icon-repr)
-       do
-         (destructuring-bind (icon name fn) icon-repr
-           (declare (ignore fn icon))
-           (when (not (gethash name cache))
-             (setf (gethash name cache) (rasterize-string name font colour geometry-only)))))
-    cache))
+(defun get-cached-text-surface (desktop text)
+  (or (gethash text (text-cache desktop))
+      (setf (gethash text (text-cache desktop))
+            (rasterize-string text (font desktop) theme:*desktop-text*))))
 
 (defparameter *icon-vertical-space* 20)
 (defparameter *icon-horizontal-offset* 20)
 (defparameter *icon-image/text-space* 10)
 
-(defun icon-geometry (icon-data text-cache)
+(defun icon-geometry (desktop icon-data)
   (let* ((icon (first icon-data))
          (name (second icon-data))
          (image (load-image icon))
-         (text (gethash name text-cache)))
+         (text (get-cached-text-surface desktop name)))
     (values (+ (gui:surface-width image)
                *icon-image/text-space*
                (gui:surface-width text))
@@ -114,8 +106,7 @@
 (defun get-icon-at-point (desktop x y)
   (let* ((font (font desktop))
          (window (window desktop))
-         (desktop-height (comp:height window))
-         (text-cache (build-text-cache *icons* font :geometry-only t)))
+         (desktop-height (comp:height window)))
     (loop
        with icon-pen = 0
        with column = *icon-horizontal-offset*
@@ -125,7 +116,7 @@
          (cond ((consp icon-repr)
                 (incf icon-pen *icon-vertical-space*)
                 (multiple-value-bind (width height)
-                    (icon-geometry icon-repr text-cache)
+                    (icon-geometry desktop icon-repr)
                   (when (> (+ icon-pen height) desktop-height)
                     (incf column widest)
                     (setf widest 0)
@@ -165,8 +156,7 @@
          (desktop-width (comp:width window))
          (desktop-height (comp:height window))
          (framebuffer (comp:window-buffer window))
-         (font (font desktop))
-         (text-cache (build-text-cache *icons* font)))
+         (font (font desktop)))
     (gui:bitset :set
                 desktop-width desktop-height
                 (colour desktop)
@@ -190,12 +180,12 @@
          (cond ((consp icon-repr)
                 (incf icon-pen *icon-vertical-space*)
                 (multiple-value-bind (width height)
-                    (icon-geometry icon-repr text-cache)
+                    (icon-geometry desktop icon-repr)
                   (when (> (+ icon-pen height) desktop-height)
                     (incf column (+ widest *icon-horizontal-offset*))
                     (setf widest 0)
                     (setf icon-pen *icon-vertical-space*))
-                  (render-icon desktop icon-pen column icon-repr text-cache)
+                  (render-icon desktop icon-pen column icon-repr)
                   (incf icon-pen height)
                   (setf widest (max widest width))))
                ((eql icon-repr :next-column)
@@ -204,14 +194,14 @@
                 (setf icon-pen 0))))
     (comp:damage-window window 0 0 (comp:width window) (comp:height window))))
 
-(defun render-icon (desktop icon-pen column-offset icon-data text-cache)
+(defun render-icon (desktop icon-pen column-offset icon-data)
   (let* ((window (window desktop))
          (font (font desktop))
          (framebuffer (comp:window-buffer window))
          (icon (first icon-data))
          (name (second icon-data))
          (image (load-image icon))
-         (text (gethash name text-cache)))
+         (text (get-cached-text-surface desktop name)))
     (gui:bitblt :blend
                 (gui:surface-width image) (gui:surface-height image)
                 image 0 0
