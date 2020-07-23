@@ -88,7 +88,6 @@
 (defvar *font-lock* (mezzano.supervisor:make-mutex "Font lock")
   "Lock protecting the typeface and font caches.")
 
-;; TODO: Replace these when weak hash-tables are implemented.
 ;; font-name (lowercase) -> typeface
 (defvar *typeface-cache* (make-hash-table :test 'equal :weakness :value))
 ;; (lowercase font name . single-float size) -> font
@@ -106,12 +105,12 @@
      finally (when knot
                (funcall function knot (nth-value 1 (paths:path-iterator-next iterator))))))
 
-(defun rasterize-paths (paths sweep-function &optional (scale 1.0))
+(defun rasterize-paths (paths sweep-function)
   (let ((state (aa:make-state)))
     (flet ((do-line (p1 p2)
              (aa:line-f state
-                        (* scale (paths:point-x p1)) (* scale (paths:point-y p1))
-                        (* scale (paths:point-x p2)) (* scale (paths:point-y p2)))))
+                        (paths:point-x p1) (paths:point-y p1)
+                        (paths:point-x p2) (paths:point-y p2))))
       (loop for path in paths
          do (path-map-line path #'do-line)))
     (aa:cells-sweep state sweep-function)))
@@ -274,3 +273,50 @@
                            mask 0 0)
        (incf pen (mezzano.gui.font:glyph-advance glyph))
      finally (return pen)))
+
+(defun character-to-raw-glyph (font ch)
+  (let ((code (char-code ch)))
+    (mezzano.supervisor:with-mutex ((glyph-cache-lock font))
+      (mezzano.supervisor:with-mutex ((typeface-lock (typeface font)))
+        (when (and (zpb-ttf:glyph-exists-p code (font-loader font))
+                   (not (zerop (zpb-ttf:code-point (zpb-ttf:find-glyph code (font-loader font))))))
+          (let* ((glyph (zpb-ttf:find-glyph code (font-loader font)))
+                 (scale (font-scale font))
+                 (bb (scale-bb (zpb-ttf:bounding-box glyph) scale))
+                 (advance (round (* (zpb-ttf:advance-width glyph) scale))))
+            (values (paths-ttf:paths-from-glyph glyph
+                                                :scale-x scale
+                                                :scale-y (- scale)
+                                                :offset (paths:make-point 0 (zpb-ttf:ymax bb))
+                                                :auto-orient :cw)
+                    advance
+                    (zpb-ttf:ymax bb)
+                    (zpb-ttf:xmin bb))))))))
+
+(defun draw-stroked-string (string font surface x y colour stroke-colour stroke-width)
+  (loop
+     with pen = x
+     for ch across string
+     do
+       (multiple-value-bind (paths advance yoff xoff)
+           (character-to-raw-glyph font ch)
+         (when advance
+           (rasterize-paths paths
+                            (lambda (px py alpha)
+                              (setf (mezzano.gui:surface-pixel surface (+ pen px) (+ (- y yoff) py))
+                                    (mezzano.gui:make-colour
+                                     (mezzano.gui:colour-red colour)
+                                     (mezzano.gui:colour-green colour)
+                                     (mezzano.gui:colour-blue colour)
+                                     (/ (normalize-alpha alpha) 255.0)))))
+           (rasterize-paths (paths:stroke-path paths stroke-width :assume-type :closed-polyline)
+                            (lambda (px py alpha)
+                              (setf (mezzano.gui:surface-pixel surface (+ pen px) (+ (- y yoff) py))
+                                    (mezzano.gui:colour-over
+                                     (mezzano.gui:surface-pixel surface (+ pen px) (+ (- y yoff) py))
+                                     (mezzano.gui:make-colour
+                                      (mezzano.gui:colour-red stroke-colour)
+                                      (mezzano.gui:colour-green stroke-colour)
+                                      (mezzano.gui:colour-blue stroke-colour)
+                                      (/ (normalize-alpha alpha) 255.0))))))
+           (incf pen advance)))))

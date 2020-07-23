@@ -27,6 +27,7 @@
            #:colour-blue-as-octet
            #:colour-alpha
            #:colour-alpha-as-octet
+           #:colour-over
            #:surface
            #:surface-p
            #:make-surface
@@ -173,7 +174,8 @@
            #:*default-monospace-bold-font*
            #:*default-monospace-bold-font-size*
            #:string-display-width
-           #:draw-string))
+           #:draw-string
+           #:draw-stroked-string))
 
 (defpackage :mezzano.gui.image
   (:use :cl)

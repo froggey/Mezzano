@@ -85,6 +85,15 @@ otherwise they will be treated as straight alpha and converted to premultiplied 
   (check-type colour colour)
   (ldb +colour-blue-bits+ colour))
 
+(defun colour-over (ca cb)
+  (let* ((aa (colour-alpha ca))
+         (aa^ (- 1 aa))
+         (ba (colour-alpha cb)))
+    (make-colour (+ (colour-red ca) (* (colour-red cb) aa^))
+                 (+ (colour-green ca) (* (colour-green cb) aa^))
+                 (+ (colour-blue ca) (* (colour-blue cb) aa^))
+                 (+ aa (* ba aa^)))))
+
 (defstruct (colour-matrix
              (:constructor %make-colour-matrix))
   (elements (error "Elements not supplied") :type matrix4 :read-only t))
