@@ -1966,6 +1966,10 @@ has only has class specializer."
                                                `(funcall (cdr eql-emfun) ,@req-args))))))
                           (let* ((class (class-of ,(nth index req-args)))
                                  (emfun (single-dispatch-emf-entry emf-table class)))
+                            ;; Hack around a bug... The table gets corrupted somehow and returns an integer
+                            (when (and emfun (not (functionp emfun)))
+                              (setf emfun nil)
+                              (clear-single-dispatch-emf-table emf-table))
                             (if emfun
                                 ,(if rest-arg
                                      `(apply emfun ,@req-args ,rest-arg)
