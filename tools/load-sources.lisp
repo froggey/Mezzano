@@ -256,6 +256,8 @@
   (warm-up-class-constructors)
   (setf (symbol-value (read-from-string "bordeaux-threads:*default-special-bindings*"))
         '((*terminal-io* . (make-instance 'mezzano.gui.popup-io-stream:lazy-popup-io-stream))))
+  ;; MED still uses this function...
+  (setf (fdefinition 'mezzano.gui.compositor::fifo) #'mezzano.gui.compositor::mailbox)
   (setf (sys.int::symbol-global-value '*package*) (find-package :cl-user))
   (setf *default-pathname-defaults* (pathname "LOCAL:>")
         mezzano.file-system::*home-directory* *default-pathname-defaults*)
