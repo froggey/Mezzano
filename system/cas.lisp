@@ -17,17 +17,36 @@
   (let ((expansion (macroexpand place environment)))
     (cond ((symbolp expansion)
            ;; Lexical variables would be ok to cas (captured variables, etc),
-           ;; but special variables wouldn't be.
-           (when (not (eql (symbol-mode expansion) :global))
-             (error "CAS on a non-global symbol or variable not supported."))
-           (let ((old (gensym "OLD"))
-                 (new (gensym "NEW")))
-             (values '()
-                     '()
-                     old
-                     new
-                     `(funcall #'(cas symbol-global-value) ,old ,new ',expansion)
-                     `(symbol-global-value ',expansion))))
+           ;; but need a compiler extension (casq).
+           (when (not (typep (mezzano.compiler::lookup-variable-in-environment
+                              expansion environment)
+                             'mezzano.compiler::special-variable))
+             (error "CAS on lexical variable ~S not implemented." expansion))
+           (ecase (symbol-mode expansion)
+             (:constant
+              (error "CAS on constant ~S not allowed." expansion))
+             (:symbol-macro
+              ;; Not possible - symbol macros would have been expanded.
+              (error "CAS on symbol-macro ~S not allowed." expansion))
+             (:global
+              (let ((old (gensym "OLD"))
+                    (new (gensym "NEW")))
+                (values '()
+                        '()
+                        old
+                        new
+                        `(funcall #'(cas symbol-global-value) ,old ,new ',expansion)
+                        `(symbol-global-value ',expansion))))
+             ((:special nil)
+              ;; Fall back on CAS of SYMBOL-VALUE.
+              (let ((old (gensym "OLD"))
+                    (new (gensym "NEW")))
+                (values '()
+                        '()
+                        old
+                        new
+                        `(funcall #'(cas symbol-value) ,old ,new ',expansion)
+                        `(symbol-value ',expansion))))))
           (t
            ;; All other CAS forms are currently functions!
            (let ((old (gensym "OLD"))
