@@ -352,7 +352,8 @@ If ORIGIN is a server name, then only the host is valid. Nick and ident will be 
 (define-command msg (irc text)
   "MSG <target> [message]
    Send a message to or begin a conversation with the specified target."
-   (multiple-value-bind (split-text returned-index) (split-sequence #\Space text :start 0 :count 1)
+  (multiple-value-bind (split-text returned-index)
+      (split-sequence #\Space text :start 0 :count 1)
      (let ((leftovers (subseq text returned-index)))
           (cond ((irc-connection irc)
                  (buffered-format (irc-connection irc) "PRIVMSG ~A :~A~%" (elt split-text 0) leftovers))))))
@@ -405,23 +406,25 @@ If ORIGIN is a server name, then only the host is valid. Nick and ident will be 
 
 (define-command disconnect (irc text)
   "DISCONNECT [text]
-  Close the current connect."
+  Close the current connection."
   (cond ((irc-connection irc)
          (buffered-format (irc-connection irc) "QUIT :~A~%" text)
          (close (irc-connection irc)))
         (t (error "Not connected."))))
 
 (define-command join (irc text)
-  "JOIN <channel>
+  "JOIN <channel> [key]
   Join a channel."
-  (cond ((find text (joined-channels irc) :test 'string-equal)
-         (error "Already joined to channel ~A." text))
-        ((irc-connection irc)
-         (buffered-format (irc-connection irc) "JOIN ~A~%" text)
-         (push text (joined-channels irc))
-         (unless (current-channel irc)
-           (setf (current-channel irc) text)))
-        (t (error "Not connected."))))
+  (let ((channel (subseq text 0 (position #\Space text))))
+    (cond ((find channel (joined-channels irc) :test 'string-equal)
+           (error "Already joined to channel ~A." channel))
+          ((irc-connection irc)
+           ;; Send the whole text to include the key.
+           (buffered-format (irc-connection irc) "JOIN ~A~%" text)
+           (push channel (joined-channels irc))
+           (unless (current-channel irc)
+             (setf (current-channel irc) channel)))
+          (t (error "Not connected.")))))
 
 (define-command chan (irc text)
   "CHAN <channel>
