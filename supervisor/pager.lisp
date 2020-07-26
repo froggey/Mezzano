@@ -1085,6 +1085,29 @@ It will put the thread to sleep, while it waits for the page."
   (assert (page-aligned-p size))
   (pager-rpc 'map-physical-memory-in-pager base size name))
 
+(defun pager-invoke (function arg _arg3)
+  (declare (ignore _arg3))
+  (when (not (pager-invoke-function-on-thread *pager-current-thread* function arg))
+    (panic "PAGER-INVOKE " function " " arg " on " *pager-current-thread* " failed! Out of stack space?")))
+
+(defun pager-invoke-via-interrupt (function interrupt-frame arg)
+  "Arrange for FUNCTION to be called with ARG, for use in exception handlers."
+  (let ((self (current-thread)))
+    (setf (thread-pager-argument-1 self) function
+          (thread-pager-argument-2 self) arg
+          (thread-pager-argument-3 self) nil)
+    (with-symbol-spinlock (*pager-lock*)
+      (acquire-global-thread-lock)
+      (setf (thread-state self) :pager-request
+            (thread-wait-item self) 'pager-invoke
+            (thread-queue-next self) *pager-waiting-threads*
+            *pager-waiting-threads* self)
+      (when (and (eql (thread-state sys.int::*pager-thread*) :sleeping)
+                 (eql (thread-wait-item sys.int::*pager-thread*) '*pager-waiting-threads*))
+        (setf (thread-state sys.int::*pager-thread*) :runnable)
+        (push-run-queue sys.int::*pager-thread*)))
+    (%reschedule-via-interrupt interrupt-frame)))
+
 (defun initialize-pager ()
   (setf *bml4* (sys.int::memref-signed-byte-64 (+ *boot-information-page* +boot-information-block-map+)))
   (when (not (boundp '*pager-waiting-threads*))

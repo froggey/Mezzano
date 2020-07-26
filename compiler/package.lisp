@@ -221,7 +221,8 @@
    #:long-float-nan
    #:long-float-trapping-nan
    #:most-positive-fixnum-long-float
-   #:most-negative-fixnum-long-float))
+   #:most-negative-fixnum-long-float
+   #:floating-point-denormal-operand))
 
 (defpackage :mezzano.debug
   (:use :cl)

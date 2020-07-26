@@ -69,8 +69,13 @@
   (:report (lambda (condition stream)
              (format stream "RETURN-FROM to out-of-scope block ~S." (unavailable-block-error-tag condition)))))
 
-(define-condition division-by-zero (arithmetic-error)
-  ())
+(define-condition division-by-zero (arithmetic-error) ())
+(define-condition floating-point-inexact (arithmetic-error) ())
+(define-condition floating-point-invalid-operation (arithmetic-error) ())
+(define-condition floating-point-overflow (arithmetic-error) ())
+(define-condition floating-point-underflow (arithmetic-error) ())
+;; Extension.
+(define-condition mezzano.extensions:floating-point-denormal-operand (arithmetic-error) ())
 
 (define-condition invalid-index-error (error)
   ((array :initarg :array
@@ -203,11 +208,6 @@
 (define-condition invalid-macro-lambda-list (simple-error)
   ((lambda-list :initarg :lambda-list
                 :reader invalid-macro-lambda-list-lambda-list)))
-
-(define-condition floating-point-inexact (arithmetic-error) ())
-(define-condition floating-point-invalid-operation (arithmetic-error) ())
-(define-condition floating-point-overflow (arithmetic-error) ())
-(define-condition floating-point-underflow (arithmetic-error) ())
 
 (define-condition mutex-error (simple-error)
   ((mutex :initarg :mutex

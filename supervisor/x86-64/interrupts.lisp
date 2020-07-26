@@ -219,7 +219,9 @@ If clear, the fault occured in supervisor mode.")
   (unhandled-interrupt interrupt-frame info "machine check"))
 
 (defun sys.int::%simd-exception-handler (interrupt-frame info)
-  (unhandled-interrupt interrupt-frame info "simd exception"))
+  (declare (ignore info))
+  (debug-print-line "signalling simd exception " (current-thread))
+  (pager-invoke-via-interrupt #'mezzano.runtime::%raise-simd-exception interrupt-frame nil))
 
 (defun sys.int::%user-interrupt-handler (interrupt-frame info)
   (let ((handler (svref *user-interrupt-handlers* info)))
