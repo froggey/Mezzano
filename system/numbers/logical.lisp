@@ -160,9 +160,10 @@
 
 (defun logcount (integer)
   (check-type integer integer)
+  (when (minusp integer)
+    (setf integer (lognot integer)))
   (do ((n 0))
-      ((or (eql integer 0)
-           (eql integer -1))
+      ((eql integer 0)
        n)
     (when (logtest integer 1)
       (incf n))
