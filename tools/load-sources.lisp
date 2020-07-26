@@ -51,6 +51,8 @@
   (asdf:load-system :clim-examples)
   (asdf:load-system :cl-ppcre)
   (asdf:load-system :clim-listener)
+  (asdf:load-system :clouseau)
+  (setf *inspect-hook* (find-symbol "INSPECT" ':clouseau))
   ;(asdf:load-system :beirc)
   (eval (read-from-string "(mcclim-render-internals::register-all-ttf-fonts (clim:find-port))"))
   (let ((icon-path (translate-logical-pathname
