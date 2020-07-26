@@ -513,32 +513,42 @@ NAMESTRING as the second."
   (check-type direction (member :input :output :io :probe))
   (check-type if-exists (member :error :new-version :rename :rename-and-delete :overwrite :append :supersede nil))
   (check-type if-does-not-exist (member :error :create nil))
-  (let* ((path (translate-logical-pathname (merge-pathnames filespec)))
-         (host (pathname-host path)))
-    (when (wild-pathname-p path)
-      (error 'simple-file-error
-             :pathname filespec
-             :format-control "Wild pathname specified."))
-    (unless if-exists-p
-      (setf if-exists (if (eql (pathname-version path) :newest)
-                          :new-version
-                          :error)))
-    (unless if-does-not-exist-p
-      (cond ((or (eql direction :input)
-                 (eql if-exists :overwrite)
-                 (eql if-exists :append))
-             (setf if-does-not-exist :error))
-            ((or (eql direction :output)
-                 (eql direction :io))
-             (setf if-does-not-exist :create))
-            ((eql direction :probe)
-             (setf if-does-not-exist nil))))
-    (open-using-host host path
-                     :direction direction
-                     :element-type element-type
-                     :if-exists if-exists
-                     :if-does-not-exist if-does-not-exist
-                     :external-format external-format)))
+  (loop
+     (restart-case
+         (return
+           (let* ((path (translate-logical-pathname (merge-pathnames filespec)))
+                  (host (pathname-host path)))
+             (when (wild-pathname-p path)
+               (error 'simple-file-error
+                      :pathname filespec
+                      :format-control "Wild pathname specified."))
+             (unless if-exists-p
+               (setf if-exists (if (eql (pathname-version path) :newest)
+                                   :new-version
+                                   :error)))
+             (unless if-does-not-exist-p
+               (cond ((or (eql direction :input)
+                          (eql if-exists :overwrite)
+                          (eql if-exists :append))
+                      (setf if-does-not-exist :error))
+                     ((or (eql direction :output)
+                          (eql direction :io))
+                      (setf if-does-not-exist :create))
+                     ((eql direction :probe)
+                      (setf if-does-not-exist nil))))
+             (open-using-host host path
+                              :direction direction
+                              :element-type element-type
+                              :if-exists if-exists
+                              :if-does-not-exist if-does-not-exist
+                              :external-format external-format)))
+       (use-new-filespec (new-filespec)
+         :report "Try opening a different path"
+         :interactive (lambda ()
+                        (format *debug-io* "Enter a new pathname (evaluated): ")
+                        (finish-output *debug-io*)
+                        (multiple-value-list (eval (read *debug-io*))))
+         (setf filespec new-filespec)))))
 
 (defgeneric probe-using-host (host pathname))
 
