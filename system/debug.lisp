@@ -817,6 +817,95 @@ executed, and the offset into it."
        when fn
        collect `((defun ,name) ,(function-source-location fn)))))
 
-(defun function-lambda-list (function)
+(defgeneric function-lambda-list (function))
+
+(defmethod function-lambda-list ((name (eql 'block)))
+  '(name &body body))
+
+(defmethod function-lambda-list ((name (eql 'catch)))
+  '(tag &body body))
+
+(defmethod function-lambda-list ((name (eql 'eval-when)))
+  '(situations &body body))
+
+(defmethod function-lambda-list ((name (eql 'flet)))
+  '(definitions &body body))
+
+(defmethod function-lambda-list ((name (eql 'function)))
+  '(name))
+
+(defmethod function-lambda-list ((name (eql 'go)))
+  '(tag))
+
+(defmethod function-lambda-list ((name (eql 'if)))
+  '(test-form then-form &optional else-form))
+
+(defmethod function-lambda-list ((name (eql 'labels)))
+  '(definitions &body body))
+
+(defmethod function-lambda-list ((name (eql 'let)))
+  '(bindings &body body))
+
+(defmethod function-lambda-list ((name (eql 'let*)))
+  '(bindings &body body))
+
+(defmethod function-lambda-list ((name (eql 'load-time-value)))
+  '(form &optional read-only-p))
+
+(defmethod function-lambda-list ((name (eql 'locally)))
+  '(&body body))
+
+(defmethod function-lambda-list ((name (eql 'macrolet)))
+  '(definitions &body body))
+
+(defmethod function-lambda-list ((name (eql 'multiple-value-call)))
+  '(function-form &rest values-forms))
+
+(defmethod function-lambda-list ((name (eql 'multiple-value-prog1)))
+  '(values-form &rest forms))
+
+(defmethod function-lambda-list ((name (eql 'progn)))
+  '(&rest forms))
+
+(defmethod function-lambda-list ((name (eql 'progv)))
+  '(symbols values &body body))
+
+(defmethod function-lambda-list ((name (eql 'quote)))
+  '(value))
+
+(defmethod function-lambda-list ((name (eql 'return-from)))
+  '(name &optional result))
+
+(defmethod function-lambda-list ((name (eql 'setq)))
+  '(&rest pairs))
+
+(defmethod function-lambda-list ((name (eql 'symbol-macrolet)))
+  '(bindings &body body))
+
+(defmethod function-lambda-list ((name (eql 'tagbody)))
+  '(&rest statements))
+
+(defmethod function-lambda-list ((name (eql 'the)))
+  '(value-type form))
+
+(defmethod function-lambda-list ((name (eql 'throw)))
+  '(tag result-form))
+
+(defmethod function-lambda-list ((name (eql 'unwind-protect)))
+  '(protected-form &body cleanup-forms))
+
+(defmethod function-lambda-list ((name symbol))
+  (cond ((macro-function name)
+         (mezzano.debug:macro-function-lambda-list name))
+        (t
+         (function-lambda-list (fdefinition name)))))
+
+(defmethod function-lambda-list ((name list))
+  (function-lambda-list (fdefinition name)))
+
+(defmethod function-lambda-list ((function compiled-function))
   (debug-info-lambda-list
    (function-debug-info function)))
+
+(defmethod function-lambda-list ((function mezzano.clos:generic-function))
+  (mezzano.clos:generic-function-lambda-list function))
