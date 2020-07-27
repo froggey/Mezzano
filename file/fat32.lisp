@@ -1441,7 +1441,9 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
             (disk (file-host-mount-device host))
             (dirty-bit nil)
             (abort-action nil)
+            (buffer nil)
             (buffer-position)
+            (block-n -1)
             (file-length 0)
             (file-position 0))
         (cond ((null file-offset)
@@ -1454,7 +1456,9 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                  (:create
                   (multiple-value-setq (buffer-position dir-array file-offset)
                     (create-file host dir-array dir-cluster (pathname-name pathname) (pathname-type pathname) nil (ash 1 +attribute-archive+)))
-                  (setf dirty-bit t
+                  (setf buffer (make-array `(,(bytes-per-cluster ffs)) :element-type '(unsigned-byte 8))
+                        block-n 0
+                        dirty-bit t
                         abort-action :delete))
                  ((nil)
                   (return-from open-using-host nil))))
@@ -1507,6 +1511,8 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                               :if-exists if-exists
                               :block-size (bytes-per-cluster ffs)
                               :dirty-bit dirty-bit
+                              :block-n block-n
+                              :buffer buffer
                               :buffer-position buffer-position
                               :position file-position
                               :length file-length
@@ -1522,6 +1528,8 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                               :if-exists if-exists
                               :block-size (bytes-per-cluster ffs)
                               :dirty-bit dirty-bit
+                              :block-n block-n
+                              :buffer buffer
                               :buffer-position buffer-position
                               :position file-position
                               :length file-length
