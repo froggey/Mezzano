@@ -958,8 +958,8 @@
       (let ((class (gensym "CLASS"))
             (object-sym (gensym "OBJECT")))
         `(let ((,object-sym ,object)
-               (,class (mezzano.clos:find-class-in-reference
-                        (load-time-value (mezzano.clos:class-reference ',type-specifier))
+               (,class (mezzano.clos::find-class-in-reference
+                        (load-time-value (mezzano.clos::class-reference ',type-specifier))
                         nil)))
            (if ,class
                (class-typep ,object-sym ,class)

@@ -39,7 +39,7 @@
            (symbolp (second symbol))
            (null (rest (rest symbol))))
       `(find-class-in-reference
-        (load-time-value (mezzano.clos:class-reference ',(second symbol)))
+        (load-time-value (class-reference ',(second symbol)))
         ,errorp)
       whole))
 

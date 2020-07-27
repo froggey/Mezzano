@@ -242,6 +242,13 @@ A list of two elements, the short & long name." )
   (check-type new-value (or string null))
   (setf (slot-value x 'documentation) new-value))
 
+(defmethod documentation ((x mezzano.clos:structure-slot-definition) (doc-type (eql 't)))
+  (slot-value x 'documentation))
+
+(defmethod (setf documentation) (new-value (x mezzano.clos:structure-slot-definition) (doc-type (eql 't)))
+  (check-type new-value (or string null))
+  (setf (slot-value x 'documentation) new-value))
+
 (defun map-apropos (fn string package)
   (setf string (string string))
   (cond (package

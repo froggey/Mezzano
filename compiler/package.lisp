@@ -275,110 +275,131 @@
 (defpackage :mezzano.clos
   (:use :cl)
   (:local-nicknames (:sys.int :mezzano.internals))
-  (:export #:defclass #:defgeneric #:defmethod
+  (:export
+   ;; MOP metaclasses
+   #:t
+   #:standard-object
+   #:funcallable-standard-object
+   #:metaobject
+   #:generic-function
+   #:standard-generic-function
+   #:method
+   #:standard-method
+   #:standard-accessor-method
+   #:standard-reader-method
+   #:standard-writer-method
+   #:method-combination
+   #:slot-definition
+   #:direct-slot-definition
+   #:effective-slot-definition
+   #:standard-slot-definition
+   #:standard-direct-slot-definition
+   #:standard-effective-slot-definition
+   #:specializer
+   #:eql-specializer
+   #:class
+   #:built-in-class
+   #:forward-referenced-class
+   #:standard-class
+   #:funcallable-standard-class
 
-           #:find-class
-           #:find-class-in-reference
-           #:class-reference
-           #:class-reference-class
+   ;; MOP functions
+   #:accessor-method-slot-definition
+   #:add-dependent
+   #:add-direct-method
+   #:add-direct-subclass
+   #:add-method
+   #:allocate-instance
+   #:class-default-initargs
+   #:class-direct-default-initargs
+   #:class-direct-slots
+   #:class-direct-subclasses
+   #:class-direct-superclasses
+   #:class-finalized-p
+   #:class-name ; (setf class-name)
+   #:class-precedence-list
+   #:class-prototype
+   #:class-slots
+   #:compute-applicable-methods
+   #:compute-applicable-methods-using-classes
+   #:compute-class-precedence-list
+   #:compute-default-initargs
+   #:compute-discriminating-function
+   #:compute-effective-method
+   #:compute-effective-slot-definition
+   #:compute-slots
+   #:direct-slot-definition-class
+   #:effective-slot-definition-class
+   #:ensure-class
+   #:ensure-class-using-class
+   #:ensure-generic-function
+   #:ensure-generic-function-using-class
+   #:eql-specializer-object
+   #:extract-lambda-list
+   #:extract-specializer-names
+   #:finalize-inheritance
+   #:find-method-combination
+   #:funcallable-standard-instance-access
+   #:generic-function-argument-precedence-order
+   #:generic-function-declarations
+   #:generic-function-lambda-list
+   #:generic-function-method-class
+   #:generic-function-method-combination
+   #:generic-function-methods
+   #:generic-function-name ; (setf generic-function-name)
+   #:intern-eql-specializer
+   #:make-instance
+   ;;#:make-method-lambda
+   #:map-dependents
+   #:method-function
+   #:method-generic-function
+   #:method-lambda-list
+   #:method-specializers
+   #:method-qualifiers
+   #:reader-method-class
+   #:remove-dependent
+   #:remove-direct-method
+   #:remove-direct-subclass
+   #:remove-method
+   #:set-funcallable-instance-function
+   #:slot-boundp-using-class
+   #:slot-definition-allocation
+   #:slot-definition-initargs
+   #:slot-definition-initform
+   #:slot-definition-initfunction
+   #:slot-definition-location
+   #:slot-definition-name
+   #:slot-definition-readers
+   #:slot-definition-writers
+   #:slot-definition-type
+   #:slot-makunbound-using-class
+   #:slot-value-using-class ; (setf slot-value-using-class) (cas slot-value-using-class)
+   #:specializer-direct-generic-functions
+   #:specializer-direct-methods
+   #:standard-instance-access
+   #:update-dependent
+   #:validate-superclass
+   #:writer-method-class
 
-           #:class-of
-           #:call-next-method #:next-method-p
-           #:slot-value #:slot-boundp #:slot-exists-p #:slot-makunbound
-           #:make-instance #:change-class
-           #:initialize-instance #:reinitialize-instance #:shared-initialize
-           #:update-instance-for-different-class
-           #:update-instance-for-redefined-class
-           #:print-object
-           #:set-funcallable-instance-function
+   ;; Extensions
+   #:compute-effective-method-function
+   #:class-layout
+   #:class-sealed
+   #:class-allocation-area
+   #:generic-function-trace-p
+   #:slot-exists-p-using-class
+   #:+slot-unbound+
 
-           #:standard-object #:funcallable-standard-object
-           #:standard-class #:funcallable-standard-class
-           #:standard-generic-function #:standard-method
-           #:standard-slot-definition
-           #:standard-effective-slot-definition
-           #:standard-direct-slot-definition
-
-           #:class-name
-           #:class-direct-superclasses #:class-direct-slots
-           #:class-precedence-list #:class-slots #:class-direct-subclasses
-           #:class-direct-methods
-           #:class-finalized-p
-           #:class-prototype
-           #:class-default-initargs #:class-direct-default-initargs
-           #:class-layout #:class-sealed #:class-allocation-area
-           #:generic-function-name #:generic-function-lambda-list
-           #:generic-function-methods #:generic-function-discriminating-function
-           #:generic-function-method-class
-           #:generic-function-method-combination
-           #:generic-function-argument-precedence-order
-           #:generic-function-trace-p
-           #:method-lambda-list #:method-qualifiers #:method-specializers
-           #:method-generic-function #:method-function
-           #:slot-definition-name #:slot-definition-initfunction
-           #:slot-definition-initform #:slot-definition-initargs
-           #:slot-definition-readers #:slot-definition-writers
-           #:slot-definition-allocation
-           #:slot-definition-documentation
-           #:slot-definition-type
-           #:slot-definition-location
-           ;;
-           ;; Class-related metaobject protocol
-           ;;
-           #:compute-class-precedence-list #:compute-slots
-           #:compute-effective-slot-definition
-           #:finalize-inheritance #:allocate-instance
-           #:slot-value-using-class #:slot-boundp-using-class
-           #:slot-exists-p-using-class #:slot-makunbound-using-class
-           #:compute-default-initargs
-           ;;
-           ;; Generic function related metaobject protocol
-           ;;
-           #:compute-discriminating-function
-           #:compute-applicable-methods-using-classes #:method-more-specific-p
-           #:compute-applicable-methods
-           #:compute-effective-method-function
-           #:compute-effective-method
-           #:compute-method-function
-           #:apply-methods #:apply-method
-
-           #:metaobject #:specializer #:class
-           #:structure-class #:structure-object
-           #:intern-eql-specializer #:eql-specializer #:eql-specializer-object
-
-           #:slot-unbound #:no-applicable-method
-
-           #:with-slots #:with-accessors
-
-           #:extract-lambda-list
-           #:extract-specializer-names
-
-           #:validate-superclass
-
-           #:ensure-class
-           #:ensure-class-using-class
-
-           #:ensure-generic-function-using-class
-
-           #:structure-slot-definition
-           #:structure-effective-slot-definition
-           #:structure-direct-slot-definition
-           #:structure-slot-definition-read-only
-           #:structure-slot-definition-fixed-vector
-           #:structure-slot-definition-align
-           #:structure-slot-definition-dcas-sibling
-
-           #:+slot-unbound+
-
-           #:standard-instance-access
-           #:funcallable-standard-instance-access
-
-           #:standard-accessor-method
-           #:standard-reader-method
-           #:standard-writer-method
-
-           #:find-method-combination
-           ))
+   ;; Structure related extensions
+   #:structure-class
+   #:structure-object
+   #:structure-slot-definition
+   #:structure-effective-slot-definition
+   #:structure-direct-slot-definition
+   #:structure-slot-definition-read-only
+   #:structure-slot-definition-fixed-vector
+   #:structure-slot-definition-align
+   #:structure-slot-definition-dcas-sibling))
 
 ;;; Supervisor manages the hardware, doing paging and memory management.
 (defpackage :mezzano.supervisor

@@ -425,12 +425,15 @@ the old or new values are expected to be unbound.")
                     (slot-missing (class-of object) object slot-name 'slot-makunbound)
                     object)))))))
 
-(defun slot-exists-p (instance slot-name)
-  (not (null (find-effective-slot instance slot-name))))
+(defun std-slot-exists-p (object slot-name)
+  (not (null (find-effective-slot object slot-name))))
 
-(defun slot-exists-in-class-p (class slot-name)
-  (not (null (find slot-name (safe-class-slots class)
-                   :key #'safe-slot-definition-name))))
+(defun slot-exists-p (object slot-name)
+  (let ((class (class-of object)))
+    (cond ((standard-class-instance-p class)
+           (std-slot-exists-p object slot-name))
+          (t
+           (slot-exists-p-using-class class object slot-name)))))
 
 ;;; class-of
 
@@ -993,10 +996,6 @@ Other arguments are included directly."
   (if (standard-slot-definition-instance-p slot-definition)
       (std-slot-value slot-definition 'documentation)
       (documentation slot-definition t)))
-(defun (setf safe-slot-definition-documentation) (value slot-definition)
-  (if (standard-slot-definition-instance-p slot-definition)
-      (setf (std-slot-value slot-definition 'documentation) value)
-      (setf (documentation slot-definition t) value)))
 
 ;;; finalize-inheritance
 
@@ -2789,12 +2788,6 @@ always match."
   (:method ((effective-slot-definition standard-effective-slot-definition))
     (declare (notinline slot-value)) ; bootstrap hack
     (slot-value effective-slot-definition 'location)))
-;; TODO: Remove this in the future when slime is updated. Use DOCUMENTATION
-;; instead.
-(defgeneric slot-definition-documentation (slot-definition)
-  (:method ((slot-definition standard-slot-definition))
-    (declare (notinline slot-value)) ; bootstrap hack
-    (slot-value slot-definition 'documentation)))
 
 ;;; Generic function metaobject readers
 
@@ -2934,6 +2927,10 @@ always match."
 (defgeneric slot-makunbound-using-class (class instance slot))
 (defmethod slot-makunbound-using-class ((class std-class) instance (slot standard-effective-slot-definition))
   (std-slot-makunbound instance (safe-slot-definition-name slot)))
+
+(defgeneric slot-exists-p-using-class (class object slot-name)
+  (:method ((class standard-class) object slot-name)
+    (std-slot-exists-p object slot-name)))
 
 ;;; Stuff...
 

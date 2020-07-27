@@ -331,7 +331,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                (mezzano.clos:structure-slot-definition-fixed-vector slot)
                (mezzano.clos:structure-slot-definition-align slot)
                (mezzano.clos:structure-slot-definition-dcas-sibling slot)
-               (mezzano.clos:slot-definition-documentation slot)))
+               (documentation slot t)))
    (if (eql class (find-class 'structure-object))
        nil
        (let ((parent (second (mezzano.clos:class-precedence-list class))))

@@ -24,9 +24,6 @@
 (defmethod slot-definition-location ((effective-slot-definition structure-effective-slot-definition))
   (declare (notinline slot-value)) ; bootstrap hack
   (slot-value effective-slot-definition 'location))
-(defmethod slot-definition-documentation ((slot-definition structure-slot-definition))
-  (declare (notinline slot-value)) ; bootstrap hack
-  (slot-value slot-definition 'documentation))
 
 (defgeneric structure-slot-definition-read-only (slot-definition)
   (:method ((slot-definition structure-slot-definition))
