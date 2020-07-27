@@ -1286,9 +1286,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
    (host :initarg :host :reader host)
    (if-exists :initarg :if-exists :reader if-exists)
    ;; File position where the buffer data starts.
-   (buffer-position :initarg :buffer-position
-                    :initform 0
-                    :accessor buffer-position)
+   (buffer-position :initarg :buffer-position :accessor buffer-position)
    (abort-action :initarg :abort-action :accessor abort-action)))
 
 (defclass fat-file-character-stream (fat-file-stream
@@ -1476,23 +1474,15 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                            :format-control ":if-exists ~S not implemented."
                            :format-arguments (list if-exists)))
                    (:supersede
-                    (error ":supersede temporarly disabled")
-                    ;; TODO instead of freeing the clusters, save cluster list
-                    ;; and set abort-action to something (:restore?) so that:
-                    ;;
-                    ;; on abort the original cluster is restored and the new
-                    ;; cluster list is freed
-                    ;;
-                    ;; on close the original cluster is freed
-                    ;;
-                    ;; Delete file by freeing all of the clusters assocated
-                    ;; with the file.
-                    (deallocate-file ffs fat dir-array file-offset)
-                    ;; re-alloc the first cluster to the file
-                    (setf (fat-value ffs fat (read-first-cluster dir-array file-offset))
-                          (last-cluster-value ffs))
-                    (write-fat disk ffs fat)
-                    (setf abort-action :delete))
+                    (let ((next-cluster (next-free-cluster ffs fat 3)))
+                      (when next-cluster
+                        (setf buffer (make-array `(,(bytes-per-cluster ffs)) :element-type '(unsigned-byte 8))
+                              buffer-position next-cluster
+                              block-n 0
+                              dirty-bit t
+                              (fat-value ffs fat next-cluster) (last-cluster-value ffs))
+                        (write-fat disk ffs fat))
+                      (make-array `(,(bytes-per-cluster ffs)) :element-type '(unsigned-byte 8))))
                    (:overwrite
                     (setf buffer-position (read-first-cluster dir-array file-offset)
                           file-length (read-file-length dir-array file-offset)))
@@ -1905,6 +1895,9 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
 
 (defmethod close ((stream fat-file-stream) &key abort)
   (let* ((host (host stream))
+         (ffs (fat-structure host))
+         (fat (fat host))
+         (disk (file-host-mount-device host))
          (block-device (file-host-mount-device host)))
     (multiple-value-bind (parent-dir parent-cluster file-offset)
         (open-file-metadata host (file-stream-pathname stream))
@@ -1912,15 +1905,23 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
              (multiple-value-bind (time date) (get-fat-time)
                (when (output-stream-p stream)
                  (finish-output stream)
+                 (when (eql (if-exists stream) :supersede)
+                   (deallocate-file ffs fat parent-dir file-offset)
+                   (setf (read-first-cluster parent-dir file-offset) (buffer-position stream))
+                   (write-fat disk ffs fat))
                  (setf (read-write-time parent-dir file-offset) time
                        (read-write-date parent-dir file-offset) date
                        (read-file-length parent-dir file-offset) (file-length stream)))
                (setf (read-last-access-date parent-dir file-offset) date)
                ;; Write to disk new metadata
-               (write-directory (fat-structure host) block-device parent-cluster (fat host) parent-dir)))
+               (write-directory ffs block-device parent-cluster fat parent-dir)))
             (t
-             (when (eql (abort-action stream) :delete)
-               (remove-file parent-dir file-offset block-device parent-cluster (fat-structure host) (fat host)))))))
+             (cond ((eql (if-exists stream) :supersede)
+                    (setf (read-first-cluster parent-dir file-offset) (buffer-position stream))
+                    (deallocate-file ffs fat parent-dir file-offset)
+                    (write-fat disk ffs fat))
+                   ((eql (abort-action stream) :delete)
+                    (remove-file parent-dir file-offset block-device parent-cluster ffs fat)))))))
   t)
 
 ;; Register the fat file system host as a block device host
