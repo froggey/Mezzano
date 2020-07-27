@@ -240,6 +240,7 @@
       (if (symbolp slot)
           (list slot)
           slot)
+    (setf type (mezzano.compiler::simplify-complicated-function-type type))
     (let ((accessor (concat-symbols conc-name name)))
       (check-type fixed-vector (or null (integer 0)))
       (check-type align (member nil 1 2 4 8 16))

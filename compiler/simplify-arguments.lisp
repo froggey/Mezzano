@@ -83,7 +83,8 @@ Must be run after keywords have been lowered."
          value)
         (t
          (ast `(let ((val ,value))
-                 (if (source-fragment (typep val ',(mezzano.runtime::symbol-type (name variable))))
+                 (if (source-fragment (typep val ',(simplify-complicated-function-type
+                                                    (mezzano.runtime::symbol-type (name variable)))))
                      val
                      (progn
                        (call raise-binding-type-error

@@ -148,6 +148,32 @@
                    rest-type
                    allow-other-keys)))))
 
+(defun simplify-complicated-function-type (type &optional environment)
+  "Reduce complicated function types like (FUNCTION (T T) BOOLEAN) to just FUNCTION.
+Descends into inner AND/OR/NOT types."
+  (labels ((frob (type)
+             (let ((expanded (sys.int::typeexpand type environment)))
+               ;; Try to keep the original type intact as much as possible.
+               (cond ((not (consp expanded))
+                      (values type nil))
+                     ((eql (first expanded) 'function)
+                      (values 'function t))
+                     ((member (first expanded) '(and or not))
+                      (let* ((did-change nil)
+                             (new (loop
+                                     for ty in (rest expanded)
+                                     collect (multiple-value-bind (new-ty differentp)
+                                                 (frob ty)
+                                               (when differentp
+                                                 (setf did-change t))
+                                               new-ty))))
+                        (if did-change
+                            (values (list* (first expanded) new) t)
+                            (values type nil))))
+                     (t
+                      (values type nil))))))
+    (values (frob type))))
+
 (defmethod insert-type-checks-1 ((form ast-the) value-context)
   ;; There are a few possible cases:
   ;; 1) Not compiling at safety 3. Don't do anything.
@@ -175,7 +201,7 @@
                  ;; Single value case.
                  (ast `(let ((val ,(insert-type-checks-1 (value form) :single)))
                          (progn
-                           (if (source-fragment (typep val ',(first optional-typespecs)))
+                           (if (source-fragment (typep val ',(simplify-complicated-function-type (first optional-typespecs))))
                                'nil
                                (progn
                                  (call sys.int::raise-type-error val ',(ast-the-type form))

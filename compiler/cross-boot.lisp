@@ -453,3 +453,7 @@
 (defmacro sys.int::with-stream-editor ((stream recursive-p) &body body)
   (declare (ignore stream recursive-p))
   `(progn ,@body))
+
+(defun sys.int::typeexpand (type &optional environment)
+  (declare (ignore environment))
+  type)
