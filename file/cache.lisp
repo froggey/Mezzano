@@ -58,16 +58,14 @@
   (assert (output-stream-p stream))
   (multiple-value-bind (block-n block-offset)
       (floor (file-%position stream) (file-%block-size stream))
-    (cond ((= block-n (file-%block-n stream))
-           (when (>= (file-%position stream) (file-%length stream))
-             (setf (file-%length stream) (1+ (file-%position stream)))))
-          (t
-           (finish-output stream)
-           (setf (file-%buffer stream) (if (>= (file-%position stream) (file-%length stream))
-                                           (allocate-new-block stream block-n)
-                                           (read-file-block stream block-n))
-                 (file-%block-n stream) block-n
-                 (file-%length stream) (1+ (file-%position stream)))))
+    (when (/= block-n (file-%block-n stream))
+      (finish-output stream)
+      (setf (file-%buffer stream) (or (read-file-block stream block-n)
+                                      (allocate-new-block stream block-n))
+            (file-%block-n stream) block-n
+            (file-%length stream) (1+ (file-%position stream))))
+    (when (>= (file-%position stream) (file-%length stream))
+      (setf (file-%length stream) (1+ (file-%position stream))))
     (setf (aref (file-%buffer stream) block-offset) byte
           (file-%dirty-bit stream) t)
     (incf (file-%position stream))))
