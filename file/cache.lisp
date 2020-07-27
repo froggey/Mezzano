@@ -108,7 +108,7 @@
         (floor (file-%position stream) buffer-length)
       (multiple-value-bind (last-block-n end-offset)
           (floor (- end2 start) buffer-length)
-        (when (/= (file-%block-n stream) last-block-n)
+        (unless (= (file-%block-n stream) first-block-n last-block-n)
           (finish-output stream))
         (let ((block-n first-block-n))
           (do ((file-block (if (= first-block-n (file-%block-n stream))
