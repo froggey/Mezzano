@@ -1439,66 +1439,65 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
       (let ((ffs (fat-structure host))
             (fat (fat host))
             (disk (file-host-mount-device host))
-            (createdp nil)
-            (first-cluster)
+            (dirty-bit nil)
             (abort-action nil)
             (buffer-position)
-            (file-length)
+            (file-length 0)
             (file-position 0))
-        (when (null file-offset)
-          (ecase if-does-not-exist
-            (:error
-             (error 'simple-file-error
-                    :pathname pathname
-                    :format-control "File ~A does not exist."
-                    :format-arguments (list pathname)))
-            (:create
-             (multiple-value-setq (first-cluster dir-array file-offset)
-               (create-file host dir-array dir-cluster (pathname-name pathname) (pathname-type pathname) nil (ash 1 +attribute-archive+)))
-             (setf createdp t
-                   abort-action :delete))
-            ((nil)
-             (return-from open-using-host nil))))
-        (when (and (not createdp)
-                   (member direction '(:output :io)))
-          (ecase if-exists
-            (:error (error 'simple-file-error
+        (cond ((null file-offset)
+               (ecase if-does-not-exist
+                 (:error
+                  (error 'simple-file-error
+                         :pathname pathname
+                         :format-control "File ~A does not exist."
+                         :format-arguments (list pathname)))
+                 (:create
+                  (multiple-value-setq (buffer-position dir-array file-offset)
+                    (create-file host dir-array dir-cluster (pathname-name pathname) (pathname-type pathname) nil (ash 1 +attribute-archive+)))
+                  (setf dirty-bit t
+                        abort-action :delete))
+                 ((nil)
+                  (return-from open-using-host nil))))
+              ((eql direction :input)
+               (setf buffer-position (read-first-cluster dir-array file-offset)
+                     file-length (read-file-length dir-array file-offset)))
+              (t (ecase if-exists
+                   (:error (error 'simple-file-error
+                                  :pathname pathname
+                                  :format-control "File ~A exists."
+                                  :format-arguments (list pathname)))
+                   ((:new-version :rename :rename-and-delete)
+                    (error 'simple-file-error
                            :pathname pathname
-                           :format-control "File ~A exists."
-                           :format-arguments (list pathname)))
-            ((:new-version :rename :rename-and-delete)
-             (error 'simple-file-error
-                    :pathname pathname
-                    :format-control ":if-exists ~S not implemented."
-                    :format-arguments (list if-exists)))
-            (:supersede
-             (error ":supersede temporarly disabled")
-             ;; TODO instead of freeing the clusters, save cluster list
-             ;; and set abort-action to something (:restore?) so that:
-             ;;
-             ;; on abort the original cluster is restored and the new
-             ;; cluster list is freed
-             ;;
-             ;; on close the original cluster is freed
-             ;;
-             ;; Delete file by freeing all of the clusters assocated
-             ;; with the file.
-             (deallocate-file ffs fat dir-array file-offset)
-             ;; re-alloc the first cluster to the file
-             (setf (fat-value ffs fat (read-first-cluster dir-array file-offset))
-                   (last-cluster-value ffs))
-             (write-fat disk ffs fat)
-             (setf abort-action :delete))
-            (:overwrite)
-            (:append
-             (setf file-position (read-file-length dir-array file-offset)))
-            ((nil) (return-from open-using-host nil))))
+                           :format-control ":if-exists ~S not implemented."
+                           :format-arguments (list if-exists)))
+                   (:supersede
+                    (error ":supersede temporarly disabled")
+                    ;; TODO instead of freeing the clusters, save cluster list
+                    ;; and set abort-action to something (:restore?) so that:
+                    ;;
+                    ;; on abort the original cluster is restored and the new
+                    ;; cluster list is freed
+                    ;;
+                    ;; on close the original cluster is freed
+                    ;;
+                    ;; Delete file by freeing all of the clusters assocated
+                    ;; with the file.
+                    (deallocate-file ffs fat dir-array file-offset)
+                    ;; re-alloc the first cluster to the file
+                    (setf (fat-value ffs fat (read-first-cluster dir-array file-offset))
+                          (last-cluster-value ffs))
+                    (write-fat disk ffs fat)
+                    (setf abort-action :delete))
+                   (:overwrite
+                    (setf buffer-position (read-first-cluster dir-array file-offset)
+                          file-length (read-file-length dir-array file-offset)))
+                   (:append
+                    (setf buffer-position (read-first-cluster dir-array file-offset)
+                          file-length (read-file-length dir-array file-offset)
+                          file-position (read-file-length dir-array file-offset)))
+                   ((nil) (return-from open-using-host nil)))))
         ;; Done processing arguements - now open the file
-        (if createdp
-            (setf buffer-position first-cluster
-                  file-length 0)
-            (setf buffer-position (read-first-cluster dir-array file-offset)
-                  file-length (read-file-length dir-array file-offset)))
         (cond ((or (eql element-type :default)
                    (subtypep element-type 'character))
                (make-instance 'fat-file-character-stream
@@ -1507,7 +1506,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                               :direction direction
                               :if-exists if-exists
                               :block-size (bytes-per-cluster ffs)
-                              :dirty-bit createdp
+                              :dirty-bit dirty-bit
                               :buffer-position buffer-position
                               :position file-position
                               :length file-length
@@ -1522,7 +1521,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                               :direction direction
                               :if-exists if-exists
                               :block-size (bytes-per-cluster ffs)
-                              :dirty-bit createdp
+                              :dirty-bit dirty-bit
                               :buffer-position buffer-position
                               :position file-position
                               :length file-length
