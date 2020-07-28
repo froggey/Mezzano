@@ -112,7 +112,10 @@
   (mezzano.lap.arm64:add :x0 :sp #.sys.int::+tag-object+)
   (:gc :frame :interrupt t)
   ;; Call handler.
-  (mezzano.lap.arm64:ldr :x9 (:object :x7 #.sys.int::+fref-entry-point+))
+  ;; Read the function out of the fref.
+  (mezzano.lap.arm64:ldr :x6 (:object :x7 #.sys.int::+fref-function+))
+  ;; Read the function entry point and call it.
+  (mezzano.lap.arm64:ldr :x9 (:object :x6 #.sys.int::+function-entry-point+))
   (mezzano.lap.arm64:blr :x9)
   ;; Drop the frame.
   (mezzano.lap.arm64:add :sp :sp 16)
@@ -183,7 +186,10 @@
   (mezzano.lap.arm64:add :x0 :sp #.sys.int::+tag-object+)
   (:gc :frame :interrupt t)
   ;; Call handler.
-  (mezzano.lap.arm64:ldr :x9 (:object :x7 #.sys.int::+fref-entry-point+))
+  ;; Read the function out of the fref.
+  (mezzano.lap.arm64:ldr :x6 (:object :x7 #.sys.int::+fref-function+))
+  ;; Read the function entry point and call it.
+  (mezzano.lap.arm64:ldr :x9 (:object :x6 #.sys.int::+function-entry-point+))
   (mezzano.lap.arm64:blr :x9)
   (mezzano.lap.arm64:hlt 4))
 

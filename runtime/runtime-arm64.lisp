@@ -88,23 +88,17 @@
   (:gc :frame)
   type-error
   (mezzano.lap.arm64:ldr :x1 (:constant simple-vector))
-  (mezzano.lap.arm64:ldr :x7 (:function sys.int::raise-type-error))
   (mezzano.lap.arm64:movz :x5 #.(ash 2 sys.int::+n-fixnum-bits+)) ; fixnum 2
-  (mezzano.lap.arm64:ldr :x9 (:object :x7 #.sys.int::+fref-entry-point+))
-  (mezzano.lap.arm64:blr :x9)
+  (mezzano.lap.arm64:named-call sys.int::raise-type-error)
   (mezzano.lap.arm64:hlt 0)
   too-many-values
   (mezzano.lap.arm64:ldr :x0 (:constant "Too many values in simple-vector ~S."))
   (mezzano.lap.arm64:orr :x1 :xzr :x6)
-  (mezzano.lap.arm64:ldr :x7 (:function error))
   (mezzano.lap.arm64:movz :x5 #.(ash 2 sys.int::+n-fixnum-bits+)) ; fixnum 2
-  (mezzano.lap.arm64:ldr :x9 (:object :x7 #.sys.int::+fref-entry-point+))
-  (mezzano.lap.arm64:blr :x9)
+  (mezzano.lap.arm64:named-call error)
   (mezzano.lap.arm64:hlt 0)
   bad-arguments
-  (mezzano.lap.arm64:ldr :x7 (:function sys.int::raise-invalid-argument-error))
-  (mezzano.lap.arm64:ldr :x9 (:object :x7 #.sys.int::+fref-entry-point+))
-  (mezzano.lap.arm64:blr :x9)
+  (mezzano.lap.arm64:named-call sys.int::raise-invalid-argument-error)
   (mezzano.lap.arm64:hlt 0))
 
 (sys.int::define-lap-function %apply ()
@@ -232,10 +226,8 @@
   (mezzano.lap.arm64:add :sp :x9 :xzr)
   (mezzano.lap.arm64:orr :x0 :xzr :x1)
   (mezzano.lap.arm64:ldr :x1 (:constant sys.int::proper-list))
-  (mezzano.lap.arm64:ldr :x7 (:function sys.int::raise-type-error))
   (mezzano.lap.arm64:movz :x5 #.(ash 2 sys.int::+n-fixnum-bits+)) ; fixnum 2
-  (mezzano.lap.arm64:ldr :x9 (:object :x7 #.sys.int::+fref-entry-point+))
-  (mezzano.lap.arm64:blr :x9)
+  (mezzano.lap.arm64:named-call sys.int::raise-type-error)
   (mezzano.lap.arm64:hlt 0))
 
 (defun eql (x y)
@@ -299,9 +291,7 @@
   (mezzano.lap.arm64:subs :xzr :x4 :x26)
   (mezzano.lap.arm64:b.ne SLOW-PATH)
   ;; Try the real fast allocator.
-  (mezzano.lap.arm64:ldr :x7 (:function %do-allocate-from-general-area))
-  (mezzano.lap.arm64:ldr :x9 (:object :x7 #.sys.int::+fref-entry-point+))
-  (mezzano.lap.arm64:blr :x9)
+  (mezzano.lap.arm64:named-call %do-allocate-from-general-area)
   (mezzano.lap.arm64:subs :xzr :x5 #.(ash 1 #.sys.int::+n-fixnum-bits+))
   (mezzano.lap.arm64:b.ne SLOW-PATH)
   ;; Done. Return everything.
@@ -321,9 +311,7 @@
   SLOW-PATH-BAD-ARGS
   (mezzano.lap.arm64:ldp :x29 :x30 (:post :sp 16))
   (:gc :no-frame :layout #* :incoming-arguments :rcx)
-  (mezzano.lap.arm64:ldr :x7 (:function %slow-allocate-from-general-area))
-  (mezzano.lap.arm64:ldr :x9 (:object :x7 #.sys.int::+fref-entry-point+))
-  (mezzano.lap.arm64:br :x9))
+  (mezzano.lap.arm64:named-tail-call %slow-allocate-from-general-area))
 
 (sys.int::define-lap-function %do-allocate-from-general-area ((tag data words))
   (:gc :no-frame :layout #*)
@@ -478,9 +466,7 @@
   (mezzano.lap.arm64:subs :xzr :x6 :x26)
   (mezzano.lap.arm64:b.ne SLOW-PATH)
   ;; Try the real fast allocator.
-  (mezzano.lap.arm64:ldr :x7 (:function do-cons))
-  (mezzano.lap.arm64:ldr :x9 (:object :x7 #.sys.int::+fref-entry-point+))
-  (mezzano.lap.arm64:blr :x9)
+  (mezzano.lap.arm64:named-call do-cons)
   (mezzano.lap.arm64:subs :xzr :x5 #.(ash 1 #.sys.int::+n-fixnum-bits+))
   (mezzano.lap.arm64:b.ne SLOW-PATH)
   ;; Done. Return everything.
@@ -499,9 +485,7 @@
   SLOW-PATH-BAD-ARGS
   (mezzano.lap.arm64:ldp :x29 :x30 (:post :sp 16))
   (:gc :no-frame :layout #* :incoming-arguments :rcx)
-  (mezzano.lap.arm64:ldr :x7 (:function slow-cons))
-  (mezzano.lap.arm64:ldr :x9 (:object :x7 #.sys.int::+fref-entry-point+))
-  (mezzano.lap.arm64:br :x9))
+  (mezzano.lap.arm64:named-tail-call slow-cons))
 
 (defun sys.int::%%object-ref-unsigned-byte-8-unscaled (object index)
   (sys.int::%%object-ref-unsigned-byte-8-unscaled object index))
@@ -547,9 +531,7 @@
   OVERFLOW
   ;; Call out to bignum builder.
   ;; Build bignum.
-  (mezzano.lap.arm64:ldr :x7 (:function sys.int::%%make-bignum-64-x10))
-  (mezzano.lap.arm64:ldr :x9 (:object :x7 #.sys.int::+fref-entry-point+))
-  (mezzano.lap.arm64:br :x9))
+  (mezzano.lap.arm64:named-tail-call sys.int::%%make-bignum-64-x10))
 
 (sys.int::define-lap-function %%make-unsigned-byte-64-x10 ()
   (:gc :no-frame :layout #*)
@@ -567,10 +549,9 @@
   ;; Prod the sign flag.
   (mezzano.lap.arm64:ands :xzr :x10 :x10)
   ;; Build bignum.
-  (mezzano.lap.arm64:ldr :x7 (:function sys.int::%%make-bignum-64-x10))
   ;; Result needs a 128-bit bignum when the high bit is set.
-  (mezzano.lap.arm64:ldr :x6 (:function sys.int::%%make-bignum-128-x10-x11))
-  (mezzano.lap.arm64:csel.mi :x7 :x6 :x7)
+  (mezzano.lap.arm64:b.mi BIGNUM128)
+  (mezzano.lap.arm64:named-tail-call sys.int::%%make-bignum-64-x10)
+  BIGNUM128
   (mezzano.lap.arm64:orr :x11 :xzr :xzr)
-  (mezzano.lap.arm64:ldr :x9 (:object :x7 #.sys.int::+fref-entry-point+))
-  (mezzano.lap.arm64:br :x9))
+  (mezzano.lap.arm64:named-tail-call sys.int::%%make-bignum-128-x10-x11))

@@ -10,9 +10,7 @@
   (mezzano.lap.arm64:stp :x10 :x11 (:pre :sp -16))
   (mezzano.lap.arm64:movz :x5 #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
   (mezzano.lap.arm64:movz :x0 #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
-  (mezzano.lap.arm64:ldr :x7 (:function sys.int::%make-bignum-of-length))
-  (mezzano.lap.arm64:ldr :x9 (:object :x7 #.sys.int::+fref-entry-point+))
-  (mezzano.lap.arm64:blr :x9)
+  (mezzano.lap.arm64:named-call sys.int::%make-bignum-of-length)
   (mezzano.lap.arm64:ldp :x10 :x11 (:post :sp 16))
   (mezzano.lap.arm64:str :x10 (:object :x0 0))
   (mezzano.lap.arm64:movz :x5 #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
@@ -29,9 +27,7 @@
   (mezzano.lap.arm64:stp :x10 :x11 (:pre :sp -16))
   (mezzano.lap.arm64:movz :x5 #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
   (mezzano.lap.arm64:movz :x0 #.(ash 2 sys.int::+n-fixnum-bits+)) ; fixnum 2
-  (mezzano.lap.arm64:ldr :x7 (:function sys.int::%make-bignum-of-length))
-  (mezzano.lap.arm64:ldr :x9 (:object :x7 #.sys.int::+fref-entry-point+))
-  (mezzano.lap.arm64:blr :x9)
+  (mezzano.lap.arm64:named-call sys.int::%make-bignum-of-length)
   (mezzano.lap.arm64:ldp :x10 :x11 (:post :sp 16))
   (mezzano.lap.arm64:str :x10 (:object :x0 0))
   (mezzano.lap.arm64:str :x11 (:object :x0 1))

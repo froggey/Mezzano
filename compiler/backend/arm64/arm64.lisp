@@ -85,25 +85,9 @@
           (ir:insert-before
            backend-function inst
            (make-instance 'arm64-instruction
-                          :opcode 'lap:ldr
-                          :operands (list :x7 `(:function ,box-function))
-                          :inputs (list)
-                          :outputs (list :x7)
-                          :clobbers '(:x7)))
-          (ir:insert-before
-           backend-function inst
-           (make-instance 'arm64-instruction
-                          :opcode 'lap:ldr
-                          :operands (list :x9 `(:object :x7 ,sys.int::+fref-entry-point+))
-                          :inputs (list :x7)
-                          :outputs (list :x9)
-                          :clobbers '(:x9)))
-          (ir:insert-before
-           backend-function inst
-           (make-instance 'arm64-instruction
-                          :opcode 'lap:blr
-                          :operands (list :x9)
-                          :inputs (list :x9 box-register)
+                          :opcode 'lap:named-call
+                          :operands (list box-function)
+                          :inputs (list box-register)
                           :outputs (list :x0)
                           :clobbers '(:x0 :x1 :x2 :x3 :x4 :x5 :x6 :x7
                                       :x8 :x9 :x10 :x11 :x12 :x13 :x14 :x15

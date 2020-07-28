@@ -258,11 +258,9 @@
              ;; object and put that in RBX.
              (when (not (c:lambda-information-environment-arg (mezzano.compiler.backend::ast backend-function)))
                (emit `(lap:adr :x6 (+ (- entry-point 16) ,sys.int::+tag-object+))))
-             (emit `(lap:ldr :x7 (:function sys.int::raise-invalid-argument-error)))
-             (emit-object-load :x9 :x7 :slot sys.int::+fref-entry-point+)
              (emit `(lap:ldp :x29 :x30 (:post :sp 16))
                    `(:gc :no-frame :incoming-arguments :rcx :layout #*)
-                   `(lap:br :x9)
+                   `(lap:named-tail-call sys.int::raise-invalid-argument-error)
                    args-ok)
              (emit-gc-info :incoming-arguments :rcx)))
       ;; FIXME: Support more than 2047 arguments (subs immediate limit).
@@ -615,32 +613,26 @@
 
 (defmethod emit-lap (backend-function (instruction ir:call-instruction) uses defs)
   (call-argument-setup (ir:call-arguments instruction))
-  (emit `(lap:ldr :x7 (:function ,(ir:call-function instruction))))
-  (emit-object-load :x9 :x7 :slot sys.int::+fref-entry-point+)
-  (emit `(lap:blr :x9))
+  (emit `(lap:named-call ,(ir:call-function instruction)))
   (call-argument-teardown (ir:call-arguments instruction)))
 
 (defmethod emit-lap (backend-function (instruction ir:call-multiple-instruction) uses defs)
   (call-argument-setup (ir:call-arguments instruction))
-  (emit `(lap:ldr :x7 (:function ,(ir:call-function instruction))))
-  (emit-object-load :x9 :x7 :slot sys.int::+fref-entry-point+)
-  (emit `(lap:blr :x9))
+  (emit `(lap:named-call ,(ir:call-function instruction)))
   (emit-gc-info :multiple-values 0)
   (call-argument-teardown (ir:call-arguments instruction)))
 
 (defmethod emit-lap (backend-function (instruction ir:tail-call-instruction) uses defs)
   (call-argument-setup (ir:call-arguments instruction))
-  (emit `(lap:ldr :x7 (:function ,(ir:call-function instruction))))
-  (emit-object-load :x9 :x7 :slot sys.int::+fref-entry-point+)
   (cond ((<= (length (ir:call-arguments instruction)) 5)
          (emit `(lap:add :sp :x29 0)
                ;; Don't use emit-gc-info, using a custom layout.
                `(:gc :frame :multiple-values 0)
                `(lap:ldp :x29 :x30 (:post :sp 16))
                `(:gc :no-frame :multiple-values 0)
-               `(lap:br :x9)))
+               `(lap:named-tail-call ,(ir:call-function instruction))))
         (t
-         (emit `(lap:blr :x9))
+         (emit `(lap:named-call ,(ir:call-function instruction)))
          (emit-gc-info :multiple-values 0)
          (emit `(lap:add :sp :x29 0)
                ;; Don't use emit-gc-info, using a custom layout.
@@ -930,9 +922,7 @@
                                 sys.int::+tag-dx-root-object+)))
     ;; Call helper.
     (load-literal :x5 (c::fixnum-to-raw 1))
-    (emit `(lap:ldr :x7 (:function sys.int::values-simple-vector)))
-    (emit-object-load :x9 :x7 :slot sys.int::+fref-entry-point+)
-    (emit `(lap:blr :x9))
+    (emit `(lap:named-call sys.int::values-simple-vector))
     (emit-gc-info :multiple-values 0)
     ;; Kill the dx root and restore the old stack pointer.
     (emit-stack-store :x26 sv-save-area)

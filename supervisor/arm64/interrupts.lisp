@@ -17,10 +17,8 @@
   (mezzano.lap.arm64:ret)
   BAD
   (mezzano.lap.arm64:ldr :x0 (:constant "Not on wired stack."))
-  (mezzano.lap.arm64:ldr :x7 (:function panic))
   (mezzano.lap.arm64:movz :x5 #.(ash 1 sys.int::+n-fixnum-bits+))
-  (mezzano.lap.arm64:ldr :x9 (:object :x7 #.sys.int::+fref-entry-point+))
-  (mezzano.lap.arm64:blr :x9)
+  (mezzano.lap.arm64:named-call panic)
   (mezzano.lap.arm64:hlt 0))
 
 (sys.int::define-lap-function sys.int::%interrupt-state (())
