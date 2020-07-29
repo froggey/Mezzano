@@ -336,34 +336,27 @@
                                                                     :collect (sys.int::ub32ref/le superblock i)))
                          :checksum (sys.int::ub32ref/le superblock 1020))))))
 
-(defun block-size (disk superblock)
-  "Take disk and superblock, return block size in disk sectors"
-  (/ (ash 1024 (superblock-log-block-size superblock))
-     (block-device-sector-size disk)))
+(defun bytes-per-block (superblock)
+  (ash 1024 (superblock-log-block-size superblock)))
 
-(defun bytes-per-block (disk superblock)
-  "Return block size in bytes"
-  (* (block-size disk superblock)
+(defun sectors-per-block (disk superblock)
+  (/ (bytes-per-block superblock)
      (block-device-sector-size disk)))
 
 (defun read-block (disk superblock block-n &optional (n-blocks 1))
-  (let* ((block-size (block-size disk superblock))
-         (sector-n (* block-size
+  (let* ((n-sectors (sectors-per-block disk superblock))
+         (sector-n (* n-sectors
                       (if (= (superblock-log-block-size superblock) 1)
                           (1+ block-n) block-n))))
-    (block-device-read-sector disk sector-n (* n-blocks block-size))))
-
-(defun block-size-in-bytes (disk superblock)
-  "Take disk and superblock, return block size in bytes"
-  (ash 1024 (superblock-log-block-size superblock)))
+    (block-device-read-sector disk sector-n (* n-blocks n-sectors))))
 
 (defun block-group (inode-n superblock)
   "Return block group that an inode lives in"
   (floor (/ (1- inode-n) (superblock-inodes-per-group superblock))))
 
-(defun index (inodee-n superblock)
+(defun index (inode-n superblock)
   "Return index of an inode"
-  (mod (1- inodee-n) (superblock-inodes-per-group superblock)))
+  (mod (1- inode-n) (superblock-inodes-per-group superblock)))
 
 (defun offset (inode-n superblock)
   "Return byte address within the inode table"
@@ -430,7 +423,7 @@
                     (with block := (read-block disk superblock 1
                                                (ceiling (/ n-octets
                                                            (block-device-sector-size disk)
-                                                           (block-size disk superblock)))))
+                                                           (sectors-per-block disk superblock)))))
                     (for offset :from 0 :below n-octets :by block-group-size)
                     (collecting (read-block-group-descriptor superblock block offset)))))
 
@@ -472,9 +465,9 @@
                             superblock
                             (+ (block-group-descriptor-inode-table bgds)
                                (floor (/ (offset inode-n superblock)
-                                         (block-size-in-bytes disk superblock))))
+                                         (bytes-per-block superblock))))
                             n-blocks))
-         (offset (mod (offset inode-n superblock) (block-size-in-bytes disk superblock))))
+         (offset (mod (offset inode-n superblock) (bytes-per-block superblock))))
     (make-inode :mode (sys.int::ub16ref/le block (+ 0 offset))
                 :uid (sys.int::ub16ref/le block (+ 2 offset))
                 :size (sys.int::ub32ref/le block (+ 4 offset))
@@ -546,12 +539,12 @@
   (if (zerop n-indirection)
       (funcall fn (read-block disk superblock block-n))
       (iter (with i-block := (read-block disk superblock block-n))
-            (for offset :from 0 :below (block-size-in-bytes disk superblock) :by 4)
+            (for offset :from 0 :below (bytes-per-block superblock) :by 4)
             (for block-n := (sys.int::ub32ref/le i-block offset))
             (unless (and (zerop block-n))
               (follow-pointer disk superblock block-n fn (1- n-indirection))))))
 
-(defun do-file (fn disk superblock bgdt inode)
+(defun do-file (fn disk superblock inode)
   (let* ((inode-block (inode-block inode))
          (inode-flags (inode-flags inode)))
     (cond ((and (logbitp +incompat-extents+ (superblock-feature-incompat superblock))
@@ -579,19 +572,19 @@
                  (never (zerop block-n))
                  (follow-pointer disk superblock block-n fn indirection))))))
 
-(defun read-block-n (disk superblock bgdt inode block-n)
+(defun read-block-n (disk superblock inode block-n)
   (let ((n -1))
     (do-file #'(lambda (block)
                  (when (= (incf n) block-n)
                    (return-from read-block-n block)))
-      disk superblock bgdt inode)))
+      disk superblock inode)))
 
-(defmacro do-files ((arg var) disk superblock bgdt inode finally &body body)
+(defmacro do-files ((arg var) disk superblock inode finally &body body)
   `(unless (do-file (lambda (,arg)
                       (do ((,var 0 (+ ,var (sys.int::ub16ref/le ,arg (+ 4 ,var)))))
-                          ((= ,var (block-size-in-bytes disk superblock)) nil)
+                          ((= ,var (bytes-per-block superblock)) nil)
                         ,@body))
-             ,disk ,superblock ,bgdt ,inode)
+             ,disk ,superblock ,inode)
      ,finally))
 
 ;;; Host integration
@@ -739,7 +732,7 @@
         :with file-name := (file-name pathname)
         :for directory :in (rest (pathname-directory pathname))
         :do (block do-files
-              (do-files (block offset) disk superblock bgdt inode
+              (do-files (block offset) disk superblock inode
                 (error 'simple-file-error
                        :pathname pathname
                        :format-control "Directory ~A not found. ~S"
@@ -752,7 +745,7 @@
         (if (null file-name)
             (return inode)
             (block do-files
-              (do-files (block offset) disk superblock bgdt inode nil
+              (do-files (block offset) disk superblock inode nil
                 (let ((directory-entry (read-linked-directory-entry block offset)))
                   (when (string= file-name (linked-directory-entry-name directory-entry))
                     (return-from find-file
@@ -772,7 +765,6 @@
   (let ((host (host stream)))
     (read-block-n (file-host-mount-device host)
                   (superblock host)
-                  (bgdt host)
                   (file-inode stream)
                   block-n)))
 
@@ -810,7 +802,7 @@
                             :host host
                             :direction direction
                             :file-inode file-inode
-                            :block-size (bytes-per-block (file-host-mount-device host) (superblock host))
+                            :block-size (bytes-per-block (superblock host))
                             :position file-position
                             :length file-length
                             :abort-action abort-action
@@ -823,7 +815,7 @@
                             :host host
                             :direction direction
                             :file-inode file-inode
-                            :block-size (bytes-per-block (file-host-mount-device host) (superblock host))
+                            :block-size (bytes-per-block (superblock host))
                             :position file-position
                             :length file-length
                             :abort-action abort-action))
@@ -837,10 +829,9 @@
   (let ((inode (find-file host pathname))
         (disk (file-host-mount-device host))
         (superblock (superblock host))
-        (bgdt (bgdt host))
         (stack '())
         (path (directory-namestring pathname)))
-    (do-files (block offset) disk superblock bgdt inode t
+    (do-files (block offset) disk superblock inode t
       (let* ((file (read-linked-directory-entry block offset))
              (file-name (linked-directory-entry-name file))
              (file-type (linked-directory-entry-file-type file)))
