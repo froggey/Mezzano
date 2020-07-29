@@ -1284,7 +1284,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
    (host :initarg :host :reader host)
    (if-exists :initarg :if-exists :reader if-exists)
    ;; File position where the buffer data starts.
-   (buffer-position :initarg :buffer-position :accessor buffer-position)
+   (first-cluster :initarg :first-cluster :accessor first-cluster)
    (abort-action :initarg :abort-action :accessor abort-action)))
 
 (defclass fat-file-character-stream (fat-file-stream
@@ -1324,7 +1324,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
          (disk (file-host-mount-device host)))
     (let ((next-cluster (next-free-cluster ffs fat 3)))
       (when next-cluster
-        (do-cluster cluster (buffer-position stream) fat ffs
+        (do-cluster cluster (first-cluster stream) fat ffs
             ((last-cluster 0)
              (n 0 (1+ n)))
             (cond ((= block-n n)
@@ -1340,7 +1340,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
   (let ((host (host stream)))
     (read-cluster-n (fat-structure host)
                     (file-host-mount-device host)
-                    (buffer-position stream)
+                    (first-cluster stream)
                     (fat host)
                     block-n)))
 
@@ -1348,7 +1348,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
   (let ((host (host stream)))
     (write-cluster-n (fat-structure host)
                      (file-host-mount-device host)
-                     (buffer-position stream)
+                     (first-cluster stream)
                      (fat host)
                      buffer
                      block-n)))
@@ -1435,7 +1435,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
             (dirty-bit nil)
             (abort-action nil)
             (buffer nil)
-            (buffer-position)
+            (first-cluster)
             (block-n -1)
             (file-length 0)
             (file-position 0))
@@ -1447,7 +1447,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                          :format-control "File ~A does not exist."
                          :format-arguments (list pathname)))
                  (:create
-                  (multiple-value-setq (buffer-position dir-array file-offset)
+                  (multiple-value-setq (first-cluster dir-array file-offset)
                     (create-file host dir-array dir-cluster (pathname-name pathname) (pathname-type pathname) nil (ash 1 +attribute-archive+)))
                   (setf buffer (make-array `(,(bytes-per-cluster ffs)) :element-type '(unsigned-byte 8))
                         block-n 0
@@ -1456,7 +1456,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                  ((nil)
                   (return-from open-using-host nil))))
               ((eql direction :input)
-               (setf buffer-position (read-first-cluster dir-array file-offset)
+               (setf first-cluster (read-first-cluster dir-array file-offset)
                      file-length (read-file-length dir-array file-offset)))
               (t (ecase if-exists
                    (:error (error 'simple-file-error
@@ -1472,17 +1472,17 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                     (let ((next-cluster (next-free-cluster ffs fat 3)))
                       (when next-cluster
                         (setf buffer (make-array `(,(bytes-per-cluster ffs)) :element-type '(unsigned-byte 8))
-                              buffer-position next-cluster
+                              first-cluster next-cluster
                               block-n 0
                               dirty-bit t
                               (fat-value ffs fat next-cluster) (last-cluster-value ffs))
                         (write-fat disk ffs fat))
                       (make-array `(,(bytes-per-cluster ffs)) :element-type '(unsigned-byte 8))))
                    (:overwrite
-                    (setf buffer-position (read-first-cluster dir-array file-offset)
+                    (setf first-cluster (read-first-cluster dir-array file-offset)
                           file-length (read-file-length dir-array file-offset)))
                    (:append
-                    (setf buffer-position (read-first-cluster dir-array file-offset)
+                    (setf first-cluster (read-first-cluster dir-array file-offset)
                           file-length (read-file-length dir-array file-offset)
                           file-position (read-file-length dir-array file-offset)))
                    ((nil) (return-from open-using-host nil)))))
@@ -1498,7 +1498,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                               :dirty-bit dirty-bit
                               :block-n block-n
                               :buffer buffer
-                              :buffer-position buffer-position
+                              :first-cluster first-cluster
                               :position file-position
                               :length file-length
                               :abort-action abort-action
@@ -1515,7 +1515,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                               :dirty-bit dirty-bit
                               :block-n block-n
                               :buffer buffer
-                              :buffer-position buffer-position
+                              :first-cluster first-cluster
                               :position file-position
                               :length file-length
                               :abort-action abort-action))
@@ -1902,7 +1902,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                  (finish-output stream)
                  (when (eql (if-exists stream) :supersede)
                    (deallocate-file ffs fat parent-dir file-offset)
-                   (setf (read-first-cluster parent-dir file-offset) (buffer-position stream))
+                   (setf (read-first-cluster parent-dir file-offset) (first-cluster stream))
                    (write-fat disk ffs fat))
                  (setf (read-write-time parent-dir file-offset) time
                        (read-write-date parent-dir file-offset) date
@@ -1912,7 +1912,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                (write-directory ffs block-device parent-cluster fat parent-dir)))
             (t
              (cond ((eql (if-exists stream) :supersede)
-                    (setf (read-first-cluster parent-dir file-offset) (buffer-position stream))
+                    (setf (read-first-cluster parent-dir file-offset) (first-cluster stream))
                     (deallocate-file ffs fat parent-dir file-offset)
                     (write-fat disk ffs fat))
                    ((eql (abort-action stream) :delete)
