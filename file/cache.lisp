@@ -11,7 +11,9 @@
 
 (in-package :mezzano.file-system-cache)
 
-(defclass file-cache-stream (file-stream)
+(defclass file-cache-stream (file-stream
+                             mezzano.gray:fundamental-binary-input-stream
+                             mezzano.gray:fundamental-binary-output-stream)
   ((%direction :initarg :direction :reader file-%direction)
    (%buffer :initarg :buffer :accessor file-%buffer)
    (%block-n :initarg :block-n :accessor file-%block-n)
@@ -22,7 +24,10 @@
   (:default-initargs :buffer nil :block-n -1 :dirty-bit nil :position 0 :length 0))
 
 (defclass file-cache-character-stream (mezzano.internals::external-format-mixin
-                                       file-cache-stream)
+                                       file-cache-stream
+                                       mezzano.gray:fundamental-character-input-stream
+                                       mezzano.gray:fundamental-character-output-stream
+                                       mezzano.gray:unread-char-mixin)
   ())
 
 (defgeneric allocate-new-block (stream block-n))

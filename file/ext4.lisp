@@ -758,19 +758,14 @@
                     (return-from find-file
                       (read-inode disk superblock bgdt (linked-directory-entry-inode directory-entry))))))))))
 
-(defclass ext-file-stream (file-cache-stream
-                           mezzano.gray:fundamental-binary-input-stream
-                           mezzano.gray:fundamental-binary-output-stream)
+(defclass ext-file-stream (file-cache-stream)
   ((pathname :initarg :pathname :reader file-stream-pathname)
    (host :initarg :host :reader host)
    (file-inode :initarg :file-inode :accessor file-inode)
    (abort-action :initarg :abort-action :accessor abort-action)))
 
 (defclass ext-file-character-stream (ext-file-stream
-                                     file-cache-character-stream
-                                     mezzano.gray:fundamental-character-input-stream
-                                     mezzano.gray:fundamental-character-output-stream
-                                     mezzano.gray:unread-char-mixin)
+                                     file-cache-character-stream)
   ())
 
 (defmethod read-file-block ((stream ext-file-stream) block-n)
