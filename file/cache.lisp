@@ -62,8 +62,7 @@
       (finish-output stream)
       (setf (file-%buffer stream) (or (read-file-block stream block-n)
                                       (allocate-new-block stream block-n))
-            (file-%block-n stream) block-n
-            (file-%length stream) (1+ (file-%position stream))))
+            (file-%block-n stream) block-n))
     (when (>= (file-%position stream) (file-%length stream))
       (setf (file-%length stream) (1+ (file-%position stream))))
     (setf (aref (file-%buffer stream) block-offset) byte
