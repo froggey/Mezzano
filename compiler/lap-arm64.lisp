@@ -303,22 +303,22 @@
 (define-macro-instruction named-call (function-name)
   `(:progn
      ;; Load fref into x7, formerly the fref call register.
-     (mezzano.lap.arm64:ldr :x7 (:function ,function-name))
+     (ldr :x7 (:function ,function-name))
      ;; Read the function out of the fref.
-     (mezzano.lap.arm64:ldr :x6 (:object :x7 #.sys.int::+fref-function+))
+     (ldr :x6 (:object :x7 #.sys.int::+fref-function+))
      ;; Read the function entry point and call it.
-     (mezzano.lap.arm64:ldr :x9 (:object :x6 #.sys.int::+function-entry-point+))
-     (mezzano.lap.arm64:blr :x9)))
+     (ldr :x9 (:object :x6 #.sys.int::+function-entry-point+))
+     (blr :x9)))
 
 (define-macro-instruction named-tail-call (function-name)
   `(:progn
      ;; Load fref into x7, formerly the fref call register.
-     (mezzano.lap.arm64:ldr :x7 (:function ,function-name))
+     (ldr :x7 (:function ,function-name))
      ;; Read the function out of the fref.
-     (mezzano.lap.arm64:ldr :x6 (:object :x7 #.sys.int::+fref-function+))
+     (ldr :x6 (:object :x7 #.sys.int::+fref-function+))
      ;; Read the function entry point and call it.
-     (mezzano.lap.arm64:ldr :x9 (:object :x6 #.sys.int::+function-entry-point+))
-     (mezzano.lap.arm64:br :x9)))
+     (ldr :x9 (:object :x6 #.sys.int::+function-entry-point+))
+     (br :x9)))
 
 (defconstant +ldst-size-64-bit+ #x40000000)
 (defconstant +ldst-size-32-bit+ #x00000000)
