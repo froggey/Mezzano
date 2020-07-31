@@ -103,6 +103,9 @@
 (defmethod slot-makunbound-using-class ((class structure-class) instance (slot structure-effective-slot-definition))
   (error "Cannot make structure slots unbound."))
 
+(defmethod slot-exists-p-using-class ((class structure-class) object slot-name)
+  (std-slot-exists-p object slot-name))
+
 ;;; Structure redefinition.
 
 ;; This does not use the normal REINITIALIZE-INSTANCE machinery as

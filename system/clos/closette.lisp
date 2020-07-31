@@ -2929,8 +2929,10 @@ always match."
   (std-slot-makunbound instance (safe-slot-definition-name slot)))
 
 (defgeneric slot-exists-p-using-class (class object slot-name)
-  (:method ((class standard-class) object slot-name)
-    (std-slot-exists-p object slot-name)))
+  (:method ((class std-class) object slot-name)
+    (std-slot-exists-p object slot-name))
+  (:method ((class built-in-class) object slot-name)
+    nil))
 
 ;;; Stuff...
 
