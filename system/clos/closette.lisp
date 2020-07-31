@@ -3246,8 +3246,7 @@ always match."
            old-copy old-instance initargs)
     old-instance))
 
-(defmethod change-class
-           ((instance standard-object) (new-class symbol) &rest initargs)
+(defmethod change-class (instance (new-class symbol) &rest initargs)
   (apply #'change-class instance (find-class new-class) initargs))
 
 (sys.int::defglobal *u-i-f-d-c-initargs-cache*
