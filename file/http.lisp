@@ -24,14 +24,10 @@
   (declare (ignore host))
   ())
 
-(defclass http-binary-stream (mezzano.gray:fundamental-binary-input-stream
-                              file-cache-stream
-                              file-stream)
+(defclass http-binary-stream (file-cache-stream)
   ((path :initarg :path :reader path)))
 
-(defclass http-character-stream (mezzano.gray:fundamental-character-input-stream
-                                 file-cache-character-stream
-                                 file-stream)
+(defclass http-character-stream (file-cache-character-stream)
   ((path :initarg :path :reader path)))
 
 (defmethod print-object ((object http-binary-stream) stream)
