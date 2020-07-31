@@ -466,40 +466,44 @@ second element."
 ;; Source locations for DEFUNs and compiler-macros
 (defun find-defun-definitions (name)
   (let ((result '()))
-    (flet ((frob-fn (name fn)
-            (let ((loc (mezzano.debug:function-source-location fn)))
-              (when loc
-                (push (list name loc) result)))))
-      (when (valid-function-name-p name)
-        (when (and (fboundp name)
-                   (not (and (symbolp name)
-                             (or (special-operator-p name)
-                                 (macro-function name)))))
-          (let ((fn (fdefinition name)))
-            (cond ((typep fn 'mezzano.clos:standard-generic-function)
-                   (let ((location (slot-value fn 'mezzano.clos::source-location)))
-                     (when location
-                       (frob-fn `(defgeneric ,name) location)))
-                   (dolist (m (mezzano.clos:generic-function-methods fn))
-                     (cond ((typep m 'mezzano.clos:standard-reader-method)
-                            (let* ((class (first (mezzano.clos:method-specializers m)))
-                                   (loc (slot-value class 'mezzano.clos::source-location)))
-                              (when loc
-                                (frob-fn (method-definition-name name m) loc))))
-                           ((typep m 'mezzano.clos:standard-writer-method)
-                            (let* ((class (second (mezzano.clos:method-specializers m)))
-                                   (loc (slot-value class 'mezzano.clos::source-location)))
-                              (when loc
-                                (frob-fn (method-definition-name name m) loc))))
+    (labels ((frob-fn (name fn)
+               (let ((loc (mezzano.debug:function-source-location fn)))
+                 (when loc
+                   (push (list name loc) result))))
+             (frob-name (name)
+               (when (valid-function-name-p name)
+                 (when (and (fboundp name)
+                            (not (and (symbolp name)
+                                      (or (special-operator-p name)
+                                          (macro-function name)))))
+                   (let ((fn (fdefinition name)))
+                     (cond ((typep fn 'mezzano.clos:standard-generic-function)
+                            (let ((location (slot-value fn 'mezzano.clos::source-location)))
+                              (when location
+                                (frob-fn `(defgeneric ,name) location)))
+                            (dolist (m (mezzano.clos:generic-function-methods fn))
+                              (cond ((typep m 'mezzano.clos:standard-reader-method)
+                                     (let* ((class (first (mezzano.clos:method-specializers m)))
+                                            (loc (slot-value class 'mezzano.clos::source-location)))
+                                       (when loc
+                                         (frob-fn (method-definition-name name m) loc))))
+                                    ((typep m 'mezzano.clos:standard-writer-method)
+                                     (let* ((class (second (mezzano.clos:method-specializers m)))
+                                            (loc (slot-value class 'mezzano.clos::source-location)))
+                                       (when loc
+                                         (frob-fn (method-definition-name name m) loc))))
+                                    (t
+                                     (frob-fn (method-definition-name name m)
+                                              (mezzano.clos::method-fast-function m nil nil))))))
                            (t
-                            (frob-fn (method-definition-name name m)
-                                     (mezzano.clos::method-fast-function m nil nil))))))
-                  (t
-                   (frob-fn `(defun ,name) fn)))))
-        (let ((compiler-macro (compiler-macro-function name)))
-          (when compiler-macro
-            (frob-fn `(define-compiler-macro ,name)
-                     compiler-macro)))))
+                            (frob-fn `(defun ,name) fn)))))
+                 (let ((compiler-macro (compiler-macro-function name)))
+                   (when compiler-macro
+                     (frob-fn `(define-compiler-macro ,name)
+                              compiler-macro))))))
+      (frob-name name)
+      (frob-name `(setf ,name))
+      (frob-name `(cas ,name)))
     result))
 (add-find-definitions-hook 'find-defun-definitions)
 
@@ -548,25 +552,29 @@ second element."
 ;; Source locations for compiler transforms and builtins.
 (defun find-compiler-definitions (name)
   (let ((result '()))
-    (flet ((frob-fn (name fn)
-             (let ((loc (mezzano.debug:function-source-location fn)))
-               (when loc
-                 (push (list name loc) result)))))
-      (let ((builtin (gethash name mezzano.compiler.backend.x86-64::*builtins*)))
-        (when builtin
-          (frob-fn `(mezzano.compiler.backend.x86-64::define-builtin ,name
-                        ,(mezzano.compiler.backend.x86-64::builtin-lambda-list builtin)
-                      ,(mezzano.compiler.backend.x86-64::builtin-result-list builtin))
-                   (mezzano.compiler.backend.x86-64::builtin-generator builtin))))
-      (let ((xforms (gethash name mezzano.compiler::*transforms*)))
-        (when xforms
-          (dolist (xform xforms)
-            (frob-fn `(mezzano.compiler::define-transform ,name
-                          ,(mapcar #'list
-                                   (mezzano.compiler::transform-lambda-list xform)
-                                   (mezzano.compiler::transform-argument-types xform))
-                          ,(mezzano.compiler::transform-result-type xform))
-                     (mezzano.compiler::transform-body xform))))))
+    (labels ((frob-fn (name fn)
+               (let ((loc (mezzano.debug:function-source-location fn)))
+                 (when loc
+                   (push (list name loc) result))))
+             (frob-name (name)
+               (let ((builtin (gethash name mezzano.compiler.backend.x86-64::*builtins*)))
+                 (when builtin
+                   (frob-fn `(mezzano.compiler.backend.x86-64::define-builtin ,name
+                                 ,(mezzano.compiler.backend.x86-64::builtin-lambda-list builtin)
+                               ,(mezzano.compiler.backend.x86-64::builtin-result-list builtin))
+                            (mezzano.compiler.backend.x86-64::builtin-generator builtin))))
+               (let ((xforms (gethash name mezzano.compiler::*transforms*)))
+                 (when xforms
+                   (dolist (xform xforms)
+                     (frob-fn `(mezzano.compiler::define-transform ,name
+                                   ,(mapcar #'list
+                                            (mezzano.compiler::transform-lambda-list xform)
+                                            (mezzano.compiler::transform-argument-types xform))
+                                   ,(mezzano.compiler::transform-result-type xform))
+                              (mezzano.compiler::transform-body xform)))))))
+      (frob-name name)
+      (frob-name `(setf ,name))
+      (frob-name `(cas ,name)))
     result))
 (add-find-definitions-hook 'find-compiler-definitions)
 
