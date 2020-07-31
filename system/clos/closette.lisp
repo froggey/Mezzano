@@ -1036,6 +1036,17 @@ Other arguments are included directly."
       (error "Superclass ~S of ~S is sealed and cannot be inherited from."
              super class)))
   (setf (safe-class-precedence-list class) (compute-class-precedence-list class))
+  ;; Don't allow exotic function classes to be created.
+  (cond ((typep class 'funcallable-standard-class)
+         (unless (member (find-class 'funcallable-standard-object)
+                         (safe-class-precedence-list class))
+           (error "FUNCALLABLE-STANARD-OBJECT missing from CPL of class ~S, CPL: ~:S"
+                  class (safe-class-precedence-list class))))
+        (t
+         (when (member (find-class 'funcallable-standard-object)
+                       (safe-class-precedence-list class))
+           (error "FUNCALLABLE-STANARD-OBJECT present in CPL of class ~S, CPL: ~:S"
+                  class (safe-class-precedence-list class)))))
   (setf (safe-class-slots class) (compute-slots class))
   (setf (safe-class-default-initargs class) (compute-default-initargs class))
   (let* ((instance-slots (remove-if-not 'instance-slot-p
@@ -3218,13 +3229,16 @@ always match."
 
 ;;; change-class
 
-(defgeneric change-class (instance new-class &key &allow-other-keys))
-(defmethod change-class ((old-instance standard-object)
-                         (new-class standard-class)
-                         &rest initargs)
+;; Common implementation for changing std-class types.
+(defun std-change-class (old-instance new-class &rest initargs)
   (let* ((new-instance (allocate-instance new-class))
          (old-class (class-of old-instance))
          (old-copy (allocate-instance old-class)))
+    (cond ((sys.int::instance-p old-instance)
+           (assert (sys.int::instance-p new-instance)))
+          (t
+           (assert (sys.int::funcallable-instance-p old-instance))
+           (assert (sys.int::funcallable-instance-p new-instance))))
     ;; Make a copy of the old instance.
     (dolist (old-slot (safe-class-slots old-class))
       (let ((slot-name (safe-slot-definition-name old-slot)))
@@ -3245,6 +3259,22 @@ always match."
     (apply #'update-instance-for-different-class
            old-copy old-instance initargs)
     old-instance))
+
+(defgeneric change-class (instance new-class &key &allow-other-keys))
+(defmethod change-class ((old-instance standard-object)
+                         (new-class standard-class)
+                         &rest initargs)
+  (when (typep old-instance 'funcallable-standard-object)
+    ;; Can't change a FUNCALLABLE-STANDARD-OBJECT to a non-FUNCALLABLE-STANDARD-OBJECT.
+    (error "Object ~S of class ~S has metaclass ~S which is incompatible with class ~S with metaclass ~S"
+           old-instance (class-of old-instance) (class-of (class-of old-instance))
+           new-class (class-of new-class)))
+  (apply #'std-change-class old-instance new-class initargs))
+
+(defmethod change-class ((old-instance funcallable-standard-object)
+                         (new-class funcallable-standard-class)
+                         &rest initargs)
+  (apply #'std-change-class old-instance new-class initargs))
 
 (defmethod change-class (instance (new-class symbol) &rest initargs)
   (apply #'change-class instance (find-class new-class) initargs))
