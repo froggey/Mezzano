@@ -6,7 +6,7 @@
 (require :babel)
 
 (defpackage :mezzano.file-system.http
-  (:use #:cl #:mezzano.file-system #:mezzano.file-system-cache)
+  (:use #:cl #:mezzano.file-system)
   (:export #:http-host))
 
 (in-package :mezzano.file-system.http)
@@ -24,11 +24,17 @@
   (declare (ignore host))
   ())
 
-(defclass http-binary-stream (file-cache-stream)
-  ((path :initarg :path :reader path)))
+(defclass http-binary-stream (mezzano.gray:fundamental-binary-input-stream
+                              file-stream)
+  ((path :initarg :path :reader path)
+   (position :initarg :position :accessor stream-position)
+   (buffer :initarg :buffer :reader stream-buffer)))
 
-(defclass http-character-stream (file-cache-character-stream)
-  ((path :initarg :path :reader path)))
+(defclass http-character-stream (mezzano.gray:fundamental-character-input-stream
+                                 file-stream)
+  ((path :initarg :path :reader path)
+   (position :initarg :position :accessor stream-position)
+   (buffer :initarg :buffer :reader stream-buffer)))
 
 (defmethod print-object ((object http-binary-stream) stream)
   (print-unreadable-object (object stream :type t :identity t)
@@ -119,6 +125,17 @@
                  (vector-push-extend (char hex-digit (ldb (byte 4 0) byte)) result))))
     result))
 
+(defun decode-buffer (buffer external-format)
+  ;; Babel doesn't seem to understand external-formats properly, and ignores the EOL style.
+  (let ((decoded (babel:octets-to-string buffer
+                                         :encoding (if (eql external-format :default)
+                                                       :utf-8
+                                                       external-format)
+                                         :errorp nil)))
+    (if (eql external-format :default)
+        (remove #\Carriage-Return decoded)
+        decoded)))
+
 (defun decode-status-line (line)
   (let* ((version-end (position #\Space line))
          (code-end (position #\Space line :start (1+ version-end)))
@@ -200,16 +217,14 @@
   (if (mezzano.internals::type-equal element-type 'character)
       (make-instance 'http-character-stream
                      :path pathname
-                     :direction :input
-                     :buffer body
-                     :length (length body)
+                     :position 0
+                     :buffer (decode-buffer body external-format)
                      :external-format (mezzano.internals::make-external-format
                                        'character external-format))
       (make-instance 'http-binary-stream
                      :path pathname
-                     :direction :input
-                     :buffer body
-                     :length (length body))))
+                     :position 0
+                     :buffer body)))
 
 (defun decode-location (location)
   ;; This should parse an absoluteURI from rfc2396.
@@ -261,6 +276,53 @@
                 :pathname pathname
                 :format-control "HTTP ~D ~A"
                 :format-arguments (list status-code reason-phrase)))))))
+
+(defmethod mezzano.gray:stream-element-type ((stream http-binary-stream))
+  (declare (ignore stream))
+  '(unsigned-byte 8))
+
+(defmethod mezzano.gray:stream-read-byte ((stream http-binary-stream))
+  (cond ((>= (stream-position stream)
+             (length (stream-buffer stream)))
+         :eof)
+        (t (prog1
+               (aref (stream-buffer stream) (stream-position stream))
+             (incf (stream-position stream))))))
+
+(defmethod mezzano.gray:stream-file-position ((stream http-binary-stream) &optional (position-spec nil position-specp))
+  (cond (position-specp
+         (setf (stream-position stream)
+               (case position-spec
+                 (:start 0)
+                 (:end (length (stream-buffer stream)))
+                 (t position-spec))))
+        (t (stream-position stream))))
+
+(defmethod mezzano.gray:stream-file-length ((stream http-binary-stream))
+  (length (stream-buffer stream)))
+
+(defmethod mezzano.gray:stream-element-type ((stream http-character-stream))
+  'character)
+
+(defmethod mezzano.gray:stream-read-char ((stream http-character-stream))
+  (cond ((>= (stream-position stream)
+             (length (stream-buffer stream)))
+         :eof)
+        (t (prog1
+               (aref (stream-buffer stream) (stream-position stream))
+             (incf (stream-position stream))))))
+
+(defmethod mezzano.gray:stream-file-position ((stream http-character-stream) &optional (position-spec nil position-specp))
+  (cond (position-specp
+         (setf (stream-position stream)
+               (case position-spec
+                 (:start 0)
+                 (:end (length (stream-buffer stream)))
+                 (t position-spec))))
+        (t (stream-position stream))))
+
+(defmethod mezzano.gray:stream-file-length ((stream http-character-stream))
+  (length (stream-buffer stream)))
 
 (defmethod directory-using-host ((host http-host) pathname &key)
   (declare (ignore host pathname))
