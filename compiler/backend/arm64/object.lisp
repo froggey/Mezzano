@@ -2,7 +2,7 @@
 
 (in-package :mezzano.compiler.backend.arm64)
 
-(define-builtin sys.int::%value-has-tag-p ((object (:constant tag (typep tag '(unsigned-byte 4)))) :eq)
+(define-builtin sys.int::%value-has-tag-p ((object (:constant tag (typep tag '(unsigned-byte 4)))) :eq :has-wrapper nil)
   (let ((temp (make-instance 'ir:virtual-register :kind :integer)))
     (emit (make-instance 'arm64-instruction
                          :opcode 'lap:and
@@ -15,7 +15,7 @@
                          :inputs (list temp)
                          :outputs '()))))
 
-(define-builtin mezzano.runtime::%%object-of-type-p ((object (:constant object-tag (typep object-tag '(unsigned-byte 6)))) :eq)
+(define-builtin mezzano.runtime::%%object-of-type-p ((object (:constant object-tag (typep object-tag '(unsigned-byte 6)))) :eq :has-wrapper nil)
   (let ((header (make-instance 'ir:virtual-register :kind :integer))
         (temp (make-instance 'ir:virtual-register :kind :integer)))
     (emit (make-instance 'arm64-instruction
