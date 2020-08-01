@@ -743,7 +743,8 @@
 
 (defun add-package-local-nickname (local-nickname actual-package &optional (package *package*))
   (with-package-system-lock ()
-    (let ((local-nickname (string local-nickname))
+    (let ((package (find-package-or-die package))
+          (local-nickname (string local-nickname))
           (actual-package (find-global-package-or-die actual-package)))
       (when (member local-nickname '("CL" "COMMON-LISP" "KEYWORD") :test #'string=)
         (error "New package local nickname ~S conflicts with standard CL package." local-nickname))
@@ -761,7 +762,8 @@
 
 (defun remove-package-local-nickname (local-nickname &optional (package *package*))
   (with-package-system-lock ()
-    (let* ((existing (assoc local-nickname (package-%local-nickname-list package) :test #'string=)))
+    (let* ((package (find-package-or-die package))
+           (existing (assoc local-nickname (package-%local-nickname-list package) :test #'string=)))
       (when existing
         (let ((other-package (cdr existing)))
           (setf (package-%local-nickname-list package) (remove local-nickname (package-%local-nickname-list package)
