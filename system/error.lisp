@@ -247,8 +247,10 @@
   (let ((condition (if (typep datum 'condition)
                        datum
                        (coerce-to-condition 'simple-error datum arguments))))
-    (restart-case (progn (signal condition)
-                         (invoke-debugger condition))
+    (restart-case
+        (with-condition-restarts condition (list (find-restart 'continue))
+          (signal condition)
+          (invoke-debugger condition))
       (continue ()
         :report (lambda (stream)
                   (apply #'format stream continue-format-control arguments))))))
