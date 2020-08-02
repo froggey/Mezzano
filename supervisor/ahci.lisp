@@ -581,12 +581,18 @@
                                      (ash (sup::memref-ub16/le identify-data 61) 16))))
            (serial-number (ata:read-ata-string identify-data 10 20 #'sup::memref-ub16/le))
            (model-number (ata:read-ata-string identify-data 27 47 #'sup::memref-ub16/le)))
+      (when (eql sector-size 0)
+        ;; VmWare seems to do this, are we not interpreting the identify data properly?
+        (sup:debug-print-line "*** Disk is reporting sector size? Assuming 512 bytes")
+        (setf sector-size 512))
       (setf (ahci-port-lba48-capable port-info) lba48-capable
             (ahci-port-sector-size port-info) sector-size
             (ahci-port-sector-count port-info) sector-count)
       (sup:debug-print-line "Features (83): " supported-command-sets)
       (sup:debug-print-line "Sector size: " sector-size)
       (sup:debug-print-line "Sector count: " sector-count)
+      (sup:debug-print-line "Serial: " serial-number)
+      (sup:debug-print-line "Model: " model-number)
       ;; FIXME: Can transfer more than 256 sectors at once...
       (sup:register-disk port-info
                          t

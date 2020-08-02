@@ -338,6 +338,10 @@ Returns true when the bits are equal, false when the timeout expires or if the d
                                     :lba48-capable lba48-capable))
            (serial-number (read-ata-string buf 10 20 #'svref))
            (model-number (read-ata-string buf 27 47 #'svref)))
+      (when (eql sector-size 0)
+        ;; VmWare seems to do this, are we not interpreting the identify data properly?
+        (sup:debug-print-line "*** Disk is reporting sector size? Assuming 512 bytes")
+        (setf sector-size 512))
       (sup:debug-print-line "Features (83): " supported-command-sets)
       (sup:debug-print-line "Sector size: " sector-size)
       (sup:debug-print-line "Sector count: " sector-count)
