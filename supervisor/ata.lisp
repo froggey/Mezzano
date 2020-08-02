@@ -112,7 +112,9 @@
   prdt-phys
   irq
   current-channel
-  (irq-latch (sup:make-event :name "ATA IRQ Notifier"))
+  irq-latch
+  irq-timeout-timer
+  irq-watcher
   bounce-buffer)
 
 (defstruct (ata-device
@@ -447,9 +449,14 @@ This is used to implement the Check_Status states of the various command protoco
 (defun ata-intrq-wait (controller &optional (timeout 30))
   "Wait for a interrupt from the device.
 This is used to implement the INTRQ_Wait state."
-  (declare (ignore timeout))
-  ;; FIXME: Timeouts.
-  (sup:event-wait (ata-controller-irq-latch controller))
+  (sup:timer-arm timeout (ata-controller-irq-timeout-timer controller))
+  (sup:watcher-wait (ata-controller-irq-watcher controller))
+  (when (not (sup:event-state (ata-controller-irq-latch controller)))
+    (sup:ensure (sup:timer-expired-p (ata-controller-irq-timeout-timer controller)))
+    ;; FIXME: Do something better than this.
+    (sup:debug-print-line "*** ATA-INTRQ-WAIT TIMEOUT EXPIRED! ***"))
+  ;; -absolute is non-consing
+  (sup:timer-disarm-absolute (ata-controller-irq-timeout-timer controller))
   (setf (sup:event-state (ata-controller-irq-latch controller)) nil))
 
 (defun ata-pio-data-in (device count mem-addr)
@@ -832,6 +839,17 @@ This is used to implement the INTRQ_Wait state."
                                           :prdt-phys prdt-phys
                                           :irq irq
                                           :bounce-buffer dma32-bounce-buffer)))
+    ;; Set up a watcher with a timer to deal with timeouts waiting for IRQs
+    (setf (ata-controller-irq-latch controller)
+          (sup:make-event :name controller))
+    (setf (ata-controller-irq-timeout-timer controller)
+          (sup:make-timer :name controller))
+    (setf (ata-controller-irq-watcher controller)
+          (sup:make-watcher :name controller))
+    (sup:watcher-add-object (ata-controller-irq-latch controller)
+                            (ata-controller-irq-watcher controller))
+    (sup:watcher-add-object (ata-controller-irq-timeout-timer controller)
+                            (ata-controller-irq-watcher controller))
     ;; Disable IRQs on the controller and reset both drives.
     (setf (sys.int::io-port/8 (+ control-base +ata-register-device-control+))
           (logior +ata-srst+ +ata-nien+))
