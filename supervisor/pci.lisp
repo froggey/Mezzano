@@ -401,8 +401,9 @@ Returns NIL if the BAR has an unknown type."
                               " " vendor-id ":" device-id
                               " " vendor-name " - " device-name
                               " " base-class-code ":" sub-class-code ":" programming-interface
-                              " " (pci-config/8 device +pci-config-revid+)
-                              " " header-type)))
+                              " rid: " (pci-config/8 device +pci-config-revid+)
+                              " hdr: " header-type
+                              " intr: " (pci-intr-line device))))
     (when (logbitp +pci-status-capabilities-list+
                    (pci-config/16 device +pci-config-status+))
       (loop
