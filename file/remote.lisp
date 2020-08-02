@@ -583,10 +583,10 @@ The file position must be less than the file length."
     (command source con `(:rename-file ,(unparse-remote-file-path source)
                                        ,(unparse-remote-file-path dest)))))
 
-(defmethod file-write-date-using-host ((host remote-file-host) path)
+(defmethod file-properties-using-host ((host remote-file-host) path)
   (assert (eql (first (pathname-directory path)) :absolute) (path) "Absoute pathname required.")
   (with-connection (con host)
-    (command path con `(:file-write-date ,(unparse-remote-file-path path)))))
+    (list :write-date (command path con `(:file-write-date ,(unparse-remote-file-path path))))))
 
 (defmethod delete-file-using-host ((host remote-file-host) path &key)
   (assert (eql (first (pathname-directory path)) :absolute) (path) "Absoute pathname required.")
