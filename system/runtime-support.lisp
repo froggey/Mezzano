@@ -232,6 +232,15 @@
   (setf (function-info-compiler-macro (function-info-for name)) value)
   value)
 
+(define-compiler-macro list-in-area (area &rest args)
+  (let ((area-sym (gensym "AREA")))
+    `(let ((,area-sym ,area))
+       ,(loop
+          with result = nil
+          for arg in (reverse args)
+          do (setf result `(cons-in-area ,arg ,result ,area-sym))
+          finally (return result)))))
+
 (defun list-in-area (area &rest args)
   (declare (dynamic-extent args))
   (copy-list-in-area args area))
