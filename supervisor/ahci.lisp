@@ -322,7 +322,9 @@
   command-list
   received-fis
   command-table
-  (irq-latch (sup:make-event :name "AHCI Port IRQ Notifier"))
+  irq-latch
+  irq-timeout-timer
+  irq-watcher
   atapi-p
   cdb-size
   lba48-capable
@@ -661,7 +663,9 @@
 
 (defun ahci-run-command (ahci port command)
   (let* ((port-info (ahci-port ahci port))
-         (irq-latch (ahci-port-irq-latch port-info)))
+         (irq-latch (ahci-port-irq-latch port-info))
+         (irq-timeout-timer (ahci-port-irq-timeout-timer port-info))
+         (irq-watcher (ahci-port-irq-watcher port-info)))
     ;; Reset PRDBC, stop it accumulating over commands. I'm not sure how the HBA actually uses this,
     ;; if it keeps track of DMA progress or if it's just for reporting.
     (setf (sup::physical-memref-unsigned-byte-32 (ahci-port-command-list port-info) +ahci-ch-PRDBC+) 0)
@@ -674,7 +678,14 @@
     ;; Start command 1.
     (setf (ahci-port-register ahci port +ahci-register-PxCI+) 1)
     ;; Wait for it... Wait for it...
-    (sup:event-wait irq-latch)))
+    (sup:timer-arm 30 irq-timeout-timer)
+    (sup:watcher-wait irq-watcher)
+    (when (not (sup:event-state irq-latch))
+      (sup:ensure (sup:timer-expired-p irq-timeout-timer))
+      ;; FIXME: Do something better than this.
+      (sup:debug-print-line "*** AHCI-RUN-COMMAND TIMEOUT EXPIRED! ***"))
+    ;; -absolute is non-consing
+    (sup:timer-disarm-absolute irq-timeout-timer)))
 
 (defun ahci-initialize-port (ahci port)
   ;; Disable Command List processing and FIS RX.
@@ -831,8 +842,17 @@
       (setf (svref (ahci-ports ahci) i) nil)
       (when (logbitp i (ahci-global-register ahci +ahci-register-PI+))
         (sup:debug-print-line "Port " i)
-        (setf (svref (ahci-ports ahci) i) (make-ahci-port :ahci ahci
-                                                          :id i))
+        (let* ((port (make-ahci-port :ahci ahci :id i))
+               (irq-latch (sup:make-event :name port))
+               (irq-timeout-timer (sup:make-timer :name port))
+               (irq-watcher (sup:make-watcher :name port)))
+          (setf (svref (ahci-ports ahci) i) port)
+          ;; Set up a watcher with a timer to deal with timeouts waiting for IRQs
+          (setf (ahci-port-irq-latch port) irq-latch
+                (ahci-port-irq-timeout-timer port) irq-timeout-timer
+                (ahci-port-irq-watcher port) irq-watcher)
+          (sup:watcher-add-object irq-latch irq-watcher)
+          (sup:watcher-add-object irq-timeout-timer irq-watcher))
         (ahci-initialize-port ahci i)))
     ;; Port interrupts cleared, now clear HBA interrupts.
     (setf (ahci-global-register ahci +ahci-register-IS+) (ahci-global-register ahci +ahci-register-IS+))
