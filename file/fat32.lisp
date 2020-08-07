@@ -1124,7 +1124,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                                  ((< cluster-count 65525) 'fat16)
                                  (T 'fat32)))
                  (host (make-instance 'fat-host
-                                      :name name
+                                      :name (string-upcase (string name))
                                       :fat32-info nil
                                       :mount-args uuid)))
             (init-host host block-device sector-0-buf ffs-type)
