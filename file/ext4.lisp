@@ -860,7 +860,9 @@
 
 ;; (defmethod rename-file-using-host ((host ext4-host) source dest))
 
-;; (defmethod file-write-date-using-host ((host ext4-host) path))
+;; (defmethod file-properties-using-host ((host ext4-host) path))
+
+;; (defmethod set-file-properties-using-host ((host ext4-host) path &key))
 
 ;; (defmethod delete-file-using-host ((host ext4-host) path &key))
 
