@@ -4,22 +4,22 @@
 (in-package :mezzano.disk)
 
 (defclass disk-mixin ()
-  ((%writable-p   :initarg :writable-p      :accessor disk-writable-p)
-   (%n-sectors    :initarg :n-sectors       :accessor disk-n-sectors)
-   (%sector-size  :initarg :sector-size     :accessor disk-sector-size)))
+  ((%writable-p  :initarg :writable-p  :accessor disk-writable-p)
+   (%n-sectors   :initarg :n-sectors   :accessor disk-n-sectors)
+   (%sector-size :initarg :sector-size :accessor disk-sector-size)))
 
 (defclass disk-pt-mixin ()
-  ((%pt-type     :initarg :pt-type         :accessor pt-type)
-   (%disk-id     :initarg :disk-id         :accessor disk-id)
-   (%first-lba   :initarg :pt-first-lba    :accessor pt-first-lba)
-   (%last-lba    :initarg :pt-last-lba     :accessor pt-last-lba)))
+  ((%pt-type   :initarg :pt-type      :accessor pt-type)
+   (%disk-id   :initarg :disk-id      :accessor disk-id)
+   (%first-lba :initarg :pt-first-lba :accessor pt-first-lba)
+   (%last-lba  :initarg :pt-last-lba  :accessor pt-last-lba)))
 
 (defclass disk-partition-mixin ()
-  ((%disk             :initarg :disk             :accessor dp-disk)
-   (%partition-num    :initarg :partition-num    :accessor dp-partition-num)
-   (%partition-type   :initarg :partition-type   :accessor dp-partition-type)
-   (%start-lba        :initarg :start-lba        :accessor dp-start-lba)
-   (%size             :initarg :size             :accessor dp-size)))
+  ((%disk           :initarg :disk           :accessor dp-disk)
+   (%partition-num  :initarg :partition-num  :accessor dp-partition-num)
+   (%partition-type :initarg :partition-type :accessor dp-partition-type)
+   (%start-lba      :initarg :start-lba      :accessor dp-start-lba)
+   (%size           :initarg :size           :accessor dp-size)))
 
 ;;======================================================================
 ;; Support functions
@@ -56,34 +56,34 @@
 ;;======================================================================
 
 ;; Partition Table Header fields
-(def-accessor :header-size     12 4)
-(def-accessor :header-crc      16 4)
-(def-accessor :first-lba       40 8)
-(def-accessor :last-lba        48 8)
-(def-accessor :disk-id         56 16)
-(def-accessor :pt-lba          72 8)
-(def-accessor :num-pt-entries  80 4)
-(def-accessor :pt-entry-size   84 4)
-(def-accessor :pt-crc          88 4)
+(def-accessor :header-size    12 4)
+(def-accessor :header-crc     16 4)
+(def-accessor :first-lba      40 8)
+(def-accessor :last-lba       48 8)
+(def-accessor :disk-id        56 16)
+(def-accessor :pt-lba         72 8)
+(def-accessor :num-pt-entries 80 4)
+(def-accessor :pt-entry-size  84 4)
+(def-accessor :pt-crc         88 4)
 
 ;; Partition Table Entry fields
-(def-accessor :part-first-lba   32  8)
-(def-accessor :part-last-lba    40  8)
-(def-accessor :part-attributes  48  8)
+(def-accessor :part-first-lba  32 8)
+(def-accessor :part-last-lba   40 8)
+(def-accessor :part-attributes 48 8)
 
-;; (def-accessor :part-type-guid    0 16)
+;; (def-accessor :part-type-guid 0 16)
 (defun get-part-type-guid (buf &optional (base 0))
   (get-guid buf base))
 
 (defun (setf get-part-type-guid) (value buf &optional (base 0))
-  (setf-guid value buf base))
+  (setf (get-guid buf base) value))
 
-  ;; (def-accessor :part-guid        16 16)
+;; (def-accessor :part-guid 16 16)
 (defun get-part-guid (buf &optional (base 0))
   (get-guid buf (+ base 16)))
 
 (defun (setf get-part-guid) (value buf &optional (base 0))
-  (setf-guid value buf (+ base 16)))
+  (setf (get-guid buf (+ base 16)) value))
 
 (defun check-gpt-crc (buf)
   (let ((header-size (get-header-size buf))
@@ -107,21 +107,16 @@
 (defun parse-guid-partition-table (disk)
   (let* ((sector-size (block-device-sector-size disk))
          (header-buf (make-array sector-size :element-type '(unsigned-byte 8)))
-         (result NIL))
+         (result '()))
     (block-device-read disk 1 1 header-buf)
-
     ;; check signature "EFI PART"
-    (loop
-       for idx = 0 then (1+ idx)
-       for sig-value in '(#x45 #x46 #x49 #x20 #x50 #x41 #x52 #x54)
-       when (/= (aref header-buf idx) sig-value) do
-         (return-from parse-guid-partition-table NIL))
-
+    (loop :for idx :from 0
+          :for sig-value :in '(#x45 #x46 #x49 #x20 #x50 #x41 #x52 #x54)
+          :when (/= (aref header-buf idx) sig-value)
+          :do (return-from parse-guid-partition-table NIL))
     (sup:debug-print-line "Detected GPT on disk " disk)
-
     ;; check header CRC
     (check-gpt-crc header-buf)
-
     (multiple-value-bind (num-entries entry-size pt-buf)
         (read-gpt-partition-table disk header-buf)
       (dotimes (i num-entries)
@@ -145,10 +140,10 @@
 ;;======================================================================
 
 ;; Partition Table Entry fields
-(def-accessor :boot-flag        0 1)
-(def-accessor :partition-type   4 1)
-(def-accessor :first-sector     8 4)
-(def-accessor :partition-size  12 4)
+(def-accessor :boot-flag       0 1)
+(def-accessor :partition-type  4 1)
+(def-accessor :first-sector    8 4)
+(def-accessor :partition-size 12 4)
 
 (defun decode-ebr (buf)
   ;; return <partition type> <data offset> <partition size> <ebr offset>
@@ -164,16 +159,13 @@
   (let* ((sector-size (block-device-sector-size disk))
          (buf (make-array sector-size :element-type '(unsigned-byte 8)))
          (ebr-lba NIL)
-         (result NIL))
+         (result '()))
     (block-device-read disk 0 1 buf)
-
     ;; check signature #x55 #xAA
     (when (or (/= (aref buf #x1FE) #x55)
               (/= (aref buf #x1FF) #xAA))
       (return-from parse-mbr-partition-table NIL))
-
-    (sup:debug-print-line "Detected MBR partition table" disk)
-
+    (sup:debug-print-line "Detected MBR on disk " disk)
     (dotimes (i 4)
       (let* ((base (+ (* i 16) #x1BE))
              (part-type (get-partition-type buf base))
@@ -191,40 +183,32 @@
                       :start-lba start-lba
                       :size size)
                 result)
-
           (when (or (= part-type #x05)
                     (= part-type #x0F))
             (setf ebr-lba start-lba)))))
-
-    ;; Handle extended partition documentation at:
-    ;; https://thestarman.pcministry.com/asm/mbr/PartTables.htm
     (when ebr-lba
+      ;; Handle extended partition documentation at:
+      ;; https://thestarman.pcministry.com/asm/mbr/PartTables.htm
       (block-device-read disk ebr-lba 1 buf)
-
-      (loop with part-type and data-offset and size and ebr-offset
-         with part-num = 4
-         do (setf (values part-type data-offset size ebr-offset)
-                  (decode-ebr buf))
-         unless (or (eql data-offset 0)
-                    (eql size 0))
-         do
-           (sup:debug-print-line "Extended partition " part-num
-                                 " on disk " disk
-                                 ". Type: " part-type
-                                 ", start: " (+ ebr-lba data-offset)
-                                 ", size: " size)
-           (push (list :disk disk
-                       :partition-num part-num
-                       :partition-type part-type
-                       :start-lba (+ ebr-lba data-offset)
-                       :size size)
-                 result)
-           (incf part-num)
-         if (eql ebr-offset 0)
-         do (return nil)
-         else do
-           (setf ebr-lba (+ ebr-lba ebr-offset))
-           (block-device-read disk ebr-lba 1 buf)))
+      (multiple-value-bind (part-type data-offset size ebr-offset)
+          (decode-ebr buf)
+        (loop :for part-num :from 4
+              :never (eql ebr-offset 0)
+              :do (unless (or (eql data-offset 0)
+                              (eql size 0))
+                    (sup:debug-print-line "Extended partition " part-num
+                                          " on disk " disk
+                                          ". Type: " part-type
+                                          ", start: " (+ ebr-lba data-offset)
+                                          ", size: " size)
+                    (push (list :disk disk
+                                :partition-num part-num
+                                :partition-type part-type
+                                :start-lba (+ ebr-lba data-offset)
+                                :size size)
+                          result))
+                  (setf ebr-lba (+ ebr-lba ebr-offset))
+                  (block-device-read disk ebr-lba 1 buf))))
     (nreverse result)))
 
 ;;======================================================================
@@ -235,9 +219,8 @@
       (parse-mbr-partition-table disk)))
 
 (defun parse-disk-info (disk)
-  (list
-   :sector-size (block-device-sector-size disk)
-   :n-sectors (block-device-n-sectors disk)))
+  (list :sector-size (block-device-sector-size disk)
+        :n-sectors (block-device-n-sectors disk)))
 
 (defun print-disk-info (stream disk)
   (let* ((disk-info (parse-disk-info disk))
@@ -257,11 +240,11 @@
   (let ((partitions (parse-partition-table disk)))
     (format stream "~&Num    Type ~15T         Start LBA               Size~%")
     (dolist (part partitions)
-        (format stream " ~D     #x~2,'0X ~15T~10D (#x~8,'0X) ~10D (#x~8,'0X)~%"
-                (getf part :partition-num)
-                (getf part :partition-type)
-                (getf part :start-lba)
-                (getf part :start-lba)
-                (getf part :size)
-                (getf part :size))))
+      (format stream " ~D     #x~2,'0X ~15T~10D (#x~8,'0X) ~10D (#x~8,'0X)~%"
+              (getf part :partition-num)
+              (getf part :partition-type)
+              (getf part :start-lba)
+              (getf part :start-lba)
+              (getf part :size)
+              (getf part :size))))
   (values))

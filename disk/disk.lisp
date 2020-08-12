@@ -4,7 +4,7 @@
 (in-package :mezzano.disk)
 
 ;;======================================================================
-;;    Helper functions
+;; Helper functions
 ;;======================================================================
 
 (defun read-sector (disk lba n-sectors wired-buffer buffer base-offset &optional (end1 nil))
@@ -40,7 +40,7 @@
                        (+ base-offset (* partial-transfer sector-size))))))))
 
 ;;======================================================================
-;;    API
+;; API
 ;;======================================================================
 
 (defgeneric block-device-sector-size (disk))
@@ -54,7 +54,7 @@
 (defgeneric block-device-flush (device))
 
 ;;======================================================================
-;;    Supervisor disk API implementation
+;; Supervisor disk API implementation
 ;;======================================================================
 
 (defmethod block-device-sector-size ((disk sup:disk))
@@ -87,7 +87,7 @@
 ;; interface. All of the disks and partition that use the supervisor
 ;; driver support the block device interface, because that interface
 ;; is defined above.
-;; ======================================================================
+;;======================================================================
 
 (defvar *block-devices-lock* (sup:make-mutex "Lock for *block-devices*"))
 (defvar *block-devices* NIL)
