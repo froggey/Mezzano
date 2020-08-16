@@ -487,7 +487,7 @@ May be used from an interrupt handler, assuming the associated mutex is interrup
             ;; Going to block.
             (when (not (%call-on-wired-stack-without-interrupts
                         #'rw-lock-read-acquire-slow nil rw-lock))
-              ;; Retry not required, lock is now write-locked.
+              ;; Retry not required, lock is now read-locked.
               (return)))
          t)
         (t
