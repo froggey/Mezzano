@@ -1132,7 +1132,7 @@
   (format t ";; Writing compiler builtins to ~A.~%" path)
   (let* ((builtins (ecase target-architecture
                      (:x86-64 (mezzano.compiler.backend.x86-64::generate-builtin-functions))
-                     (:arm64 (mezzano.compiler.codegen.arm64:generate-builtin-functions))))
+                     (:arm64 (mezzano.compiler.backend.arm64:generate-builtin-functions))))
          (*use-new-compiler* nil)
          (*target-architecture* target-architecture))
     (save-custom-compiled-file path
