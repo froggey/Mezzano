@@ -487,7 +487,7 @@ May be used from an interrupt handler, assuming the associated mutex is interrup
             ;; Going to block.
             (when (not (%call-on-wired-stack-without-interrupts
                         #'rw-lock-read-acquire-slow nil rw-lock))
-              ;; Retry not required, lock is now write-locked.
+              ;; Retry not required, lock is now read-locked.
               (return)))
          t)
         (t
@@ -845,12 +845,8 @@ EVENT can be any object that supports GET-OBJECT-EVENT."
 ;; Object pools are used for watcher & associated structures.
 ;; This is to reduce allocation in the wired area which is
 ;; very slow, and GCing the wired area requires a full GC cycle.
-(sys.int::defglobal *watcher-watcher-pool*
-    (make-object-pool '*watcher-watcher-pool* 1000
-                      #'watcher-watched-objects #'(setf watcher-watched-objects)))
-(sys.int::defglobal *watcher-monitor-pool*
-    (make-object-pool '*watcher-monitor-pool* 1000
-                      #'watcher-event-monitor-watcher #'(setf watcher-event-monitor-watcher)))
+(sys.int::defglobal *watcher-watcher-pool*)
+(sys.int::defglobal *watcher-monitor-pool*)
 
 (defstruct (watcher
              (:constructor %make-watcher (name))
@@ -1169,3 +1165,12 @@ It is only possible for the second value to be false when wait-p is false."
             (irq-fifo-tail fifo) 0
             (irq-fifo-count fifo) 0)
       (setf (event-state (irq-fifo-data-available fifo)) nil))))
+
+(defun initialize-sync (first-run-p)
+  (when first-run-p
+    (setf *watcher-watcher-pool*
+          (make-object-pool '*watcher-watcher-pool* 1000
+                            #'watcher-watched-objects #'(setf watcher-watched-objects)))
+    (setf *watcher-monitor-pool*
+          (make-object-pool '*watcher-monitor-pool* 1000
+                            #'watcher-event-monitor-watcher #'(setf watcher-event-monitor-watcher)))))

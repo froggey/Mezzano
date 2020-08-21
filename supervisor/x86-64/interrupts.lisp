@@ -249,18 +249,21 @@ If clear, the fault occured in supervisor mode.")
          (setf (sys.int::io-port/8 #x20) #x0B)
          (let ((isr (sys.int::io-port/8 #x20)))
            (setf (sys.int::io-port/8 #x20) #x0A)
-           (logbitp 7 isr)))
+           (not (logbitp 7 isr))))
         ((eql irq 15)
          (setf (sys.int::io-port/8 #xA0) #x0B)
          (let ((isr (sys.int::io-port/8 #xA0)))
            (setf (sys.int::io-port/8 #xA0) #x0A)
-           (logbitp 7 isr)))
+           (not (logbitp 7 isr))))
         (t nil)))
 
 (defun i8259-interrupt-handler (interrupt-frame info)
   (let ((irq (- info +i8259-base-interrupt+)))
     ;; Check if this is a spurious interrupt. These should not
     ;; be delivered to the system and don't need an EOI.
+    ;; FIXME: This seems to have issues with IRQ15, when a secondary
+    ;; IDE controller is active.
+    #+(or)
     (with-symbol-spinlock (*i8259-spinlock*)
       (when (i8259-irq-spurious-p irq)
         (when (not *i8259-reported-spurious-interrupt*)

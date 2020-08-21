@@ -154,6 +154,7 @@
       (setf (event-state *boot-id*) t))
     (setf *boot-id* (make-event :name 'boot-epoch))
     (initialize-threads)
+    (initialize-sync first-run-p)
     (initialize-disk)
     (initialize-pager)
     (initialize-snapshot)

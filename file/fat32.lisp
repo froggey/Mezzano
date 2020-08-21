@@ -633,6 +633,21 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                                    octet))) ; add next name byte
         :finally (return checksum)))
 
+(defun fat-to-universal-time (tenths time date)
+  (encode-universal-time (+ (ash (ldb (byte 5 0) time) 1)
+                            (floor tenths 100))
+                         (ldb (byte 6 5) time)
+                         (ldb (byte 5 11) time)
+                         (ldb (byte 5 0) date)
+                         (ldb (byte 4 5) date)
+                         (+ 1980 (ldb (byte 7 9) date))))
+
+(defun encode-fat-date (date month year)
+  (logior date (ash month 5) (ash (- year 1980) 9)))
+
+(defun encode-fat-time (second minute hour)
+  (logior (round second 2) (ash minute 5) (ash hour 11)))
+
 (defun next-file (directory offset)
   "Return offset of next file/directory"
   (do ((i offset (+ 32 i)))
@@ -1124,7 +1139,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                                  ((< cluster-count 65525) 'fat16)
                                  (T 'fat32)))
                  (host (make-instance 'fat-host
-                                      :name name
+                                      :name (string-upcase (string name))
                                       :fat32-info nil
                                       :mount-args uuid)))
             (init-host host block-device sector-0-buf ffs-type)
@@ -1791,26 +1806,80 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
                    (write-directory ffs disk source-cluster fat source-dir)
                    (write-directory ffs disk dest-cluster fat dest-dir))))))))
 
-(defmethod file-write-date-using-host ((host fat-host) path)
-  (multiple-value-bind (parent-dir parent-cluster file-offset) (open-file-metadata host path)
+(defmethod file-properties-using-host ((host fat-host) path)
+  (multiple-value-bind (parent-dir parent-cluster file-offset)
+      (open-file-metadata host path)
     (declare (ignore parent-cluster))
     (when (null file-offset)
       (error 'simple-file-error
-                             :pathname path
-                             :format-control "File ~A does not exist. ~S"
-                             :format-arguments (list path (file-name path))))
-    (let ((time (read-write-time parent-dir file-offset))
-          (date (read-write-date parent-dir file-offset)))
-      (encode-universal-time (ash (ldb (byte 5 0) time) 1)
-                             (ldb (byte 6 5) time)
-                             (ldb (byte 5 11) time)
-                             (ldb (byte 5 0) date)
-                             (ldb (byte 4 5) date)
-                             (+ 1980 (ldb (byte 7 9) date))))))
+             :pathname path
+             :format-control "File ~A does not exist. ~S"
+             :format-arguments (list path (file-name path))))
+    (let ((attr (read-attributes parent-dir file-offset)))
+      (list :write-date
+            (fat-to-universal-time 0
+                                   (read-write-time parent-dir file-offset)
+                                   (read-write-date parent-dir file-offset))
+            :access-date
+            (fat-to-universal-time 0
+                                   0
+                                   (read-last-access-date parent-dir file-offset))
+            :create-date
+            (fat-to-universal-time (read-creation-time-tenth parent-dir file-offset)
+                                   (read-creation-time parent-dir file-offset)
+                                   (read-creation-date parent-dir file-offset))
+            :read-only (logbitp +attribute-read-only+ attr)
+            :hidden (logbitp +attribute-hidden+ attr)
+            :system (logbitp +attribute-system+ attr)))))
 
-(defmethod file-author-using-host ((host fat-host) path)
-  ;; FAT does not support an author field
-  NIL)
+(defmethod set-file-properties-using-host
+    ((host fat-host) path &key (write-date NIL write-date-p)
+                            (access-date NIL access-date-p)
+                            (read-only NIL read-only-p)
+                            (hidden NIL hidden-p)
+                            (system NIL system-p))
+  (multiple-value-bind (parent-dir parent-cluster file-offset)
+      (open-file-metadata host path)
+    (when (null file-offset)
+      (error 'simple-file-error
+             :pathname path
+             :format-control "File ~A does not exist. ~S"
+             :format-arguments (list path (file-name path))))
+    (when write-date-p
+      (multiple-value-bind (second minute hour date month year)
+          (decode-universal-time write-date)
+        (setf (read-write-date parent-dir file-offset)
+              (encode-fat-date date month year)
+              (read-write-time parent-dir file-offset)
+              (encode-fat-time second minute hour))
+        (when (not access-date-p)
+          (setf (read-last-access-date parent-dir file-offset)
+                (read-write-date parent-dir file-offset)))))
+    (when access-date-p
+      (multiple-value-bind (second minute hour date month year)
+          (decode-universal-time access-date)
+        (declare (ignore second minute hour))
+        (setf (read-last-access-date parent-dir file-offset)
+              (encode-fat-date date month year))))
+    (let ((attr (read-attributes parent-dir file-offset)))
+      (when read-only-p
+        (setf attr (if read-only
+                       (logior attr (ash 1 +attribute-read-only+))
+                       (logandc2 attr (ash 1 +attribute-read-only+)))))
+      (when hidden-p
+        (setf attr (if hidden
+                       (logior attr (ash 1 +attribute-hidden+))
+                       (logandc2 attr (ash 1 +attribute-hidden+)))))
+      (when system-p
+        (setf attr (if system
+                       (logior attr (ash 1 +attribute-system+))
+                       (logandc2 attr (ash 1 +attribute-system+)))))
+      (setf (read-attributes parent-dir file-offset) attr))
+    (write-directory (fat-structure host)
+                     (file-host-mount-device host)
+                     parent-cluster
+                     (fat host)
+                     parent-dir)))
 
 (defmethod delete-file-using-host ((host fat-host) path &key)
   (let* ((disk (file-host-mount-device host))

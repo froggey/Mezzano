@@ -41,7 +41,7 @@
                 (format nil "~2,'0X" (aref buf (+ base buf-idx)))))
     result))
 
-(defun setf-guid (value buf base)
+(defun (setf get-guid) (value buf base)
   (flet ((hex-to-byte (c1 c2)
            (+ (* 16 (or (digit-char-p c1)
                         (- (char-int (char-upcase c1)) 55)))

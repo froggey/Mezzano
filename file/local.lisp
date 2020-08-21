@@ -23,8 +23,8 @@
                                                        :type nil
                                                        :version nil)
                               :storage (make-array 1 :initial-element (make-hash-table :test 'equalp))
-                              :plist (list :creation-time time
-                                           :write-time time))))
+                              :plist (list :creation-date time
+                                           :write-date time))))
     (setf (slot-value instance '%root) file)))
 
 (defclass local-file ()
@@ -259,8 +259,8 @@
                                                     :element-type element-type
                                                     :adjustable t
                                                     :fill-pointer 0)
-                               :plist (list :creation-time time
-                                            :write-time time))))
+                               :plist (list :creation-date time
+                                            :write-date time))))
       (cond (container
              ;; Other versions of this file exist, merge with container.
              ;; Assumes that no file with the same version exists!
@@ -420,34 +420,65 @@
           (return-from probe-using-host nil))
         (setf dir next)))))
 
-(defmethod file-write-date-using-host ((host local-file-host) pathname)
+(defun resolve-path (host pathname)
+  "Return the file associated with PATH on HOST. HOST must be locked."
   (when (not (typep (pathname-directory pathname) '(cons (eql :absolute))))
     (error 'simple-file-error
            :pathname pathname
            :format-control "Non-absolute pathname."))
+  (when (and (not (pathname-name pathname))
+             (not (pathname-type pathname))
+             (rest (pathname-directory pathname)))
+    (setf pathname (make-pathname :directory (butlast (pathname-directory pathname))
+                                  :name (first (last (pathname-directory pathname)))
+                                  :type "directory"
+                                  :version :newest)))
+  (do ((element (rest (pathname-directory pathname)) (cdr element))
+       (dir (local-host-root host)))
+      ((endp element)
+       (let ((file (read-directory-entry dir (pathname-name pathname) (pathname-type pathname) (pathname-version pathname))))
+         (when (not file)
+           (error 'simple-file-error
+                  :pathname pathname
+                  :format-control "File does not exist."))
+         file))
+    (let ((next-dir (read-directory-entry dir (car element) "directory")))
+      (when (not next-dir)
+        (error 'simple-file-error
+               :pathname pathname
+               :format-control "File does not exist."))
+      (setf dir next-dir))))
+
+(defun get-file-properties (file)
+  (mezzano.supervisor:with-mutex ((file-lock file))
+    (list* :length (length (file-storage file))
+           (file-plist file))))
+
+(defun set-file-properties (file properties)
+  (mezzano.supervisor:with-mutex ((file-lock file))
+    (loop
+      with a-o-k = (getf properties :allow-other-keys)
+      for (key val) on properties by #'cddr
+      unless (eql key :allow-other-keys)
+      do
+         (when (eql key :length)
+           (unless (not a-o-k) ; ignore when a-o-k is set.
+             (error "Can't set property :LENGTH")))
+         (setf (getf (file-plist file) key) value))))
+
+(defmethod file-properties-using-host ((host local-file-host) pathname)
   (with-host-locked (host)
-    (when (and (not (pathname-name pathname))
-               (not (pathname-type pathname))
-               (rest (pathname-directory pathname)))
-      (setf pathname (make-pathname :directory (butlast (pathname-directory pathname))
-                                    :name (first (last (pathname-directory pathname)))
-                                    :type "directory"
-                                    :version :newest)))
-    (do ((element (rest (pathname-directory pathname)) (cdr element))
-         (dir (local-host-root host)))
-        ((endp element)
-         (let ((file (read-directory-entry dir (pathname-name pathname) (pathname-type pathname) (pathname-version pathname))))
-           (when (not file)
-             (error 'simple-file-error
-                    :pathname pathname
-                    :format-control "File does not exist."))
-           (getf (file-plist file) :write-time)))
-      (let ((next-dir (read-directory-entry dir (car element) "directory")))
-        (when (not next-dir)
-          (error 'simple-file-error
-                 :pathname pathname
-                 :format-control "File does not exist."))
-        (setf dir next-dir)))))
+    (get-file-properties (resolve-path host pathname))))
+
+(defmethod set-file-properties-using-host ((host local-file-host) pathname &rest properties &key &allow-other-keys)
+  (with-host-locked (host)
+    (set-file-properties (resolve-path host pathname) properties)))
+
+(defmethod file-properties-using-stream ((stream local-stream))
+  (get-file-properties (local-stream-file stream)))
+
+(defmethod set-file-properties-using-stream ((stream local-stream) &rest properties &key &allow-other-keys)
+  (set-file-properties (local-stream-file stream) properties))
 
 (defun match-version (container version)
   (let ((result '()))
@@ -717,7 +748,7 @@ If ERRORP is true, then a file error will be signalled if any components are mis
             (t
              (setf (aref (file-storage file) (stream-position stream)) character)))
       (incf (stream-position stream))
-      (setf (getf (file-plist file) :write-time) (get-universal-time)))))
+      (setf (getf (file-plist file) :write-date) (get-universal-time)))))
 
 (defmethod mezzano.gray:stream-read-char ((stream local-stream))
   (check-type (direction stream) (member :io :input))
@@ -743,7 +774,7 @@ If ERRORP is true, then a file error will be signalled if any components are mis
             (t
              (setf (aref (file-storage file) (stream-position stream)) byte)))
       (incf (stream-position stream))
-      (setf (getf (file-plist file) :write-time) (get-universal-time)))))
+      (setf (getf (file-plist file) :write-date) (get-universal-time)))))
 
 (defmethod mezzano.gray:stream-read-byte ((stream local-stream))
   (check-type (direction stream) (member :io :input))
@@ -774,7 +805,7 @@ If ERRORP is true, then a file error will be signalled if any components are mis
                :start2 start
                :end2 end)
       (incf (stream-position stream) (- end start))
-      (setf (getf (file-plist file) :write-time) (get-universal-time)))))
+      (setf (getf (file-plist file) :write-date) (get-universal-time)))))
 
 (defmethod mezzano.gray:stream-read-sequence ((stream local-stream) sequence &optional (start 0) end)
   (check-type (direction stream) (member :io :input))
@@ -840,8 +871,9 @@ If ERRORP is true, then a file error will be signalled if any components are mis
           (time (get-universal-time)))
       (mezzano.supervisor:with-mutex ((file-lock file))
         (setf (file-storage file) (file-storage (local-stream-file stream)))
-      (setf (getf (file-plist file) :creation-time) time
-            (getf (file-plist file) :write-time) time))))
+        ;; FIXME: This needs to merge the two plists together.
+        (setf (getf (file-plist file) :creation-date) time
+              (getf (file-plist file) :write-date) time))))
   t)
 
 (defmethod stream-truename ((stream local-stream))

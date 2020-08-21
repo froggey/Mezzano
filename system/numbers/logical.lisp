@@ -59,9 +59,7 @@
       (get-setf-expansion int env);Get setf expansion for int.
     (let ((btemp (gensym))     ;Temp var for byte specifier.
           (store (gensym))     ;Temp var for byte to store.
-          (stemp (first stores)) ;Temp var for int to store.
-          (bs-size (gensym))   ; Temp var for byte specifier size.
-          (bs-position (gensym))) ; Temp var for byte specifier position.
+          (stemp (first stores))) ;Temp var for int to store.
       (when (cdr stores) (error "Can't expand this."))
       ;; Return the setf expansion for LDB as five values.
       (values (cons btemp temps)       ;Temporary variables.
@@ -70,8 +68,7 @@
               `(let ((,stemp (dpb ,store ,btemp ,access-form)))
                  ,store-form
                  ,store)               ;Storing form.
-              `(ldb ,btemp ,access-form) ;Accessing form.
-              ))))
+              `(ldb ,btemp ,access-form))))) ;Accessing form.
 
 (declaim (inline dpb))
 (defun dpb (newbyte bytespec integer)
@@ -97,9 +94,7 @@
       (get-setf-expansion integer env);Get setf expansion for int.
     (let ((btemp (gensym))     ;Temp var for byte specifier.
           (store (gensym))     ;Temp var for byte to store.
-          (stemp (first stores)) ;Temp var for int to store.
-          (bs-size (gensym))   ; Temp var for byte specifier size.
-          (bs-position (gensym))) ; Temp var for byte specifier position.
+          (stemp (first stores))) ;Temp var for int to store.
       (when (cdr stores) (error "Can't expand this."))
       (values (cons btemp temps)       ;Temporary variables.
               (cons bytespec vals)     ;Value forms.
@@ -107,8 +102,7 @@
               `(let ((,stemp (deposit-field ,store ,btemp ,access-form)))
                  ,store-form
                  ,store)               ;Storing form.
-              `(mask-field ,btemp ,access-form) ;Accessing form.
-              ))))
+              `(mask-field ,btemp ,access-form))))) ;Accessing form.
 
 (declaim (inline deposit-field))
 (defun deposit-field (newbyte bytespec integer)

@@ -639,7 +639,7 @@
           (when (find-host name nil)
             (error "ext4 host ~A already mounted~%" name))
           (let ((host (make-instance 'ext4-host
-                                     :name name
+                                     :name (string-upcase (string name))
                                      :mount-args uuid)))
             (init-host host block-device superblock)
             (setf (mezzano.file-system:find-host name) host))
@@ -860,7 +860,9 @@
 
 ;; (defmethod rename-file-using-host ((host ext4-host) source dest))
 
-;; (defmethod file-write-date-using-host ((host ext4-host) path))
+;; (defmethod file-properties-using-host ((host ext4-host) path))
+
+;; (defmethod set-file-properties-using-host ((host ext4-host) path &key))
 
 ;; (defmethod delete-file-using-host ((host ext4-host) path &key))
 

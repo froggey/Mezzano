@@ -17,8 +17,12 @@
            #:directory-using-host
            #:ensure-directories-exist-using-host
            #:rename-file-using-host
-           #:file-write-date-using-host
-           #:file-author-using-host
+           #:file-properties-using-host
+           #:file-properties-using-stream
+           #:file-properties
+           #:set-file-properties-using-host
+           #:set-file-properties-using-stream
+           #:set-file-properties
            #:delete-file-using-host
            #:delete-directory
            #:delete-directory-using-host
@@ -683,23 +687,68 @@ NAMESTRING as the second."
     (rename-file-using-host (pathname-host source) source dest)
     (values dest source dest)))
 
-(defgeneric file-write-date-using-host (host path))
-(defmethod file-write-date-using-host (host path)
-  nil)
+(defgeneric file-properties-using-host (host pathname)
+  (:documentation "Return file properties for the given pathname.
+Should signal an error if the path does not exist."))
+(defmethod file-properties-using-host (host pathname)
+  '())
+
+(defgeneric file-properties-using-stream (stream)
+  (:documentation "Return file properties for the file associated with stream.
+The default method falls back to calling FILE-PROPERTIES-USING-HOST with stream's truename,
+but file systems may implement methods on this function to better support streams opened
+in new-version/supersede/etc modes, where the underlying file does not fully exist."))
+(defmethod file-properties-using-stream ((stream stream))
+  ;; Fall back on the -host function.
+  (let ((truename (truename stream)))
+    (file-properties-using-host (pathname-host truename) truename)))
+
+(defun file-properties (pathspec-or-stream)
+  "Return a plist of properties associated with the specified file.
+PATHSPEC-OR-STREAM should be either a pathname designator or a stream.
+If it is a stream, then the properties associated with that stream's file will
+be returned.
+Exact behaviour and supported properties depend on the underlying file system.
+Common properties include :LENGTH, :WRITE-DATE and :AUTHOR."
+  (if (streamp pathspec-or-stream)
+      (file-properties-using-stream pathspec-or-stream)
+      (let ((path (translate-logical-pathname (merge-pathnames pathspec-or-stream))))
+        (assert (not (wild-pathname-p path)))
+        (file-properties-using-host (pathname-host path) path))))
+
+(defgeneric set-file-properties-using-host (host pathname &key)
+  (:documentation "Set properties associated with the specified path.
+Methods should add keywords to indicate supported properties and allow
+unknown properties to signal errors using the normal keyword checking mechanism."))
+(defmethod set-file-properties-using-host (host pathname &key)
+  (values))
+
+(defgeneric set-file-properties-using-stream (stream &key)
+  (:documentation "Like FILE-PROPERTIES-USING-STREAM.
+Falls back on SET-FILE-PROPERTIES-USING-HOST by default."))
+(defmethod set-file-properties-using-stream ((stream stream) &rest properties &key)
+  ;; Fall back on the -host function.
+  (let ((truename (truename stream)))
+    (apply #'set-file-properties-using-host (pathname-host truename) truename properties)))
+
+(defun set-file-properties (pathspec-or-stream &rest properties)
+  "Sets properties associated with the file specified PATHSPEC-OR-STREAM.
+The exact set of properties supported is file system dependent and underlying
+implementations will signal an error on an attempt to set an unsupported property.
+Users should pass :ALLOW-OTHER-KEYS T to avoid this, in which case the unsupported
+properties will be ignored."
+  (if (streamp pathspec-or-stream)
+      (apply #'set-file-properties-using-stream pathspec-or-stream properties)
+      (let ((path (translate-logical-pathname (merge-pathnames pathspec-or-stream))))
+        (assert (not (wild-pathname-p path)))
+        (apply #'set-file-properties-using-host (pathname-host path) path properties)))
+  (values))
 
 (defun file-write-date (pathspec)
-  (let ((path (translate-logical-pathname (merge-pathnames pathspec))))
-    (assert (not (wild-pathname-p path)))
-    (file-write-date-using-host (pathname-host path) path)))
-
-(defgeneric file-author-using-host (host path))
-(defmethod file-author-using-host (host path)
-  nil)
+  (getf (file-properties pathspec) :write-date nil))
 
 (defun file-author (pathspec)
-  (let ((path (translate-logical-pathname (merge-pathnames pathspec))))
-    (assert (not (wild-pathname-p path)))
-    (file-author-using-host (pathname-host path) path)))
+  (getf (file-properties pathspec) :author nil))
 
 (defgeneric delete-file-using-host (host path &key))
 
