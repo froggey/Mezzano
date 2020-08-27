@@ -42,7 +42,7 @@
                        :inputs (list x y)
                        :outputs (list))))
 
-(define-builtin mezzano.runtime::fast-symbol-value-cell (((:constant symbol symbol)) result)
+(define-builtin mezzano.runtime::fast-symbol-value-cell (((:constant symbol symbol)) result :has-wrapper nil)
   (cond ((eql (sys.int::symbol-mode symbol) :global)
          ;; This is a known global symbol, return the global value cell.
          (emit (make-instance 'ir:constant-instruction

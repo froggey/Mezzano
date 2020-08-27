@@ -2,7 +2,7 @@
 
 (in-package :mezzano.compiler.backend.arm64)
 
-(defmacro define-builtin (name (lambda-list results) &body body)
+(defmacro define-builtin (name (lambda-list results &key (has-wrapper t)) &body body)
   (when (not (listp results))
     (setf results (list results)))
   (let ((backend-function (gensym))
@@ -19,6 +19,7 @@
        for real-arg in real-lambda-list
        when (consp arg)
        do
+         (assert (not has-wrapper))
          (assert (eql (first arg) :constant))
          (destructuring-bind (name &optional (predicate t))
              (rest arg)
@@ -41,22 +42,39 @@
                                (ir:insert-before ,backend-function ,insertion-point inst))
                              (give-up ()
                                (return-from ,the-block nil))
+                             (finish ()
+                               (return-from ,the-block t))
                              (constant-value-p (value &optional (type 't))
                                (and (typep (first (gethash value ,defs)) 'ir:constant-instruction)
                                     (typep (ir:constant-value (first (gethash value ,defs))) type)))
                              (fetch-constant-value (value)
                                (ir:constant-value (first (gethash value ,defs)))))
-                        (declare (ignorable #'emit #'give-up #'constant-value-p #'fetch-constant-value))
+                        (declare (ignorable #'emit #'give-up #'finish #'constant-value-p #'fetch-constant-value))
                         ,@body
-                        t))))))
+                        t)))
+                  ',has-wrapper)))
 
 (defclass builtin ()
   ((%name :initarg :name :reader builtin-name)
    (%lambda-list :initarg :lambda-list :reader builtin-lambda-list)
    (%result-list :initarg :result-list :reader builtin-result-list)
-   (%generator :initarg :generator :reader builtin-generator)))
+   (%generator :initarg :generator :reader builtin-generator)
+   (%has-wrapper :initarg :has-wrapper :reader builtin-has-wrapper)))
 
 (defvar *builtins* (make-hash-table :test 'equal :synchronized t))
+
+;; Produce an alist of symbol names and their associated functions.
+(defun generate-builtin-functions ()
+  (let ((functions '()))
+    (maphash (lambda (name info)
+               (when (builtin-has-wrapper info)
+                 (push (list name
+                             `(lambda ,(builtin-lambda-list info)
+                                (declare (sys.int::lambda-name ,name))
+                                (funcall #',name ,@(builtin-lambda-list info))))
+                       functions)))
+             *builtins*)
+    functions))
 
 (defun match-builtin (name n-arguments)
   (let ((builtin (gethash name *builtins*)))
@@ -65,13 +83,14 @@
         builtin
         nil)))
 
-(defun %defbuiltin (name lambda-list result-list generator)
+(defun %defbuiltin (name lambda-list result-list generator has-wrapper)
   (setf (gethash name *builtins*)
         (make-instance 'builtin
                        :name name
                        :lambda-list lambda-list
                        :result-list result-list
-                       :generator generator))
+                       :generator generator
+                       :has-wrapper has-wrapper))
   name)
 
 (defun consumed-by-p (definition consumer uses defs)
