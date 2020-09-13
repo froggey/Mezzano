@@ -28,7 +28,7 @@ The surface will be filled with INITIAL-COLOUR, which defaults to fully transpar
                                    (g (float (colour-green initial-colour) 0.0s0))
                                    (b (float (colour-blue initial-colour) 0.0s0)))
                                (dotimes (y height)
-                                 (dotimes (x width)
+                                 (dotimes (x height)
                                    (setf (aref pixels y x 0) b
                                          (aref pixels y x 1) g
                                          (aref pixels y x 2) r
