@@ -3,7 +3,7 @@
 (defsystem "lispos"
   :description "Lisp operating system."
   :version "0"
-  :author "Henry Harrington <henry.harrington@gmail.com>"
+  :author "Sylvia Harrington <sylvia.harrington28@gmail.com>"
   :licence "MIT"
   :depends-on (#:nibbles #:cl-ppcre #:iterate
                #:alexandria #:closer-mop
