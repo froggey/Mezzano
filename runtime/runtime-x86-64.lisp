@@ -533,8 +533,8 @@ the GC must be deferred during FILL-WORDS."
   ;; Set address bits, tag bits, and the mark bit.
   (sys.lap-x86:mov64 :rax #.(logior (ash sys.int::+address-tag-general+ sys.int::+address-tag-shift+)
                                     sys.int::+tag-object+))
+  (sys.lap-x86:or64 :rax (:object :r12 #.sys.int::+symbol-value-cell-value+))
   (sys.lap-x86:or64 :rbx :rax)
-  (sys.lap-x86:or64 :rbx (:object :r12 #.sys.int::+symbol-value-cell-value+))
   ;; RBX now points to a 0-element simple-vector, followed by however much empty space is required.
   ;; The gc metadata at this point has :restart t, so if a GC occurs before
   ;; writing the final header, this process will be restarted from the beginning.
@@ -611,8 +611,8 @@ the GC must be deferred during FILL-WORDS."
   ;; Set address bits, tag bits, and the mark bit.
   (sys.lap-x86:mov64 :rax #.(logior (ash sys.int::+address-tag-cons+ sys.int::+address-tag-shift+)
                                     sys.int::+tag-cons+))
+  (sys.lap-x86:or64 :rax (:object :r12 #.sys.int::+symbol-value-cell-value+))
   (sys.lap-x86:or64 :rbx :rax)
-  (sys.lap-x86:or64 :rbx (:object :r12 #.sys.int::+symbol-value-cell-value+))
   ;; RBX now holds a valid cons, with the CAR and CDR set to zero.
   ;; It is safe to leave the restart region.
   (:gc :no-frame :layout #*0)
