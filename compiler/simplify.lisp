@@ -963,16 +963,26 @@ Returns NIL if there is no THE form.")
                      ((and (eql dim '*)
                            (not (eql element-type '*)))
                       ;; This axis is unknown, but the axis is valid.
-                      (if (and (eql rank 1)
-                               ;; Strings are always complex arrays.
-                               (compiler-valid-not-subtypep element-type 'character))
-                          (ast `(the fixnum (call sys.int::%object-header-data ,array))
-                               form)
-                          (ast `(the fixnum (call sys.int::%object-ref-t
-                                                  ,array
-                                                  ',(+ sys.int::+complex-array-axis-0+ axis)))
-                               form)))
-                   (t form)))))
+                      (let ((not-stringp (compiler-valid-not-subtypep element-type 'character))
+                            (simplep (eql (first type) 'simple-array)))
+                        (cond ((and (eql rank 1)
+                                    ;; Must be a simple array.
+                                    simplep
+                                    ;; Strings are always represented as complex arrays,
+                                    ;; even when they're simple
+                                    not-stringp)
+                               (ast `(the fixnum (call sys.int::%object-header-data ,array))
+                                    form))
+                              ((or (not (eql rank 1))
+                                   (not not-stringp))
+                               ;; 1D arrays *may* be simple and have a different representation,
+                               ;; so need to go through the full call...
+                               (ast `(the fixnum (call sys.int::%object-ref-t
+                                                       ,array
+                                                       ',(+ sys.int::+complex-array-axis-0+ axis)))
+                                    form))
+                              (t form))))
+                     (t form)))))
           (t
            form))))
 
