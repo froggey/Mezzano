@@ -213,7 +213,6 @@ Must not call SERIALIZE-OBJECT."))
 
 (defmethod initialize-object ((object symbol) value image environment)
   ;; TODO: Include symbol mode.
-  ;; TODO: Include plist.
   (initialize-object-header image value sys.int::+object-tag-symbol+ 0)
   (setf (object-slot image value sys.int::+symbol-name+)
         (serialize-object (env:cross-symbol-name environment object) image environment))
@@ -568,7 +567,7 @@ Must not call SERIALIZE-OBJECT."))
      (setf (object-slot image value 0)
            (serialize-object (realpart object) image environment))
      (setf (object-slot image value 1)
-           (serialize-object (realpart object) image environment)))
+           (serialize-object (imagpart object) image environment)))
     (single-float
      (initialize-object-header image value sys.int::+object-tag-complex-single-float+ 0)
      (setf (object-slot image value 0)
@@ -674,12 +673,13 @@ Must not call SERIALIZE-OBJECT."))
                      (ldb (byte 0 loc-element-bit-size) slot-value))))))))
 
 (defun initialize-instance-slot (instance-value slot-value slot index image environment)
-  (initialize-instance-slot-by-location instance-value
-                                        slot-value
-                                        (env:structure-slot-definition-location slot)
-                                        index
-                                        image
-                                        environment))
+  (initialize-instance-slot-by-location
+   instance-value
+   slot-value
+   (env:structure-slot-definition-location slot)
+   index
+   image
+   environment))
 
 (defmethod initialize-object ((object env:instance-object) value image environment)
   (let ((sdef (env:instance-structure-definition object)))
