@@ -105,6 +105,18 @@
 (defconstant +socket-type+ #x6)
 (defconstant +symbolic-link-type+ #x7)
 
+(defconstant +unix-epoch-difference+
+  (encode-universal-time 0 0 0 1 1 1970 0))
+
+(defun universal-to-unix-time (universal-time)
+  (- universal-time +unix-epoch-difference+))
+
+(defun unix-to-universal-time (unix-time)
+  (+ unix-time +unix-epoch-difference+))
+
+(defun get-unix-time ()
+  (universal-to-unix-time (get-universal-time)))
+
 (defstruct superblock
   (inodes-count nil :type (unsigned-byte 32))
   (blocks-count nil :type (unsigned-byte 64))
@@ -239,14 +251,14 @@
                          :blocks-per-group (sys.int::ub32ref/le superblock 32)
                          :clusters-per-group (sys.int::ub32ref/le superblock 36)
                          :inodes-per-group (sys.int::ub32ref/le superblock 40)
-                         :mtime (sys.int::ub32ref/le superblock 44)
-                         :wtime (sys.int::ub32ref/le superblock 48)
+                         :mtime (unix-to-universal-time (sys.int::ub32ref/le superblock 44))
+                         :wtime (unix-to-universal-time (sys.int::ub32ref/le superblock 48))
                          :mnt-count (sys.int::ub16ref/le superblock 52)
                          :max-mnt-count (sys.int::ub16ref/le superblock 54)
                          :state (sys.int::ub16ref/le superblock 58)
                          :errors (sys.int::ub16ref/le superblock 60)
                          :minor-rev-level (sys.int::ub16ref/le superblock 62)
-                         :lastcheck (sys.int::ub32ref/le superblock 64)
+                         :lastcheck (unix-to-universal-time (sys.int::ub32ref/le superblock 64))
                          :checkinterval (sys.int::ub32ref/le superblock 68)
                          :creator-os (sys.int::ub32ref/le superblock 72)
                          :rev-level (sys.int::ub32ref/le superblock 76)
@@ -277,7 +289,7 @@
                          :desc-size (sys.int::ub16ref/le superblock 254)
                          :default-mount-options (sys.int::ub32ref/le superblock 256)
                          :first-meta-bg (sys.int::ub32ref/le superblock 260)
-                         :mkfs-time (sys.int::ub32ref/le superblock 264)
+                         :mkfs-time (unix-to-universal-time (sys.int::ub32ref/le superblock 264))
                          :jnl-blocks (make-array '(17) :element-type '(unsigned-byte 32)
                                                  :initial-contents (loop :for i :from 268 :to 332 :by 4
                                                                          :collect (sys.int::ub32ref/le superblock i)))
@@ -296,14 +308,14 @@
                          :snapshot-r-blocks-count (sys.int::ub64ref/le superblock 392)
                          :snapshot-list (sys.int::ub32ref/le superblock 400)
                          :error-count (sys.int::ub32ref/le superblock 404)
-                         :first-error-time (sys.int::ub32ref/le superblock 408)
+                         :first-error-time (unix-to-universal-time (sys.int::ub32ref/le superblock 408))
                          :first-error-ino (sys.int::ub32ref/le superblock 412)
                          :first-error-block (sys.int::ub64ref/le superblock 416)
                          :first-error-func (make-array '(32) :element-type '(unsigned-byte 8)
                                                        :initial-contents (loop :for i :from 424 :to 455
                                                                                :collect (aref superblock i)))
                          :first-error-line (sys.int::ub32ref/le superblock 456)
-                         :last-error-time (sys.int::ub32ref/le superblock 460)
+                         :last-error-time (unix-to-universal-time (sys.int::ub32ref/le superblock 460))
                          :last-error-ino (sys.int::ub32ref/le superblock 464)
                          :last-error-line (sys.int::ub32ref/le superblock 468)
                          :last-error-block (sys.int::ub64ref/le superblock 472)
