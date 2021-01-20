@@ -73,6 +73,7 @@
            #:mouse-y-motion
            #:submit-mouse
            #:submit-mouse-absolute
+           #:submit-mouse-normalized
            #:global-mouse-state
            #:make-window
            #:window-create-event

@@ -634,6 +634,15 @@ so that windows can notice when they lose their mouse visibility.")
                                           :x-position x-position
                                           :y-position y-position)))
 
+(defun submit-mouse-normalized (x-position y-position &key buttons)
+  "Submit a mouse event into the input system using positions as a fraction of screen width and height."
+  (multiple-value-bind (width height) (screen-dimensions)
+    (submit-compositor-event
+     (make-instance 'mouse-event
+                    :button-state buttons
+                    :x-position (floor (* width x-position))
+                    :y-position (floor (* height y-position))))))
+
 (defun global-mouse-state ()
   "Fetch the current mouse state."
   (values *mouse-buttons* *mouse-x* *mouse-y*))
