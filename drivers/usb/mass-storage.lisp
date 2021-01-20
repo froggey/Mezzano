@@ -460,7 +460,7 @@
                             "endpoint type is "
                             (aref endpt-desc +ed-attributes+)
                             " instead of a bulk endpoint")
-      (throw :probe-failed nil))
+      (throw :probe-failed :failed))
 
     (create-bulk-endpt usbd
                        device
@@ -557,16 +557,16 @@
              ;;command failed
              (sup:debug-print-line "Mass Storage Probe failed because "
                                    "Inquiry command failed")
-             (throw :probe-failed nil))
+             (throw :probe-failed :failed))
             ((= (aref status-buf 12) 2)
              (sup:debug-print-line "Mass Storage Probe failed because "
                                    "Inquiry command got phase error")
-             (throw :probe-failed nil))
+             (throw :probe-failed :failed))
             (T
              (sup:debug-print-line "Mass Storage Probe failed because "
                                    "Inquiry failed with unkown error "
                                    (aref status-buf 12))
-             (throw :probe-failed nil))))))
+             (throw :probe-failed :failed))))))
 
 (defun parse-read-capacity (usbd device mass-storage cap/10-p)
   (enter-function "parse-read-capacity")
@@ -654,16 +654,16 @@
              ;;command failed
              (sup:debug-print-line "Mass Storage Probe failed because "
                                    "read capacity command failed")
-             (throw :probe-failed nil))
+             (throw :probe-failed :failed))
             ((= (aref status-buf 12) 2)
              (sup:debug-print-line "Mass Storage Probe failed because "
                                    "read capacity command got phase error")
-             (throw :probe-failed nil))
+             (throw :probe-failed :failed))
             (T
              (sup:debug-print-line "Mass Storage Probe failed because "
                                    "read capacity failed with unkown error "
                                    (aref status-buf 12))
-             (throw :probe-failed nil))))))
+             (throw :probe-failed :failed))))))
 
 (defun probe-mass-storage-scsi (usbd device iface-desc configs)
   (when (/= (aref iface-desc +id-num-endpoints+) 2)
@@ -671,7 +671,7 @@
                           "interface descriptor has "
                           (aref iface-desc +id-num-endpoints+)
                           " endpoints, Only exactly 2 supported.")
-    (throw :probe-failed nil))
+    (throw :probe-failed :failed))
 
   (let ((mass-storage (make-mass-storage
                        :usbd usbd
@@ -691,14 +691,14 @@
                                 "found descriptor type "
                                 (aref endpt-desc +ed-type+)
                                 " instead of endpoint descriptor.")
-          (throw :probe-failed nil))
+          (throw :probe-failed :failed))
         (parse-endpt-descriptor usbd device mass-storage endpt-desc)))
 
     (when (or (null (mass-storage-bulk-in-endpt-num mass-storage))
               (null (mass-storage-bulk-out-endpt-num mass-storage)))
       (sup:debug-print-line "Mass Storage probe failed because "
                             "did not have both in and out bulk endpoints")
-      (throw :probe-failed nil))
+      (throw :probe-failed :failed))
 
     (parse-inquiry usbd device mass-storage)
     (parse-read-capacity usbd device mass-storage T)
