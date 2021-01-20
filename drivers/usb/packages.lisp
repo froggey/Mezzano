@@ -5,7 +5,8 @@
   (:use :cl)
   (:local-nicknames (:sup :mezzano.supervisor)
                     (:pci :mezzano.supervisor.pci)
-                    (:sync :mezzano.sync))
+                    (:sync :mezzano.sync)
+                    (:sys.int :mezzano.internals))
   (:export
    ;; USB driver (USBD) Interface functions for device drivers
    :define-usb-driver
