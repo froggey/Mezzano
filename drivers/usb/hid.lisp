@@ -77,18 +77,24 @@
 ;; Pages info
 ;;
 ;; Implement a sparse 2^32 entry array as hash table, this
-;; implmentation may change later without affecting the parser.
+;; implementation may change later without affecting the parser.
 ;;
 ;; The table values come from the document USB HID Usage Tables
 ;; version 1.12 10/28/2004
 ;;
 ;; This is a read-only table, it is only written here during
-;; initialized here and the keys are a list of two integers between 0
+;; initialized and the keys are a list of two integers between 0
 ;; and #x3FFF (which combined would be the index into the 2^32 entry
 ;; array). Even though this table may be accessed by multiple threads,
 ;; because it is read-only and the keys are invariant, it is safe to
 ;; leave it unsynchronized.
-;;======================================================================
+;;
+;; The first 256 entries of page 0x07 of this table are implemented as
+;; an array in hid-keyboard.lisp. It is used to translate input bytes
+;; from USB keyboards to characters. The few items of page 0x07
+;; defined below may be used for parsing report descriptors as the
+;; "shift" keys are often handled separately from the other keys.
+;; ======================================================================
 (defvar *pages* (make-hash-table
                  :test 'equal
                  #+mezzano :enforce-gc-invariant-keys #+mezzano t))
