@@ -430,24 +430,7 @@
                    ;; usigned - assume that means absolute, so normalize
                    `(/ ,field-value ,max))))))))
 
-(defun simple-report-code (report)
-  (let* ((fields (caddr report)))
-    `(lambda (length buf)
-       (loop
-          with offset = 0
-          when (>= offset length) do
-            (return)
-          do
-            (,(if (fields-absolute-p fields)
-                  'normalized-mouse-event
-                  'relative-mouse-event)
-              ,(generate-button-code fields 'offset)
-              ,(generate-field-value-code fields :x 'offset T)
-              ,(generate-field-value-code fields :y 'offset T)
-              ,(generate-field-value-code fields :wheel 'offset NIL))
-            (incf offset ,(/ (cadddr report) 8))))))
-
-(defun generate-case-clauses (reports)
+(defun generate-mouse-case-clauses (reports)
   (let* ((num-mouse-reports 0)
          (clauses
           (loop
@@ -473,15 +456,18 @@
       (throw :probe-failed :failed))
     clauses))
 
-(defun multiple-report-code (reports)
-  `(lambda (length buf)
-     (loop
-        with offset = 0
-        when (>= offset length) do
-          (return)
-        do
-          (case (aref buf offset)
-            ,@(generate-case-clauses reports)))))
+(defun generate-mouse-buf-function (reports)
+  (let ((case-clauses (generate-mouse-case-clauses reports)))
+    `(lambda (length buf)
+       (loop
+          with offset = 0
+          when (>= offset length) do
+            (return)
+          do
+            ,@(if (= (length case-clauses) 1)
+                  (cdar case-clauses)
+                  `((case (aref buf offset)
+                      ,@case-clauses)))))))
 
 (defun compute-buf-size (reports)
   (let ((size (/ (loop for report in reports sum (cadddr report)) 8)))
@@ -496,13 +482,12 @@
   ;; normalized-mouse-event with those values.
   (let ((reports (mapcar
                   #'(lambda (collection)
-                      (multiple-value-list (convert-collection collection 0 0)))
+                      (multiple-value-list (convert-collection
+                                            collection 0 0 0)))
                   descriptors)))
     (with-trace-level (1)
       (format *trace-stream* "reports:~%~S~%~%" reports))
-    (let ((func (if (= (length reports) 1)
-                    (simple-report-code (car reports))
-                    (multiple-report-code reports))))
+    (let ((func (generate-mouse-buf-function reports)))
       (with-trace-level (1)
         (format *trace-stream* "function:~%~A~%~%" func))
       (compile nil func))))
