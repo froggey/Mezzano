@@ -106,7 +106,7 @@
 ;; descriptions
 ;; ======================================================================
 
-(defun convert-input-field (field bit-offset button-number)
+(defun convert-input-field (field bit-offset button-number array-number)
   (let ((count (getf field :count))
         (size (getf field :size))
         (type (getf field :type))
@@ -147,46 +147,21 @@
                         do
                           (incf %button-number)
                         collect
-                          `(,(intern (format nil "BUTTON~D" button-num)
+                          `(,(intern (format nil "BUTTON-~2,'0X" button-num)
                                      :keyword)
                              :number-bits 1
                              :type :variable
                              :byte-offset ,(ash %bit-offset -3)
                              :bit-offset ,(logand %bit-offset #x07)))))))
            ((member :array type)
-            ;; assume array fields are buttons
-            (let ((usage-count (length (getf field :usage))))
-              (cond ((= usage-count count)
-                     (loop
-                        repeat count
-                        for %bit-offset = bit-offset then
-                          (incf %bit-offset size)
-                        for usages = (getf field :usage) then (cdr usages)
-                        for usage = (car usages)
-                        collect
-                          `(,usage :number-bits ,size
-                                   :type :array
-                                   :byte-offset ,(ash %bit-offset -3)
-                                   :bit-offset ,(logand %bit-offset #x07))))
-                    (T
-                     (loop
-                        for button-num from (1+ button-number) to
-                          (+ count button-number)
-                        for %bit-offset = bit-offset then
-                          (incf %bit-offset size)
-                        do
-                          (incf %button-number)
-                        collect
-                          `(,(intern (format nil "BUTTON~D" button-num)
-                                     :keyword)
-                             :number-bits ,size
-                             :type :array
-                             :byte-offset ,(ash %bit-offset -3)
-                             :bit-offset ,(logand %bit-offset #x07)
-                             ,@(if (getf field :usage)
-                                   (list :usage (getf field :usage))
-                                   (list :min (getf field :logical-minimum)
-                                         :max (getf field :logical-maximum)))))))))
+            (incf array-number)
+            `((,(intern (format nil "ARRAY-~2,'0X" array-number) :keyword)
+                :number-bits ,(* count size)
+                :type :array
+                :byte-offset ,(ash bit-offset -3)
+                :bit-offset ,(logand bit-offset #x07)
+                :count ,count
+                :size ,size)))
            (T
             (loop
                repeat count
@@ -202,9 +177,10 @@
                          :byte-offset ,(ash %bit-offset -3)
                          :bit-offset ,(logand %bit-offset #x07)))))
      (incf bit-offset (* count size))
-     (+ button-number %button-number))))
+     (+ button-number %button-number)
+     array-number)))
 
-(defun convert-collection (collection bit-offset button-number)
+(defun convert-collection (collection bit-offset button-number array-number)
   (loop
      for (key value) on collection by #'cddr
      with application-id = nil
@@ -224,10 +200,11 @@
           (setf report-id value
                 bit-offset 8))
          (:input
-          (multiple-value-bind (field %bit-offset %button-number)
-              (convert-input-field value bit-offset button-number)
-            (setf bit-offset %bit-offset)
-            (setf button-number %button-number)
+          (multiple-value-bind (field %bit-offset %button-number %array-number)
+              (convert-input-field value bit-offset button-number array-number)
+            (setf bit-offset %bit-offset
+                  button-number %button-number
+                  array-number %array-number)
             (nconc fields field)))
          (:feature
           (let ((num-bits (* (getf value :count) (getf value :size))))
@@ -239,7 +216,7 @@
             (incf bit-offset num-bits)))
          (:collection
           (multiple-value-bind (%report-id %application-id %fields %bit-offset)
-              (convert-collection value bit-offset button-number)
+              (convert-collection value bit-offset button-number array-number)
             (when %report-id
               (setf report-id %report-id))
             (when %application-id
@@ -298,9 +275,9 @@
                `((logand (ash (aref buf ,(buf-offset (getf button :byte-offset)))
                               ,(- offset (getf button :bit-offset)))
                          ,(ash 1 offset))))))
-    (let ((button1 (cdr (assoc :button1 fields)))
-          (button2 (cdr (assoc :button2 fields)))
-          (button3 (cdr (assoc :button3 fields))))
+    (let ((button1 (cdr (assoc :button-01 fields)))
+          (button2 (cdr (assoc :button-02 fields)))
+          (button3 (cdr (assoc :button-03 fields))))
       (when (or (and button1 (not (eq (getf button1 :number-bits) 1)))
                 (and button2 (not (eq (getf button1 :number-bits) 1)))
                 (and button3 (not (eq (getf button1 :number-bits) 1))))
