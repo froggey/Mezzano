@@ -59,9 +59,9 @@
                  sys.int::symbol-global-value
                  (setf sys.int::symbol-global-value)
                  (sys.int::cas sys.int::symbol-global-value)
-                 sys.int::symbol-value
-                 (setf sys.int::symbol-value)
-                 (sys.int::cas sys.int::symbol-value)
+                 symbol-value
+                 (setf symbol-value)
+                 (sys.int::cas symbol-value)
                  symbol-global-p
                  symbol-constant-p
                  modifying-symbol-value))
