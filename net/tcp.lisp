@@ -997,9 +997,9 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
   ((connection :initarg :connection :reader tcp-stream-connection)
    (current-packet :initform nil :accessor tcp-stream-packet)))
 
-(defclass tcp-stream (gray:fundamental-character-input-stream
+(defclass tcp-stream (sys.int::external-format-mixin
+                      gray:fundamental-character-input-stream
                       gray:fundamental-character-output-stream
-                      sys.int::external-format-mixin
                       tcp-octet-stream
                       gray:unread-char-mixin)
   ())
