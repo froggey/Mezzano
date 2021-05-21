@@ -78,7 +78,7 @@ Returns the number of seconds remaining as a secondary value if TIMEOUT is non-N
          ;; Special case, zero or negative timeout - just poll the events.
          (values (loop
                     for object in objects
-                    when (event-wait (get-object-event object) nil)
+                    when (sup:event-wait (get-object-event object))
                     collect object)
                  0))
         (t
@@ -442,7 +442,7 @@ Returns a tag that can be passed to WATCHABLE-SET-REM-WATCHER to unregister."
   (setf (event-state latch) nil))
 
 (defun sup:latch-wait (latch)
-  (event-wait latch)
+  (sup:event-wait latch)
   (values))
 
 (defun sup:latch-trigger (latch)
