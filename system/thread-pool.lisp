@@ -47,7 +47,7 @@
 
 (defun make-thread-pool (&key name initial-bindings (keepalive-time *default-keepalive-time*))
   "Create a new thread-pool."
-  (check-type *default-keepalive-time* (rational 0))
+  (check-type keepalive-time (rational 0))
   (make-instance 'thread-pool
                  :name name
                  :initial-bindings initial-bindings
