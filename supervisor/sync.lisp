@@ -226,7 +226,7 @@
 
 (defmacro with-mutex ((mutex &key (wait-p t) resignal-errors) &body body)
   "Run body with MUTEX locked.
-May be used from an interrupt handler when TIMEOUT is 0.
+May be used from an interrupt handler when WAIT-P is NIL.
 If RESIGNAL-ERRORS is non-NIL, any conditions signalled inside BODY
 that match the type specified by RESIGNAL-ERRORS (as by HANDLER-CASE/-BIND)
 will be resignalled (via ERROR) with the lock released.
@@ -270,6 +270,7 @@ Handles timeouts properly."
            (,timeout-sym ,timeout))
        (block nil
          (flet ((,predicate-fn () (progn ,@predicate)))
+           (declare (dynamic-extent #',predicate-fn))
            (cond ((eql ,timeout-sym 0)
                   (values (,predicate-fn) 0))
                  (,timeout-sym
@@ -415,20 +416,14 @@ May be used from an interrupt handler, assuming the associated mutex is interrup
 
 (defun make-rw-lock (&optional name)
   (let ((rw-lock (%make-rw-lock name)))
-    (setf (rw-lock-writer-wait-queue rw-lock) (make-wait-queue
-                                               :name (sys.int::cons-in-area
-                                                      :writer
-                                                      (sys.int::cons-in-area
-                                                       rw-lock nil :wired)
-                                                      :wired))
-          (rw-lock-reader-wait-queue rw-lock) (make-wait-queue
-                                               :name (sys.int::cons-in-area
-                                                      :reader
-                                                      (sys.int::cons-in-area
-                                                       rw-lock
-                                                       nil
-                                                       :wired)
-                                                      :wired)))
+    (setf (rw-lock-writer-wait-queue rw-lock)
+          (make-wait-queue :name (sys.int::list-in-area
+                                  :wired
+                                  :writer rw-lock)))
+    (setf (rw-lock-reader-wait-queue rw-lock)
+          (make-wait-queue :name (sys.int::list-in-area
+                                  :wired
+                                  :reader rw-lock)))
     rw-lock))
 
 (defun rw-lock-read-acquire-slow (sp fp rw-lock)
@@ -731,6 +726,7 @@ EVENT can be any object that supports GET-OBJECT-EVENT."
            (,timeout-sym ,timeout))
        (block nil
          (flet ((,predicate-fn () (progn ,@predicate)))
+           (declare (dynamic-extent #',predicate-fn))
            (cond ((eql ,timeout-sym 0)
                   (values (,predicate-fn) 0))
                  (,timeout-sym
@@ -888,16 +884,12 @@ EVENT can be any object that supports GET-OBJECT-EVENT."
 
 (defun make-watcher (&key name)
   "Create a new event watcher."
-  ;; Structured so that CONS-IN-AREA isn't called inside the pool lock.
-  (flet ((pop-pool ()
-           (let ((watcher (object-pool-pop *watcher-watcher-pool*)))
-             (when watcher
-               (setf (watcher-name watcher) name
-                     (watcher-watched-objects watcher) nil)
-               watcher))))
-    (declare (dynamic-extent #'pop-pool))
-    (or (pop-pool)
-        (%make-watcher name))))
+  (let ((watcher (object-pool-pop *watcher-watcher-pool*)))
+    (cond (watcher
+           (setf (watcher-name watcher) name
+                 (watcher-watched-objects watcher) nil)
+           watcher)
+          (t (%make-watcher name)))))
 
 (defun watcher-destroy (watcher)
   "Unregister WATCHER from all watched events.
@@ -919,17 +911,14 @@ after this function returns."
 
 (defun make-watcher-event-monitor (watcher object event)
   "Create a new event watcher monitor."
-  ;; Structured so that CONS-IN-AREA isn't called inside the pool lock.
-  (flet ((pop-pool ()
-           (let ((monitor (object-pool-pop *watcher-monitor-pool*)))
-             (when monitor
-               (setf (watcher-event-monitor-watcher monitor) watcher
-                     (watcher-event-monitor-event monitor) event
-                     (watcher-event-monitor-object monitor) object)
-               monitor))))
-    (declare (dynamic-extent #'pop-pool))
-    (or (pop-pool)
-        (%make-watcher-event-monitor watcher object event))))
+  (let ((monitor (object-pool-pop *watcher-monitor-pool*)))
+    (cond (monitor
+           (setf (watcher-event-monitor-watcher monitor) watcher
+                 (watcher-event-monitor-event monitor) event
+                 (watcher-event-monitor-object monitor) object)
+           monitor)
+          (t
+           (%make-watcher-event-monitor watcher object event)))))
 
 (defun unmake-watcher-event-monitor (monitor)
   ;; Don't leak objects.
