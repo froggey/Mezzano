@@ -52,7 +52,6 @@
   (def 32)
   (def 64))
 
-;; Only exists to simplify things for DEFINE-TRANSFORM.
 (declaim (inline swap-endian))
 (defun swap-endian (value width &key signed)
   "Swap the endian of VALUE.
@@ -62,6 +61,7 @@ of the specified width."
       (%swap-endian-signed value width)
       (%swap-endian-unsigned value width)))
 
+;; Only exists to simplify things for DEFINE-TRANSFORM.
 (declaim (inline %nibble-fixup))
 (defun %nibble-fixup (value width endian signed)
   (flet ((must-byteswap ()
