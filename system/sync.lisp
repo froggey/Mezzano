@@ -84,7 +84,7 @@ Returns the number of seconds remaining as a secondary value if TIMEOUT is non-N
         (t
          ;; Arbitrary timeout.
          (sup:with-timer (timer :relative timeout :name 'wait-for-objects-with-timeout)
-           (values (remove timer (apply #'wait-for-objects (list* timer objects)))
+           (values (remove timer (apply #'wait-for-objects timer objects))
                    (sup:timer-remaining timer))))))
 
 (defmethod get-object-event ((object sup:event))
