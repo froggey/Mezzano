@@ -252,8 +252,13 @@ Will wait forever if TIMER has not been armed."
   (object-pool-push *timer-pool* timer))
 
 (defun pop-timer-pool ()
-  (or (object-pool-pop *timer-pool*)
-      (make-timer :name 'pooled-timer)))
+  (let ((timer (object-pool-pop *timer-pool*)))
+    (cond (timer
+           ;; This field is also used as the pool link.
+           (setf (timer-next timer) :unlinked)
+           timer)
+          (t
+           (make-timer :name 'pooled-timer)))))
 
 (defmacro with-timer ((timer &key relative absolute name) &body body)
   "Allocate & arm a timer from the timer pool."
