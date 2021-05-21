@@ -242,40 +242,23 @@ Will wait forever if TIMER has not been armed."
 (defun timer-expired-p (timer)
   (event-state (timer-event timer)))
 
-(sys.int::defglobal *timer-pool-lock* (make-mutex "Timer pool"))
-(sys.int::defglobal *timer-pool* nil)
-(sys.int::defglobal *timer-pool-size* 0)
-(sys.int::defglobal *timer-pool-limit* 1000)
-(sys.int::defglobal *timer-pool-hit-count* 0)
-(sys.int::defglobal *timer-pool-miss-count* 0)
+(sys.int::defglobal *timer-pool*
+    (make-object-pool '*timer-pool* 1000
+                      #'timer-next #'(setf timer-next)))
 
 (defun push-timer-pool (timer)
   (timer-disarm-absolute timer) ; don't cons
   (setf (timer-name timer) 'pooled-timer)
-  (with-mutex (*timer-pool-lock*)
-    (when (< *timer-pool-size* *timer-pool-limit*)
-      (setf (timer-next timer) *timer-pool*
-            *timer-pool* timer)
-      (incf *timer-pool-size*))))
+  (object-pool-push *timer-pool* timer))
 
 (defun pop-timer-pool ()
-  (flet ((alloc ()
-           (with-mutex (*timer-pool-lock*)
-             (let ((timer *timer-pool*))
-               (cond (timer
-                      (setf *timer-pool* (timer-next timer)
-                            (timer-next timer) :unlinked)
-                      (incf *timer-pool-hit-count*)
-                      (decf *timer-pool-size*)
-                      timer)
-                     (t
-                      (incf *timer-pool-miss-count*)
-                      nil))))))
-    (or (alloc)
-        (make-timer :name 'pooled-timer))))
+  (or (object-pool-pop *timer-pool*)
+      (make-timer :name 'pooled-timer)))
 
 (defmacro with-timer ((timer &key relative absolute name) &body body)
   "Allocate & arm a timer from the timer pool."
+  (when (and relative absolute)
+    (error "Both relative and absolute times supplied"))
   (let ((timer-actual (gensym "TIMER")))
     `(let ((,timer-actual (pop-timer-pool)))
        (setf (timer-name ,timer-actual) ,(or name `',timer))
