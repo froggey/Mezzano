@@ -2051,7 +2051,7 @@ has only has class specializer."
     (pushnew gf (gethash class *redefinition-flush-table* '()))))
 
 (defun flush-emf-tables-on-class-redefinition (class)
-  ;; CLASS is being redefined, flush any associated the EMF tables and wipe away the entry.
+  ;; CLASS is being redefined, flush any associated EMF tables and wipe away the entry.
   (let ((gfs (mezzano.supervisor:with-mutex (*redefinition-flush-table-lock*)
                (prog1
                    (gethash class *redefinition-flush-table*)
@@ -2197,6 +2197,8 @@ has only has class specializer."
                        (std-compute-effective-method-function gf applicable-methods)
                        (compute-effective-method-function gf applicable-methods))))
         (insert-into-emf-cache (classes-to-emf-table gf) args emfun)
+        (dolist (c classes)
+          (register-redefinition-flusher gf c))
         (apply emfun args)))))
 
 (defun reordered-argument (gf arguments index)
@@ -2266,7 +2268,6 @@ always match."
                                  (slot-def (accessor-method-slot-definition (first applicable-methods)))
                                  (slot-name (slot-definition-name slot-def))
                                  (effective-slot (find-effective-slot instance slot-name)))
-                            (register-redefinition-flusher gf class)
                             (cond (effective-slot
                                    (let ((location (safe-slot-definition-location effective-slot)))
                                      (lambda (object)
@@ -2288,7 +2289,6 @@ always match."
                                  (slot-def (accessor-method-slot-definition (first applicable-methods)))
                                  (slot-name (slot-definition-name slot-def))
                                  (effective-slot (find-effective-slot instance slot-name)))
-                            (register-redefinition-flusher gf class)
                             (cond (effective-slot
                                    (let* ((location (safe-slot-definition-location effective-slot))
                                           (typecheck (safe-slot-definition-typecheck effective-slot))
@@ -2311,6 +2311,7 @@ always match."
                             (apply #'no-applicable-method gf args))))))
         ;; Cache is only valid for non-eql methods.
         (when validp
+          (register-redefinition-flusher gf class)
           (setf (single-dispatch-emf-entry (classes-to-emf-table gf) class) emfun))
         (apply emfun args)))))
 
@@ -2318,13 +2319,13 @@ always match."
   (let* ((classes (loop
                      for req in (required-portion gf args)
                      collect *the-class-t*))
-         (applicable-methods (std-compute-applicable-methods-using-classes gf classes))
-         (emfun (cond (applicable-methods
-                        (std-compute-effective-method-function gf applicable-methods))
-                       (t
-                        (apply #'no-applicable-method gf args)))))
-    (set-funcallable-instance-function gf emfun)
-    (apply emfun args)))
+         (applicable-methods (std-compute-applicable-methods-using-classes gf classes)))
+    (cond (applicable-methods
+           (let ((emfun (std-compute-effective-method-function gf applicable-methods)))
+             (set-funcallable-instance-function gf emfun)
+             (apply emfun args)))
+          (t
+           (apply #'no-applicable-method gf args)))))
 
 ;;; compute-applicable-methods-using-classes
 
