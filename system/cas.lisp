@@ -211,7 +211,7 @@ Returns the old value of PLACE."
   %atomic-fixnum-logand-struct-slot
   :require-fixnum t
   :no-result t
-  :documentation "Atomically perform (setf place (logxor place INTEGER)).
+  :documentation "Atomically perform (setf place (logand place INTEGER)).
 PLACE must contain a fixnum and INTEGER must be a fixnum.
 Returns no values.")
 
@@ -221,7 +221,7 @@ Returns no values.")
   %atomic-fixnum-logior-struct-slot
   :require-fixnum t
   :no-result t
-  :documentation "Atomically perform (setf place (logxor place INTEGER)).
+  :documentation "Atomically perform (setf place (logior place INTEGER)).
 PLACE must contain a fixnum and INTEGER must be a fixnum.
 Returns no values.")
 
