@@ -15,7 +15,7 @@ These releases are designed to be run in VirtualBox, though QEMU is also support
 
 See the MBuild repo: (https://github.com/froggey/MBuild)
 
-For help & support or to follow development, join the #mezzano IRC channel on Freenode (irc.freenode.net)
+For help & support or to follow development, join the #mezzano IRC channel on Libera Chat (irc.libera.chat)
 
 ## Major changes since Demo 4
 
