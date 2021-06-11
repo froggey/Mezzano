@@ -583,9 +583,9 @@
            #:+boot-option-no-detect+
 
            ;; Temporary drivers.
-           #:ps/2-key-read
-           #:ps/2-aux-read
-           #:*ps/2-mouse-device-id*
+           #:ps/2-read-keyboard
+           #:ps/2-read-auxiliary
+           #:*ps/2-mouse-device-identifier*
            #:current-framebuffer
            #:framebuffer
            #:framebuffer-blit
