@@ -47,7 +47,10 @@
     "supervisor/time.lisp"
     ("supervisor/x86-64/time.lisp" :x86-64)
     ;;("supervisor/arm64/time.lisp" :arm64)
-    "supervisor/ps2.lisp"
+    "supervisor/ps2-packages.lisp"
+    "supervisor/intel-8042.lisp"
+    "supervisor/ps2-mouse.lisp"
+    "supervisor/ps2-keyboard.lisp"
     "supervisor/video.lisp"
     "supervisor/pci.lisp"
     "supervisor/cdrom.lisp"
