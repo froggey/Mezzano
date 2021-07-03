@@ -22,19 +22,6 @@
                          :inputs (list object value)
                          :outputs (list)))))
 
-(define-builtin sys.int::%undefined-function-p ((object) :eq)
-  (let ((value (make-instance 'ir:virtual-register)))
-    (emit (make-instance 'arm64-instruction
-                         :opcode 'lap:ldr
-                         :operands (list value `(:literal :undefined-function))
-                         :inputs (list)
-                         :outputs (list value)))
-    (emit (make-instance 'arm64-instruction
-                         :opcode 'lap:subs
-                         :operands (list :xzr object value)
-                         :inputs (list object value)
-                         :outputs (list)))))
-
 (define-builtin eq ((x y) :eq)
   (emit (make-instance 'arm64-instruction
                        :opcode 'lap:subs

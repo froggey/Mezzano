@@ -918,8 +918,8 @@
          (saved-stack-pointer (cdr save-data)))
     ;; Create a normal object from the saved dx root.
     (emit-stack-load :x9 sv-save-area)
-    (emit `(lap:add :x0 :x9 ,(- sys.int::+tag-object+
-                                sys.int::+tag-dx-root-object+)))
+    (emit `(lap:add-imm :x0 :x9 ,(- sys.int::+tag-object+
+                                    sys.int::+tag-dx-root-object+)))
     ;; Call helper.
     (load-literal :x5 (c::fixnum-to-raw 1))
     (emit `(lap:named-call sys.int::values-simple-vector))
@@ -1069,6 +1069,37 @@
     (load-literal :x9 (+ (control-stack-frame-offset (+ slots words -1))
                          sys.int::+tag-object+))
     (emit `(lap:add ,(ir:make-dx-simple-vector-result instruction) :x29 :x9))))
+
+(defmethod lap-prepass (backend-function (instruction ir:make-dx-typed-vector-instruction) uses defs)
+  (setf (gethash instruction *prepass-data*)
+        (allocate-stack-slots
+         (1+ (mezzano.compiler.backend.x86-64::size-dx-typed-vector instruction))
+         :aligned t
+         :livep (eql (sys.int::specialized-array-definition-type
+                      (ir:make-dx-typed-vector-type instruction))
+                     't))))
+
+(defmethod emit-lap (backend-function (instruction ir:make-dx-typed-vector-instruction) uses defs)
+  (let* ((slots (gethash instruction *prepass-data*))
+         (size (mezzano.compiler.backend.x86-64::size-dx-typed-vector instruction))
+         (words (1+ size)))
+    (when (oddp words)
+      (incf words))
+    ;; Initialize the header.
+    (load-literal :x9 (logior (ash (ir:make-dx-typed-vector-size instruction)
+                                    sys.int::+object-data-shift+)
+                               (ash (sys.int::specialized-array-definition-tag
+                                     (ir:make-dx-typed-vector-type instruction))
+                                    sys.int::+object-type-shift+)))
+    (emit-stack-store :x9 (+ slots words -1))
+    ;; Generate pointer.
+    (load-literal :x9 (+ (control-stack-frame-offset (+ slots words -1))
+                         sys.int::+tag-object+))
+    (emit `(lap:add ,(ir:make-dx-typed-vector-result instruction) :x29 :x9))
+    ;; Possibly zero fill.
+    (when (ir:make-dx-typed-vector-zero-fill-p instruction)
+      (dotimes (i words)
+        (emit-stack-store :xzr (+ slots words -1 (- i)))))))
 
 (defmethod lap-prepass (backend-function (instruction ir:make-dx-cons-instruction) uses defs)
   (setf (gethash instruction *prepass-data*) (allocate-stack-slots 2 :aligned t)))

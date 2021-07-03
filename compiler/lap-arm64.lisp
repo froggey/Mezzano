@@ -320,6 +320,12 @@
    `(ldr :x9 (:object :x6 #.sys.int::+function-entry-point+))
    `(br :x9)))
 
+(define-macro-instruction add-imm (dst s1 s2-imm)
+  "Like ADD, but generated SUB if S2-IMM is negative"
+  (if (minusp s2-imm)
+      (list `(sub ,dst ,s1 ,(- s2-imm)))
+      (list `(add ,dst ,s1 ,s2-imm))))
+
 (defconstant +ldst-size-64-bit+ #x40000000)
 (defconstant +ldst-size-32-bit+ #x00000000)
 

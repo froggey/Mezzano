@@ -56,19 +56,25 @@
 
 (define-builtin sys.int::%instance-or-funcallable-instance-p ((object) :eq)
   (let ((header (make-instance 'ir:virtual-register :kind :integer))
-        (temp (make-instance 'ir:virtual-register :kind :integer)))
+        (temp (make-instance 'ir:virtual-register :kind :integer))
+        (temp2 (make-instance 'ir:virtual-register :kind :integer)))
     (emit (make-instance 'arm64-instruction
                          :opcode 'lap:ldr
                          :operands (list header `(,object ,(object-slot-displacement -1)))
                          :inputs (list object)
                          :outputs (list header)))
     (emit (make-instance 'arm64-instruction
+                         :opcode 'lap:movz
+                         :operands (list temp2 (ash (logxor (1- (ash 1 sys.int::+object-type-size+))
+                                                            sys.int::+object-tag-instance+
+                                                            sys.int::+object-tag-funcallable-instance+)
+                                                    sys.int::+object-type-shift+))
+                         :inputs (list)
+                         :outputs (list temp2)))
+    (emit (make-instance 'arm64-instruction
                          :opcode 'lap:and
-                         :operands (list temp header (ash (logxor (1- (ash 1 sys.int::+object-type-size+))
-                                                                  sys.int::+object-tag-instance+
-                                                                  sys.int::+object-tag-funcallable-instance+)
-                                                          sys.int::+object-type-shift+))
-                         :inputs (list header)
+                         :operands (list temp header temp2)
+                         :inputs (list header temp2)
                          :outputs (list temp)))
     (emit (make-instance 'arm64-instruction
                          :opcode 'lap:subs

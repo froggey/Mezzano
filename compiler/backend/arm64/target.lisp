@@ -162,6 +162,9 @@
 (defmethod ra:instruction-clobbers ((instruction ir:make-dx-simple-vector-instruction) (architecture c:arm64-target))
   '(:x9))
 
+(defmethod ra:instruction-clobbers ((instruction ir:make-dx-typed-vector-instruction) (architecture c:arm64-target))
+  '(:x9))
+
 (defmethod ra:instruction-clobbers ((instruction ir:make-dx-cons-instruction) (architecture c:arm64-target))
   '(:x9))
 
