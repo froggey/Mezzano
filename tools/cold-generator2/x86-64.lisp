@@ -4,6 +4,8 @@
   (:use :cl)
   (:import-from #:mezzano.cold-generator
                 #:configure-system-for-target)
+  (:import-from #:mezzano.cold-generator.serialize
+                #:post-serialize-image-for-target)
   (:local-nicknames (#:env #:mezzano.cold-generator.environment)
                     (#:lap #:mezzano.lap.x86)
                     (#:sys.int #:mezzano.internals)))
@@ -228,3 +230,6 @@
         (env:make-stack environment (* 128 1024)))
   (setf (env:cross-symbol-value environment 'mezzano.supervisor::*bsp-cpu*)
         (env:make-structure environment 'mezzano.supervisor::cpu)))
+
+(defmethod post-serialize-image-for-target (image environment (target (eql :x86-64)))
+  nil)

@@ -23,6 +23,7 @@
            #:do-image-stacks
            #:write-map-file
            #:write-symbol-table
+           #:post-serialize-image-for-target
            ))
 
 (in-package :mezzano.cold-generator.serialize)
@@ -980,6 +981,8 @@ Must not call SERIALIZE-OBJECT."))
                             +cold-generator-assumed-wired-function-area-size+))
    :function-area (make-area :function +function-area-base+)))
 
+(defgeneric post-serialize-image-for-target (image environment target))
+
 (defun serialize-image (environment)
   "Create a new image from ENVIRONMENT"
   (let ((image (make-image environment)))
@@ -995,6 +998,7 @@ Must not call SERIALIZE-OBJECT."))
       (serialize-object symbol image environment))
     ;; Tell the GC the area sizes.
     (finalize-areas image environment)
+    (post-serialize-image-for-target image environment (env:environment-target environment))
     ;; That's all, folks.
     image))
 

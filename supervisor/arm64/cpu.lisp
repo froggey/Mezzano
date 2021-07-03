@@ -1,53 +1,13 @@
 (in-package :mezzano.supervisor)
 
 (sys.int::defglobal sys.int::*arm64-exception-vector*)
+(sys.int::defglobal sys.int::*arm64-exception-vector-base*)
 (sys.int::defglobal sys.int::*bsp-wired-stack*)
 
 (defun initialize-boot-cpu ()
-  (let* ((addr (align-up (+ (sys.int::lisp-object-address sys.int::*arm64-exception-vector*)
-                            (- sys.int::+tag-object+)
-                            8
-                            (* 1 8))
-                         1024))
-         (sp-el1 (+ (car sys.int::*bsp-wired-stack*) (cdr sys.int::*bsp-wired-stack*))))
-    (flet ((gen-vector (offset common entry)
-             (let ((base (+ addr offset))
-                   (common-entry (sys.int::%object-ref-signed-byte-64
-                                  common
-                                  sys.int::+function-entry-point+))
-                   (entry-fref (sys.int::%object-ref-t
-                                entry
-                                sys.int::+symbol-function+)))
-               ;; sub sp, sp, #x30. Space for the iret frame & frame pointer
-               (setf (sys.int::memref-unsigned-byte-32 base 0) #xD100C3FF)
-               ;; str x29, [sp]
-               (setf (sys.int::memref-unsigned-byte-32 base 1) #xF90003FD)
-               ;; ldr x29, [fn]
-               (setf (sys.int::memref-unsigned-byte-32 base 2) #x5800005D)
-               ;; b common-entry
-               (let ((entry-rel (- common-entry (+ base 12))))
-                 (setf (sys.int::memref-unsigned-byte-32 base 3)
-                       (logior #x14000000
-                               (ldb (byte 26 2) entry-rel))))
-               ;; fn: entry-fref
-               (setf (sys.int::memref-t base 2) entry-fref)))
-           (gen-invalid (offset)
-             ;; HLT #1
-             (setf (sys.int::memref-unsigned-byte-32 (+ addr offset) 0) #xD4400020)))
-      (declare (dynamic-extent #'gen-vector #'gen-invalid))
-      (gen-vector #x000 #'%el0-common '%synchronous-el0-handler)
-      (gen-vector #x080 #'%el0-common '%irq-el0-handler)
-      (gen-vector #x100 #'%el0-common '%fiq-el0-handler)
-      (gen-vector #x180 #'%el0-common '%serror-el0-handler)
-      (gen-vector #x200 #'%elx-common '%synchronous-elx-handler)
-      (gen-vector #x280 #'%elx-common '%irq-elx-handler)
-      (gen-vector #x300 #'%elx-common '%fiq-elx-handler)
-      (gen-vector #x380 #'%elx-common '%serror-elx-handler)
-      ;; These vectors are used when the CPU moves from a lower EL.
-      ;; We're always running in EL1, so these are not used.
-      (dotimes (i 8)
-        (gen-invalid (+ #x400 (* i #x80)))))
-    (%load-cpu-bits sp-el1 (ash sp-el1 -1) addr)))
+  (let ((sp-el1 (+ (car sys.int::*bsp-wired-stack*) (cdr sys.int::*bsp-wired-stack*))))
+    (%load-cpu-bits sp-el1 (ash sp-el1 -1)
+                    sys.int::*arm64-exception-vector-base*)))
 
 (sys.int::define-lap-function %load-cpu-bits ((sp-el1 cpu-data vbar-el1))
   ;; Switch to SP_EL1.
