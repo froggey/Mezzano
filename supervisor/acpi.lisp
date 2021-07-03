@@ -164,6 +164,19 @@
 (defconstant +acpi-iapc-boot-arch-pcie-aspm-controls+   #x0010)
 (defconstant +acpi-iapc-boot-arch-cmos-rtc-not-present+ #x0020)
 
+(defun acpi-8042-present ()
+  "Return t if an 8042 PS/2 controller is present according to ACPI tables."
+  (let ((fadt (acpi-get-table 'acpi-fadt-table-p)))
+    (cond
+      ((and fadt (> (acpi-table-header-revision fadt) 1))
+       (let ((8042-present (logtest (acpi-fadt-table-iapc-boot-arch fadt)
+                                    +acpi-iapc-boot-arch-8042+)))
+         (debug-print-line "FADT 8042 present " 8042-present ".")
+         8042-present))
+      (t
+       (debug-print-line "No post-revision-1 FADT so 8042 is present.")
+       t))))
+
 (defun acpi-parse-rsdp (rsdp-address)
   (map-physical-memory-early (align-down rsdp-address +4k-page-size+)
                              (align-up (1+ (logand rsdp-address #xFFF))
