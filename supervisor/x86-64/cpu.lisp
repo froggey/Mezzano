@@ -59,7 +59,6 @@
 (sys.int::defglobal sys.int::*exception-stack*)
 (sys.int::defglobal sys.int::*irq-stack*)
 (sys.int::defglobal sys.int::*page-fault-stack*)
-(sys.int::defglobal sys.int::*bsp-info-vector*)
 
 (defconstant +tss-ist-1+ 36)
 (defconstant +tss-ist-2+ 44)

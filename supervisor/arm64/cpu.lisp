@@ -1,7 +1,9 @@
 (in-package :mezzano.supervisor)
 
+(sys.int::defglobal sys.int::*arm64-exception-vector*)
+
 (defun initialize-boot-cpu ()
-  (let* ((addr (align-up (+ (sys.int::lisp-object-address sys.int::*bsp-info-vector*)
+  (let* ((addr (align-up (+ (sys.int::lisp-object-address sys.int::*arm64-exception-vector*)
                             (- sys.int::+tag-object+)
                             8
                             (* 1 8))
