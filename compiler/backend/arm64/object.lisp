@@ -431,3 +431,10 @@
   (emit (make-instance 'ir:move-instruction
                        :source value
                        :destination result)))
+
+(define-builtin sys.int::lisp-object-address ((value) result)
+  (emit (make-instance 'arm64-instruction
+                       :opcode 'lap:add
+                       :operands (list result value value)
+                       :inputs (list value)
+                       :outputs (list result))))
