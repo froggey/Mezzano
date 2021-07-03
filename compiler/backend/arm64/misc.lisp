@@ -29,6 +29,13 @@
                        :inputs (list x y)
                        :outputs (list))))
 
+(define-builtin mezzano.runtime::symbol-global-value-cell (((:constant symbol symbol))
+                                                           result
+                                                           :has-wrapper nil)
+  (emit (make-instance 'ir:constant-instruction
+                       :destination result
+                       :value (mezzano.runtime::symbol-global-value-cell symbol))))
+
 (define-builtin mezzano.runtime::fast-symbol-value-cell (((:constant symbol symbol)) result :has-wrapper nil)
   (cond ((eql (sys.int::symbol-mode symbol) :global)
          ;; This is a known global symbol, return the global value cell.
