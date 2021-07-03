@@ -266,26 +266,37 @@ Must not call SERIALIZE-OBJECT."))
         (setf (object-slot image value sys.int::+fref-function+) fn-value)
         (setf (object-slot image value sys.int::+fref-function+) value))
     ;; Code...
-    ;; (nop (:rax))
-    ;; (jmp <direct-target>)
-    (setf (object-slot image value (+ sys.int::+fref-code+ 0))
-          (logior #xE9001F0F
-                  (if fn
-                      (let* ((entry-point (object-slot image fn-value sys.int::+function-entry-point+))
-                             ;; Address is *after* the jump.
-                             (fref-jmp-address (+ (object-slot-location image value sys.int::+fref-code+) 8))
-                             (rel-jump (- entry-point fref-jmp-address)))
-                        (check-type rel-jump (signed-byte 32))
-                        (ash (ldb (byte 32 0) rel-jump) 32))
-                      0)))
-    ;; (mov :rbx (:rip fref-function))
-    ;; (jmp ...
-    (setf (object-slot image value (+ sys.int::+fref-code+ 1))
-          #xFFFFFFFFE91D8B48)
-    ;; ... (:object :rbx entry-point))
-    ;; (ud2)
-    (setf (object-slot image value (+ sys.int::+fref-code+ 2))
-          #x0B0FFF63)))
+    (ecase (env:environment-target environment)
+      (:x86-64
+       ;; (nop (:rax))
+       ;; (jmp <direct-target>)
+       (setf (object-slot image value (+ sys.int::+fref-code+ 0))
+             (logior #xE9001F0F
+                     (if fn
+                         (let* ((entry-point (object-slot image fn-value sys.int::+function-entry-point+))
+                                ;; Address is *after* the jump.
+                                (fref-jmp-address (+ (object-slot-location image value sys.int::+fref-code+) 8))
+                                (rel-jump (- entry-point fref-jmp-address)))
+                           (check-type rel-jump (signed-byte 32))
+                           (ash (ldb (byte 32 0) rel-jump) 32))
+                         0)))
+       ;; (mov :rbx (:rip fref-function))
+       ;; (jmp ...
+       (setf (object-slot image value (+ sys.int::+fref-code+ 1))
+             #xFFFFFFFFE91D8B48)
+       ;; ... (:object :rbx entry-point))
+       ;; (ud2)
+       (setf (object-slot image value (+ sys.int::+fref-code+ 2))
+             #x0B0FFF63))
+      (:arm64
+       ;; (ldr :x6 (:pc fref-function))
+       ;; (ldr :x9 (:object :x6 #.sys.int::+function-entry-point+))
+       (setf (object-slot image value (+ sys.int::+fref-code+ 0))
+             #xF85FF0C958FFFFC6)
+       ;; (br :x9)
+       ;; (hlt 0)
+       (setf (object-slot image value (+ sys.int::+fref-code+ 1))
+             #xD4400000D61F0120)))))
 
 (defmethod allocate-object ((object env:cross-compiled-function) image environment)
   (let* ((total-size (+ (* (ceiling (+ (length (env:function-machine-code object)) 16) 16) 2)
