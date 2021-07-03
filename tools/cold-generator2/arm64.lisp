@@ -24,6 +24,8 @@
                                     *funcallable-instance-trampoline*
                                     :area :wired
                                     :name (env:translate-symbol environment 'sys.int::%%funcallable-instance-trampoline)))
+  (setf (env:cross-symbol-value environment 'sys.int::*bsp-wired-stack*)
+        (env:make-stack environment (* 128 1024)))
   ;; TODO: Build the exception vector here instead of in initialize-boot-cpu
   (setf (env:cross-symbol-value environment 'sys.int::*arm64-exception-vector*)
         (env:make-array environment (* 2 4096))))
