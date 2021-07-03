@@ -5,6 +5,8 @@
 ;;;;
 ;;;; It is read in the MEZZANO.CLOS package.
 
+;; FIXME: Source locations for these are lost.
+
 (defclass t () ()
   (:metaclass built-in-class))
 

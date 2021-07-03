@@ -833,7 +833,11 @@ Must not call SERIALIZE-OBJECT."))
                    sys.int::*function-area-free-bins*
                    sys.int::*function-area-usage*))
       ;; This will fail if they're missing.
-      (serialize-object (env:translate-symbol environment sym) image environment))
+      (serialize-object (env:translate-symbol environment sym) image environment)
+      (serialize-object (env:symbol-global-value-cell
+                          environment
+                          (env:translate-symbol environment sym))
+                        image environment))
     ;; Better hope we got this right first try.
     (assert (<= (length (area-data (image-wired-function-area image)))
                 +cold-generator-assumed-wired-function-area-size+))

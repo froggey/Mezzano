@@ -447,16 +447,6 @@
                                     :element-type '(unsigned-byte 8)
                                     :initial-element 0
                                     :area :wired))
-  (setf (env:cross-symbol-value environment 'sys.int::*exception-stack*)
-        (env:make-stack environment (* 128 1024)))
-  (setf (env:cross-symbol-value environment 'sys.int::*irq-stack*)
-        (env:make-stack environment (* 128 1024)))
-  (setf (env:cross-symbol-value environment 'sys.int::*page-fault-stack*)
-        (env:make-stack environment (* 128 1024)))
-  (setf (env:cross-symbol-value environment 'sys.int::*bsp-wired-stack*)
-        (env:make-stack environment (* 128 1024)))
-  (setf (env:cross-symbol-value environment 'mezzano.supervisor::*bsp-cpu*)
-        (env:make-structure environment 'mezzano.supervisor::cpu))
   (env:add-special environment
                    :symbol-binding-cache-sentinel
                    (env:symbol-global-value-cell

@@ -217,4 +217,14 @@
                          *funcallable-instance-trampoline*
                          :area :wired-function
                          :name (env:translate-symbol environment 'sys.int::%%funcallable-instance-trampoline%%)))
-  (create-low-level-interrupt-support environment))
+  (create-low-level-interrupt-support environment)
+  (setf (env:cross-symbol-value environment 'sys.int::*exception-stack*)
+        (env:make-stack environment (* 128 1024)))
+  (setf (env:cross-symbol-value environment 'sys.int::*irq-stack*)
+        (env:make-stack environment (* 128 1024)))
+  (setf (env:cross-symbol-value environment 'sys.int::*page-fault-stack*)
+        (env:make-stack environment (* 128 1024)))
+  (setf (env:cross-symbol-value environment 'sys.int::*bsp-wired-stack*)
+        (env:make-stack environment (* 128 1024)))
+  (setf (env:cross-symbol-value environment 'mezzano.supervisor::*bsp-cpu*)
+        (env:make-structure environment 'mezzano.supervisor::cpu)))
