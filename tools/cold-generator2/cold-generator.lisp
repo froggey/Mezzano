@@ -19,34 +19,36 @@
 
 (in-package :mezzano.cold-generator)
 
+(defparameter *architecture* nil)
+
 (defparameter *supervisor-source-files*
   '("supervisor/entry.lisp"
     ("supervisor/x86-64/cpu.lisp" :x86-64)
-    ;;("supervisor/arm64/cpu.lisp" :arm64) fixme
+    ("supervisor/arm64/cpu.lisp" :arm64)
     "supervisor/interrupts.lisp"
     ("supervisor/x86-64/interrupts.lisp" :x86-64)
-    ;;("supervisor/arm64/interrupts.lisp" :arm64)
-    ;;("supervisor/arm64/gic.lisp" :arm64)
+    ("supervisor/arm64/interrupts.lisp" :arm64)
+    ("supervisor/arm64/gic.lisp" :arm64)
     "supervisor/debug.lisp"
     "supervisor/serial.lisp"
-    ;;("supervisor/uart.lisp" :arm64)
+    ("supervisor/uart.lisp" :arm64)
     "supervisor/disk.lisp"
     "supervisor/partition.lisp"
     "supervisor/thread.lisp"
     ("supervisor/x86-64/thread.lisp" :x86-64)
-    ;;("supervisor/arm64/thread.lisp" :arm64)
+    ("supervisor/arm64/thread.lisp" :arm64)
     "supervisor/sync.lisp"
     "supervisor/physical.lisp"
     "supervisor/snapshot.lisp"
     ("supervisor/x86-64/snapshot.lisp" :x86-64)
-    ;;("supervisor/arm64/snapshot.lisp" :arm64)
+    ("supervisor/arm64/snapshot.lisp" :arm64)
     "supervisor/store.lisp"
     "supervisor/pager.lisp"
     ("supervisor/x86-64/pager.lisp" :x86-64)
-    ;;("supervisor/arm64/pager.lisp" :arm64)
+    ("supervisor/arm64/pager.lisp" :arm64)
     "supervisor/time.lisp"
     ("supervisor/x86-64/time.lisp" :x86-64)
-    ;;("supervisor/arm64/time.lisp" :arm64)
+    ("supervisor/arm64/time.lisp" :arm64)
     "supervisor/ps2-packages.lisp"
     "supervisor/intel-8042.lisp"
     "supervisor/ps2-mouse.lisp"
@@ -68,16 +70,16 @@
     "supervisor/acpi.lisp"
     "supervisor/efi.lisp"
     ("supervisor/x86-64/platform.lisp" :x86-64)
-    ;;("supervisor/arm64/platform.lisp" :arm64)
+    ("supervisor/arm64/platform.lisp" :arm64)
     "runtime/runtime.lisp"
     ("runtime/runtime-x86-64.lisp" :x86-64)
-    ;;("runtime/runtime-arm64.lisp" :arm64)
+    ("runtime/runtime-arm64.lisp" :arm64)
     "system/data-types.lisp"
     "runtime/allocate.lisp"
     "runtime/cons.lisp"
     "runtime/numbers.lisp"
     ("runtime/float-x86-64.lisp" :x86-64)
-    ;;("runtime/float-arm64.lisp" :arm64)
+    ("runtime/float-arm64.lisp" :arm64)
     "runtime/string.lisp"
     "runtime/array.lisp"
     "runtime/struct.lisp"
@@ -110,7 +112,7 @@
     "system/numbers/bignum.lisp"
     "system/numbers/float.lisp"
     ("system/numbers/bignum-x86-64.lisp" :x86-64)
-    ;;("system/numbers/bignum-arm64.lisp" :arm64)
+    ("system/numbers/bignum-arm64.lisp" :arm64)
     "system/numbers/numbers.lisp"
     "system/gc.lisp"
     "system/weak-objects.lisp"
@@ -493,8 +495,9 @@
   (save-tables environment)
   (values))
 
-(defun make-image (image-name &key header-path image-size map-file (architecture :x86-64) uuid)
-  (let ((environment (env:make-standard-environment :target architecture)))
+(defun make-image (image-name &key header-path image-size map-file uuid)
+  (let* ((architecture *architecture*)
+         (environment (env:make-standard-environment :target architecture)))
     (configure-system environment)
     (finalize-system environment)
     (format t ";; Serializing image. This may take a while...")
@@ -587,7 +590,7 @@
     "supervisor/interrupts.lisp"
     "supervisor/entry.lisp"
     "supervisor/physical.lisp"
-    "supervisor/x86-64/cpu.lisp"
+    ("supervisor/x86-64/cpu.lisp" :x86-64)
     ;;"supervisor/arm64/cpu.lisp" fixme
     "supervisor/support.lisp"
     "runtime/struct.lisp"
@@ -600,12 +603,18 @@
   "These files are loaded into the compiler environment so other source
 files will be compiled correctly.")
 
-(defun set-up-cross-compiler ()
+(defun set-up-cross-compiler (&key (architecture :x86-64))
+  (when (and *architecture*
+             (not (eql *architecture* architecture)))
+    (error "Cold-generator already configured for architecture ~S, not ~S"
+           *architecture* architecture))
+  (setf *architecture* architecture)
   (with-compilation-unit ()
     (flet ((load-files (file-list)
              (dolist (f file-list)
                (cond ((consp f)
-                      (mezzano.compiler::load-for-cross-compiler (first f)))
+                      (when (member architecture (rest f))
+                        (mezzano.compiler::load-for-cross-compiler (first f))))
                      (t
                       (mezzano.compiler::load-for-cross-compiler f))))))
       (load-files *cross-source-files*)
