@@ -143,6 +143,11 @@
 (defun fast-symbol-value-cell (symbol)
   (fast-symbol-value-cell symbol))
 
+#+arm64
+(defun fast-symbol-value-cell (symbol)
+  (declare (notinline symbol-value-cell))
+  (symbol-value-cell symbol))
+
 (defun symbol-value-cell (symbol)
   (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)
   (%symbol-value-cell-by-cell (symbol-global-value-cell symbol)))
