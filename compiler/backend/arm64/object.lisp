@@ -206,7 +206,7 @@
                          :source value
                          :destination result))))
 
-(define-builtin sys.int::%object-ref-unsigned-byte-64-unscaled ((object index) result)
+(define-builtin sys.int::%%object-ref-unsigned-byte-64-unscaled ((object index) result)
   (let ((temp (make-instance 'ir:virtual-register :kind :integer))
         (unboxed-index-1 (make-instance 'ir:virtual-register :kind :integer))
         (unboxed-index (make-instance 'ir:virtual-register :kind :integer)))
@@ -227,7 +227,7 @@
                          :source temp
                          :destination result))))
 
-(define-builtin (setf sys.int::%object-ref-unsigned-byte-64-unscaled) ((value object index) result)
+(define-builtin (setf sys.int::%%object-ref-unsigned-byte-64-unscaled) ((value object index) result)
   (let ((temp (make-instance 'ir:virtual-register :kind :integer))
         (unboxed-index-1 (make-instance 'ir:virtual-register :kind :integer))
         (unboxed-index (make-instance 'ir:virtual-register :kind :integer)))
@@ -252,7 +252,7 @@
                          :source value
                          :destination result))))
 
-(define-builtin sys.int::%object-ref-signed-byte-64-unscaled ((object index) result)
+(define-builtin sys.int::%%object-ref-signed-byte-64-unscaled ((object index) result)
   (let ((temp (make-instance 'ir:virtual-register :kind :integer))
         (unboxed-index-1 (make-instance 'ir:virtual-register :kind :integer))
         (unboxed-index (make-instance 'ir:virtual-register :kind :integer)))
@@ -273,7 +273,7 @@
                          :source temp
                          :destination result))))
 
-(define-builtin (setf sys.int::%object-ref-signed-byte-64-unscaled) ((value object index) result)
+(define-builtin (setf sys.int::%%object-ref-signed-byte-64-unscaled) ((value object index) result)
   (let ((temp (make-instance 'ir:virtual-register :kind :integer))
         (unboxed-index-1 (make-instance 'ir:virtual-register :kind :integer))
         (unboxed-index (make-instance 'ir:virtual-register :kind :integer)))

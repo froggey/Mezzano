@@ -487,30 +487,6 @@
   (:gc :no-frame :layout #* :incoming-arguments :rcx)
   (mezzano.lap.arm64:named-tail-call slow-cons))
 
-(defun sys.int::%%object-ref-unsigned-byte-8-unscaled (object index)
-  (sys.int::%%object-ref-unsigned-byte-8-unscaled object index))
-
-(defun (setf sys.int::%%object-ref-unsigned-byte-8-unscaled) (value object index)
-  (setf (sys.int::%%object-ref-unsigned-byte-8-unscaled object index) value))
-
-(defun sys.int::%%object-ref-unsigned-byte-32-unscaled (object index)
-  (sys.int::%%object-ref-unsigned-byte-32-unscaled object index))
-
-(defun (setf sys.int::%%object-ref-unsigned-byte-32-unscaled) (value object index)
-  (setf (sys.int::%%object-ref-unsigned-byte-32-unscaled object index) value))
-
-(defun sys.int::%object-ref-unsigned-byte-64-unscaled (object index)
-  (sys.int::%object-ref-unsigned-byte-64-unscaled object index))
-
-(defun (setf sys.int::%object-ref-unsigned-byte-64-unscaled) (value object index)
-  (setf (sys.int::%object-ref-unsigned-byte-64-unscaled object index) value))
-
-(defun sys.int::%object-ref-signed-byte-64-unscaled (object index)
-  (sys.int::%object-ref-signed-byte-64-unscaled object index))
-
-(defun (setf sys.int::%object-ref-signed-byte-64-unscaled) (value object index)
-  (setf (sys.int::%object-ref-signed-byte-64-unscaled object index) value))
-
 (defun (sys.int::cas sys.int::%memref-unsigned-byte-32) (old-value new-value address index)
   ;; FIXME.
   (let ((value (sys.int::%memref-unsigned-byte-32 address index)))
