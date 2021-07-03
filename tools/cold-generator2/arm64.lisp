@@ -22,7 +22,7 @@
   (env:add-special environment :funcallable-instance-trampoline
                    (env:compile-lap environment
                                     *funcallable-instance-trampoline*
-                                    :area :wired
+                                    :area :wired-function
                                     :name (env:translate-symbol environment 'sys.int::%%funcallable-instance-trampoline)))
   (setf (env:cross-symbol-value environment 'sys.int::*bsp-wired-stack*)
         (env:make-stack environment (* 128 1024)))
