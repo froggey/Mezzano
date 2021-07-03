@@ -39,8 +39,8 @@
   ;; Do this early so the initial text-widget damage even won't open the window.
   (setf (window-closed instance) nil
         (slot-value instance '%fifo) (mezzano.supervisor:make-fifo 50)
-        (slot-value instance '%lock) (mezzano.supervisor:make-mutex "Popup Stream Lock")
-        (slot-value instance '%cvar) (mezzano.supervisor:make-condition-variable "Popup Stream Cvar"))
+        (slot-value instance '%lock) (mezzano.supervisor:make-mutex instance)
+        (slot-value instance '%cvar) (mezzano.supervisor:make-condition-variable instance))
   (let* ((framebuffer (mezzano.gui:make-surface width height))
          (frame (make-instance 'mezzano.gui.widgets:frame
                                :framebuffer framebuffer

@@ -34,10 +34,11 @@
 (defgeneric history-add (history data))
 
 (defclass history-table ()
-  ((%lock :initform (mezzano.supervisor:make-mutex "History table lock") :reader lock)
+  ((%lock :reader lock)
    (%history-data)))
 
 (defmethod initialize-instance :after ((instance history-table) &key)
+  (setf (slot-value instance '%lock) (mezzano.supervisor:make-mutex instance))
   (history-reset instance))
 
 (defmethod history-reset ((history history-table))

@@ -1177,7 +1177,6 @@
                                 :pci-irq (sup:make-simple-irq
                                           (pci:pci-intr-line device))
                                 :num-ports (ldb (byte 4 0) hcsparams)
-                                :lock (sup:make-mutex "EHCI Lock")
                                 :cap-regs cap-regs
                                 :op-regs op-regs
                                 :power-control (logbitp 4 hcsparams)

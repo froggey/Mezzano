@@ -1082,15 +1082,16 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
 (defclass fat-host (file-host-mount-mixin file-system-host)
   ((%name :initarg :name
           :reader host-name)
-   (%lock :initarg :lock
-          :reader fat-host-lock)
+   (%lock :reader fat-host-lock)
    (fat-structure :initarg :fat-structure
                   :accessor fat-structure)
    (fat32-info :initarg :fat32-info
                :reader fat32-info)
    (fat :initarg :fat
-        :accessor fat))
-  (:default-initargs :lock (mezzano.supervisor:make-mutex "Local File Host lock")))
+        :accessor fat)))
+
+(defmethod initialize-instance :after ((instance fat-host) &key)
+  (setf (slot-value instance '%lock) (mezzano.supervisor:make-mutex instance)))
 
 (defmethod host-default-device ((host fat-host))
   nil)

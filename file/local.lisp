@@ -11,10 +11,10 @@
 (defclass local-file-host (file-system-host)
   ((%name :initarg :name :reader host-name)
    (%root :reader local-host-root)
-   (%lock :initarg :lock :reader local-host-lock))
-  (:default-initargs :lock (mezzano.supervisor:make-mutex "Local File Host lock")))
+   (%lock :reader local-host-lock)))
 
 (defmethod initialize-instance :after ((instance local-file-host) &key)
+  (setf (slot-value instance '%lock) (mezzano.supervisor:make-mutex instance))
   (let* ((time (get-universal-time))
          (file (make-instance 'local-file
                               :truename (make-pathname :host instance
@@ -31,9 +31,11 @@
   ((%truename :initarg :truename :accessor file-truename)
    (%storage :initarg :storage :accessor file-storage)
    (%plist :initarg :plist :accessor file-plist)
-   (%lock :initarg :lock :reader file-lock))
-  (:default-initargs :plist '()
-                     :lock (mezzano.supervisor:make-mutex "Local File lock")))
+   (%lock :reader file-lock))
+  (:default-initargs :plist '()))
+
+(defmethod initialize-instance :after ((instance local-file) &key)
+  (setf (slot-value instance '%lock) (mezzano.supervisor:make-mutex instance)))
 
 (defmethod print-object ((object local-file) stream)
   (print-unreadable-object (object stream :type t :identity t)

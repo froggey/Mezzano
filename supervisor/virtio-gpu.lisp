@@ -536,8 +536,9 @@ must not be allocated by virgl.")
 (defun virtio::virtio-gpu-register (device)
   (declare (mezzano.compiler::closure-allocation :wired))
   (sup:debug-print-line "Detected virtio GPU device " device)
-  (let ((gpu (make-virtio-gpu :virtio-device device
-                              :command-lock (sup:make-mutex "Virtio GPU command lock"))))
+  (let ((gpu (make-virtio-gpu :virtio-device device)))
+    (setf (virtio-gpu-command-lock gpu)
+          (sup:make-mutex gpu))
     ;; Allocate some memory for the request header & footer.
     (let* ((frame (or (sup::allocate-physical-pages 1)
                       (panic "Unable to allocate memory for virtio gpu request")))

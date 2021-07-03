@@ -50,12 +50,12 @@
    (%pci-device            :initarg :pci-device :accessor pci-device)
    (%pci-irq               :initarg :pci-irq    :accessor pci-irq)
    (%interrupt-thread                           :accessor interrupt-thread)
-   (%lock                  :initarg :lock       :accessor usbd-lock)
    (%buf-pool              :initarg :buf-pool   :accessor buf-pool)
 
    ;; These fields are initialized in the method initialize-instance below
    (%port->device                               :accessor port->device)
    (%interrupt-event-pool                       :accessor interrupt-event-pool)
+   (%lock                  :initarg :lock       :accessor usbd-lock)
 
    ;; These fields are initialized by the initform
    (%next-device-address   :initform 1          :accessor next-device-address)
@@ -64,6 +64,7 @@
 (defmethod initialize-instance :after ((usbd usbd) &key &allow-other-keys)
   (setf (port->device usbd) (make-array (num-ports usbd) :initial-element nil)
         (interrupt-event-pool usbd) (init-interrupt-event-pool usbd))
+  (setf (slot-value usbd '%lock) (sup:make-mutex usbd))
   ;; Ensure thread pool exists
   (create-thread-pool))
 
@@ -130,7 +131,7 @@
 (defmethod initialize-instance :after ((device usb-device)
                                        &key &allow-other-keys)
   (let ((usbd (usb-device-hcd device)))
-    (setf (usb-device-lock device) (sup:make-mutex "USB Device lock"))
+    (setf (usb-device-lock device) (sup:make-mutex device))
     ;; lock device so that enumeration/driver acceptance can occur before
     ;; any operations or disconnect can occur.
     (sup:acquire-mutex (usb-device-lock device))

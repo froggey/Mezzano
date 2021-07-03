@@ -162,12 +162,13 @@ Returns the number of seconds remaining as a secondary value if TIMEOUT is non-N
 
 (defclass semaphore ()
   ((%not-zero-event :reader semaphore-not-zero-event)
-   (%lock :initform (sup:make-mutex "Internal semaphore lock") :reader semaphore-lock)
+   (%lock :reader semaphore-lock)
    (%value :initarg :value :accessor %semaphore-value :type (integer 0))
    (%limit :initarg :limit :reader semaphore-limit :type (or null (integer 0))))
   (:default-initargs :value 0 :limit nil))
 
 (defmethod initialize-instance :after ((instance semaphore) &key name)
+  (setf (slot-value instance '%lock) (sup:make-mutex instance))
   (when (and (semaphore-limit instance)
              (> (%semaphore-value instance) (semaphore-limit instance)))
     (error "Semaphore initial value ~D exceeds limit ~D"
@@ -355,10 +356,12 @@ Like MAILBOX-RECEIVE, but leaves the message in the mailbox."
   ((%name :initarg :name :reader name)
    (%items :initform '()
            :accessor %watchable-set-items)
-   (%lock :initform (sup:make-mutex "watchable-set lock")
-          :reader watchable-set-lock)
+   (%lock :reader watchable-set-lock)
    (%watchers :initform '() :accessor watchable-set-watchers))
   (:default-initargs :name nil))
+
+(defmethod initialize-instance :after ((instance watchable-set) &key)
+  (setf (slot-value instance '%lock) (sup:make-mutex instance)))
 
 ;;; Public API:
 
@@ -387,7 +390,7 @@ If a notification mailbox is full, then the message is not sent."
   "Remove ITEM from SET.
 Returns true if the item was removed to the set; false if the
 set did not contain it. Notifications are only sent if the
-set does contained the item.
+set does contain the item.
 If a notification mailbox is full, then the message is not sent."
   (sup:with-mutex ((watchable-set-lock set))
     (cond ((member item (%watchable-set-items set))

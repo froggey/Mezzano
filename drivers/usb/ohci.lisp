@@ -1680,7 +1680,6 @@
                                 :pci-irq (sup:make-simple-irq
                                           (pci:pci-intr-line device))
                                 :num-ports (ldb (byte 8 0) rh-a)
-                                :lock (sup:make-mutex "OHCI Lock")
                                 :bar bar0
                                 :hcca-phys-addr 0 ;; dummy value for print-ohci
                                 ;; ### Does this need to be synchronized?

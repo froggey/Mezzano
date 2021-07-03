@@ -593,13 +593,14 @@
 (defclass ext4-host (file-host-mount-mixin file-system-host)
   ((%name :initarg :name
           :reader host-name)
-   (%lock :initarg :lock
-          :reader ext4-host-lock)
+   (%lock :reader ext4-host-lock)
    (%superblock :initarg :superblock
                 :accessor superblock)
    (%bgdt :initarg :bgdt
-          :accessor bgdt))
-  (:default-initargs :lock (mezzano.supervisor:make-mutex "Local File Host lock")))
+          :accessor bgdt)))
+
+(defmethod initialize-instance :after ((instance ext4-host) &key)
+  (setf (slot-value instance '%lock) (mezzano.supervisor:make-mutex instance)))
 
 (defmethod host-default-device ((host ext4-host))
   nil)

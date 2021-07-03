@@ -47,7 +47,7 @@
    (%lock :reader typeface-lock)))
 
 (defmethod initialize-instance :after ((instance typeface) &key)
-  (setf (slot-value instance '%lock) (mezzano.supervisor:make-mutex (format nil "Typeface ~A lock" (name instance)))))
+  (setf (slot-value instance '%lock) (mezzano.supervisor:make-mutex instance)))
 
 (defclass font ()
   ((%typeface :initarg :typeface :reader typeface)
@@ -190,7 +190,7 @@
                                                         (font-scale font)))
           (slot-value font '%font-ascender) (round (* (zpb-ttf:ascender loader)
                                                       (font-scale font)))
-          (slot-value font '%glyph-cache-lock) (mezzano.supervisor:make-mutex (format nil "~S ~S lock" (name typeface) size))
+          (slot-value font '%glyph-cache-lock) (mezzano.supervisor:make-mutex font)
           (slot-value font '%glyph-cache) (make-array 17 :initial-element nil))))
 
 (defun find-font (name &optional (errorp t))

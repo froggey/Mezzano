@@ -21,11 +21,13 @@
    (local-address :initarg :local-address :reader local-address)
    (local-port :initarg :local-port :reader local-port)
    (packets :initarg :packets :accessor udp-connection-packets)
-   (lock :initform (mezzano.supervisor:make-mutex "UDP connection lock")
-         :reader udp-connection-lock)
-   (cvar :initform (mezzano.supervisor:make-condition-variable "UDP connection cvar")
-         :reader udp-connection-cvar))
+   (lock :reader udp-connection-lock)
+   (cvar :reader udp-connection-cvar))
   (:default-initargs :packets '()))
+
+(defmethod initialize-instance :after ((instance udp4-connection) &key)
+  (setf (slot-value instance 'lock) (mezzano.supervisor:make-mutex instance)
+        (slot-value instance 'cvar) (mezzano.supervisor:make-condition-variable instance)))
 
 (defmacro with-udp-connection-locked ((connection) &body body)
   `(mezzano.supervisor:with-mutex ((udp-connection-lock ,connection))

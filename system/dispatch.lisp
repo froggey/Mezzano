@@ -602,8 +602,12 @@ if it should immediately begin dispatching events."
 (defclass group (dispatch-object)
   ((%count :initform 0 :accessor group-count)
    (%pending :initform '() :accessor group-notifiers)
-   (%lock :initform (sup:make-mutex) :reader group-lock)
-   (%cvar :initform (sup:make-condition-variable) :reader group-cvar)))
+   (%lock :reader group-lock)
+   (%cvar :reader group-cvar)))
+
+(defmethod initialize-instance :after ((instance group) &key)
+  (setf (slot-value instance '%lock) (sup:make-mutex instance)
+        (slot-value instance '%cvar) (sup:make-condition-variable instance)))
 
 (defun make-group (&key (context *local-context*))
   "Create a new group.
