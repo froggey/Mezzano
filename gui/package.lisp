@@ -194,4 +194,6 @@
                 #:load-image))
 
 (defpackage :mezzano.gui.input-drivers
-  (:use :cl))
+  (:use :cl)
+  (:local-nicknames (:i8042 :mezzano.supervisor.intel-8042)
+                    (:ps/2-mouse :mezzano.supervisor.ps/2-mouse)))
