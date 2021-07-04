@@ -583,9 +583,7 @@
            #:+boot-option-no-detect+
 
            ;; Temporary drivers.
-           #:ps/2-key-read
-           #:ps/2-aux-read
-           #:*ps/2-mouse-device-id*
+           #:acpi-8042-present
            #:current-framebuffer
            #:framebuffer
            #:framebuffer-blit

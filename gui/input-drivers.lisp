@@ -41,22 +41,22 @@
   "An array, converting from non-extended scancodes to HID keys.")
 
 (defun keyboard-forwarder-process-one-key ()
-  (let ((byte (mezzano.supervisor:ps/2-key-read)))
+  (let ((byte (i8042:read-keyboard)))
     (cond
       ((eql byte +extended-scan-code+)
        ;; Reading extended scan code.
-       (setf byte (mezzano.supervisor:ps/2-key-read))
+       (setf byte (i8042:read-keyboard))
        (cond ((eql byte #x2A)
               ;; Start of Print Screen's make code.
-              (when (eql (mezzano.supervisor:ps/2-key-read) #xE0)
-                (when (eql (mezzano.supervisor:ps/2-key-read) #x37)
+              (when (eql (i8042:read-keyboard) #xE0)
+                (when (eql (i8042:read-keyboard) #x37)
                   ;; Print Screen pressed.
                   ;; E0 2A E0 37
                   (mezzano.gui.compositor:submit-key #\Print-Screen nil))))
              ((eql byte #xB7)
               ;; Start of Print Screen's break code.
-              (when (eql (mezzano.supervisor:ps/2-key-read) #xE0)
-                (when (eql (mezzano.supervisor:ps/2-key-read) #xAA)
+              (when (eql (i8042:read-keyboard) #xE0)
+                (when (eql (i8042:read-keyboard) #xAA)
                   ;; Print Screen released.
                   ;; E0 B7 E0 AA
                   (mezzano.gui.compositor:submit-key #\Print-Screen t))))
@@ -69,11 +69,11 @@
                       (t (format *error-output* "Ignoring unknown extended scancode ~2,'0X~%" byte)))))))
       ((eql byte #xE1)
        ;; Start of Pause/Break.
-       (when (eql (mezzano.supervisor:ps/2-key-read) #x1D)
-         (when (eql (mezzano.supervisor:ps/2-key-read) #x45)
-           (when (eql (mezzano.supervisor:ps/2-key-read) #xE1)
-             (when (eql (mezzano.supervisor:ps/2-key-read) #x9D)
-               (when (eql (mezzano.supervisor:ps/2-key-read) #xC5)
+       (when (eql (i8042:read-keyboard) #x1D)
+         (when (eql (i8042:read-keyboard) #x45)
+           (when (eql (i8042:read-keyboard) #xE1)
+             (when (eql (i8042:read-keyboard) #x9D)
+               (when (eql (i8042:read-keyboard) #xC5)
                  ;; Pause/Break pressed.
                  ;; E1 1D 45 E1 9D C5
                  ;; There is no break code, it behaves as though it was
@@ -114,19 +114,17 @@
 ;; The code translates the scrolling wheel to buttons 4 and 5 using
 ;; just one bit of resolution instead of three
 
-(defconstant +ps/2-intellimouse-id+ #x03)
-
 (defun mouse-forwarder-thread ()
   ;; Read bytes from the mouse and turn them into HID events.
   (loop
      (mezzano.internals::log-and-ignore-errors
-       (let ((byte-1 (mezzano.supervisor:ps/2-aux-read)))
+       (let ((byte-1 (i8042:read-auxiliary)))
          ;; Check sync bit.
          (when (logtest byte-1 #b00001000)
-           (let* ((byte-2 (mezzano.supervisor:ps/2-aux-read))
-                  (byte-3 (mezzano.supervisor:ps/2-aux-read))
-                  (byte-4 (if (eql mezzano.supervisor:*ps/2-mouse-device-id* +ps/2-intellimouse-id+)
-                              (mezzano.supervisor:ps/2-aux-read)
+           (let* ((byte-2 (i8042:read-auxiliary))
+                  (byte-3 (i8042:read-auxiliary))
+                  (byte-4 (if (ps/2-mouse:intellimouse-attached-p)
+                              (i8042:read-auxiliary)
                               0))
                   (x-motion (logior byte-2 (if (logtest byte-1 #b00010000) -256 0)))
                   (y-motion (- (logior byte-3 (if (logtest byte-1 #b00100000) -256 0))))
