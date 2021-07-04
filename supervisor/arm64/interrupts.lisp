@@ -150,7 +150,8 @@
          ;; Might not return.
          (wait-for-page-via-interrupt interrupt-frame
                                       fault-addr
-                                      (eql reason :write-to-ro)))))
+                                      (eql reason :write-to-ro)
+                                      nil))))
 
 (defun %instruction-abort-handler (interrupt-frame fault-addr esr)
   (let ((status (ldb (byte 5 0) esr)))
