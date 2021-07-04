@@ -160,6 +160,7 @@
 
 (defun virtio-pci-transport-kick (device vq-id)
   "Notify the device that new buffers have been added to VQ-ID."
+  (sys.int::dma-write-barrier)
   (setf (virtio-pci-common-cfg-queue-select device) vq-id)
   (multiple-value-bind (loc real-offset)
       (virtio-pci-access (virtio-pci-device-notify-cfg device)
@@ -284,6 +285,7 @@
 
 (defun virtio-legacy-pci-transport-kick (dev vq-id)
   "Notify the device that new buffers have been added to VQ-ID."
+  (sys.int::dma-write-barrier)
   (setf (virtio-legacy-pci-transport-queue-notify dev) vq-id))
 
 (defun virtio-legacy-pci-transport-device-irq (device)

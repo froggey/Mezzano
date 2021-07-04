@@ -377,7 +377,7 @@
   (setf (virtio-ring-avail-ring vq (rem (virtio-ring-avail-idx vq)
                                         (virtqueue-size vq)))
         desc)
-  ;; FIXME: memory barrier here.
+  (sys.int::dma-write-barrier)
   ;; Update the index field.
   (setf (virtio-ring-avail-idx vq) (ldb (byte 16 0)
                                         (1+ (virtio-ring-avail-idx vq)))))
