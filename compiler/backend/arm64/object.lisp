@@ -321,3 +321,25 @@
                          :operands (list result address-unboxed tag-unboxed)
                          :inputs (list address-unboxed tag-unboxed)
                          :outputs (list result)))))
+
+;;; Atomic operations.
+;;; These functions index into the object like %OBJECT-REF-T.
+;;; There are no atomic functions that access memory like MEMREF.
+
+;; Add DELTA to the slot at SLOT in OBJECT.
+;; Returns the old value of the slot.
+;; DELTA and the value of the slot must both be fixnums.
+;; (defun fixnum-add (object slot delta)
+;;   (prog1 (%object-ref-t object slot)
+;;     (incf (%object-ref-t object slot) delta)))
+(define-builtin sys.int::%atomic-fixnum-add-object ((object offset delta) result)
+  (let ((new-value (make-instance 'ir:virtual-register :kind :integer)))
+    (emit (make-instance 'ir:move-instruction
+                         :source object
+                         :destination :x1))
+    (emit (make-instance 'arm64-atomic-instruction
+                         :opcode 'lap:add
+                         :new-value new-value
+                         :old-value result
+                         :index offset
+                         :rhs delta))))

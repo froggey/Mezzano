@@ -1195,3 +1195,30 @@
 
 (defmethod emit-lap (backend-function (instruction ir:spice-instruction) uses defs)
   nil)
+
+(defmethod emit-lap (backend-function (instruction arm64-atomic-instruction) uses defs)
+    ;; fucking ll/sc
+  (let ((label (mezzano.lap:make-label)))
+    ;; Convert to unboxed integer (scaled appropriately), with tag adjustment.
+    (emit `(lap:add :x9 :xzr ,(arm64-atomic-index instruction) :lsl ,(- 3 sys.int::+n-fixnum-bits+))
+          `(lap:sub :x9 :x9 (- (object-slot-displacement 0))))
+    ;; Generate the address.
+    (emit `(lap:add :x9 :x1 :x9))
+    ;; Move to linked gc mode.
+    ;; x9 is interior pointer into x1.
+    (emit-gc-info :extra-registers :rax)
+    ;; Add loop.
+    (emit label
+          ;; Load old value into X10
+          `(lap:ldaxr ,(arm64-atomic-old-value instruction) (:x9))
+          ;; Increment by delta. New value in X11.
+          (list (arm64-instruction-opcode instruction)
+                (arm64-atomic-new-value instruction)
+                (arm64-atomic-old-value instruction)
+                (arm64-atomic-rhs instruction))
+          ;; Store linked new value, status in X10.
+          `(lap:stlxr :w10 ,(arm64-atomic-new-value instruction) (:x9))
+          ;; Retry on failure.
+          `(lap:cbnz :x10 ,label))
+    ;; Finish up.
+    (emit-gc-info)))
