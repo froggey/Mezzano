@@ -142,8 +142,8 @@
 
 (defun virtio-legacy-mmio-transport-kick (dev vq-id)
   "Notify the device that new buffers have been added to VQ-ID."
-  (sys.int::dma-write-barrier)
-  (setf (virtio-mmio-queue-notify dev) vq-id))
+  (setf (virtio-mmio-queue-notify dev) vq-id)
+  (sys.int::dma-write-barrier))
 
 (defun virtio-legacy-mmio-transport-queue-select (device)
   (virtio-mmio-queue-sel device))
