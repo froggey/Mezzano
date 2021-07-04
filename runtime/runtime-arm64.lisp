@@ -531,3 +531,10 @@
   BIGNUM128
   (mezzano.lap.arm64:orr :x11 :xzr :xzr)
   (mezzano.lap.arm64:named-tail-call sys.int::%%make-bignum-128-x10-x11))
+
+;; Avoid a trip through FUNCTION-REFERENCE.
+(sys.int::define-lap-function sys.int::get-raise-undefined-function-fref (())
+  (:gc :no-frame :layout #*0)
+  (mezzano.lap.arm64:ldr :x0 (:function sys.int::raise-undefined-function))
+  (mezzano.lap.arm64:movz :x5 #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
+  (mezzano.lap.arm64:ret))
