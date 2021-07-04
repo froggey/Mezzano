@@ -185,6 +185,9 @@
 (defun finish-tlb-shootdown ()
   nil)
 
+(defun check-tlb-shootdown-not-in-progress ()
+  nil)
+
 (defun local-cpu-idle-thread ()
   sys.int::*bsp-idle-thread*)
 

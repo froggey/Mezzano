@@ -101,17 +101,23 @@
             +arm64-tte-ap-pro-una+))
     (setf (page-table-entry pte) current-entry)))
 
+(defun pte-page-present-p (pte)
+  (logtest +arm64-tte-present+ pte))
+
 (defun page-present-p (page-table &optional (index 0))
-  (logtest +arm64-tte-present+
-           (page-table-entry page-table index)))
+  (pte-page-present-p (page-table-entry page-table index)))
+
+(defun pte-page-writable-p (pte)
+  (logtest +arm64-tte-writable+ pte))
 
 (defun page-writable-p (page-table &optional (index 0))
-  (logtest +arm64-tte-writable+
-           (page-table-entry page-table index)))
+  (pte-page-writable-p (page-table-entry page-table index)))
+
+(defun pte-page-copy-on-write-p (pte)
+  (logtest +arm64-tte-copy-on-write+ pte))
 
 (defun page-copy-on-write-p (page-table &optional (index 0))
-  (logtest +arm64-tte-copy-on-write+
-           (page-table-entry page-table index)))
+  (pte-page-copy-on-write-p (page-table-entry page-table index)))
 
 (defun page-dirty-p (page-table &optional (index 0))
   (logtest +arm64-tte-dirty+
