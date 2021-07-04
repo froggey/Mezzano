@@ -84,6 +84,25 @@
                          :inputs (list temp)
                          :outputs (list)))))
 
+(define-builtin sys.int::%object-tag ((object) result)
+  (let ((temp1 (make-instance 'ir:virtual-register :kind :integer))
+        (temp2 (make-instance 'ir:virtual-register :kind :integer)))
+    (emit (make-instance 'arm64-instruction
+                         :opcode 'lap:ldr
+                         :operands (list temp1 `(:object ,object -1))
+                         :inputs (list object)
+                         :outputs (list temp1)))
+    (emit (make-instance 'arm64-instruction
+                         :opcode 'lap:and
+                         :operands (list temp2 temp1 #b11111100)
+                         :inputs (list temp1)
+                         :outputs (list temp2)))
+    (emit (make-instance 'arm64-instruction
+                         :opcode 'lap:add
+                         :operands (list result :xzr temp2 :lsr sys.int::+n-fixnum-bits+)
+                         :inputs (list temp2)
+                         :outputs (list result)))))
+
 (defmacro with-builtin-object-access ((effective-address additional-inputs object index scale) &body body)
   "Generate an effective address that deals properly with scaling and constant indices."
   (check-type scale (member 1 2 4 8))
@@ -287,3 +306,18 @@
                        :operands (list result value value)
                        :inputs (list value)
                        :outputs (list result))))
+
+(define-builtin sys.int::%%assemble-value ((address tag) result)
+  (let ((address-unboxed (make-instance 'ir:virtual-register :kind :integer))
+        (tag-unboxed (make-instance 'ir:virtual-register :kind :integer)))
+    (emit (make-instance 'ir:unbox-fixnum-instruction
+                         :source address
+                         :destination address-unboxed))
+    (emit (make-instance 'ir:unbox-fixnum-instruction
+                         :source tag
+                         :destination tag-unboxed))
+    (emit (make-instance 'arm64-instruction
+                         :opcode 'lap:orr
+                         :operands (list result address-unboxed tag-unboxed)
+                         :inputs (list address-unboxed tag-unboxed)
+                         :outputs (list result)))))

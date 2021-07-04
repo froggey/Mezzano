@@ -88,3 +88,10 @@
                          :operands (list :xzr temp2 instance-header)
                          :inputs (list temp2 instance-header)
                          :outputs '()))))
+
+(define-builtin sys.int::%%special-stack-pointer (() result)
+  (emit (make-instance 'arm64-instruction
+                       :opcode 'lap:ldr
+                       :operands (list result `(:object :x28 ,mezzano.supervisor::+thread-special-stack-pointer+))
+                       :inputs (list)
+                       :outputs (list result))))

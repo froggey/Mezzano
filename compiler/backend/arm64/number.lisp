@@ -190,3 +190,106 @@
                        :operands (list :xzr lhs rhs)
                        :inputs (list lhs rhs)
                        :outputs '())))
+
+(define-builtin mezzano.runtime::%fixnum-<-unsigned ((lhs rhs) :cc)
+  (emit (make-instance 'arm64-instruction
+                       :opcode 'lap:subs
+                       :operands (list :xzr lhs rhs)
+                       :inputs (list lhs rhs)
+                       :outputs '())))
+
+(define-builtin mezzano.runtime::%fixnum-right-shift ((integer count) result)
+  ;; INTEGER and COUNT must both be fixnums.
+  (cond ((constant-value-p count '(integer 0))
+         (let ((count-value (fetch-constant-value count))
+               (temp (make-instance 'ir:virtual-register :kind :integer)))
+           (cond ((>= count-value (- 64 sys.int::+n-fixnum-bits+))
+                  ;; All bits shifted out.
+                  (emit (make-instance 'arm64-instruction
+                                       :opcode 'lap:add
+                                       :operands (list temp :xzr integer :asr 63)
+                                       :inputs (list integer)
+                                       :outputs (list temp))))
+                 (t
+                  (emit (make-instance 'arm64-instruction
+                                       :opcode 'lap:add
+                                       :operands (list temp :xzr integer :asr count-value)
+                                       :inputs (list integer)
+                                       :outputs (list temp)))))
+           (emit (make-instance 'arm64-instruction
+                                :opcode 'lap:and
+                                :operands (list result temp (- (ash 1 sys.int::+n-fixnum-bits+)))
+                                :inputs (list temp)
+                                :outputs (list result)))))
+        (t
+         ;; Shift right by arbitrary count.
+         (let ((done-label (make-instance 'ir:label :name :fixnum-right-shift-done :phis (list result)))
+               (sign-extend (make-instance 'ir:label :name :fixnum-right-shift-sign-extend))
+               (no-extend (make-instance 'ir:label :name :fixnum-right-shift-no-extend))
+               (extend-temp (make-instance 'ir:virtual-register :kind :integer))
+               (extend-result (make-instance 'ir:virtual-register))
+               (unboxed-shift-count (make-instance 'ir:virtual-register :kind :integer))
+               (shift-temp (make-instance 'ir:virtual-register :kind :integer))
+               (shift-result (make-instance 'ir:virtual-register)))
+           ;; A64 masks the shift count to 6 bits, test if all the bits were shifted out.
+           (emit (make-instance 'arm64-instruction
+                                :opcode 'lap:subs
+                                :operands (list :xzr count (c::fixnum-to-raw 64))
+                                :inputs (list count)
+                                :outputs (list)))
+           (emit (make-instance 'arm64-branch-instruction
+                                :opcode 'lap:b.cs
+                                :true-target sign-extend
+                                :false-target no-extend))
+           (emit sign-extend)
+           (emit (make-instance 'arm64-instruction
+                                :opcode 'lap:add
+                                :operands (list extend-temp :xzr integer :asr 63)
+                                :inputs (list integer)
+                                :outputs (list extend-temp)))
+           (emit (make-instance 'arm64-instruction
+                                :opcode 'lap:and
+                                :operands (list extend-result extend-temp (- (ash 1 sys.int::+n-fixnum-bits+)))
+                                :inputs (list extend-temp)
+                                :outputs (list extend-result)))
+           (emit (make-instance 'ir:jump-instruction
+                                :target done-label
+                                :values (list extend-result)))
+           (emit no-extend)
+           ;; Unbox count.
+           (emit (make-instance 'ir:unbox-fixnum-instruction
+                                :source count
+                                :destination unboxed-shift-count))
+           ;; Shift, mask & produce result.
+           (emit (make-instance 'arm64-instruction
+                                :opcode 'lap:asrv
+                                :operands (list shift-temp integer unboxed-shift-count)
+                                :inputs (list integer unboxed-shift-count)
+                                :outputs (list shift-temp)))
+           (emit (make-instance 'arm64-instruction
+                                :opcode 'lap:and
+                                :operands (list shift-result shift-temp (- (ash 1 sys.int::+n-fixnum-bits+)))
+                                :inputs (list shift-temp)
+                                :outputs (list shift-result)))
+           (emit (make-instance 'ir:jump-instruction
+                                :target done-label
+                                :values (list shift-result)))
+           (emit done-label)))))
+
+(define-builtin mezzano.runtime::%fixnum-truncate ((number divisor) (quotient remainder))
+  (let ((quotient-unboxed (make-instance 'ir:virtual-register :kind :integer)))
+    (emit (make-instance 'arm64-instruction
+                         :opcode 'lap:sdiv
+                         :operands (list quotient-unboxed number divisor)
+                         :inputs (list number divisor)
+                         :outputs (list quotient-unboxed)))
+    ;; Compute the remainder.
+    ;; remainder = numerator - (quotient * denominator)
+    (emit (make-instance 'arm64-instruction
+                         :opcode 'lap:msub
+                         :operands (list remainder number quotient-unboxed divisor)
+                         :inputs (list number quotient-unboxed divisor)
+                         :outputs (list remainder)))
+    (emit (make-instance 'ir:box-fixnum-instruction
+                         :source quotient-unboxed
+                         :destination quotient))))
