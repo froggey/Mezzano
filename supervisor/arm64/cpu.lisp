@@ -219,3 +219,11 @@
 
 (defun arch-pre-panic ()
   nil)
+
+(sys.int::define-lap-function %dmb-oshld ()
+  (:gc :no-frame :layout #*0)
+  (mezzano.lap.arm64:dmb :oshst)
+  (mezzano.lap.arm64:ret))
+
+(defun sys.int::dma-write-barrier ()
+  (%dmb-oshld))

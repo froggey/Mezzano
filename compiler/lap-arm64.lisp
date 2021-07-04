@@ -1653,6 +1653,31 @@
   (emit-instruction #xD5033FDF)
   (return-from instruction t))
 
+(defun encode-barrier-variant (what)
+  (ecase what
+    (:sy    #b1111)
+    (:st    #b1110)
+    (:ld    #b1101)
+    (:ish   #b1011)
+    (:ishst #b1010)
+    (:ishld #b1001)
+    (:nsh   #b0111)
+    (:nshst #b0110)
+    (:nshld #b0101)
+    (:osh   #b0011)
+    (:oshst #b0010)
+    (:oshld #b0001)))
+
+(define-instruction dmb (what)
+  (emit-instruction (logior #xD50330BF
+                            (ash (encode-barrier-variant what) 8)))
+  (return-from instruction t))
+
+(define-instruction dsb (what)
+  (emit-instruction (logior #xD503309F
+                            (ash (encode-barrier-variant what) 8)))
+  (return-from instruction t))
+
 (define-instruction eret ()
   (emit-instruction #xD69F03E0)
   (return-from instruction t))
