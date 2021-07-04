@@ -191,6 +191,34 @@
     (emit (make-instance 'ir:jump-instruction :target out :values (list bignum-result)))
     (emit out)))
 
+(define-builtin mezzano.compiler::%fast-fixnum-- ((lhs rhs) result)
+  (cond ((and (constant-value-p rhs 'integer)
+              (<= 0 (ash (fetch-constant-value rhs) sys.int::+n-fixnum-bits+) 4095))
+         (emit (make-instance 'arm64-instruction
+                              :opcode 'lap:sub
+                              :operands (list result
+                                              lhs
+                                              (ash (fetch-constant-value rhs)
+                                                   sys.int::+n-fixnum-bits+))
+                              :inputs (list lhs)
+                              :outputs (list result))))
+        ((and (constant-value-p rhs 'integer)
+              (<= 0 (ash (- (fetch-constant-value rhs)) sys.int::+n-fixnum-bits+) 4095))
+         (emit (make-instance 'arm64-instruction
+                              :opcode 'lap:add
+                              :operands (list result
+                                              lhs
+                                              (ash (- (fetch-constant-value rhs))
+                                                   sys.int::+n-fixnum-bits+))
+                              :inputs (list lhs)
+                              :outputs (list result))))
+        (t
+         (emit (make-instance 'arm64-instruction
+                              :opcode 'lap:sub
+                              :operands (list result lhs rhs)
+                              :inputs (list lhs rhs)
+                              :outputs (list result))))))
+
 (define-builtin mezzano.runtime::%fixnum-logand ((lhs rhs) result)
   (emit (make-instance 'arm64-instruction
                        :opcode 'lap:and
