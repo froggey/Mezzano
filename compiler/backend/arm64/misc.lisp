@@ -9,18 +9,31 @@
                        :inputs (list)
                        :outputs (list result))))
 
-(define-builtin sys.int::%unbound-value-p ((object) :eq)
-  (let ((value (make-instance 'ir:virtual-register)))
-    (emit (make-instance 'arm64-instruction
-                         :opcode 'lap:ldr
-                         :operands (list value `(:literal :unbound-value))
-                         :inputs (list)
-                         :outputs (list value)))
-    (emit (make-instance 'arm64-instruction
-                         :opcode 'lap:subs
-                         :operands (list :xzr object value)
-                         :inputs (list object value)
-                         :outputs (list)))))
+(defmacro define-support-object (name symbol)
+  (let ((predicate-name (intern (format nil "~A-P" name) (symbol-package name))))
+    `(progn
+       (define-builtin ,predicate-name ((object) :eq)
+         (let ((value (make-instance 'ir:virtual-register)))
+           (emit (make-instance 'arm64-instruction
+                                :opcode 'lap:ldr
+                                :operands (list value `(:literal ,',symbol))
+                                :inputs (list)
+                                :outputs (list value)))
+           (emit (make-instance 'arm64-instruction
+                                :opcode 'lap:subs
+                                :operands (list :xzr object value)
+                                :inputs (list object value)
+                                :outputs (list)))))
+       (define-builtin ,name (() result)
+         (emit (make-instance 'arm64-instruction
+                              :opcode 'lap:ldr
+                              :operands (list result `(:literal ,',symbol))
+                              :inputs (list)
+                              :outputs (list result)))))))
+
+(define-support-object sys.int::%unbound-value :unbound-value)
+(define-support-object sys.int::%symbol-binding-cache-sentinel :symbol-binding-cache-sentinel)
+(define-support-object sys.int::%layout-instance-header :layout-instance-header)
 
 (define-builtin eq ((x y) :eq)
   (emit (make-instance 'arm64-instruction
