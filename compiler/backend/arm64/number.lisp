@@ -86,6 +86,34 @@
     (emit (make-instance 'ir:jump-instruction :target out :values (list bignum-result)))
     (emit out)))
 
+(define-builtin mezzano.compiler::%fast-fixnum-+ ((lhs rhs) result)
+  (cond ((and (constant-value-p rhs 'integer)
+              (<= 0 (ash (fetch-constant-value rhs) sys.int::+n-fixnum-bits+) 4095))
+         (emit (make-instance 'arm64-instruction
+                              :opcode 'lap:add
+                              :operands (list result
+                                              lhs
+                                              (ash (fetch-constant-value rhs)
+                                                   sys.int::+n-fixnum-bits+))
+                              :inputs (list lhs)
+                              :outputs (list result))))
+        ((and (constant-value-p rhs 'integer)
+              (<= 0 (ash (- (fetch-constant-value rhs)) sys.int::+n-fixnum-bits+) 4095))
+         (emit (make-instance 'arm64-instruction
+                              :opcode 'lap:sub
+                              :operands (list result
+                                              lhs
+                                              (ash (- (fetch-constant-value rhs))
+                                                   sys.int::+n-fixnum-bits+))
+                              :inputs (list lhs)
+                              :outputs (list result))))
+          (t
+           (emit (make-instance 'arm64-instruction
+                                :opcode 'lap:add
+                                :operands (list result lhs rhs)
+                                :inputs (list lhs rhs)
+                                :outputs (list result))))))
+
 (define-builtin mezzano.runtime::%fixnum-- ((lhs rhs) result)
   (let ((out (make-instance 'ir:label :phis (list result)))
         (overflow (make-instance 'ir:label :name :--overflow))
@@ -170,6 +198,13 @@
                        :inputs (list lhs rhs)
                        :outputs (list result))))
 
+(define-builtin mezzano.compiler::%fast-fixnum-logand ((lhs rhs) result)
+  (emit (make-instance 'arm64-instruction
+                       :opcode 'lap:and
+                       :operands (list result lhs rhs)
+                       :inputs (list lhs rhs)
+                       :outputs (list result))))
+
 (define-builtin mezzano.runtime::%fixnum-logior ((lhs rhs) result)
   (emit (make-instance 'arm64-instruction
                        :opcode 'lap:orr
@@ -177,7 +212,21 @@
                        :inputs (list lhs rhs)
                        :outputs (list result))))
 
+(define-builtin mezzano.compiler::%fast-fixnum-logior ((lhs rhs) result)
+  (emit (make-instance 'arm64-instruction
+                       :opcode 'lap:orr
+                       :operands (list result lhs rhs)
+                       :inputs (list lhs rhs)
+                       :outputs (list result))))
+
 (define-builtin mezzano.runtime::%fixnum-logxor ((lhs rhs) result)
+  (emit (make-instance 'arm64-instruction
+                       :opcode 'lap:eor
+                       :operands (list result lhs rhs)
+                       :inputs (list lhs rhs)
+                       :outputs (list result))))
+
+(define-builtin mezzano.compiler::%fast-fixnum-logxor ((lhs rhs) result)
   (emit (make-instance 'arm64-instruction
                        :opcode 'lap:eor
                        :operands (list result lhs rhs)
@@ -275,6 +324,21 @@
                                 :target done-label
                                 :values (list shift-result)))
            (emit done-label)))))
+
+;; TODO: Overflow.
+;; overflow occurs if bits 127-63 of a signed 64*64=128bit multiply are not all
+;; ones or all zeros.
+(define-builtin mezzano.runtime::%fixnum-* ((x y) result)
+  (let ((x-unboxed (make-instance 'ir:virtual-register :kind :integer)))
+    ;; Unbox one operand, this will produce a boxed result.
+    (emit (make-instance 'ir:unbox-fixnum-instruction
+                         :source x
+                         :destination x-unboxed))
+    (emit (make-instance 'arm64-instruction
+                         :opcode 'lap:madd
+                         :operands (list result :xzr x-unboxed y)
+                         :inputs (list x-unboxed y)
+                         :outputs (list result)))))
 
 (define-builtin mezzano.runtime::%fixnum-truncate ((number divisor) (quotient remainder))
   (let ((quotient-unboxed (make-instance 'ir:virtual-register :kind :integer)))
