@@ -77,3 +77,11 @@
 (defun sys.int::tsc ()
   ;; This isn't the cycle counter, but it's close enough for now.
   (%cntpct))
+
+(defun get-high-precision-timer ()
+  ;; TODO
+  (%cntpct))
+
+(defun high-precision-time-units-to-internal-time-units (hp-time)
+  ;; TODO
+  hp-time)

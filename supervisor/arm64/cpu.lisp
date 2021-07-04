@@ -31,6 +31,9 @@
   (mezzano.lap.arm64:movz :x5 #.(ash 1 sys.int::+n-fixnum-bits+))
   (mezzano.lap.arm64:ret))
 
+(defun local-cpu ()
+  (local-cpu-info))
+
 (sys.int::define-lap-function %el0-common ()
   ;; Stack looks like:
   ;; +40 pad (ss on x86-64)
@@ -212,4 +215,7 @@
   nil)
 
 (defun stop-other-cpus-for-debug-magic-button ()
+  nil)
+
+(defun arch-pre-panic ()
   nil)

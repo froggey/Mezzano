@@ -116,6 +116,15 @@
          " ESR: " (%read-esr-el1)
          " FAR: " (%read-far-el1)))
 
+(sys.int::defglobal *page-fault-hook*)
+
+(defun local-cpu-page-fault-hook ()
+  (when (boundp '*page-fault-hook*)
+    *page-fault-hook*))
+
+(defun (setf local-cpu-page-fault-hook) (value)
+  (setf *page-fault-hook* value))
+
 (defun %page-fault-handler (interrupt-frame fault-addr reason)
   (when (and (boundp '*page-fault-hook*)
              *page-fault-hook*)
