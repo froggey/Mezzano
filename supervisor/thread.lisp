@@ -323,6 +323,7 @@ Interrupts must be off and the global thread lock must be held."
     (let ((next (%update-run-queue)))
       (ensure (eql (thread-state next) :runnable) "Switching to thread " next " with bad state " (thread-state next))
       (setf (thread-state next) :active)
+      #+x86-64
       (when (<= (car sys.int::*exception-stack*)
                 (thread-stack-pointer next)
                 (1- (+ (car sys.int::*exception-stack*)
