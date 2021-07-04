@@ -42,10 +42,8 @@
 ;; High-level character functions. These assume that whatever is on the other
 ;; end of the port uses UTF-8 with CRLF newlines.
 
-(defun debug-uart-write-char (char)
+(defun debug-uart-write-char-1 (char)
   (setf *uart-at-line-start* nil)
-  ;; FIXME: Should write all the bytes to the buffer in one go.
-  ;; Other processes may interfere.
   (cond ((eql char #\Newline)
          (setf *uart-at-line-start* t)
          ;; Turn #\Newline into CRLF
@@ -55,9 +53,34 @@
          (with-utf-8-bytes (char byte)
            (debug-uart-write-byte byte)))))
 
+(defun debug-uart-write-char (char)
+  (safe-without-interrupts (char)
+    (with-symbol-spinlock (*debug-uart-lock*)
+      (debug-uart-write-char-1 char))))
+
 (defun debug-uart-write-string (string)
-  (dotimes (i (string-length string))
-    (debug-uart-write-char (char string i))))
+  (safe-without-interrupts (string)
+    (with-symbol-spinlock (*debug-uart-lock*)
+      (dotimes (i (string-length string))
+        (debug-uart-write-char-1 (char string i))))))
+
+(defun debug-uart-flush-buffer (buf)
+  (safe-without-interrupts (buf)
+    (with-symbol-spinlock (*debug-uart-lock*)
+      (let ((buf-data (car buf)))
+        ;; To get inline wired accessors....
+        (declare (type (simple-array (unsigned-byte 8) (*)) buf-data)
+                 (optimize speed (safety 0)))
+        (dotimes (i (cdr buf))
+          (let ((byte (aref buf-data (the fixnum i))))
+            (cond ((eql byte #.(char-code #\Newline))
+                   (setf *uart-at-line-start* t)
+                   ;; Turn #\Newline into CRLF
+                   (debug-uart-write-byte #x0D)
+                   (debug-uart-write-byte #x0A))
+                  (t
+                   (setf *uart-at-line-start* nil)
+                   (debug-uart-write-byte byte)))))))))
 
 (defun debug-uart-stream (op &optional arg)
   (ecase op
@@ -66,7 +89,8 @@
     (:write-char (debug-uart-write-char arg))
     (:write-string (debug-uart-write-string arg))
     (:force-output)
-    (:start-line-p *uart-at-line-start*)))
+    (:start-line-p *uart-at-line-start*)
+    (:flush-buffer (debug-uart-flush-buffer arg))))
 
 (defun initialize-debug-uart (base)
   (setf *debug-uart-base* base
