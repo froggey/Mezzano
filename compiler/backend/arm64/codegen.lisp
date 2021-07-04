@@ -1105,8 +1105,8 @@
     (emit `(lap:add ,(ir:make-dx-typed-vector-result instruction) :x29 :x9))
     ;; Possibly zero fill.
     (when (ir:make-dx-typed-vector-zero-fill-p instruction)
-      (dotimes (i words)
-        (emit-stack-store :xzr (+ slots words -1 (- i)))))))
+      (dotimes (i size)
+        (emit-stack-store :xzr (+ slots words -2 (- i)))))))
 
 (defmethod lap-prepass (backend-function (instruction ir:make-dx-cons-instruction) uses defs)
   (setf (gethash instruction *prepass-data*) (allocate-stack-slots 2 :aligned t)))
