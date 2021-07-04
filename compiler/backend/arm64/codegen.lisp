@@ -529,6 +529,10 @@
                                          (fetch-literal/128 (second op)))
                                         ((and (consp op) (eql (first op) :literal))
                                          (fetch-literal (second op)))
+                                        ((and (consp op) (eql (first op) :fp-32))
+                                         (lap::convert-width (second op) 32))
+                                        ((and (consp op) (eql (first op) :fp-64))
+                                         (lap::convert-width (second op) 64))
                                         (t op)))))
     (emit (list* (arm64-instruction-opcode instruction) real-operands))))
 

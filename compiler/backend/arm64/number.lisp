@@ -357,3 +357,20 @@
     (emit (make-instance 'ir:box-fixnum-instruction
                          :source quotient-unboxed
                          :destination quotient))))
+
+;;; Floats!
+
+(define-builtin mezzano.runtime::%%coerce-fixnum-to-single-float ((value) result)
+  (let ((value-unboxed (make-instance 'ir:virtual-register :kind :integer))
+        (value-float (make-instance 'ir:virtual-register :kind :single-float)))
+    (emit (make-instance 'ir:unbox-fixnum-instruction
+                         :source value
+                         :destination value-unboxed))
+    (emit (make-instance 'arm64-instruction
+                         :opcode 'lap:scvtf
+                         :operands (list `(:fp-32 ,value-float) value-unboxed)
+                         :inputs (list value-unboxed)
+                         :outputs (list value-float)))
+    (emit (make-instance 'ir:box-single-float-instruction
+                         :source value-float
+                         :destination result))))
