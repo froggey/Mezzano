@@ -258,7 +258,8 @@
              ;; object and put that in RBX.
              (when (not (c:lambda-information-environment-arg (mezzano.compiler.backend::ast backend-function)))
                (emit `(lap:adr :x6 (+ (- entry-point 16) ,sys.int::+tag-object+))))
-             (emit `(lap:ldp :x29 :x30 (:post :sp 16))
+             (emit `(lap:add :sp :x29 0)
+                   `(lap:ldp :x29 :x30 (:post :sp 16))
                    `(:gc :no-frame :incoming-arguments :rcx :layout #*)
                    ;; Don't use named-tail-call here to avoid clobbering x6,
                    ;; assume this function is never a closure.
