@@ -1211,16 +1211,21 @@
     ;; Add loop.
     (emit label
           ;; Load old value into X10
-          `(lap:ldaxr ,(arm64-atomic-old-value instruction) (:x9))
-          ;; Increment by delta. New value in X11.
-          (list (arm64-instruction-opcode instruction)
-                (arm64-atomic-new-value instruction)
-                (arm64-atomic-old-value instruction)
-                (arm64-atomic-rhs instruction))
-          ;; Store linked new value, status in X10.
-          `(lap:stlxr :w10 ,(arm64-atomic-new-value instruction) (:x9))
-          ;; Retry on failure.
-          `(lap:cbnz :x10 ,label))
+          `(lap:ldaxr ,(arm64-atomic-old-value instruction) (:x9)))
+    (cond ((arm64-instruction-opcode instruction)
+           ;; Performing some kind of modify operation.
+           (emit (list (arm64-instruction-opcode instruction)
+                       (arm64-atomic-new-value instruction)
+                       (arm64-atomic-old-value instruction)
+                       (arm64-atomic-rhs instruction))
+                 ;; Store linked new value, status in X10.
+                 `(lap:stlxr :w10 ,(arm64-atomic-new-value instruction) (:x9))))
+          (t
+           ;; No opcode, this is xchg-object
+           ;; Store linked new value, status in X10.
+           (emit `(lap:stlxr :w10 ,(arm64-atomic-rhs instruction) (:x9)))))
+    ;; Retry on failure.
+    (emit `(lap:cbnz :x10 ,label))
     ;; Finish up.
     (emit-gc-info)))
 

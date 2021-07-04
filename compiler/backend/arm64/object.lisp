@@ -344,6 +344,22 @@
                          :index offset
                          :rhs delta))))
 
+;; Set the value in SLOT to NEW, and return the old value.
+;; (defun xchg (object slot new)
+;;   (prog1 (%object-ref-t object slot)
+;;     (setf (%object-ref-t object slot) new)))
+(define-builtin sys.int::%xchg-object ((object offset new) result)
+  (let ((new-value (make-instance 'ir:virtual-register :kind :integer)))
+    (emit (make-instance 'ir:move-instruction
+                         :source object
+                         :destination :x1))
+    (emit (make-instance 'arm64-atomic-instruction
+                         :opcode nil
+                         :new-value new-value
+                         :old-value result
+                         :index offset
+                         :rhs new))))
+
 ;; If the value in SLOT matches OLD, set it to NEW; otherwise do nothing.
 ;; Returns true as the primary value if the slot was modified, false otherwise.
 ;; Additionally returns the old value of SLOT as the second value.
