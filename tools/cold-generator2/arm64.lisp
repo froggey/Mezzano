@@ -69,7 +69,7 @@
                  ;; ldr x29, [fn]
                  (setf (mref32 offset 2) #x5800005D)
                  ;; b common-entry
-                 (let ((entry-rel (- common-entry (+ ex-vec-base offset 12))))
+                 (let ((entry-rel (- common-entry (+ ex-vec-base (* offset 8) 12))))
                    (setf (mref32 offset 3)
                          (logior #x14000000
                                  (ldb (byte 26 2) entry-rel))))
