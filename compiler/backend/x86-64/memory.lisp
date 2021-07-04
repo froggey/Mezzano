@@ -5,7 +5,7 @@
 (defmacro with-memory-effective-address ((effective-address additional-inputs base-address index scale) &body body)
   "Generate an effective address that deals properly with scaling and constant indices."
   (check-type scale (member 1 2 4 8))
-  (let ((unboxed-address (gensym)))
+  (let ((unboxed-address (gensym "UNBOXED-ADDRESS")))
     `(let ((,unboxed-address (make-instance 'ir:virtual-register :kind :integer)))
        (emit (make-instance 'ir:unbox-fixnum-instruction
                             :source ,base-address
@@ -16,7 +16,7 @@
                 ,@body))
              (t
               ,(if (eql scale 1)
-                   (let ((unboxed-index (gensym)))
+                   (let ((unboxed-index (gensym "UNBOXED-INDEX")))
                      `(let ((,unboxed-index (make-instance 'ir:virtual-register :kind :integer)))
                         (emit (make-instance 'ir:unbox-fixnum-instruction
                                              :source ,index

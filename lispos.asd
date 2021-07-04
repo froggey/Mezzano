@@ -70,6 +70,8 @@
                (:file "compiler/backend/arm64/misc")
                (:file "compiler/backend/arm64/object")
                (:file "compiler/backend/arm64/number")
+               (:file "compiler/backend/arm64/memory")
+               (:file "compiler/backend/arm64/cons")
                (:file "tools/cold-generator2/build-unicode")
                (:file "tools/cold-generator2/build-pci-ids")
                (:file "tools/cold-generator2/util")
