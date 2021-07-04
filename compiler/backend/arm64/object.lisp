@@ -139,8 +139,8 @@
                                         :operands (list ,disp-reg ,unboxed-index (- (+ 8 (- sys.int::+tag-object+))))
                                         :inputs (list ,unboxed-index)
                                         :outputs (list ,disp-reg)))
-                   (let ((,effective-address (list ,object ,unboxed-index))
-                         (,additional-inputs (list ,object ,unboxed-index)))
+                   (let ((,effective-address (list ,object ,disp-reg))
+                         (,additional-inputs (list ,object ,disp-reg)))
                      ,@body))))
              (2
               `(let ((,disp-reg (make-instance 'ir:virtual-register :kind :integer)))
