@@ -290,10 +290,12 @@ Must not call SERIALIZE-OBJECT."))
        (setf (object-slot image value (+ sys.int::+fref-code+ 2))
              #x0B0FFF63))
       (:arm64
-       ;; (ldr :x6 (:pc fref-function))
-       ;; (ldr :x9 (:object :x6 #.sys.int::+function-entry-point+))
+       ;; Note: Doesn't actually follow the proper calling convention,
+       ;; just enough for undefined functions to trap properly.
+       ;; (ldr :x7 (:pc fref-function))
+       ;; (ldr :x9 (:object :x7 #.sys.int::+function-entry-point+))
        (setf (object-slot image value (+ sys.int::+fref-code+ 0))
-             #xF85FF0C958FFFFC6)
+             #xF85FF0E958FFFFC7)
        ;; (br :x9)
        ;; (hlt 0)
        (setf (object-slot image value (+ sys.int::+fref-code+ 1))

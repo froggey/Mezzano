@@ -260,7 +260,14 @@
                (emit `(lap:adr :x6 (+ (- entry-point 16) ,sys.int::+tag-object+))))
              (emit `(lap:ldp :x29 :x30 (:post :sp 16))
                    `(:gc :no-frame :incoming-arguments :rcx :layout #*)
-                   `(lap:named-tail-call sys.int::raise-invalid-argument-error)
+                   ;; Don't use named-tail-call here to avoid clobbering x6,
+                   ;; assume this function is never a closure.
+                   ;; The only difference is that the function here gets loaded
+                   ;; into x7 (fref/scratch) instead of x6 (closure)
+                   `(lap:ldr :x7 (:function sys.int::raise-invalid-argument-error))
+                   `(lap:ldr :x7 (:object :x7 #.sys.int::+fref-function+))
+                   `(lap:ldr :x9 (:object :x7 #.sys.int::+function-entry-point+))
+                   `(lap:br :x9)
                    args-ok)
              (emit-gc-info :incoming-arguments :rcx)))
       ;; FIXME: Support more than 2047 arguments (subs immediate limit).
