@@ -108,3 +108,13 @@
                        :operands (list result `(:object :x28 ,mezzano.supervisor::+thread-special-stack-pointer+))
                        :inputs (list)
                        :outputs (list result))))
+
+(macrolet ((def (name)
+             `(define-builtin ,name ((info) result)
+                (emit (make-instance 'arm64-instruction
+                                     :opcode 'lap:ldr
+                                     :operands (list result (list info 8))
+                                     :inputs (list info)
+                                     :outputs (list result))))))
+  (def sys.int::%%block-info-binding-stack-pointer)
+  (def sys.int::%%tagbody-info-binding-stack-pointer))
