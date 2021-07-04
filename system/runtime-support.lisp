@@ -688,9 +688,6 @@ then NIL will be returned."
 (defun %activate-function-reference-full-path (fref)
   (setf (%object-ref-unsigned-byte-32 fref (1+ (* +fref-code+ 2))) 0))
 
-(defun %function-reference-code-location (fref)
-  (mezzano.runtime::%object-slot-address fref +fref-code+))
-
 (defun %activate-function-reference-fast-path (fref entry-point)
   ;; Address is *after* the jump.
   (let* ((fref-jmp-address (+ (%function-reference-code-location fref) 8))

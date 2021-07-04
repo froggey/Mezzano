@@ -658,3 +658,6 @@ thread's stack if this function is called from normal code."
     (#.+weak-pointer-weakness-value+ :value)
     (#.+weak-pointer-weakness-and+ :key-and-value)
     (#.+weak-pointer-weakness-or+ :key-or-value)))
+
+(defun %function-reference-code-location (fref)
+  (mezzano.runtime::%object-slot-address fref +fref-code+))
