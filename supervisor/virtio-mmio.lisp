@@ -152,7 +152,10 @@
   (setf (virtio-mmio-queue-sel device) queue))
 
 (defun virtio-legacy-mmio-transport-queue-size (device)
-  (virtio-mmio-queue-num-max device))
+  (let ((size (virtio-mmio-queue-num-max device)))
+    ;; Sigh...
+    (setf (virtio-mmio-queue-num device) size)
+    size))
 
 (defun virtio-legacy-mmio-transport-queue-address (device)
   (* (virtio-mmio-queue-pfn device) sup::+4k-page-size+))
