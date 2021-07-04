@@ -95,6 +95,45 @@
                           ,(arm64-atomic-index instruction)
                           ,(arm64-atomic-rhs instruction))))
 
+(defclass arm64-cas-instruction (ir:backend-instruction)
+  ((%new-value :initarg :new-value :accessor arm64-cas-new-value)
+   (%old-value :initarg :old-value :accessor arm64-cas-old-value)
+   (%result :initarg :result :accessor arm64-cas-result)
+   (%current-value :initarg :current-value :accessor arm64-cas-current-value)
+   (%index :initarg :index :accessor arm64-cas-index)))
+
+(defmethod ra:instruction-clobbers ((instruction arm64-cas-instruction) (architecture c:arm64-target))
+  '(:x9 :x1 :x10))
+
+(defmethod ra:instruction-inputs-read-before-outputs-written-p ((instruction arm64-cas-instruction) (architecture c:arm64-target))
+  ;; Outputs may clobber inputs!
+  nil)
+
+(defmethod ir:instruction-inputs ((instruction arm64-cas-instruction))
+  (list (arm64-cas-new-value instruction)
+        (arm64-cas-old-value instruction)
+        (arm64-cas-index instruction)))
+
+(defmethod ir:instruction-outputs ((instruction arm64-cas-instruction))
+  (list (arm64-cas-result instruction)
+        (arm64-cas-current-value instruction)))
+
+(defmethod ir:replace-all-registers ((instruction arm64-cas-instruction) substitution-function)
+  (setf (arm64-cas-new-value instruction) (funcall substitution-function (arm64-cas-new-value instruction)))
+  (setf (arm64-cas-old-value instruction) (funcall substitution-function (arm64-cas-old-value instruction)))
+  (setf (arm64-cas-current-value instruction) (funcall substitution-function (arm64-cas-current-value instruction)))
+  (setf (arm64-cas-result instruction) (funcall substitution-function (arm64-cas-result instruction)))
+  (setf (arm64-cas-index instruction) (funcall substitution-function (arm64-cas-index instruction))))
+
+(defmethod ir:print-instruction ((instruction arm64-cas-instruction))
+  (format t "   ~S~%"
+          `(:arm64-cas    ,(arm64-atomic-new-value instruction)
+                          ,(arm64-atomic-old-value instruction)
+                          ,(arm64-cas-current-value instruction)
+                          ,(arm64-cas-result instruction)
+                          ,(arm64-atomic-index instruction)
+                          ,(arm64-atomic-rhs instruction))))
+
 (defun lower-complicated-box-instructions (backend-function)
   (do* ((inst (ir:first-instruction backend-function) next-inst)
         (next-inst (ir:next-instruction backend-function inst)

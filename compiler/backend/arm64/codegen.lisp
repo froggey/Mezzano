@@ -1222,3 +1222,34 @@
           `(lap:cbnz :x10 ,label))
     ;; Finish up.
     (emit-gc-info)))
+
+(defmethod emit-lap (backend-function (instruction arm64-cas-instruction) uses defs)
+    ;; fucking ll/sc
+  (let ((label (mezzano.lap:make-label))
+        (fail (mezzano.lap:make-label)))
+    ;; Convert to unboxed integer (scaled appropriately), with tag adjustment.
+    (emit `(lap:add :x9 :xzr ,(arm64-cas-index instruction) :lsl ,(- 3 sys.int::+n-fixnum-bits+))
+          `(lap:sub :x9 :x9 (- (object-slot-displacement 0))))
+    ;; Generate the address.
+    (emit `(lap:add :x9 :x1 :x9))
+    ;; Move to linked gc mode.
+    ;; x9 is interior pointer into x1.
+    (emit-gc-info :extra-registers :rax)
+    ;; Assume failure
+    (emit `(lap:orr ,(arm64-cas-result instruction) :xzr :x26))
+    ;; Add loop.
+    (emit label
+          ;; Load old value into X10
+          `(lap:ldaxr ,(arm64-cas-current-value instruction) (:x9))
+          ;; Increment by delta. New value in X11.
+          `(lap:subs :xzr ,(arm64-cas-current-value instruction) ,(arm64-cas-old-value instruction))
+          `(lap:b.ne ,fail)
+          ;; Store linked new value, status in X10.
+          `(lap:stlxr :w10 ,(arm64-cas-new-value instruction) (:x9))
+          ;; Retry on failure.
+          `(lap:cbnz :x10 ,label))
+    ;; Finish up.
+    (emit-gc-info)
+    ;; Success?
+    (emit `(lap:ldr ,(arm64-cas-result instruction) (:constant t)))
+    (emit fail)))

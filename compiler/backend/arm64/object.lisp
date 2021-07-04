@@ -343,3 +343,24 @@
                          :old-value result
                          :index offset
                          :rhs delta))))
+
+;; If the value in SLOT matches OLD, set it to NEW; otherwise do nothing.
+;; Returns true as the primary value if the slot was modified, false otherwise.
+;; Additionally returns the old value of SLOT as the second value.
+;; (defun cas (object offset old new)
+;;   (let ((slot-value (%object-ref-t object slot)))
+;;     (values (cond ((eq slot-value old)
+;;                    (setf (%object-ref-t object slot) new)
+;;                    t)
+;;                   (t nil))
+;;             slot-value)))
+(define-builtin sys.int::%cas-object ((object offset old new) (result slot-value))
+  (emit (make-instance 'ir:move-instruction
+                       :source object
+                       :destination :x1))
+  (emit (make-instance 'arm64-cas-instruction
+                       :new-value new
+                       :old-value old
+                       :result result
+                       :current-value slot-value
+                       :index offset)))
