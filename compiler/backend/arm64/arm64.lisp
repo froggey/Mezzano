@@ -138,8 +138,8 @@
 
 (defmethod ir:print-instruction ((instruction arm64-cas-instruction))
   (format t "   ~S~%"
-          `(:arm64-cas    ,(arm64-atomic-new-value instruction)
-                          ,(arm64-atomic-old-value instruction)
+          `(:arm64-cas    ,(arm64-cas-new-value instruction)
+                          ,(arm64-cas-old-value instruction)
                           ,(arm64-cas-current-value instruction)
                           ,(arm64-cas-result instruction)
                           ,(arm64-atomic-index instruction)
