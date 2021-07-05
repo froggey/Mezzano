@@ -89,17 +89,32 @@
 
 (defun update-pte (pte &key (writable nil writablep) (dirty nil dirtyp))
   (let ((current-entry (page-table-entry pte)))
-    (when dirtyp
-      (if dirty
-          (setf current-entry (logior current-entry +arm64-tte-dirty+))
-          (setf current-entry (logand current-entry (lognot +arm64-tte-dirty+)))))
     (when writablep
       (if writable
           (setf current-entry (logior current-entry +arm64-tte-writable+))
           (setf current-entry (logand current-entry (lognot +arm64-tte-writable+))))
       (setf (ldb +arm64-tte-ap+ current-entry)
             +arm64-tte-ap-pro-una+))
+    (when dirtyp
+      (if dirty
+          (setf current-entry (logior current-entry +arm64-tte-dirty+))
+          (setf current-entry (logand current-entry (lognot +arm64-tte-dirty+)))))
     (setf (page-table-entry pte) current-entry)))
+
+
+(defun update-pte-atomic (pte pte-value &key (writable nil writablep) (dirty nil dirtyp))
+  (let ((current-entry pte-value))
+    (when writablep
+      (if writable
+          (setf current-entry (logior current-entry +arm64-tte-writable+))
+          (setf current-entry (logand current-entry (lognot +arm64-tte-writable+))))
+      (setf (ldb +arm64-tte-ap+ current-entry)
+            +arm64-tte-ap-pro-una+))
+    (when dirtyp
+      (if dirty
+          (setf current-entry (logior current-entry +arm64-tte-dirty+))
+          (setf current-entry (logand current-entry (lognot +arm64-tte-dirty+)))))
+    (eql (sys.int::cas (page-table-entry pte) pte-value current-entry) pte-value)))
 
 (defun pte-page-present-p (pte)
   (logtest +arm64-tte-present+ pte))
