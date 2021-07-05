@@ -487,13 +487,6 @@
   (:gc :no-frame :layout #* :incoming-arguments :rcx)
   (mezzano.lap.arm64:named-tail-call slow-cons))
 
-(defun (sys.int::cas sys.int::%memref-unsigned-byte-32) (old-value new-value address index)
-  ;; FIXME.
-  (let ((value (sys.int::%memref-unsigned-byte-32 address index)))
-    (when (eq value old-value)
-      (setf (sys.int::%memref-unsigned-byte-32 address index) new-value))
-    value))
-
 (sys.int::define-lap-function %%make-signed-byte-64-x10 ()
   (:gc :no-frame :layout #*)
   ;; Convert to fixnum & check for unsigned overflow.
