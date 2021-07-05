@@ -289,6 +289,36 @@
                          :inputs (list temp2)
                          :outputs (list result)))))
 
+(define-builtin (setf sys.int::%object-header-data) ((value object) result)
+  (let ((temp1 (make-instance 'ir:virtual-register :kind :integer))
+        (temp2 (make-instance 'ir:virtual-register :kind :integer))
+        (object-tag (make-instance 'ir:virtual-register :kind :integer)))
+    (emit (make-instance 'arm64-instruction
+                         :opcode 'lap:add
+                         :operands (list temp1 :xzr value :lsl (- sys.int::+object-data-shift+
+                                                                  sys.int::+n-fixnum-bits+))
+                         :inputs (list value)
+                         :outputs (list temp1)))
+    ;; low 8 bits of the header only.
+    (emit (make-instance 'arm64-instruction
+                         :opcode 'lap:ldrb
+                         :operands (list object-tag `(:object ,object -1))
+                         :inputs (list object)
+                         :outputs (list object-tag)))
+    (emit (make-instance 'arm64-instruction
+                         :opcode 'lap:orr
+                         :operands (list temp2 temp1 object-tag)
+                         :inputs (list temp1 object-tag)
+                         :outputs (list temp2)))
+    (emit (make-instance 'arm64-instruction
+                         :opcode 'lap:str
+                         :operands (list temp2 `(:object ,object -1))
+                         :inputs (list temp2 object)
+                         :outputs (list)))
+    (emit (make-instance 'ir:move-instruction
+                         :destination result
+                         :source value))))
+
 (define-builtin sys.int::lisp-object-address ((value) result)
   (emit (make-instance 'arm64-instruction
                        :opcode 'lap:add
