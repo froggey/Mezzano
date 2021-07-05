@@ -341,6 +341,34 @@
                          :inputs (list address-unboxed tag-unboxed)
                          :outputs (list result)))))
 
+(define-builtin sys.int::%pointer-field ((value) result)
+  (let ((temp (make-instance 'ir:virtual-register)))
+    (emit (make-instance 'arm64-instruction
+                         :opcode 'lap:and
+                         :operands (list temp value -16)
+                         :inputs (list value)
+                         :outputs (list temp)))
+    (emit (make-instance 'arm64-instruction
+                         :opcode 'lap:add
+                         :operands (list result :xzr temp :asr (- (byte-size sys.int::+tag-field+)
+                                                                  sys.int::+n-fixnum-bits+))
+                         :inputs (list temp)
+                         :outputs (list result)))))
+
+(define-builtin sys.int::%tag-field ((value) result)
+  (let ((temp (make-instance 'ir:virtual-register)))
+    (emit (make-instance 'arm64-instruction
+                         :opcode 'lap:add
+                         :operands (list temp :xzr value :lsl sys.int::+n-fixnum-bits+)
+                         :inputs (list value)
+                         :outputs (list temp)))
+    (emit (make-instance 'arm64-instruction
+                         :opcode 'lap:and
+                         :operands (list result temp (ash (1- (ash 1 (byte-size sys.int::+tag-field+)))
+                                                          sys.int::+n-fixnum-bits+))
+                         :inputs (list temp)
+                         :outputs (list result)))))
+
 ;;; Atomic operations.
 ;;; These functions index into the object like %OBJECT-REF-T.
 ;;; There are no atomic functions that access memory like MEMREF.
