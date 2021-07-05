@@ -527,7 +527,7 @@
 
 ;; Avoid a trip through FUNCTION-REFERENCE.
 (sys.int::define-lap-function sys.int::get-raise-undefined-function-fref (())
-  (:gc :no-frame :layout #*0)
+  (:gc :no-frame :layout #*)
   (mezzano.lap.arm64:ldr :x0 (:function sys.int::raise-undefined-function))
   (mezzano.lap.arm64:movz :x5 #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
   (mezzano.lap.arm64:ret))
