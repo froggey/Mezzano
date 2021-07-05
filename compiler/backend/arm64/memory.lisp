@@ -5,7 +5,8 @@
 (defmacro with-memory-effective-address ((effective-address additional-inputs base-address index scale) &body body)
   "Generate an effective address that deals properly with scaling and constant indices."
   (check-type scale (member 1 2 4 8))
-  (let ((unboxed-address (gensym "UNBOXED-ADDRESS")))
+  (let ((unboxed-address (gensym "UNBOXED-ADDRESS"))
+        (scaled-index (gensym "SCALED-INDEX")))
     `(let ((,unboxed-address (make-instance 'ir:virtual-register :kind :integer)))
        (emit (make-instance 'ir:unbox-fixnum-instruction
                             :source ,base-address
@@ -15,34 +16,10 @@
                     (,additional-inputs (list ,unboxed-address)))
                 ,@body))
              (t
-              ,(ecase scale
-                 (1
-                  (let ((unboxed-index (gensym "UNBOXED-INDEX")))
-                    `(let ((,unboxed-index (make-instance 'ir:virtual-register :kind :integer)))
-                       (emit (make-instance 'ir:unbox-fixnum-instruction
-                                            :source ,index
-                                            :destination ,unboxed-index))
-                       (let ((,effective-address (list ,unboxed-address ,unboxed-index))
-                             (,additional-inputs (list ,unboxed-address ,unboxed-index)))
-                         ,@body))))
-                 (2
-                  `(let ((,effective-address (list ,unboxed-address ,index))
-                         (,additional-inputs (list ,unboxed-address ,index)))
-                     ,@body))
-                 ((4 8)
-                  ;; Note: Can't used :scale here since the instruction width isn't known
-                  ;; and it wouldn't match up anyway since index is boxed.
-                  (let ((scaled-index (gensym "SCALED-INDEX"))
-                        (scale-shift (ecase scale (4 1) (8 2))))
-                    `(let ((,scaled-index (make-instance 'ir:virtual-register :kind :integer)))
-                       (emit (make-instance 'arm64-instruction
-                                            :opcode 'lap:add
-                                            :operands (list ,scaled-index :xzr ,index :lsl ,scale-shift)
-                                            :inputs (list ,index)
-                                            :outputs (list ,scaled-index)))
-                       (let ((,effective-address (list ,unboxed-address ,scaled-index))
-                             (,additional-inputs (list ,unboxed-address ,scaled-index)))
-                         ,@body))))))))))
+              (with-scaled-fixnum-index (,scaled-index ,index ,scale)
+                (let ((,effective-address (list ,unboxed-address ,scaled-index))
+                      (,additional-inputs (list ,unboxed-address ,scaled-index)))
+                  ,@body)))))))
 
 (define-builtin sys.int::%memref-t ((address index) result)
   (with-memory-effective-address (ea ea-inputs address index 8)
@@ -65,7 +42,7 @@
 
 ;; TODO: (cas memref-t) & dcas memref-t. the cmpxchg ir instructions currently only support object-relative accesses
 
-(defmacro define-memref-integer-accessor (name read-op write-op scale box-op unbox-op)
+(defmacro define-memref-integer-accessor (name read-op write-op read-ex-op write-ex-op scale box-op unbox-op)
   `(progn
      (define-builtin ,name ((address index) result)
        (let ((temp (make-instance 'ir:virtual-register :kind :integer)))
@@ -92,64 +69,80 @@
          (emit (make-instance 'ir:move-instruction
                               :source value
                               :destination result))))
-     #+(or) ; TODO
      (define-builtin (sys.int::cas ,name) ((old new address index) result)
        (let ((old-unboxed (make-instance 'ir:virtual-register :kind :integer))
              (new-unboxed (make-instance 'ir:virtual-register :kind :integer))
-             (result-unboxed (make-instance 'ir:virtual-register :kind :integer)))
+             (current-unboxed (make-instance 'ir:virtual-register :kind :integer))
+             (address-unboxed (make-instance 'ir:virtual-register :kind :integer))
+             (generated-address (make-instance 'ir:virtual-register :kind :integer))
+             (store-status (make-instance 'ir:virtual-register :kind :integer))
+             (loop-label (make-instance 'ir:label))
+             (store-label (make-instance 'ir:label))
+             (exit-label (make-instance 'ir:label)))
          (emit (make-instance ',unbox-op
                               :source old
                               :destination old-unboxed))
          (emit (make-instance ',unbox-op
                               :source new
                               :destination new-unboxed))
-         (emit (make-instance 'ir:move-instruction
-                              :source old-unboxed
-                              :destination :rax))
-         (emit (make-instance 'ir:move-instruction
-                              :source new-unboxed
-                              :destination :rdx))
-         (with-memory-effective-address (ea ea-inputs address index ,scale)
-           (emit (make-instance 'x86-instruction
-                                :opcode 'lap:cmpxchg
-                                :prefix '(lap:lock)
-                                :operands (list ea ,(ecase reg
-                                                      (:al :dl)
-                                                      (:ax :dx)
-                                                      (:eax :edx)
-                                                      ((nil) :rdx)))
-                                :inputs (list* :rax :rdx ea-inputs)
-                                :outputs (list :rax)
-                                :clobbers '(:rax))))
-         ,@(when (not (member read-op '(lap:mov32 lap:mov64)))
-             `((emit (make-instance 'x86-instruction
-                                    :opcode ',read-op
-                                    :operands (list :rax ,reg)
-                                    :inputs (list :rax)
-                                    :outputs (list :rax)))))
-         (emit (make-instance 'ir:move-instruction
-                              :source :rax
-                              :destination result-unboxed))
+         (emit (make-instance 'ir:unbox-fixnum-instruction
+                              :source address
+                              :destination address-unboxed))
+         (with-scaled-fixnum-index (scaled-index index ,scale)
+           (emit (make-instance 'arm64-instruction
+                                :opcode 'lap:add
+                                :operands (list generated-address address-unboxed scaled-index)
+                                :inputs (list address-unboxed scaled-index)
+                                :outputs (list generated-address))))
+         (emit (make-instance 'ir:jump-instruction :target loop-label))
+         (emit loop-label)
+         (emit (make-instance 'arm64-instruction
+                              :opcode ',read-ex-op
+                              :operands (list current-unboxed (list generated-address))
+                              :inputs (list generated-address)
+                              :outputs (list current-unboxed)))
+         (emit (make-instance 'arm64-instruction
+                              :opcode 'lap:subs
+                              :operands (list :xzr current-unboxed old-unboxed)
+                              :inputs (list current-unboxed old-unboxed)
+                              :outputs (list)))
+         (emit (make-instance 'arm64-branch-instruction
+                              :opcode 'lap:b.ne
+                              :true-target exit-label
+                              :false-target store-label))
+         (emit store-label)
+         (emit (make-instance 'arm64-instruction
+                              :opcode ',write-ex-op
+                              :operands (list store-status new-unboxed (list generated-address))
+                              :inputs (list new-unboxed generated-address)
+                              :outputs (list store-status)))
+         (emit (make-instance 'arm64-branch-instruction
+                              :opcode 'lap:cbnz
+                              :operands (list store-status)
+                              :inputs (list store-status)
+                              :true-target loop-label
+                              :false-target exit-label))
+         (emit exit-label)
          (emit (make-instance ',box-op
-                              :source result-unboxed
+                              :source current-unboxed
                               :destination result))))))
 
-(define-memref-integer-accessor sys.int::%memref-unsigned-byte-8  lap:ldrb  lap:strb 1 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
-(define-memref-integer-accessor sys.int::%memref-unsigned-byte-16 lap:ldrh  lap:strh 2 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
-(define-memref-integer-accessor sys.int::%memref-unsigned-byte-32 lap:ldrw  lap:strw 4 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
-(define-memref-integer-accessor sys.int::%memref-unsigned-byte-64 lap:ldr   lap:str  8 ir:box-unsigned-byte-64-instruction ir:unbox-unsigned-byte-64-instruction)
+(define-memref-integer-accessor sys.int::%memref-unsigned-byte-8  lap:ldrb  lap:strb lap:ldaxrb lap:stlxrb 1 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
+(define-memref-integer-accessor sys.int::%memref-unsigned-byte-16 lap:ldrh  lap:strh lap:ldaxrh lap:stlxrh 2 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
+(define-memref-integer-accessor sys.int::%memref-unsigned-byte-32 lap:ldrw  lap:strw lap:ldaxrw lap:stlxrw 4 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
+(define-memref-integer-accessor sys.int::%memref-unsigned-byte-64 lap:ldr   lap:str  lap:ldaxr  lap:stlxr  8 ir:box-unsigned-byte-64-instruction ir:unbox-unsigned-byte-64-instruction)
 
-(define-memref-integer-accessor sys.int::%memref-signed-byte-8    lap:ldrsb lap:strb 1 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
-(define-memref-integer-accessor sys.int::%memref-signed-byte-16   lap:ldrsh lap:strh 2 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
-(define-memref-integer-accessor sys.int::%memref-signed-byte-32   lap:ldrsw lap:strw 4 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
-(define-memref-integer-accessor sys.int::%memref-signed-byte-64   lap:ldr   lap:str  8 ir:box-signed-byte-64-instruction ir:unbox-signed-byte-64-instruction)
+(define-memref-integer-accessor sys.int::%memref-signed-byte-8    lap:ldrsb lap:strb lap:ldaxrb lap:stlxrb 1 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
+(define-memref-integer-accessor sys.int::%memref-signed-byte-16   lap:ldrsh lap:strh lap:ldaxrh lap:stlxrh 2 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
+(define-memref-integer-accessor sys.int::%memref-signed-byte-32   lap:ldrsw lap:strw lap:ldaxrw lap:stlxrw 4 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
+(define-memref-integer-accessor sys.int::%memref-signed-byte-64   lap:ldr   lap:str  lap:ldaxr  lap:stlxr  8 ir:box-signed-byte-64-instruction ir:unbox-signed-byte-64-instruction)
 
-(define-memref-integer-accessor sys.int::%memref-unsigned-byte-8-unscaled  lap:ldrb  lap:strb 1 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
-(define-memref-integer-accessor sys.int::%memref-unsigned-byte-16-unscaled lap:ldrh  lap:strh 1 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
-(define-memref-integer-accessor sys.int::%memref-unsigned-byte-32-unscaled lap:ldrw  lap:strw 1 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
-(define-memref-integer-accessor sys.int::%memref-unsigned-byte-64-unscaled lap:ldr   lap:str  1 ir:box-unsigned-byte-64-instruction ir:unbox-unsigned-byte-64-instruction)
+(define-memref-integer-accessor sys.int::%memref-unsigned-byte-8-unscaled  lap:ldrb  lap:strb lap:ldaxrb lap:stlxrb 1 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
+(define-memref-integer-accessor sys.int::%memref-unsigned-byte-16-unscaled lap:ldrh  lap:strh lap:ldaxrh lap:stlxrh 1 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
+(define-memref-integer-accessor sys.int::%memref-unsigned-byte-32-unscaled lap:ldrw  lap:strw lap:ldaxrw lap:stlxrw 1 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
+(define-memref-integer-accessor sys.int::%memref-unsigned-byte-64-unscaled lap:ldr   lap:str  lap:ldaxr  lap:stlxr  1 ir:box-unsigned-byte-64-instruction ir:unbox-unsigned-byte-64-instruction)
 
-(define-memref-integer-accessor sys.int::%memref-signed-byte-8-unscaled    lap:ldrsb lap:strb 1 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
-(define-memref-integer-accessor sys.int::%memref-signed-byte-16-unscaled   lap:ldrsh lap:strh 1 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
-(define-memref-integer-accessor sys.int::%memref-signed-byte-32-unscaled   lap:ldrsw lap:strw 1 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
-(define-memref-integer-accessor sys.int::%memref-signed-byte-64-unscaled   lap:ldr   lap:str  1 ir:box-signed-byte-64-instruction ir:unbox-signed-byte-64-instruction)
+(define-memref-integer-accessor sys.int::%memref-signed-byte-8-unscaled    lap:ldrsb lap:strb lap:ldaxrb lap:stlxrb 1 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
+(define-memref-integer-accessor sys.int::%memref-signed-byte-16-unscaled   lap:ldrsh lap:strh lap:ldaxrh lap:stlxrh 1 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
+(define-memref-integer-accessor sys.int::%memref-signed-byte-32-unscaled   lap:ldrsw lap:strw lap:ldaxrw lap:stlxrw 1 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
+(define-memref-integer-accessor sys.int::%memref-signed-byte-64-unscaled   lap:ldr   lap:str  lap:ldaxr  lap:stlxr  1 ir:box-signed-byte-64-instruction ir:unbox-signed-byte-64-instruction)

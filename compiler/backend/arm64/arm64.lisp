@@ -39,25 +39,36 @@
 ;;; Wrapper around arm64 branch instructions.
 (defclass arm64-branch-instruction (ir:terminator-instruction)
   ((%opcode :initarg :opcode :accessor arm64-instruction-opcode)
+   (%operands :initarg :operands :reader arm64-instruction-operands)
+   (%inputs :initarg :inputs :reader ir:instruction-inputs)
+   (%outputs :initarg :outputs :reader ir:instruction-outputs)
    (%true-target :initarg :true-target :accessor arm64-branch-true-target)
-   (%false-target :initarg :false-target :accessor arm64-branch-false-target)))
+   (%false-target :initarg :false-target :accessor arm64-branch-false-target))
+  (:default-initargs :operands () :inputs () :outputs ()))
 
 (defmethod ir:successors (function (instruction arm64-branch-instruction))
   (list (arm64-branch-true-target instruction)
         (arm64-branch-false-target instruction)))
 
-(defmethod ir:instruction-inputs ((instruction arm64-branch-instruction))
-  '())
-
-(defmethod ir:instruction-outputs ((instruction arm64-branch-instruction))
-  '())
-
 (defmethod ir:replace-all-registers ((instruction arm64-branch-instruction) substitution-function)
-  )
+  (setf (slot-value instruction '%inputs) (mapcar substitution-function (slot-value instruction '%inputs)))
+  (setf (slot-value instruction '%outputs) (mapcar substitution-function (slot-value instruction '%outputs)))
+  (setf (slot-value instruction '%operands)
+        (loop
+           for operand in (slot-value instruction '%operands)
+           collect (cond ((typep operand 'ir:virtual-register)
+                          (funcall substitution-function operand))
+                         ((and (consp operand)
+                               (not (member (first operand) '(:constant :function))))
+                          (mapcar substitution-function operand))
+                         (t operand)))))
 
 (defmethod ir:print-instruction ((instruction arm64-branch-instruction))
   (format t "   ~S~%"
-          `(:arm64-branch ,(arm64-instruction-opcode instruction) ,(arm64-branch-true-target instruction) ,(arm64-branch-false-target instruction))))
+          `(:arm64-branch ,(arm64-instruction-opcode instruction)
+                          ,(arm64-instruction-operands instruction)
+                          ,(arm64-branch-true-target instruction)
+                          ,(arm64-branch-false-target instruction))))
 
 (defclass arm64-atomic-instruction (ir:backend-instruction)
   ((%opcode :initarg :opcode :reader arm64-instruction-opcode)

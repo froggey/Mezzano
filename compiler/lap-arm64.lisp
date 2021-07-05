@@ -1062,6 +1062,36 @@
   (when (emit-ldstp-instruction #x00000000 r1 r2 address)
     (return-from instruction t)))
 
+(define-instruction ldaxrb (reg address)
+  (destructuring-bind (base) address
+    (check-register-class base :gpr-64 :sp)
+    (check-register-class reg :gpr-64 :xzr :gpr-32 :wzr)
+    (emit-instruction
+     (logior #x085FFC00
+             (ash (register-number reg) +rt-shift+)
+             (ash (register-number base) +rn-shift+)))
+    (return-from instruction t)))
+
+(define-instruction ldaxrh (reg address)
+  (destructuring-bind (base) address
+    (check-register-class base :gpr-64 :sp)
+    (check-register-class reg :gpr-64 :xzr :gpr-32 :wzr)
+    (emit-instruction
+     (logior #x485FFC00
+             (ash (register-number reg) +rt-shift+)
+             (ash (register-number base) +rn-shift+)))
+    (return-from instruction t)))
+
+(define-instruction ldaxrw (reg address)
+  (destructuring-bind (base) address
+    (check-register-class base :gpr-64 :sp)
+    (check-register-class reg :gpr-64 :xzr :gpr-32 :wzr)
+    (emit-instruction
+     (logior #x885FFC00
+             (ash (register-number reg) +rt-shift+)
+             (ash (register-number base) +rn-shift+)))
+    (return-from instruction t)))
+
 (define-instruction ldaxr (reg address)
   (destructuring-bind (base) address
     (check-register-class base :gpr-64 :sp)
@@ -1094,9 +1124,45 @@
                (ash (register-number base) +rn-shift+)))
       (return-from instruction t))))
 
+(define-instruction stlxrb (status reg address)
+  (destructuring-bind (base) address
+    (check-register-class status :gpr-64 :xzr :gpr-32 :wzr)
+    (check-register-class base :gpr-64 :sp)
+    (check-register-class reg :gpr-64 :xzr :gpr-32 :wzr)
+    (emit-instruction
+     (logior #x0800FC00
+             (ash (register-number status) +rs-shift+)
+             (ash (register-number reg) +rt-shift+)
+             (ash (register-number base) +rn-shift+)))
+    (return-from instruction t)))
+
+(define-instruction stlxrh (status reg address)
+  (destructuring-bind (base) address
+    (check-register-class status :gpr-64 :xzr :gpr-32 :wzr)
+    (check-register-class base :gpr-64 :sp)
+    (check-register-class reg :gpr-64 :xzr :gpr-32 :wzr)
+    (emit-instruction
+     (logior #x4800FC00
+             (ash (register-number status) +rs-shift+)
+             (ash (register-number reg) +rt-shift+)
+             (ash (register-number base) +rn-shift+)))
+    (return-from instruction t)))
+
+(define-instruction stlxrw (status reg address)
+  (destructuring-bind (base) address
+    (check-register-class status :gpr-64 :xzr :gpr-32 :wzr)
+    (check-register-class base :gpr-64 :sp)
+    (check-register-class reg :gpr-64 :xzr :gpr-32 :wzr)
+    (emit-instruction
+     (logior #x8800FC00
+             (ash (register-number status) +rs-shift+)
+             (ash (register-number reg) +rt-shift+)
+             (ash (register-number base) +rn-shift+)))
+    (return-from instruction t)))
+
 (define-instruction stlxr (status reg address)
   (destructuring-bind (base) address
-    (check-register-class status :gpr-32 :wzr)
+    (check-register-class status :gpr-64 :xzr :gpr-32 :wzr)
     (check-register-class base :gpr-64 :sp)
     (check-register-class reg :gpr-64 :xzr :gpr-32 :wzr)
     (let ((is-64-bit (member (register-class reg) '(:gpr-64 :xzr))))
@@ -1112,7 +1178,7 @@
 
 (define-instruction stlxp (status r1 r2 address)
   (destructuring-bind (base) address
-    (check-register-class status :gpr-32 :wzr)
+    (check-register-class status :gpr-64 :xzr :gpr-32 :wzr)
     (check-register-class base :gpr-64 :sp)
     (check-register-class r1 :gpr-64 :xzr :gpr-32 :wzr)
     (let ((is-64-bit (member (register-class r1) '(:gpr-64 :xzr))))

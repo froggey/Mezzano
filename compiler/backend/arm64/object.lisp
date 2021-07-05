@@ -103,11 +103,36 @@
                          :inputs (list temp2)
                          :outputs (list result)))))
 
+(defmacro with-scaled-fixnum-index ((scaled-index index scale) &body body)
+  "Scale index (a fixnum) appropriately based on scale, producing the scaled result in SCALED-INDEX."
+  (ecase scale
+    (1
+     `(let ((,scaled-index (make-instance 'ir:virtual-register :kind :integer)))
+        (emit (make-instance 'ir:unbox-fixnum-instruction
+                             :source ,index
+                             :destination ,scaled-index))
+        ,@body))
+    (2
+     `(let ((,scaled-index ,index))
+        ,@body))
+    ((4 8)
+     ;; Note: Can't used :scale here since the instruction width isn't known
+     ;; and it wouldn't match up anyway since index is boxed.
+     (let ((scale-shift (ecase scale (4 1) (8 2))))
+       `(let ((,scaled-index (make-instance 'ir:virtual-register :kind :integer)))
+          (emit (make-instance 'arm64-instruction
+                               :opcode 'lap:add
+                               :operands (list ,scaled-index :xzr ,index :lsl ,scale-shift)
+                               :inputs (list ,index)
+                               :outputs (list ,scaled-index)))
+          ,@body)))))
+
 (defmacro with-builtin-object-access ((effective-address additional-inputs object index scale) &body body)
   "Generate an effective address that deals properly with scaling and constant indices."
   (check-type scale (member 1 2 4 8))
   (let ((disp (gensym "DISP"))
-        (disp-reg (gensym "DISP-REG")))
+        (disp-reg (gensym "DISP-REG"))
+        (scaled-index (gensym "SCALED-INDEX")))
     `(cond ((constant-value-p index 'fixnum)
             (let ((,disp (object-slot-displacement (fetch-constant-value index) ',scale)))
               ; TODO: This could be cleverer based on the transfer size, instructions can support a 12-bit unsigned scaled-by-width immediate
@@ -125,53 +150,17 @@
                        (let ((,effective-address (list ,object ,disp-reg))
                              (,additional-inputs (list ,object ,disp-reg)))
                          ,@body))))))
-         (t
-          ,(ecase scale
-             (1
-              (let ((unboxed-index (gensym "UNBOXED-INDEX")))
-                `(let ((,unboxed-index (make-instance 'ir:virtual-register :kind :integer))
-                       (,disp-reg (make-instance 'ir:virtual-register :kind :integer)))
-                   (emit (make-instance 'ir:unbox-fixnum-instruction
-                                        :source ,index
-                                        :destination ,unboxed-index))
-                   (emit (make-instance 'arm64-instruction
-                                        :opcode 'lap:sub
-                                        :operands (list ,disp-reg ,unboxed-index (- (+ 8 (- sys.int::+tag-object+))))
-                                        :inputs (list ,unboxed-index)
-                                        :outputs (list ,disp-reg)))
-                   (let ((,effective-address (list ,object ,disp-reg))
-                         (,additional-inputs (list ,object ,disp-reg)))
-                     ,@body))))
-             (2
-              `(let ((,disp-reg (make-instance 'ir:virtual-register :kind :integer)))
-                 (emit (make-instance 'arm64-instruction
-                                      :opcode 'lap:sub
-                                      :operands (list ,disp-reg ,index (- (+ 8 (- sys.int::+tag-object+))))
-                                      :inputs (list ,index)
-                                      :outputs (list ,disp-reg)))
-                 (let ((,effective-address (list ,object ,disp-reg))
-                       (,additional-inputs (list ,object ,disp-reg)))
-                   ,@body)))
-             ((4 8)
-              ;; Note: Can't used :scale here since the instruction width isn't known
-              ;; and it wouldn't match up anyway since index is boxed.
-              (let ((scaled-index (gensym "SCALED-INDEX"))
-                    (scale-shift (ecase scale (4 1) (8 2))))
-                `(let ((,scaled-index (make-instance 'ir:virtual-register :kind :integer))
-                       (,disp-reg (make-instance 'ir:virtual-register :kind :integer)))
-                   (emit (make-instance 'arm64-instruction
-                                        :opcode 'lap:add
-                                        :operands (list ,scaled-index :xzr ,index :lsl ,scale-shift)
-                                        :inputs (list ,index)
-                                        :outputs (list ,scaled-index)))
-                   (emit (make-instance 'arm64-instruction
-                                        :opcode 'lap:sub
-                                        :operands (list ,disp-reg ,scaled-index (- (+ 8 (- sys.int::+tag-object+))))
-                                        :inputs (list ,scaled-index)
-                                        :outputs (list ,disp-reg)))
-                   (let ((,effective-address (list ,object ,disp-reg))
-                         (,additional-inputs (list ,object ,disp-reg)))
-                     ,@body)))))))))
+           (t
+            (with-scaled-fixnum-index (,scaled-index ,index ,scale)
+              (let ((,disp-reg (make-instance 'ir:virtual-register :kind :integer)))
+                (emit (make-instance 'arm64-instruction
+                                     :opcode 'lap:sub
+                                     :operands (list ,disp-reg ,scaled-index (- (+ 8 (- sys.int::+tag-object+))))
+                                     :inputs (list ,scaled-index)
+                                     :outputs (list ,disp-reg)))
+                (let ((,effective-address (list ,object ,disp-reg))
+                      (,additional-inputs (list ,object ,disp-reg)))
+                  ,@body)))))))
 
 (defmacro define-object-ref-integer-accessor (name read-op write-op scale box-op unbox-op)
   `(progn

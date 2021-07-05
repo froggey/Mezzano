@@ -537,8 +537,20 @@
     (emit (list* (arm64-instruction-opcode instruction) real-operands))))
 
 (defmethod emit-lap (backend-function (instruction arm64-branch-instruction) uses defs)
-  (emit (list (arm64-instruction-opcode instruction)
-              (resolve-label (arm64-branch-true-target instruction))))
+  (let ((real-operands (loop
+                         for op in (arm64-instruction-operands instruction)
+                         collect (cond ((and (consp op) (eql (first op) :literal/128))
+                                        (fetch-literal/128 (second op)))
+                                       ((and (consp op) (eql (first op) :literal))
+                                        (fetch-literal (second op)))
+                                       ((and (consp op) (eql (first op) :fp-32))
+                                        (lap::convert-width (second op) 32))
+                                       ((and (consp op) (eql (first op) :fp-64))
+                                        (lap::convert-width (second op) 64))
+                                       (t op)))))
+    (emit (append (list (arm64-instruction-opcode instruction))
+                  real-operands
+                  (list (resolve-label (arm64-branch-true-target instruction))))))
   (emit (list 'lap:b
               (resolve-label (arm64-branch-false-target instruction)))))
 
