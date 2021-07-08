@@ -776,9 +776,8 @@ properties will be ignored."
 (defvar *home-directory* nil)
 
 (defun user-homedir-pathname (&optional host)
-  (if (not (member host '(nil :unspecific)))
-      nil
-      *home-directory*))
+  (and (member host '(nil :unspecific))
+       *home-directory*))
 
 (defun tmpdir-pathname ()
   (let ((home (user-homedir-pathname)))
@@ -829,39 +828,34 @@ properties will be ignored."
 
 (defun mount-block-device (block-device)
   ;; check if an existing host goes with this block device
-  (loop
-     for pair in *host-alist*
-     for host = (cadr pair)
-     when (and (typep host 'file-host-mount-mixin)
-               (eq (file-host-mount-state host) :unmounted)) do
-       (when (mount-host host block-device)
-         (format t "mount-block-device: mounted ~A on ~A~%"
-                 block-device (car pair))
-         (return-from mount-block-device)))
+  (loop :for (host-name host) :in *host-alist*
+        :when (and (typep host 'file-host-mount-mixin)
+                   (eq (file-host-mount-state host) :unmounted)
+                   (mount-host host block-device))
+        :do (format t "mount-block-device: mounted ~A on ~A~%"
+                    block-device host-name)
+            (return-from mount-block-device))
   ;; No existing host found
   ;; if *filesystems* bound (usually in config.lisp) check list for
   ;; cold-boot hosts.
-    (loop
-       for host-class in *block-device-host-types*
-       for name = (create-host host-class block-device *filesystems-alist*)
-       when name do
-         (format t "mount-block-device: mounted ~A on ~A~%" block-device name)
-         (return-from mount-block-device))
+  (loop :for host-class :in *block-device-host-types*
+        :for name := (create-host host-class block-device *filesystems-alist*)
+        :when name
+        :do (format t "mount-block-device: mounted ~A on ~A~%" block-device name)
+            (return-from mount-block-device))
   ;; No host in *filesystems-alist* found
   ;; TODO get uuid/host name alist from name space server and call
   ;; create-host for each host class, exit on success.
   (format t "mount-block-device: no host found for ~A~%" block-device))
 
 (defun unmount-block-device (block-device)
-  (loop
-     for pair in *host-alist*
-     for host = (cadr pair)
-     when (and (typep host 'file-host-mount-mixin)
-               (eq (file-host-mount-device host) block-device)) do
-       (setf (file-host-mount-state host) :unmounted
-             (file-host-mount-device host) NIL)
-       (format t "unmount-block-device: unmounted ~A~%" (car pair))
-       (return-from unmount-block-device))
+  (loop :for (host-name host) :in *host-alist*
+        :when (and (typep host 'file-host-mount-mixin)
+                   (eq (file-host-mount-device host) block-device))
+        :do (setf (file-host-mount-state host) :unmounted
+                  (file-host-mount-device host) NIL)
+            (format t "unmount-block-device: unmounted ~A~%" host-name)
+            (return-from unmount-block-device))
   (format t "unmount-block-device: no host found for ~A~%" block-device))
 
 ;;; Logical pathnames.
