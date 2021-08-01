@@ -112,7 +112,7 @@
 (defun bsearch (item vector &optional (stride 1))
   "Locate ITEM using a binary search through VECTOR."
   (do ((imin 0)
-       (imax (length vector)))
+       (imax (1- (length vector))))
       ((< imax imin) nil)
     (let* ((imid (* (truncate (truncate (+ imin imax) stride) 2) stride))
            (elt (aref vector imid)))
