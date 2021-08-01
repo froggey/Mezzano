@@ -158,7 +158,8 @@ Returns true when the bits are equal, false when the timeout expires or if the d
          (return t)))
      (when (<= timeout 0)
        (return nil))
-     ;; FIXME: Depends on the granularity of the timer.
+     ;; FIXME: Depends on the granularity of the timer, as does
+     ;; intel-8042::+delay+.
      (sup:safe-sleep 0.01)
      (decf timeout 0.01)))
 
