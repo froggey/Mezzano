@@ -144,13 +144,18 @@
     timer-queue-head timer-queue-tail)
 
 (defun dump-active-timers ()
-  (debug-print-line "Active timers: (current time is " *run-time* ")")
-  (do-timer-list (timer *active-timers*)
-    (with-page-fault-hook
-        (()
-         (debug-print-line "<truncated>")
-         (abandon-page-fault))
-      (debug-print-line "  " timer "/" (timer-name timer) " @ " (timer-%deadline timer)))))
+  (debug-print-line "Active timers: (current time is "
+                    (if (boundp '*run-time*)
+                        *run-time*
+                        "unbound")
+                    ")")
+  (when (boundp '*active-timers*)
+    (do-timer-list (timer *active-timers*)
+      (with-page-fault-hook
+          (()
+           (debug-print-line "<truncated>")
+           (abandon-page-fault))
+        (debug-print-line "  " timer "/" (timer-name timer) " @ " (timer-%deadline timer))))))
 
 (defun make-timer (&key name relative deadline)
   (when (and relative deadline)
