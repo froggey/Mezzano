@@ -1,0 +1,10 @@
+@anchor{Generic-Function drei:performing-undo}
+@deffn {Generic Function} {drei:performing-undo} buffer
+@findex drei:performing-undo
+If true, the buffer is currently performing an
+undo operation. The :before methods on @code{insert-buffer-object},
+@code{insert-buffer-sequence}, and @code{delete-buffer-range} push undo
+records onto the undo accumulator only if @code{performing-undo} is
+false, so that no undo information is added as a result of an
+undo operation.
+@end deffn

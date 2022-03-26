@@ -1,0 +1,584 @@
+% -*- Mode: LaTeX; Package: CLIM-USER -*-
+
+\chapter {Extended Stream Output}
+\label {extended-output}
+
+\issue {PM} {Just remove that, and link to Gray streams?}
+
+CLIM provides a stream-oriented output layer that is implemented on top of the
+sheet output architecture.  The basic CLIM output stream protocol is based on
+the character output stream protocol proposal submitted to the ANSI Common Lisp
+committee by David Gray.  This proposal was not approved by the committee, but
+has been implemented by most Lisp vendors.
+
+\section {Basic Output Streams}
+
+CLIM provides an implementation of the basic output stream facilities (described
+in more detail in Appendix~\ref{gray-streams}), either by directly using the
+underlying Lisp implementation, or by implementing the facilities itself.
+
+\Defclass {standard-output-stream}
+
+This class provides an implementation of the CLIM basic output stream protocol,
+based on the CLIM output kernel.
+\Mutable
+
+\Defgeneric {stream-write-char} {stream character}
+
+Writes the character \arg{character} to the \term{output stream} \arg{stream},
+and returns \arg{character} as its value.
+
+\Defgeneric {stream-write-string} {stream string \optional (start \cl{0}) end}
+
+Writes the string \arg{string} to the \term{output stream} \arg{stream}.  If
+\arg{start} and \arg{end} are supplied, they are integers that specify what part
+of \arg{string} to output.  \arg{string} is returned as the value.
+
+\Defgeneric {stream-terpri} {stream}
+
+Writes an end of line character on the \term{output stream} \arg{stream}, and
+returns \term{false}.
+
+\Defgeneric {stream-fresh-line} {stream}
+
+Writes an end of line character on the \term{output stream} \arg{stream} only if
+the stream is not at the beginning of the line.
+
+\Defgeneric {stream-finish-output} {stream}
+
+Ensures that all the output sent to the \term{output stream} \arg{stream} has
+reached its destination, and only then return \term{false}.
+
+\Defgeneric {stream-force-output} {stream}
+
+Like \cl{stream-finish-output}, except that it may immediately return
+\term{false} without waiting for the output to complete.
+
+\Defgeneric {stream-clear-output} {stream}
+
+Aborts any outstanding output operation in progress on the \term{output stream}
+\arg{stream}, and returns \term{false}.
+
+\Defgeneric {stream-line-column} {stream}
+
+This function returns the column number where the next character will be written
+on the \term{output stream} \arg{stream}.  The first column on a line is
+numbered 0.
+
+\Defgeneric {stream-start-line-p} {stream}
+
+Returns \term{true} if the \term{output stream} \arg{stream} is positioned at
+the beginning of a line (that is, column 0), otherwise returns \term{false}.
+
+\Defgeneric {stream-advance-to-column} {stream column}
+
+Writes enough blank space on the \term{output stream} \arg{stream} so that the
+next character will be written at the position specified by \arg{column}, which
+is an integer.
+
+
+\section {Extended Output Streams}
+
+In addition to the basic output stream protocol, CLIM defines an extended output
+stream protocol.  This protocol extends the stream model to maintain the state
+of a text cursor, margins, text styles, inter-line spacing, and so forth.
+
+\Defprotoclass {extended-output-stream}
+
+The protocol class for CLIM extended output streams.  This is a subclass of
+\cl{output-stream}.
+\IfYouWantClass {an} {extended output stream} {extended-output-stream}
+
+\Defpredicate {extended-output-stream-p} {object}
+
+Returns \term{true} if \arg{object} is a CLIM \term{extended output stream},
+otherwise returns \term{false}.
+
+\definitarg {:foreground}
+\definitarg {:background}
+\definitarg {:text-style}
+\definitarg {:vertical-spacing}
+\definitarg {:text-margin}
+\definitarg {:end-of-line-action}
+\definitarg {:end-of-page-action}
+\Definitarg {:default-view}
+
+All subclasses of \cl{extended-output-stream} must handle these initargs, which
+are used to specify, respectively, the medium foreground and background, default
+text style, vertical spacing, default text margin, end of line and end of page
+actions, and the default view for the stream.
+
+\cl{:foreground}, \cl{:background}, and \cl{:text-style} are handled via the
+usual pane initialize options (see Section~\ref{pane-init}).
+
+\Defclass {standard-extended-output-stream}
+
+This class provides an implementation of the CLIM extended output stream
+protocol, based on the CLIM output kernel.
+
+\Mutable
+
+
+\section {The Text Cursor}
+
+In the days when display devices displayed only two dimensional arrays of fixed
+width characters, the text cursor was a simple thing.  A discrete position was
+selected in integer character units, and a character could go there and noplace
+else.  Even for variable width fonts, simply addressing a character by the pixel
+position of one of its corners is sufficient.  However, variable height fonts
+with variable baselines on pixel-addressable displays upset this simple model.
+The ``logical'' vertical reference point is the baseline, as it is in
+typesetting.  In typesetting, however, an entire line of text is created with
+baselines aligned and padded to the maximum ascent and descent, then the entire
+line is put below the previous line.  
+
+It is clearly desirable to have the characters on a line aligned with their
+baselines, but when the line on the display is formed piece by piece, it is
+impossible to pick in advance the proper baseline.  The solution CLIM adopts is
+to choose a baseline, but not commit to it.
+
+The CLIM model says that text has at least 6 properties.  With a reference point
+of $(0,0)$ at the upper left of the text, it has a bounding box consisting of
+ascent, descent, left kerning, right extension, and a displacement to the next
+reference point in both $x$ and $y$.  CLIM determines the position of the
+reference point and draws the text relative to that, and then the cursor
+position is adjusted by the displacement.  In this way, text has width and
+height, but the $x$ and $y$ displacements need not equal the width and height.
+
+CLIM adopts the following approach to the actual rendering of a glyph.  Textual
+output using the stream functions ({\sl not} the graphics functions) maintains
+text on a ``line''.   Note that a line is not an output record, but is rather a
+collection of ``text so far'', a top (which is positioned at the bottom of the
+previous line plus the stream's vertical spacing), a baseline, a bottom, and a
+``cursor position''.  The cursor position is defined to be at the top of the
+line, not at the baseline.  The reason for this is that the baseline can move,
+but the top is relative to the previous line, which has been completed and
+therefore doesn't move.  If text is drawn on the current line whose ascent is
+greater than the current ascent of the line, then the line is moved down to make
+room.  This can be done easily using the output records for the existing text on
+the line.  When there is enough room, the reference point for the text is the
+$x$ position of the cursor at the baseline, and the cursor position is adjusted
+by the displacement.
+
+The following figures show this in action before and after each of three
+characters are drawn.  In all three figure, the small circle is the ``cursor
+position''.  At first, there is nothing on the line.  The first character
+establishes the initial baseline, and is then drawn.  The upper left corner of
+the character is where the cursor was (as in the traditional model), but this
+will not remain the case.  Drawing the second character, which is larger than
+the first, requires moving the first character down in order to get the
+baselines to align; during this time, the top of the line remains the same.
+Again, the upper left of the second character is where the cursor was, but that
+is no longer the case for the first character (which has moved down).  The third
+character is smaller than the second, so no moving of characters needs to be
+done.  However, the character is drawn to align the baselines, which in this
+case means the upper left is {\sl not} where the cursor was.  Nor is the cursor
+at the upper right of the character as it was for the previous two characters.
+It is, however, at the upper right of the collective line.
+
+{
+\setlength\unitlength{.1in}
+\def\NoChars{
+        \begin{picture}(10,30)(0,-20)
+        \put(0,0){\line(1,0){4}}
+        \put(-2,2){\makebox(0,0)[r]{(0,y)}}
+        \put(-2,2){\vector(1,-1){2}}
+        \put(0,0){\circle*{.5}}
+        \end{picture}
+        }
+\def\OneChar{
+        \begin{picture}(10,30)(0,-20)
+        \put(0,0){\line(1,0){12}}
+        \put(-2,2){\makebox(0,0)[r]{(0,y)}}
+        \put(-2,2){\vector(1,-1){2}}
+        \put(0,-12){\framebox(8,12){small}}
+        \put(4,4){\makebox(0,0)[r]{(w1,y)}}
+        \put(4,4){\vector(1,-1){4}}
+        \put(8,0){\circle*{.5}}
+        \put(-2,-16){\makebox(0,0)[r]{bl-small}}
+        \put(-2,-16){\vector(1,3){2}}
+        \put(0,-10){\vector(1,0){10}}
+        \end{picture}
+        }
+\def\TwoChars{
+        \begin{picture}(10,30)(0,-20)
+        \put(0,0){\line(1,0){22}}
+        \put(-2,2){\makebox(0,0)[r]{(0,y)}}
+        \put(-2,2){\vector(1,-1){2}}
+        \put(0,-14){\framebox(8,12){small}}
+        \put(4,4){\makebox(0,0)[r]{(w1,y)}}
+        \put(4,4){\vector(1,-1){4}}
+        \put(8,-16){\framebox(10,16){BIG}}
+        \put(12,6){\makebox(0,0)[r]{(w1+w2,y)}}
+        \put(12,6){\vector(1,-1){6}}
+        \put(18,0){\circle*{.5}}
+        \put(-2,-18){\makebox(0,0)[r]{bl-BIG}}
+        \put(-2,-18){\vector(1,3){2}}
+        \put(0,-12){\vector(1,0){20}}
+        \end{picture}
+        }
+\def\ThreeChars{
+        \begin{picture}(10,30)(0,-20)
+        \put(0,0){\line(1,0){30}}
+        \put(-2,2){\makebox(0,0)[r]{(0,y)}}
+        \put(-2,2){\vector(1,-1){2}}
+        \put(0,-14){\framebox(8,12){small}}
+        \put(4,4){\makebox(0,0)[r]{(w1,y)}}
+        \put(4,4){\vector(1,-1){4}}
+        \put(8,-16){\framebox(10,16){BIG}}
+        \put(12,6){\makebox(0,0)[r]{(w1+w2,y)}}
+        \put(12,6){\vector(1,-1){6}}
+        \put(18,-14){\framebox(8,12){small}}
+        \put(18,8){\makebox(0,0)[r]{(w1+w2+w3,y)}}
+        \put(18,8){\vector(1,-1){8}}
+        \put(26,0){\circle*{.5}}
+        \put(-2,-18){\makebox(0,0)[r]{bl-BIG}}
+        \put(-2,-18){\vector(1,3){2}}
+        \put(0,-12){\vector(1,0){28}}
+        \end{picture}
+        }
+
+\begin{picture}(50,60)(-4,0)
+        \put(0,30){\NoChars}
+        \put(10,30){\OneChar}
+        \put(30,30){\TwoChars}
+        \put(10,0){\ThreeChars}
+\end{picture}
+
+}
+
+\issue {DCPL} {The above may be too simplistic. The displacement probably
+wants to depend not only on language but language rendering mode.  For example,
+Japanese can apparently go either vertically or horizontally.  It may be
+necessary to have the bounding box and perhaps the reference point dispatch as
+well.  Similarly, ``newline'' could mean ``down one line, all the way to the
+left'' for English, ``down one line, all the way to the right'' for Arabic, or
+``to the left one line, all the way to the top.''  ``Home cursor'' is another
+ditty to consider.  We need to discuss this on a larger scale with people who
+know multi-lingual rendering issues.}
+
+
+\subsection {Text Cursor Protocol}
+
+Many streams that maintain a text cursor display some visible indication of the
+text cursor.  The object that represents this display is (somewhat confusingly)
+also called a cursor.
+
+An \concept{active} cursor is one that is being actively maintained by its
+owning sheet.  A active cursor has a \concept{state} that is either on or off.
+An active cursor can also have a state that indicates that the owning sheet has
+the input focus.
+
+\Defprotoclass {cursor}
+
+The protocol class that corresponds to cursors.
+\IfYouWantClass {a} {cursor} {cursor}
+\Mutable
+
+\Defpredicate {cursorp} {object}
+
+Returns \term{true} if \arg{object} is a \term{cursor}, otherwise returns
+\term{false}.
+
+\Definitarg {:sheet}
+
+The \cl{:sheet} initarg is used to specify the sheet with which the cursor is
+associated.
+
+\Defclass {standard-text-cursor}
+
+The instantiable class that implements a text cursor.  Typically, ports will
+further specialize this class.
+
+\Defgeneric {cursor-sheet} {cursor}
+
+Returns the sheet with which the \term{cursor} \arg{cursor} is associated.
+
+\Defgeneric {cursor-position} {cursor}
+
+Returns the $x$ and $y$ position of the \term{cursor} \arg{cursor} as two
+values.  $x$ and $y$ are in the coordinate system of the cursor's sheet.
+
+\Defgeneric {(setf* cursor-position)} {x y cursor}
+
+Sets the $x$ and $y$ position of the \term{cursor} \arg{cursor} to the specified
+position.  $x$ and $y$ are in the coordinate system of the cursor's sheet.
+
+For CLIM implementations that do not support \cl{setf*}, the ``setter'' function
+for this is \cl{cursor-set-position}.
+
+\defgeneric {cursor-active} {cursor}
+\Defgeneric {(setf cursor-active)} {value cursor}
+
+Returns (or sets) the ``active'' attribute of the cursor.  When \term{true}, the
+cursor is active.
+
+\defgeneric {cursor-state} {cursor}
+\Defgeneric {(setf cursor-state)} {value cursor}
+
+Returns (or sets) the ``state'' attribute of the cursor.  When \term{true}, the
+cursor is visible.  When \term{false}, the cursor is not visible.
+
+\Defgeneric {cursor-focus} {cursor}
+
+Returns the ``focus'' attribute of the cursor.  When \term{true}, the sheet
+owning the cursor has the input focus.
+
+\defgeneric {cursor-visibility} {cursor}
+\Defgeneric {(setf cursor-visibility)} {visibility cursor}
+
+These are convenience functions that combine the functionality of
+\cl{cursor-active} and \cl{cursor-state}.  The visibility can be either \cl{:on}
+(meaning that the cursor is active and visible at its current position),
+\cl{:off} (meaning that the cursor is active, but not visible at its current
+position), or \cl{nil} (meaning that the cursor is not active).
+
+
+\subsection {Stream Text Cursor Protocol}
+
+The following generic functions comprise the stream text cursor protocol.  Any
+extended output stream class must implement methods for these generic functions.
+
+\Defgeneric {stream-text-cursor} {stream}
+\Defgeneric {(setf stream-text-cursor)} {cursor stream}
+
+Returns (or sets) the text cursor object for the stream \arg{stream}.
+
+
+\Defgeneric {stream-cursor-position} {stream}
+
+Returns the current text cursor position for the \term{extended output stream}
+\arg{stream} as two integer values, the $x$ and $y$ positions.
+
+\Defgeneric {(setf* stream-cursor-position)} {x y stream}
+
+Sets the text cursor position of the \term{extended output stream} \arg{stream}
+to \arg{x} and \arg{y}.  \arg{x} and \arg{y} are in device units, and must be
+integers.
+
+For CLIM implementations that do not support \cl{setf*}, the ``setter'' function
+for this is \cl{stream-set-cursor-position}.
+
+\Defgeneric {stream-increment-cursor-position} {stream dx dy}
+
+Moves the text cursor position of the \term{extended output stream} \arg{stream}
+relatively, adding \arg{dx} to the $x$ coordinate and \arg{dy} to the $y$
+coordinate.  Either of \arg{dx} or \arg{dy} may be \cl{nil}, meaning that the $x$
+or $y$ cursor position will be unaffected.  Otherwise, \arg{dx} and \arg{dy}
+must be integers.
+
+
+\section {Text Protocol}
+
+The following generic functions comprise the text protocol.  Any extended output
+stream class must implement methods for these generic functions.
+
+\Defgeneric {stream-character-width} {stream character \key text-style}
+
+Returns a rational number corresponding to the amount of horizontal motion of
+the cursor position that would occur if the character \arg{character} were
+output to the \term{extended output stream} \arg{stream} in the \term{text
+style} \arg{text-style} (which defaults to the current text style for the
+stream).  This ignores the stream's text margin.
+
+\Defgeneric {stream-string-width} {stream character \key start end text-style}
+
+Computes how the cursor position would move horizontally if the string
+\arg{string} were output to the \term{extended output stream} \arg{stream} in
+the \term{text style} \arg{text-style} (which defaults to the current text style
+for the stream) starting at the left margin.  This ignores the stream's text
+margin.
+
+The first returned value is the $x$ coordinate that the cursor position would
+move to.  The second returned value is the maximum $x$ coordinate the cursor
+would visit during the output. (This is the same as the first value unless the
+string contains a \verb+#\Newline+ character.)
+
+\arg{start} and \arg{end} are integers, and default to 0 and the length of the
+string, respectively.
+
+
+\defgeneric {stream-text-margin} {stream}
+\Defgeneric {(setf stream-text-margin)} {margin stream}
+
+The $x$ coordinate at which text wraps around on the \term{extended output
+stream} \arg{stream} (see \cl{stream-end-of-line-action}).  The default setting
+is the width of the viewport, which is the right-hand edge of the viewport when
+it is horizontally scrolled to the ``initial position''.
+
+You can use \cl{setf} with \cl{stream-text-margin} to establish a new text
+margin.  If \arg{margin} is \cl{nil}, then the width of the viewport will be
+used.  If the width of the viewport is later changed, the text margin will
+change, too.
+
+
+\Defgeneric {stream-line-height} {stream \key text-style}
+
+Returns what the line height of a line on the \term{extended output stream}
+\arg{stream} containing text in the \term{text style} \arg{text-style} would be,
+as a rational number.  The height of the line is measured from the baseline of
+the text style to its ascent.  \arg{text-style} defaults to the current text
+style for the stream.
+
+
+\Defgeneric {stream-vertical-spacing} {stream}
+
+Returns the current inter-line spacing (as a rational number) for the
+\term{extended output stream} \arg{stream}.
+
+\Defgeneric {stream-baseline} {stream}
+
+Returns the current text baseline (as a rational number) for the \term{extended
+output stream} \arg{stream}.
+
+
+\subsection {Mixing Text and Graphics}
+
+The following macro provides a convenient way to mix text and graphics on the
+same output stream.
+
+\Defmacro {with-room-for-graphics} {(\optional stream
+                                     \key (first-quadrant \cl{t}) height (move-cursor \cl{t})
+                                          record-type)
+                                    \body body}
+
+Binds the dynamic environment to establish a local coordinate system for doing
+graphics output onto the \term{extended output stream} designated by
+\arg{stream}.  If \arg{first-quadrant} is \term{true} (the default), a local
+Cartesian coordinate system is established with the origin $(0,0)$ of the local
+coordinate system placed at the current cursor position; $(0,0)$ is in the lower
+left corner of the area created.  If the boolean \arg{move-cursor} is
+\term{true} (the default), then after the graphic output is completed, the
+cursor is positioned past (immediately below) this origin.  The bottom of the
+vertical block allocated is at this location (that is, just below point $(0,0)$,
+not necessarily at the bottom of the output done).
+
+The \arg{stream} argument is not evaluated, and must be a symbol that is bound
+to a stream.  If \arg{stream} is \cl{t} (the default), \cl{*standard-output*} is
+used.  \arg{body} may have zero or more declarations as its first forms.
+
+If \arg{height} is supplied, it must be a rational number that specifies the
+amount of vertical space to allocate for the output, in device units. If it is
+not supplied, the height is computed from the output.
+
+\arg{record-type} specifies the class of output record to create to hold the
+graphical output.  The default is \cl{standard-sequence-output-record}.
+
+
+\subsection {Wrapping of Text Lines}
+
+\defgeneric {stream-end-of-line-action} {stream}
+\Defgeneric {(setf stream-end-of-line-action)} {action stream}
+
+The end-of-line action controls what happens if the text cursor position moves
+horizontally out of the viewport, or if text output reaches the text margin.
+(By default the text margin is the width of the viewport, so these are usually
+the same thing.)
+
+\cl{stream-end-of-line-action} returns the end-of-line action for the
+\term{extended output stream} \arg{stream}.  It can be changed by using
+\cl{setf} on \cl{stream-end-of-line-action}.
+
+The end-of-line action is one of: 
+
+\begin{itemize}
+\item \cl{:wrap}---when doing text output, wrap the text around (that is, break
+the text line and start another line).  When setting the cursor position, scroll
+the window horizontally to keep the cursor position inside the viewport.  This
+is the default.
+
+\item \cl{:scroll}---scroll the window horizontally to keep the cursor
+position inside the viewport, then keep doing the output.
+
+\item \cl{:allow}---ignore the text margin and do the output on the drawing
+plane beyond the visible part of the viewport.
+\end{itemize}
+
+\Defmacro {with-end-of-line-action} {(stream action) \body body}
+
+Temporarily changes \arg{stream}'s end-of-line action for the duration of
+execution of body.  \arg{action} must be one of the actions described in
+\cl{stream-end-of-line-action}.
+
+The \arg{stream} argument is not evaluated, and must be a symbol that is bound
+to a stream.  If \arg{stream} is \cl{t}, \cl{*standard-output*} is used.
+\arg{body} may have zero or more declarations as its first forms.
+
+
+\defgeneric {stream-end-of-page-action} {stream}
+\Defgeneric {(setf stream-end-of-page-action)} {action stream}
+
+The end-of-page action controls what happens if the text cursor position moves
+vertically out of the viewport.
+
+\cl{stream-end-of-page-action} returns the end-of-page action for the
+\term{extended output stream} \arg{stream}.  It can be changed by using
+\cl{setf} on \cl{stream-end-of-page-action}.
+
+The end-of-page action is one of: 
+
+\begin{itemize}
+\item \cl{:scroll}---scroll the window vertically to keep the cursor position
+inside the viewport, then keep doing output.  This is the default.
+
+\item \cl{:allow}---ignore the viewport and do the output on the drawing plane
+beyond the visible part of the viewport.
+
+\item \cl{:wrap}---when doing text output, wrap the text around (that is, go back
+to the top of the viewport).
+\end{itemize}
+
+\Defmacro {with-end-of-page-action} {(stream action) \body body}
+
+Temporarily changes \arg{stream}'s end-of-page action for the duration of
+execution of body.  \arg{action} must be one of the actions described in
+\cl{stream-end-of-page-action}.
+
+The \arg{stream} argument is not evaluated, and must be a symbol that is bound
+to a stream.  If \arg{stream} is \cl{t}, \cl{*standard-output*} is used.
+\arg{body} may have zero or more declarations as its first forms.
+
+
+\section {Attracting the User's Attention}
+
+\Defgeneric {beep} {\optional medium}
+
+Attracts the user's attention, usually with an audible sound.
+
+
+\section {Buffering of Output}
+
+Some mediums that support the output protocol may buffer output.  When buffering
+is enabled on a medium, the time at which output is actually done on the medium
+is unpredictable.  \cl{force-output} or \cl{finish-output} can be used to ensure
+that all pending output gets completed.  If the medium is a bidirectional
+stream, a \cl{force-output} is performed whenever any sort of input is requested
+on the stream.
+
+\cl{with-buffered-output} provides a way to control when buffering is enabled on
+a medium.  By default, CLIM's interactive streams are buffered if the underlying
+window system supports buffering.
+
+\Defgeneric {medium-buffering-output-p} {medium}
+
+Returns \term{true} if the \term{medium} \arg{medium} is currently buffering
+output, otherwise returns \term{false}.
+
+\Defgeneric {(setf medium-buffering-output-p)} {buffer-p medium}
+
+Sets \cl{medium-buffering-output-p} of the \term{medium} \arg{medium} to
+\arg{buffer-p}.
+
+\Defmacro {with-output-buffered} {(medium \optional (buffer-p \cl{t}))
+                                  \body body}
+
+If \arg{buffer-p} is \term{true} (the default), this causes the \term{medium}
+designated by \arg{medium} to start buffering output, and evaluates \arg{body}
+in that context.  If \arg{buffer-p} is \term{false}, \cl{force-output} will be
+called before \arg{body} is evaluated.  When \arg{body} is exited (or aborted
+from), \cl{force-output} will be called if output buffering will be disabled
+after \cl{with-output-buffered} is exited.
+
+The \arg{medium} argument is not evaluated, and must be a symbol that is bound
+to a medium.  If \arg{medium} is \cl{t}, \cl{*standard-output*} is used.
+\arg{body} may have zero or more declarations as its first forms.

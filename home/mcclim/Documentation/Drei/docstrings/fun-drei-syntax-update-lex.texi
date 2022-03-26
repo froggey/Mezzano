@@ -1,0 +1,9 @@
+@anchor{Generic-Function drei-syntax:update-lex}
+@deffn {Generic Function} {drei-syntax:update-lex} lexer start-pos end
+@findex drei-syntax:update-lex
+This function is called by client code as part
+of the buffer-update protocol to inform the lexer that it needs
+to analyze the contents of the buffer at least up to the @code{end}
+mark of the buffer.  @code{start-pos} is the position in the lexeme
+sequence at which new lexemes should be inserted.
+@end deffn

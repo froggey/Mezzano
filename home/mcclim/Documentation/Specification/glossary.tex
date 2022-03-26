@@ -1,0 +1,437 @@
+% -*- Mode: LaTeX; Package: CLIM-USER -*-
+
+\chapter {Glossary}
+\label {glossary}
+
+\newcommand {\GlossaryEntry} [3] {\item [#1] {\it #2} #3}
+
+\issue {SWM} {Fill these in.  What glossary entries would it be useful to borrow
+from the ANSI CL spec?}
+
+\begin{description}
+
+\GlossaryEntry {adaptive toolkit} {n.} {---Fill this in---}
+
+\GlossaryEntry {adopted} {adj.} {(of a \term{sheet}) Having a parent sheet.}
+
+\GlossaryEntry {affine transformation} {n.} {A \term{transformation}.}
+
+\GlossaryEntry {ancestors} {n.} {The parent of a \term{sheet} or an \term{output
+record}, and all of its ancestors, recursively.}
+
+\GlossaryEntry {applicable} {adj.} {(of a \term{presentation translator}) A
+\term{presentation translator} is said to be \term{applicable} when the pointer
+is pointing to a \term{presentation} whose \term{presentation type} matches the
+current \term{input context}, and the other criteria for translator matching
+have been met.}
+
+\GlossaryEntry {application frame} {n.} {1.~A program that interacts directly
+with a \term{user} to perform some specific task.  2.~A Lisp object that holds
+the information associated with such a program, including the panes of the user
+interface and application state variables.}
+
+\GlossaryEntry {area} {n.} {A \term{region} that has dimensionality 2, that is,
+has area.}
+
+\GlossaryEntry {background} {n.} {The \term{design} that is used when erasing,
+that is, drawing using \cl{+background-ink+}.}
+
+\GlossaryEntry {bounded design} {n.} {A \term{design} that is transparent
+everywhere beyond a certain distance from a certain point.  Drawing a bounded
+design has no effect on the drawing plane outside that distance.}
+
+\GlossaryEntry {bounded region} {n.} {A \term{region} that contains at least one
+point and for which there exists a number, $d$, called the region's diameter,
+such that if $p1$ and $p2$ are points in the region, the distance between $p1$
+and $p2$ is always less than or equal to $d$.}
+
+\GlossaryEntry {bounding rectangle} {n.} {1.~The smallest \term{rectangle} that
+surrounds a \term{bounded region} and contains every point in the region, and
+may contain additional points as well.  The sides of a bounding rectangle are
+parallel to the coordinate axes.  2.~A Lisp object that represents a
+\term{bounding rectangle}.}
+
+\GlossaryEntry {cache value} {n.} {During \term{incremental redisplay}, the
+\term{cache value} is used to determine whether or not a piece of output has
+changed.}
+
+\GlossaryEntry {children} {n.} {(of a \term{sheet} or \term{output record}) The
+direct descendants of a \term{sheet} or an \term{output record}.}
+
+\GlossaryEntry {color} {n.} {1.~An object representing the intuitive definition
+of a color, such as black or red.  2.~A Lisp object that represents a
+\term{color}.}
+
+\GlossaryEntry {colored design} {n.} {A \term{design} whose points have
+\term{color}.}
+
+\GlossaryEntry {colorless design} {n.} {A \term{design} whose points have no
+\term{color}.  Drawing a colorless design uses the default color specified by
+the \term{medium}'s foreground design.}
+
+\GlossaryEntry {command} {n.} {1.~The way CLIM represents a user interaction.
+2.~A Lisp object that represents a \term{command}.}
+
+\GlossaryEntry {command name} {n.} {A symbol that names a command.}
+
+\GlossaryEntry {command table} {n.} {1.~A way of collecting and organizing a
+group of related commands, and defining the interaction styles that can be used
+to invoke those commands.  2.~A Lisp object that represents a \term{command
+table}.}
+
+\GlossaryEntry {command table designator} {n.} {A Lisp object that is either a
+command table or a symbol that names a command table.}
+
+\GlossaryEntry {completion} {n.} {A facility provided by CLIM for completing
+user input over a set of possibilities.}
+
+\GlossaryEntry {compositing} {n.} {(of \term{designs}) The creation of a
+\term{design} whose appearance at each point is a composite of the appearances
+of two other designs at that point.  There are three varieties of compositing:
+\term{composing over}, \term{composing in}, and \term{composing out}.}
+
+\GlossaryEntry {composition} {n.} {(of \term{transformations}) The
+transformation from one coordinate system to another, then from the second to a
+third can be represented by a single transformation that is the
+\term{composition} of the two component transformations.  Transformations are
+closed under composition.  Composition is not commutative.  Any arbitrary
+transformation can be built up by composing a number of simpler transformations,
+but that composition is not unique.}
+
+\GlossaryEntry {context-dependent input} {n.} {---Fill this in---}
+
+\GlossaryEntry {degrafted} {adj.} {(of a \term{sheet}) Not \term{grafted}.}
+
+\GlossaryEntry {descendants} {n.} {All of the children of a \term{sheet} or an
+\term{output record}, and all of their descendents, recursively.}
+
+\GlossaryEntry {design} {n.} {An object that represents a way of arranging
+\term{colors} and \term{opacities} in the \term{drawing plane}.  A mapping from
+an $(x,y)$ pair into color and opacity values.}
+
+\GlossaryEntry {device transformation} {n.} {---Fill this in---}
+
+\GlossaryEntry {disowned} {adj.} {(of a \term{sheet}) Not \term{adopted}.}
+
+\GlossaryEntry {disabled} {adj.} {(of a \term{sheet}) Not \term{enabled}.} 
+
+\GlossaryEntry {dispatching} {n.} {(of \term{events}) ---Fill this in---}
+
+\GlossaryEntry {display medium} {n.} {---Fill this in---}
+
+\GlossaryEntry {display server} {n.} {---Fill this in---}
+
+\GlossaryEntry {displayed output record} {n.} {An \term{output record} that
+corresponds to a visible piece of output, such as text or graphics.  The leaves
+of the output record tree.}
+
+\GlossaryEntry {distributing} {n.} {(of \term{events}) ---Fill this in---}
+
+\GlossaryEntry {drawing plane} {n.} {An infinite two-dimensional plane on which
+graphical output occurs.  A drawing plane contains an arrangement of colors and
+opacities that is modified by each graphical output operation.}
+
+\GlossaryEntry {enabled} {adj.} {(of a \term{sheet}) ---Fill this in---}
+
+\GlossaryEntry {event} {n.} {1.~Some sort of significant event, such as a user
+gesture (such as moving the pointer, pressing a pointer button, or typing a
+keystroke) or a window configuration event (such as resizing a window).  2.~A
+Lisp object that represents an \term{event}.}
+
+\GlossaryEntry {extended input stream} {n.} {A kind of sheet that supports
+CLIM's extended input stream protocol, such as supporting a pointing device.}
+
+\GlossaryEntry {extended output stream} {n.} {A kind of sheet that supports
+CLIM's extended output stream protocol, such as supporting a variable
+line-height text rendering.}
+
+\GlossaryEntry {false} {n.} {1.~The boolean value false.  2.~The Lisp object
+\cl{nil}.}
+
+\GlossaryEntry {flipping ink} {n.} {1.~An \term{ink} that interchanges
+occurrences of two \term{designs}, such as might be done by ``XOR'' on a
+monochrome display.  2.~A Lisp object that represents a \term{flipping ink}.}
+
+\GlossaryEntry {foreground} {n.} {The \term{design} that is used when drawing
+using \cl{+foreground-ink+}.}
+
+\GlossaryEntry {formatted output} {n.} {1.~Output that obeys some high level
+constraints on its appearance, such as being arranged in a tabular format, or
+justified within some margins.  2.~The CLIM facility that provides a programmer
+the tools to produce such output.}
+
+\GlossaryEntry {frame} {n.} {An \term{application frame}.}
+
+\GlossaryEntry {frame manager} {n.} {An object that controls the realization of
+the look and feel of an \term{application frame}.}
+
+\GlossaryEntry {fully specified} {adj.} {(of a \term{text style}) Having
+components none of which are \cl{nil}, and not having a relative size (that is,
+neither \cl{:smaller} nor \cl{:larger}).}
+
+\GlossaryEntry {gesture} {n.} {Some sort of input action by a user, such as
+typing a character or clicking a pointer button.}
+
+\GlossaryEntry {gesture name} {n.} {A symbol that gives a name to a
+\term{gesture}, for example, \cl{:select} is commonly used to indicate a left
+pointer button click.}
+
+\GlossaryEntry {graft} {n.} {A kind of \term{mirrored sheet} that represents a
+host window, typically a root window.}
+
+\GlossaryEntry {grafted} {adj.} {(of a \term{sheet}) Having an ancestor sheet
+that is a \term{graft}.}
+
+\GlossaryEntry {highlighting} {n.} {Changing of some piece of output so that it
+stands out.  CLIM often \term{highlights} the \term{presentation} under the
+\term{pointer} to indicate that it is \term{sensitive}.}
+
+\GlossaryEntry {immutable} {adj.} {1.~(of an object) Having components that
+cannot be modified once the object has been created.  2.~(of a class) An
+\term{immutable class} is a class all of whose objects are \term{immutable}.}
+
+\GlossaryEntry {implementor} {n.} {A programmer who implements CLIM.}
+
+\GlossaryEntry {incremental redisplay} {n.} {1.~Redraw part of some output while
+leaving other output unchanged.  2.~The CLIM facility that implements this
+behavior.}
+
+\GlossaryEntry {indirect ink} {n.} {Drawing with an \term{indirect ink} is the
+same as drawing with another \term{ink} named directly.}
+
+\GlossaryEntry {ink} {n.} {Any member of the class \cl{design} supplied as the
+\cl{:ink} argument to a CLIM drawing function.}
+
+\GlossaryEntry {input context} {n.} {1.~---Fill this in---.  2.~A Lisp object
+that represents an \term{input context}.}
+
+\GlossaryEntry {input editor} {n.} {The CLIM facility that allows a \term{user}
+to modify typed-in input.}
+
+\GlossaryEntry {input editing stream} {n.} {A CLIM stream that supports
+\term{input editing}.}
+
+\GlossaryEntry {input stream designator} {n.} {A Lisp object that is either an
+input stream, or the symbol \cl{t}, which is taken to mean \cl{*standard-input*}.}
+
+\GlossaryEntry {interactive stream} {n.} {A stream that supports both input from
+and output to the user in an interactive fashion.}
+
+\GlossaryEntry {line style} {n.} {1.~Advice to CLIM's rendering substrate on how
+to render a path, such as a line or an unfilled ellipse or polygon.  2.~A Lisp
+object that represents a \term{line style}.}
+
+\GlossaryEntry {medium} {n.} {1.~A destination for output, having a
+\term{drawing plane}, two designs called the medium's \term{foreground} and
+\term{background}, a \term{transformation}, a \term{clipping region}, a
+\term{line style}, and a \term{text style}.  2.~A Lisp object that represents a
+\term{medium}.}
+
+\GlossaryEntry {mirror} {n.} {The host window system object associated with a
+\term{mirrored sheet}, such as a window object on an X11 display server.}
+
+\GlossaryEntry {mirrored sheet} {n.} {A special class of \term{sheet} that is
+attached directly to a window on a \term{display server}.  A \term{graft} is one
+kind of a \term{mirrored sheet}.}
+
+\GlossaryEntry {mutable} {adj.} {1.~(of an object) Having components that can be
+modified once the object has been created.  2.~(of a class) An \term{mutable
+class} is a class all of whose objects are \term{mutable}.}
+
+\GlossaryEntry {non-uniform design} {n.} {A \term{design} that is not a
+\term{uniform design}.}
+
+\GlossaryEntry {opacity} {n.} {1.~An object that controls how graphical output
+covers previous output, such as fully opaque to fully transparent, and levels of
+translucency between.  2.~A Lisp object that represents an \term{opacity}.}
+
+\GlossaryEntry {output history} {n.} {The highest level \term{output record} for
+an \term{output recording stream}.}
+
+\GlossaryEntry {output record} {n.} {1.~An object that remembers the output
+performed to a \term{stream} or \term{medium}.  2.~A Lisp object that represents
+an \term{output record}.}
+
+\GlossaryEntry {output recording} {n.} {The process of remembering the output
+performed to a \term{stream}.}
+
+\GlossaryEntry {output recording stream} {n.} {A CLIM stream that supports
+\term{output recording}.}
+
+\GlossaryEntry {output stream designator} {n.} {A Lisp object that is either an
+output stream, or the symbol \cl{t}, which is taken to mean
+\cl{*standard-output*}.}
+
+\GlossaryEntry {pane} {n.} {A \term{sheet} or window that appears as the child
+of some other window or \term{frame}.  A composite pane can hold other panes; a
+leaf pane cannot.}
+
+\GlossaryEntry {parent} {n.} {The direct ancestor of a \term{sheet} or an
+\term{output record}.}
+
+\GlossaryEntry {path} {n.} {A \term{region} that has dimensionality 1, that is,
+has length.}
+
+\GlossaryEntry {patterning} {n.} {The process of creating a bounded rectangular
+arrangement of \term{designs}, like a checkerboard.  A \term{pattern} is a
+\term{design} created by this process.}
+
+\GlossaryEntry {pixmap} {n.} {An ``off-screen window'', that is, a sheet that
+can be used for graphical output, but is not visible on any display device.}
+
+\GlossaryEntry {point} {n.} {1.~A \term{region} that has dimensionality 0, that
+is, has only a position.  2.~A Lisp object that represents a \term{point}.}
+
+\GlossaryEntry {pointer} {n.} {A physical device used for pointing, such as a
+mouse.} 
+
+\GlossaryEntry {pointer documentation} {n.} {---Fill this in---}
+
+\GlossaryEntry {port} {n.} {An abstract connection to a \term{display server}
+that is responsible for managing host display server resources and for
+processing input events received from the host display server.}
+
+\GlossaryEntry {position} {n.} {1.~A position on a plane, such as CLIM's
+abstract drawing plane.  2.~A pair of real number values $x$ and $y$ that
+represent a \term{position}.}
+
+\GlossaryEntry {presentation} {n.} {1.~An association between an object and a
+\term{presentation type} with some output on a \term{output recording stream}.
+2.~A Lisp object that represents a \term{presentation}.}
+
+\GlossaryEntry {presentation tester} {n.} {A predicate that restricts the
+applicability of a \term{presentation translator}.}
+
+\GlossaryEntry {presentation translator} {n.} {A mapping from an object of one
+\term{presentation type}, an \term{input context}, and a \term{gesture} to an
+object of another presentation type.}
+
+\GlossaryEntry {presentation type} {n.} {1.~A description of a class of
+\term{presentations}.  2.~An extension to CLOS that implements this.}
+
+\GlossaryEntry {presentation type specifier} {n.} {A Lisp object used to specify
+a \term{presentation type}.}
+
+\GlossaryEntry {programmer} {n.} {A person who writes application programs using
+CLIM.}
+
+\GlossaryEntry {protocol class} {n.} {An ``abstract'' class having no methods or
+slots that is used to indicate that a class obeys a certain protocol.  For
+example, all classes that inherit from the \cl{bounding-rectangle} class obey
+the bounding rectangle protocol.}
+
+\GlossaryEntry {rectangle} {n.} {1.~A four-sided polygon whose sides are
+parallel to the coordinate axes.  2.~A Lisp object that represents a
+\term{rectangle}.}
+
+\GlossaryEntry {redisplay} {n.} {See \term{incremental redisplay}.}
+
+\GlossaryEntry {region} {n.} {1.~A set of mathematical points in the plane; a
+mapping from an $(x,y)$ pair into either true or false (meaning member or not a
+member, respectively, of the region).  In CLIM, all regions include their
+boundaries (that is, they are closed) and have infinite resolution.  2.~A Lisp
+object that represents a \term{region}.}
+
+\GlossaryEntry {region set} {n.} {1.~A ``compound'' \term{region}, that is, a
+region consisting of several other regions related by one of the operations
+union, intersection, or difference.  2.~A Lisp object that represents a
+\term{region set}.}
+
+\GlossaryEntry {rendering} {n.} {The process of drawing a shape (such as a line
+or a circle) on a display device.  Rendering is an approximate process, since an
+abstract shape exists in a continuous coordinate system having infinite
+precision, whereas display devices must necessarily draw discrete points having
+some measurable size.}
+
+\GlossaryEntry {replaying} {n.} {The process of redrawing a set of \term{output
+records}.}
+
+\GlossaryEntry {repainting} {n.} {---Fill this in---}
+
+\GlossaryEntry {sensitive} {adj.} {(of a \term{presentation}) A
+\term{presentation} is \term{sensitive} if some action will take place when the
+user clicks on it with the pointer, that is, there is at least one
+\term{presentation translator} that is \term{applicable}.  In this case, the
+presentation will usually be \term{highlighted}.}
+
+\GlossaryEntry {server path} {n.} {---Fill this in---}
+
+\GlossaryEntry {sheet} {n.} {1.~---Fill this in---.  2.~A Lisp object that
+represents a \term{sheet}.}
+
+\GlossaryEntry {sheet region} {n.} {---Fill this in---}
+
+\GlossaryEntry {sheet transformation} {n.} {---Fill this in---}
+
+\GlossaryEntry {solid design} {n.} {A \term{design} that is either completely
+opaque or completely transparent.  A solid design can be opaque at some points
+and transparent at others.}
+
+\GlossaryEntry {stencil} {n.} {A kind of \term{pattern} that contains only
+\term{opacities}.}
+
+\GlossaryEntry {stencil opacity} {n.} {The \term{opacity} at one point in a
+\term{design} that would result from drawing the design onto a fictitious medium
+whose drawing plane is initially completely transparent black (opacity and all
+color components are zero), and whose foreground and background are both opaque
+black.  The \term{stencil opacity} of an \term{opacity} is simply its value.}
+
+\GlossaryEntry {stream} {n.} {A kind of \term{sheet} that implements the stream
+protocol (such as maintaining a \term{text cursor}).}
+
+\GlossaryEntry {text cursor} {n.} {---Fill this in---}
+
+\GlossaryEntry {text style} {n.} {1.~A description of how textual output should
+appear, consisting of family, face code, and size.  2.~A Lisp object that
+represents a \term{text style}.}
+
+\GlossaryEntry {tiling} {n.} {The process of repeating a rectangular portion of
+a \term{design} throughout the drawing plane.  A \term{tile} is a \term{design}
+created by this process.}
+
+\GlossaryEntry {transformation} {n.} {1.~A mapping from one coordinate system
+onto another that preserves straight lines.  General transformations include all
+the sorts of transformations that CLIM uses, namely, translations, scaling,
+rotations, and reflections.  2.~A Lisp object that represents a
+\term{transformation}.}
+
+\GlossaryEntry {translucent design} {n.} {A \term{design} that is not
+\term{solid}, that is, has at least one point with an opacity that is
+intermediate between completely opaque and transparent.}
+
+\GlossaryEntry {true} {n.} {1.~The boolean value true; not \term{false}.  2.~Any
+Lisp object that is not \cl{nil}.}
+
+\GlossaryEntry {unbounded design} {n.} {A \term{design} that has at least one
+point of non-zero opacity arbitrarily far from the origin.  Drawing an unbounded
+design affects the entire drawing plane.}
+
+\GlossaryEntry {unbounded region} {n.} {A \term{region} that either contains no
+points or contains points arbitrarily far apart.}
+
+\GlossaryEntry {uniform design} {n.} {A \term{design} that has the same color
+and opacity at every point in the drawing plane.  Uniform designs are always
+unbounded, unless they are completely transparent.}
+
+\GlossaryEntry {unique id} {n.} {During \term{incremental redisplay}, the
+\term{unique id} is an object used to uniquely identify a piece of output.  The
+output named by the \term{unique id} will often have a \term{cache value}
+associated with it.}
+
+\GlossaryEntry {user} {n.} {A person who uses an application program that was
+written using CLIM.}
+
+\GlossaryEntry {user transformation} {n.} {---Fill this in---}
+
+\GlossaryEntry {view} {n.} {1.~---Fill this in---.  2.~A Lisp object that
+represents a \term{view}.}
+
+\GlossaryEntry {viewport} {n.} {The portion of the drawing plane of a sheet's
+medium that is visible on a display device.}
+
+\GlossaryEntry {volatile} {adj.} {(of an immutable object) Having components
+that cannot be modified by the programmer at the protocol level, but which may
+be modified internally by CLIM.  \term{Volatile} objects reflect internal state
+of CLIM.}
+
+\end{description}

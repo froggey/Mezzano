@@ -1,0 +1,7 @@
+@anchor{Generic-Function drei:invoke-performing-drei-operations}
+@deffn {Generic Function} {drei:invoke-performing-drei-operations} drei continuation &key with-undo redisplay
+@findex drei:invoke-performing-drei-operations
+Invoke @code{continuation}, setting up and
+performing the operations specified by the keyword arguments for
+the given Drei instance.
+@end deffn

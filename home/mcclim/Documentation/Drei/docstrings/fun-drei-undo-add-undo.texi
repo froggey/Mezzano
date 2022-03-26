@@ -1,0 +1,7 @@
+@anchor{Generic-Function drei-undo:add-undo}
+@deffn {Generic Function} {drei-undo:add-undo} undo-record undo-tree
+@findex drei-undo:add-undo
+Add an undo record to the undo tree below the
+current state, and set the current state to be below the transition
+represented by the undo record.
+@end deffn

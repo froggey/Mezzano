@@ -1,0 +1,8 @@
+@anchor{Function clim-backend:register-output-destination-type}
+@deffn {Function} {@symbol{register-output-destination-type,clim-backend}} name class-name
+Register @var{class-name} as an additional output destination type under
+the name @var{name}.  @var{class-name} must name a subclass of
+@class{clim-backend:output-destination}.  A method on
+@genfunref{clim-backend:invoke-with-standard-output} must be applicable
+to an instance of @var{class-name}.
+@end deffn

@@ -1,0 +1,56 @@
+@anchor{Function clouseau:format-place-cells}
+@deffn {Function} {@symbol{format-place-cells,clouseau}} stream object place-class cell &key label label-style place-style object-style
+Present the child of @var{object} selected by @var{place-class} and @var{cell} to @var{stream}.
+
+Retrieve an existing place instance for the child of @var{object}
+selected by @var{place-class} and @var{cell} or make a new instance of
+@var{place-class}.
+
+Each of the following is written to @var{stream} within a separate
+@func{clim:formatting-cell}:
+
+@enumerate
+@item
+If non-@t{nil}, @var{label} is written to @var{stream}. If @var{label}
+is a function, it is called with @var{stream} as its sole argument.
+
+If @var{label-style} is non-@t{nil}, it must be either a keyword naming
+one of the styles known to @func{clouseau:call-with-style} or a list of
+arguments suitable for @func{clim:invoke-with-drawing-options}. Either
+way, the specified style is applied when outputting @var{label}.
+
+@item
+The place instance is presented using @func{clim:present} with the
+presentation type @class{clouseau:place}.
+
+@var{place-style} works like @var{label-style}.
+
+@item
+The child of @var{object} selected by @var{place-class} and @var{cell}
+is inspected using @genfunref{clouseau:inspect-place}.
+
+@var{object-style} works like @var{label-style}.
+@end enumerate
+
+Example:
+
+The call
+
+@lisp
+(clouseau:format-place-cells
+ stream symbol 'clouseau:reader-place 'symbol-name
+ :label "Symbol name")
+@end lisp
+
+outputs the name of @code{symbol} as an immutable place to @code{stream}
+in three table cells like this:
+
+@example
+cell 1        cell 2   cell 3
+v             v        v
+Symbol name | →      | <value>
+^ Label                ^ Value presentation
+              ^ Place presentation
+@end example
+
+@end deffn

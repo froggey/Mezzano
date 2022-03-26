@@ -1,0 +1,13 @@
+@anchor{Generic-Function drei:display-drei}
+@deffn {Generic Function} {drei:display-drei} drei &key redisplay-minibuffer
+@findex drei:display-drei
+@code{drei} must be an object of type @code{drei} and
+@code{frame} must be a CLIM frame containing the editor pane of
+@code{drei}. If you define a new subclass of @code{drei}, you must define a
+method for this generic function. In most cases, methods defined
+on this function will merely be a trampoline to a function
+specific to the given Drei variant.
+
+If @code{redisplay-minibuffer} is true, also redisplay @code{*minibuffer*}
+if it is non-NIL.
+@end deffn

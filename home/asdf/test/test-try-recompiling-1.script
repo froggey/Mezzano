@@ -1,0 +1,23 @@
+;;; -*- Lisp -*-
+
+;;; test asdf:try-recompiling restart
+
+(defparameter *caught-error* nil)
+
+(delete-file-if-exists (test-fasl "try-recompiling-1"))
+
+(handler-bind
+    ((error (lambda (c)
+              (setf *caught-error* t)
+              (multiple-value-bind (name mode)
+                  (find-symbol
+                   (symbol-name 'try-recompiling)
+                   :asdf)
+                (assert (eq mode :external))
+                (let ((restart (find-restart name c)))
+                  ;;(DBG :foo c restart (compute-restarts c))
+                  (when restart
+                    (invoke-restart restart)))))))
+  (oos 'load-op 'try-recompiling-1))
+
+(assert *caught-error*)

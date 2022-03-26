@@ -1,0 +1,8 @@
+@anchor{Generic-Function drei-buffer:buffer-column-number}
+@deffn {Generic Function} {drei-buffer:buffer-column-number} buffer offset
+@findex drei-buffer:buffer-column-number
+Return the column number of the offset. The
+column number of an offset is the number of objects between it
+and the preceding newline, or between it and the beginning of the
+buffer if the offset is on the first line of the buffer.
+@end deffn

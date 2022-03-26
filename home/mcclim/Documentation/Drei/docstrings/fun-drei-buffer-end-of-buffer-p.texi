@@ -1,0 +1,6 @@
+@anchor{Generic-Function drei-buffer:end-of-buffer-p}
+@deffn {Generic Function} {drei-buffer:end-of-buffer-p} mark
+@findex drei-buffer:end-of-buffer-p
+Return @code{t} if the mark is at the end of the
+buffer, NIL otherwise.
+@end deffn

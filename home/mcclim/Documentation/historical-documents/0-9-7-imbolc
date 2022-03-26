@@ -1,0 +1,45 @@
+RELEASE NOTES FOR McCLIM 0.9.7, "Imbolc":
+
+Announcement
+============
+
+After 10 years of development we are proud to present a new McCLIM release 0.9.7
+"Imbolc". Due to a long time of development only major changes are listed.
+
+Compatibility
+=============
+
+This release was tested and found to work on the following implementations:
+
+ * Clozure CL 1.11
+ * Embeddable CL 16.1.3
+ * SBCL 1.3.20
+
+McCLIM currently does not support lisps with case-sensitive
+readers (Allegro CL "modern mode" and lower-case Scieneer CL).
+
+
+Major changes in mcclim-0.9.7 "Imbolc" relative to 0.9.6:
+===============================================================
+
+* Bug fix: tab-layout fixes.
+* Bug fix: formatting-table fixes.
+* Bug fix: scrolling and viewport fixes and refactor.
+* Feature: raster image draw backend extension.
+* Feature: bezier curves extension.
+* Feature: new tests and demos in clim-examples.
+* Feature: truetype rendering is now default on clx.
+* Feature: additions to region, clipping rectangles and drawing.
+* Feature: clim-debugger and clim-listener improvmenets.
+* Feature: mop is now done with CLOSER-MOP.
+* Feature: threading is now done with BORDEAUX-THREADS.
+* Feature: clx-fb backend (poc of framebuffer-based backend).
+* Feature: assumption that all panes must be mirrored has been removed.
+* Cleanup: many files cleaned up from style warnings and such.
+* Cleanup: removal of PIXIE.
+* Cleanup: removal of CLIM-FFI package.
+* Cleanup: changes to directory structure and asd definitions.
+* Cleanup: numerous manual additions and corrections.
+* Cleanup: broken backends has been removed.
+* Cleanup: goatee has been removed in favour of Drei.
+* Cleanup: all methods have now corresponding generic function declarations.

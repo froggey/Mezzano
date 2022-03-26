@@ -1,0 +1,9 @@
+@anchor{Generic-Function drei-buffer:object-after}
+@deffn {Generic Function} {drei-buffer:object-after} mark
+@findex drei-buffer:object-after
+Return the object that is immediately after
+the mark.  If mark is at the end of the buffer, a
+@code{no-such-offset} condition is signaled.  If the mark is at the
+end of a line, but not at the end of the buffer, a newline
+character is returned.
+@end deffn

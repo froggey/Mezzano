@@ -1,0 +1,30 @@
+;;; -*- Lisp -*-
+
+(defun defsystem-error-handler (form &optional (error 'error))
+  (declare (ignore error))
+  (handler-case (eval form)
+    (error () t)
+    (:no-error (&rest values)
+      (declare (ignore values))
+      (error "Expected an error out of ~S" form))))
+
+(defmacro defsystem-error ((&optional (error 'error)) &rest r)
+  `(defsystem-error-handler '(def-test-system ,@r) ',error))
+
+(defsystem-error (non-system-system)
+    :foo :class :cl-source-file)
+
+(defsystem-error (non-toplevel-system)
+    :foo :components ((:system :bar)))
+
+;;; test for my kluge for cl-ppcre
+(assert
+ (catch 'bad-name-warn
+   (handler-bind
+       ((bad-system-name #'(lambda (c)
+                             (declare (ignorable c))
+                             (format t "~&Catching bad name warning: ~A~%" c)
+                             (throw 'bad-name-warn nil))))
+     (let ((asdf::*known-systems-with-bad-secondary-system-names*
+            (list-to-hash-set '("test-bad-system-name"))))
+       (find-system "test-bad-system-name")))))

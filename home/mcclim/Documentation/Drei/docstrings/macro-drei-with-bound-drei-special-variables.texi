@@ -1,0 +1,14 @@
+@anchor{Macro drei:with-bound-drei-special-variables}
+@deffn {Macro} {drei:with-bound-drei-special-variables} (drei-instance &key kill-ring minibuffer command-parser partial-command-parser previous-command prompt) &body body
+@findex drei:with-bound-drei-special-variables
+Evaluate @code{body} with a set of Drei special
+variables ((drei-instance), @code{*kill-ring*}, @code{*minibuffer*},
+@code{*command-parser*}, @code{*partial-command-parser*},
+@code{*previous-command*}, @code{*extended-command-prompt*}) bound to their
+proper values, taken from @code{drei-instance}. The keyword arguments
+can be used to provide forms that will be used to obtain values
+for the respective special variables, instead of finding their
+value in @code{drei-instance} or their existing binding. This macro
+binds all of the usual Drei special variables, but also some CLIM
+special variables needed for ESA-style command parsing.
+@end deffn

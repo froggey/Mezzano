@@ -1,0 +1,67 @@
+\chapter{Using presentation types}
+%\index presentation type
+
+\section{What is a presentation type}
+
+The concept of \emph{presentation types} is central to CLIM.  Client
+code can choose to output graphical or textual representations of
+application objects either as just graphics or text, or to associate
+such output with an arbitrary Common Lisp object and a presentation
+type.  The presentation type is not necessarily related to the idea
+Common Lisp might have of the underlying object.
+
+When a CLIM command or some other client code requests an object (say as
+an argument) of a certain presentation type, the user of the application
+can satisfy the request by clicking on any visible output labeled with a
+compatible presentation type.  The command then receives the underlying
+Common Lisp object as a response to the request.
+
+CLIM presentation types are usually distinct from Common Lisp types.
+The reason is that the Common Lisp type system, although very powerful,
+is not quite powerful enough to represent the kind of relationships
+between types that are required by CLIM.  However, every Common Lisp
+class (except the built-in classes) is automatically a presentation
+type.
+
+A presentation type has a name, but can also have one or more
+\emph{parameters}.  Parameters of presentation types are typically used
+to restrict the type.  For instance, the presentation type \texttt{integer}
+takes as parameters the low and the high values of an interval.  Such
+parameters allow the application to restrict objects that become
+clickable in certain contexts, for instance if a date in the month of
+March is requested, only integers between 1 and 31 should be clickable.
+
+\section{A simple example}
+
+Consider the following example:
+
+\verbatiminput{ex3.lisp}
+
+In this application, we have two main panes, an application pane and an
+interactor pane.  The application pane is given the option
+\texttt{:display-time t} which means that it will not be erased before every
+iteration of the command loop.
+
+We have also defined two presentation types: \texttt{name-of-month} and
+\texttt{day-of-month}.  The \texttt{out} command uses
+\texttt{with-output-as-presentation} in order to associate some output, a
+presentation type, and an underlying object.  In this case, it will show
+the string ``March'' which is considered to be of presentation type
+\texttt{name-of-month} with the underlying object being the character string
+\texttt{"The third month"}.  It will also show the string ``fifteen'' which
+is considered to be of presentation type \texttt{day-of-month} with the
+underlying object being the number 15.  The argument \texttt{t} to
+\texttt{with-output-as-presentation} indicates that the stream to present on
+is \texttt{*standard-output*}.
+
+Thus, if the \texttt{out} command has been executed, and then the user types
+``Get Date'' in the interactor pane, the \texttt{get-date} command will try
+to acquire its arguments, the first of presentation type
+\texttt{name-of-month} and the second of type \texttt{day-of-month}.  At the first
+prompt, the user can click on the string ``March'' but not on the string
+``fifteen'' in the application pane.  At the second prompt it is the
+string ``fifteen'' that is clickable, whereas ``March'' is not.
+
+The \texttt{get-date} command will acquire the underlying objects.  What is
+finally displayed (in the interactor pane, which is the standard input
+of the frame), is ``the 15 of The third month''.

@@ -1,0 +1,20 @@
+
+There are plenty of things left to do before the listener will really be useful
+for its intended purpose:
+
+McCLIM TODO:
+ - Implement more of the emacs editing keys
+ - Completion of pathnames and symbols
+ - Subform accepting in places other than OpenMCL
+ - Error checking during form reading
+
+Listener TODO:
+ - Cleanup of mime type representation (no point in defining classes for each
+   mime type, just define classes for the media types, and use EQL specializers
+   to distinguish between subtypes in methods.
+ - Flesh out icons - support multiple sizes in separate subdirectories of icons/
+ - Implement sorting and other options to Show Directory
+ - Copy File, Delete File, etc.
+ - Debugger integration
+
+

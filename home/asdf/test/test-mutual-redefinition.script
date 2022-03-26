@@ -1,0 +1,70 @@
+;;-*- Lisp -*-
+
+(setf *asdf-session* nil)
+
+(defun current-system-source-file (x)
+  (system-source-file (asdf::registered-system x)))
+
+#+abcl (setf jvm::*resignal-compiler-warnings* t)
+
+(with-asdf-session (:override t)
+  (terpri)
+  (DBG "Loading test-mutual-redefinition-1")
+  (let ((warned-p nil))
+    (handler-bind ((bad-system-name (lambda (c)
+                                      (setf warned-p t)
+                                      (format t "Caught bad-system-name condition: ~A~%" c)
+                                      (assert-equal (component-name c) "test-mutual-redefinition-2")
+                                      (assert-equal (pathname-name (system-source-file c)) "test-mutual-redefinition-1"))))
+      (load-system 'test-mutual-redefinition-1))
+    (assert warned-p))
+  (assert-pathname-equal
+   (test-source "test-mutual-redefinition-1.asd")
+   (current-system-source-file "test-mutual-redefinition-1"))
+  (assert-pathname-equal
+   (test-source "test-mutual-redefinition-1.asd")
+   (current-system-source-file "test-mutual-redefinition-2"))
+
+  (terpri)
+  (DBG "Loading test-mutual-redefinition-2 in the same cache session.
+Looking for its definition should trigger a DEFINE-OP and cause the asd paths to be affected.")
+  (let ((warned-p nil))
+    (handler-bind ((bad-system-name (lambda (c)
+                                      (setf warned-p t)
+                                      (format t "Caught bad-system-name condition: ~A~%" c)
+                                      (assert-equal (component-name c) "test-mutual-redefinition-1")
+                                      (assert-equal (pathname-name (system-source-file c)) "test-mutual-redefinition-2"))))
+      (load-system 'test-mutual-redefinition-2))
+    (assert warned-p))
+  (assert-pathname-equal
+   (test-source "test-mutual-redefinition-2.asd")
+   (current-system-source-file "test-mutual-redefinition-2"))
+  (assert-pathname-equal
+   (test-source "test-mutual-redefinition-2.asd")
+   (current-system-source-file "test-mutual-redefinition-1"))
+
+  (terpri)
+  (DBG "Loading test-mutual-redefinition-1 again in the same cache session.
+It should be considered already loaded.")
+  (let ((warned-p nil))
+    (handler-bind ((bad-system-name (lambda (c)
+                                      (setf warned-p t))))
+      (load-system 'test-mutual-redefinition-2))
+    (assert (not warned-p)))
+  (assert-pathname-equal
+   (test-source "test-mutual-redefinition-2.asd")
+   (current-system-source-file "test-mutual-redefinition-2"))
+  (assert-pathname-equal
+   (test-source "test-mutual-redefinition-2.asd")
+   (current-system-source-file "test-mutual-redefinition-1")))
+
+(with-asdf-session (:override t)
+  (terpri)
+  (DBG "loading test-mutual-redefinition-2 in a different cache session")
+  (load-system 'test-mutual-redefinition-2)
+  (assert-pathname-equal
+   (test-source "test-mutual-redefinition-2.asd")
+   (current-system-source-file "test-mutual-redefinition-2"))
+  (assert-pathname-equal
+   (test-source "test-mutual-redefinition-2.asd")
+   (current-system-source-file "test-mutual-redefinition-1")))

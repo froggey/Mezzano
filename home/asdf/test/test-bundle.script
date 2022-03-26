@@ -1,0 +1,101 @@
+;;; -*- Lisp -*-
+(in-package :asdf-test)
+
+;;;---------------------------------------------------------------------------
+;;; Check to see if the bundle functionality is doing something.
+;;;---------------------------------------------------------------------------
+
+(initialize-source-registry '(:source-registry :ignore-inherited-configuration))
+(clear-system :test-asdf/bundle-1)
+(clear-system :test-asdf/bundle-2)
+(when (find-package :test-package) (delete-package :test-package))
+
+#+(and os-macosx ecl)
+(leave-test "Bundle test doesn't work on Mac on this lisp." 0)
+
+#+abcl
+(when (and (member :abcl *features*)
+           (os-macosx-p)
+           ;; bundles don't work on pre-1.3.0
+           (second (third (sys::arglist 'directory))))
+  (leave-test "Bundle test doesn't work on Mac on this version of ABCL." 0))
+
+#+(or (and ecl ecl-bytecmp) gcl)
+(leave-test "bundles not on this implementation" 0)
+
+#+abcl
+(let* ((version (lisp-implementation-version))
+       (version-nums (subseq version 0 (position-if-not (lambda (x) (find x "0123456789.")) version))))
+  (when (version< version-nums "1.2.0")
+    (leave-test "Your old ABCL is known to fail this test script, so skipping it." 0)))
+
+(defparameter *bundle-1* (output-file 'compile-bundle-op :test-asdf/bundle-1))
+(defparameter *bundle-2* (output-file 'compile-bundle-op :test-asdf/bundle-2))
+(defparameter *mono-bundle-2* (output-file 'monolithic-compile-bundle-op :test-asdf/bundle-2))
+(DBG :test-bundle *bundle-1* *bundle-2*)
+(assert-equal (list *bundle-2*)
+              (input-files 'load-bundle-op :test-asdf/bundle-2))
+(delete-file-if-exists *bundle-1*)
+(delete-file-if-exists *bundle-2*)
+(delete-file-if-exists *mono-bundle-2*)
+(operate 'load-bundle-op :test-asdf/bundle-2)
+(DBG "Check that the bundles were indeed created.")
+(assert (probe-file *bundle-2*))
+(assert (probe-file *bundle-1*))
+(DBG "Check that the files were indeed loaded.")
+(assert (symbol-value (find-symbol* :*file1* :test-package)))
+(assert (symbol-value (find-symbol* :*file3* :test-package)))
+(DBG "Unintern symbols, load the bundle, and check that the symbols are there again.")
+(set (find-symbol* :*file1* :test-package) nil)
+(set (find-symbol* :*file3* :test-package) nil)
+(assert-equal nil (symbol-value (find-symbol* :*file1* :test-package)))
+(assert-equal nil (symbol-value (find-symbol* :*file3* :test-package)))
+(load (output-file 'compile-bundle-op :test-asdf/bundle-1))
+(assert-equal t (symbol-value (find-symbol* :*file1* :test-package)))
+(assert-equal t (symbol-value (find-symbol* :*file3* :test-package)))
+(DBG "Now for the mono-fasl")
+(operate 'monolithic-compile-bundle-op :test-asdf/bundle-2)
+(assert (probe-file *mono-bundle-2*))
+(DBG "Unintern symbols, load the monolithic bundle, and check that the symbols are there again.")
+(set (find-symbol* :*file1* :test-package) nil)
+(set (find-symbol* :*file3* :test-package) nil)
+(assert-equal nil (symbol-value (find-symbol* :*file1* :test-package)))
+(assert-equal nil (symbol-value (find-symbol* :*file3* :test-package)))
+(load (output-file 'monolithic-compile-bundle-op :test-asdf/bundle-2))
+(assert-equal t (symbol-value (find-symbol* :*file1* :test-package)))
+(assert-equal t (symbol-value (find-symbol* :*file3* :test-package)))
+
+#+(or ecl mkcl)
+(progn
+  (DBG "On ECL and MKCL, test dll-op and monolithic-dll-op")
+  (DBG "Test the pre-compiled system feature")
+  (require 'sockets)
+  (progn
+    (DBG "Test that we didn't break require for non-asdf modules")
+    (pop #+ecl ext:*module-provider-functions* #+mkcl mk-ext:*module-provider-functions*)
+    (require 'serve-event))
+  (DBG "Create a DLL via dll-op")
+  (operate 'dll-op :test-asdf/dll-test)
+  (DBG "Load the DLL")
+  (let ((dll (first (output-files 'dll-op :test-asdf/dll-test))))
+    (si:load-foreign-module dll)
+    (DBG "Load a library that knows how to use the DLL")
+    (let* (#+(and mkcl os-windows) (compiler::*builder-default-libraries* (list (namestring dll))))
+      (operate 'load-op :test-asdf/dll-user)))
+  (DBG "Test that the DLL works")
+  (assert-equal (sample-function) 42)
+  (DBG "Create a DLL via monolithic-dll-op")
+  (nest
+   #+(and mkcl os-windows)
+   (let* ((lib (first (output-files (operate 'lib-op :test-asdf/monodll-1) :test-asdf/monodll-1)))
+          (compiler::*builder-default-libraries* (list (namestring lib)))))
+   (operate 'monolithic-dll-op :test-asdf/monodll))
+
+  (DBG "Use and test that DLL")
+  (let ((dll (first (output-files 'monolithic-dll-op :test-asdf/monodll))))
+    (si:load-foreign-module dll)
+    (let* (#+(and mkcl os-windows) (compiler::*builder-default-libraries* (list (namestring dll))))
+      (operate 'load-op :test-asdf/monodll-user)))
+  (assert-equal (always-42) 42))
+
+;;; TODO: test prebuilt-system.

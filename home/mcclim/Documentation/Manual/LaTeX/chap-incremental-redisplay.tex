@@ -1,0 +1,48 @@
+\chapter{Incremental redisplay}
+
+CLIM applications are most often structured around the \emph{command
+  loop}.  The various steps that such an application follow are:
+
+\begin{itemize}
+\item A \emph{command} is acquired because the user, either typed the
+  name of the command to an interactive prompt, selected a menu item
+  representing a command, or clicked on an active object that
+  translates to a command.
+\item The \emph{arguments} to that command are acquired.  As with the
+  acquisition of the command itself, various gestures can be used to
+  supply the arguments.
+\item The command is \emph{executed} with the acquired arguments.
+  Typically, the command modifies some part of the \emph{model}%
+\footnote{Some authors use the term \emph{business logic} instead of
+  \emph{model}.  Both words refer to the representation of the
+  intrinsic purpose of the application, as opposed to superficial
+  characteristics such as how objects are physically presented to the
+  user.} contained in one or more slots in the application frame.
+\item The \emph{redisplay functions} associated with the visible panes
+  of the application are executed.  Typically, the redisplay function
+  erases all the output and traverses the entire model in order to
+  produce a new version of that output.  Since output exists in the
+  form of \emph{output records}, this process involves deleting the
+  existing output records and computing an entirely new set of them.
+\end{itemize}
+
+This way of structuring an application is very simple.  The resulting
+code is very easy to understand, and the relationship between the code
+of a redisplay function and the output it produces is usually obvious.
+The concept of output records storing the output in the application
+pane is completely hidden, and instead output is produced using
+textual or graphic drawing functions, or more often produced
+indirectly through the use of \texttt{present} or
+\texttt{with-output-as-presentation}.
+
+However, if the model contains a large number of objects, then this
+simple way of structuring an application may penalize performance.  In
+most libraries for creating graphic user interfaces, the application
+programmer must then rewrite the code for manipulating the model, and
+especially for incrementally altering the output according to the
+modification of the model resulting from the execution of a command.
+
+In CLIM, a different mechanism is provided called \emph{incremental
+  redisplay}.  This mechanism allows the user to preserve the simple
+logic of the display function with only minor modifications while
+still being able to benefit in terms of performance.

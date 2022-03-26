@@ -1,0 +1,12 @@
+;;; -*- Lisp -*-
+
+(DBG "Testing that the source-registry prefers the path that is shorter and/or asciibetically earlier")
+(setf *verbose-out* t)
+(initialize-source-registry
+ `(:source-registry (:tree ,*test-directory*) :ignore-inherited-configuration))
+(assert-pathname-equal
+ (system-source-directory "which-asd")
+ (subpathname *test-directory* "sources/"))
+(assert-pathname-equal
+ (system-source-directory "which-asd2")
+ (subpathname *test-directory* "sources/a/"))

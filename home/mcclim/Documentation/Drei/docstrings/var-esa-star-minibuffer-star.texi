@@ -1,0 +1,5 @@
+@anchor{Variable esa:*minibuffer*}
+@defvr {Variable} {esa:*minibuffer*}
+@vindex esa:*minibuffer*
+The minibuffer pane of the running application.
+@end defvr

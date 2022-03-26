@@ -1,0 +1,5 @@
+@anchor{Function clouseau:format-place-row}
+@deffn {Function} {@symbol{format-place-row,clouseau}} stream object place-class cell &key label label-style place-style object-style
+Like @funref{clouseau:format-place-cells} but surrounded by an
+additional @fmacro{clim:formatting-row}.
+@end deffn

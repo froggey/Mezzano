@@ -1,0 +1,28 @@
+
+I'd like to thank the following individuals for their contributions to cl-pdf:
+
+Aleksandar Bakic (Unicode, TrueType fonts)
+Zach Beane (zlib compression in lisp (Salza))
+Tim Daly jr (PDF Templates)
+Alexey Dejneka (Parsing of the AFM files)
+Jörg Höhle (clisp zlib)
+Dmitri Ivanov (custom encodings, splitable tables, lots of improvements)
+Arthur Lemmens (pdf file parser)
+Eric Marsden (meta-information (author, title, etc.), transparency)
+Eduardo Muñoz (geometrical functions (arc, circle, etc.))
+Alberto Riva (ACL zlib)
+Ole Rohne (gstates)
+Lars Rustemeier (code128 barcodes)
+Carlos Ungil (plot-xy, Corman Lisp port)
+Gary Warren King (MCL port)
+Klaus Weidner (std color names)
+Edi Weitz (cmucl zlib)
+Leo Zovic (non uniform round corners for rectangle and polyline)
+Peter Heslin (Using zpb-ttf to load Unicode ttf files)
+
+I apologize if I've missed someone. Please let me know if that's the case.
+
+I'd also like to thank all those who have sent me bugs and portability fixes...
+(Most of them due to the various problems encountered by zlib :()
+
+Marc Battyani ("marc.battyani@fractalconcept.com")

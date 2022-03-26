@@ -1,0 +1,9 @@
+@anchor{Class drei-syntax:incremental-lexer}
+@deftp {Class} {drei-syntax:incremental-lexer}
+@tindex drei-syntax:incremental-lexer
+Class precedence list: @code{@w{incremental-lexer}, @w{lexer}, @w{standard-object}, @w{slot-object}, @w{t}}
+
+A subclass of lexer which maintains the buffer
+in the form of a sequence of lexemes that is updated
+incrementally.
+@end deftp

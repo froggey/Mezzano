@@ -1,0 +1,5 @@
+@anchor{Generic-Function (setf clim:output-record-parent)}
+@deffn {Generic Function} {@symbol{@setf{output-record-parent},clim}} parent record
+Additional protocol generic function. PARENT may be
+an output record or NIL.
+@end deffn

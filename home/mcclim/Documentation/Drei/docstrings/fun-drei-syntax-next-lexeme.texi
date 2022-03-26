@@ -1,0 +1,11 @@
+@anchor{Generic-Function drei-syntax:next-lexeme}
+@deffn {Generic Function} {drei-syntax:next-lexeme} lexer scan
+@findex drei-syntax:next-lexeme
+This generic function is called by the
+incremental lexer to get a new lexeme from the buffer.  Client
+code must supply a method for this function that specializes on
+the lexer class.  It is guaranteed that scan is not at the end of
+the buffer, and that the first object after scan is not an
+inter-lexeme object.  Thus, a lexeme should always be returned by
+this function.
+@end deffn

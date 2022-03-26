@@ -1,0 +1,5 @@
+@anchor{Function esa:current-buffer}
+@deffn {Function} {esa:current-buffer}
+@findex esa:current-buffer
+Return the currently active buffer of the running @code{esa}.
+@end deffn

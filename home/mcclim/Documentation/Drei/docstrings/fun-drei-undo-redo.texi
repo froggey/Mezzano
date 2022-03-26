@@ -1,0 +1,9 @@
+@anchor{Generic-Function drei-undo:redo}
+@deffn {Generic Function} {drei-undo:redo} undo-tree &optional n
+@findex drei-undo:redo
+Move the current state @code{n} steps down the
+remembered branch of the undo tree and call @code{flip-undo-record} on
+each step.  If the remembered branch is shorter than @code{n}, a
+@code{no-more-undo} condition is signaled and the current state is not
+moved (and no calls to @code{flip-undo-record} are made).
+@end deffn

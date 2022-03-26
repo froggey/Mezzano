@@ -1,0 +1,5 @@
+@anchor{Macro clouseau:call-without-noting-object-occurrences}
+@deffn {function} {@symbol{call-without-noting-object-occurrences,clouseau}} thunk
+Call @var{thunk} with @genfunref{clouseau:note-object-occurrence} calls
+devoid of effects.
+@end deffn

@@ -1,0 +1,29 @@
+@anchor{Class drei:drei-syntax-view}
+@deftp {Class} {drei:drei-syntax-view}
+@tindex drei:drei-syntax-view
+Class precedence list: @code{@w{drei-syntax-view}, @w{drei-buffer-view}, @w{drei-view}, @w{tabify-mixin}, @w{subscriptable-name-mixin}, @w{name-mixin}, @w{standard-object}, @w{slot-object}, @w{t}}
+
+Slots:
+@itemize
+@item @code{%syntax} 
+
+An instance of the syntax class used
+for this syntax view.
+@item @code{%prefix-size} 
+
+The number of unchanged objects
+at the beginning of the buffer.
+@item @code{%suffix-size} 
+
+The number of unchanged objects
+at the end of the buffer.
+@item @code{%recorded-buffer-size} 
+
+The size of the buffer
+the last time the view was synchronized.
+@end itemize
+
+A buffer-view that maintains a parse tree of
+the buffer, or otherwise pays attention to the syntax of the
+buffer.
+@end deftp

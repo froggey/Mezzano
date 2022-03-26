@@ -1,0 +1,79 @@
+RELEASE NOTES FOR McCLIM 0.9.4, "Orthodox New Year":
+
+Compatibility
+=============
+
+This release was tested and found to work on the following
+implementations:
+
+ * SBCL
+ * OpenMCL
+ * CLISP
+ * Allegro Common Lisp 8.0 in ANSI Mode
+
+In our tests, this release of McCLIM did not work on the following
+implementations:
+
+ * CMUCL (at the time of this release, the released CMUCL has a bug
+   that prevents successful loading of McCLIM; CMUCL 19d + patch 1 and
+   the 2006-12 snapshot or later contain a fix for this problem)
+
+Also, McCLIM currently does not support lisps with case-sensitive
+readers (ACL "modern mode" and lower-case SCL).
+
+Known Bugs
+==========
+
+Due to the radical changes introduced by the new editor substrate,
+some bugs may surface in day-to-day use. We would very much like to
+hear about them on mcclim-devel@common-lisp.net. As a work-around, you
+can enable the old input substrate by using
+	(setf climi::*use-goatee* t)
+on the REPL when clim is loaded.
+
+The following bugs are known to exist:
+
+* McCLIM freetype can interact poorly with Drei under some
+  circumstances
+* Drei does not handle most reader macros well
+* Sometimes, the ENTER key is not very responsive when editing forms
+  with Drei
+* Calling stream-input-buffer is still buggy.
+
+Changes in mcclim-0.9.4 "Orthodox New Year" relative to 0.9.3:
+===========================================================
+
+From the NEWS file:
+
+* cleanup: removed the obsolete system.lisp file.
+* backend improvements: Gtkairo
+** Double buffering is now supported (fixes disappearing widgets on Windows).
+** X errors no longer terminate the lisp process.
+** Some bugfixes, including CMUCL support and better key event handling.
+** Native implementation of context menus, list panes, label panes, and
+    option panes.
+** Draw text using Pango.  (Bug fix: Fixed-width font supported on Windows
+    now.  Multiple lines of output in TEXT-SIZE supported now.
+    TEXT-STYLE-FIXED-WIDTH-P works correctly now.)
+* Improvement: Added new editor substrate ("Drei").
+* Improvement: Improved the pathname presentation methods considerably.
+* specification compliance: DELETE-GESTURE-NAME function now implemented.
+* specification compliance: PRESENTATION-TYPE-SPECIFIER-P presentaion
+   function now implemented.
+* specification compliance: DISPLAY-COMMAND-TABLE-MENU function now
+   implemented.
+* specification compliance: DISPLAY-COMMAND-MENU function now
+   implemented.
+* specification compliance: POINTER-PLACE-RUBBER-BAND-LINE* function
+   now implemented.
+* specification compliance: POINTER-INPUT-RECTANGLE* function now
+   implemented.
+* specification compliance: POINTER-INPUT-RECTANGLE function now
+   implemented.
+* Improvement: Added font listing support, see section "Fonts and Extended
+   Text Styles" in the manual.
+* Improvement: Added support for bezier splines (Robert Strandh).
+   To be documented.
+* better PRESENTATION-SUBTYPEP (more likely to give the right answer
+   on some-of and all-of presentation types)
+* Improvement: M-n/M-p gestures for navigating presentation histories.

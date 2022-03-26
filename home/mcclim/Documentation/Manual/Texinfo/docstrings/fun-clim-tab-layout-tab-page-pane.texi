@@ -1,0 +1,5 @@
+@anchor{Generic-Function clim-tab-layout:tab-page-pane}
+@deffn {Generic Function} {@symbol{tab-page-pane,clim-tab-layout}} tab-page
+Return the CLIM pane this page displays.  See also
+SHEET-TO-PAGE, the reverse operation.
+@end deffn

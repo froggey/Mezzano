@@ -1,0 +1,6 @@
+@anchor{Function clim:map-over-output-records}
+@deffn {Function} {@symbol{map-over-output-records,clim}} function record &optional x-offset y-offset &rest function-args
+Maps over all of the children of the RECORD, calling FUNCTION on
+each one. It is a function of one or more arguments and called with
+all of FUNCTION-ARGS as APPLY arguments.
+@end deffn

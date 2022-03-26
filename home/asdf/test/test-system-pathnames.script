@@ -1,0 +1,32 @@
+;;; -*- Lisp -*-
+
+(defsystem :test-system-pathnames
+  :pathname "sources/level1"
+  :source-file nil
+  :components
+  ((:file "file1")
+   (:file "file2" :pathname "level2/file2" :depends-on ("file1"))
+   (:static-file "level2/static.file")
+   (:static-file "test-tmp.cl")))
+
+(DBG "loading test-system-pathnames")
+(load-system 'test-system-pathnames)
+
+(DBG "checking that test-system-pathnames loaded properly")
+(assert (find-package :test-package)
+        () "package test-package not found")
+(assert (find-symbol* '*file-tmp* :test-package nil)
+        () "symbol `*file-tmp*` not found")
+(assert (symbol-value (find-symbol* '*file-tmp* :test-package))
+        () "symbol `*file-tmp*` has wrong value")
+
+(assert (probe-file* (test-fasl "sources/level1/file1"))
+        () "compiled file not found")
+
+(assert (find-symbol* '*file-tmp2* :test-package nil)
+        () "symbol `*file-tmp2*` not found")
+(assert (symbol-value (find-symbol* '*file-tmp2* :test-package))
+        () "symbol `*file-tmp2*` has wrong value")
+
+(assert (probe-file* (test-fasl "sources/level1/level2/file2"))
+        () "compiled file not found")

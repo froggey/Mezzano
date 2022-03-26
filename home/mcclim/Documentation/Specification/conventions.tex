@@ -1,0 +1,348 @@
+% -*- Mode: LaTeX; Package: CLIM-USER -*-
+
+\chapter {Conventions}
+\label {conventions}
+
+This chapter describes the conventions used in this specification and in the
+CLIM software itself.
+
+
+\section {Audience, Goals, and Purpose}
+
+This document, the {\bf CLIM Release 2 Specification}, is intended for vendors.
+While it does define the Application Programmer's Interface (API), that is, the
+functionality that a customer/consumer would use to write an application, it
+also defines the names and functionality of some internal parts of CLIM.  These
+``portals'' in implementation space allow one vendor to extend, for example, the
+output record mechanism and have it work with another vendor's implementation of
+incremental redisplay.  We have attempted to carefully identify the appropriate
+``portals'' so that the API can be implemented efficiently, but we have also
+tried not to overconstrain the specification so that it restricts creativity of
+implementation or the possibility for extension.  This also affects the more
+sophisticated application writers who want to go a little below the published
+API but still want portable applications.  This document defines which
+functionality is part of the advertised API, and which is part of the internal
+protocols.
+
+In this document, we refer to three different audiences.  A CLIM \concept{user}
+is a person who uses an application program that was written using CLIM.  A CLIM
+\concept{programmer} is a person who writes application programs using CLIM.  A
+CLIM \concept{implementor} is a programmer who implements CLIM or extends it in
+some non-trivial way.
+
+
+\section {Package Structure}
+
+CLIM defines a variety of packages in order to provide its functionality.  In
+general, no symbols except for the symbols in this specification should be added
+to those packages.
+
+The \cl{clim-lisp} package is intended to implement as much of the draft X3J13
+Common Lisp as possible, independent of the conformance of individual vendors.
+(When all Lisp vendors implement X3J13 Common Lisp, the \cl{clim-lisp} package
+could be eliminated.)  \cl{clim-lisp} is the version of Common Lisp in which
+CLIM is implemented and which the \cl{clim-user} package uses instead of
+\cl{common-lisp}.  \cl{clim-lisp} contains only exported symbols, and is locked
+in those implementations that allow package locking.
+
+\cl{clim} is the package where the symbols specified in this specification live.
+It contains only exported symbols and is locked in those implementations that
+allow package locking.
+
+\cl{clim-sys} is the package where useful ``system-like'' functionality lives,
+including such things as resources and multi-processing primitives.  It contains
+functionality that is not part of Common Lisp, but which is not conceptually the
+province of CLIM itself.  It contains only exported symbols and is locked in
+those implementations that allow package locking.
+
+No code is written in any of the above packages, but rather code is written for
+symbols in the above packages.  None of the above use any other packages (in the
+sense of the \cl{:use} option to \cl{defpackage}).  A CLIM implementation might
+define a \cl{clim-internals} package that uses each of the above packages, thus
+getting the definition of Lisp from \cl{clim-lisp}.  It would then implement the
+functionality of the symbols in \cl{clim} and \cl{clim-sys} in the
+\cl{clim-internals} package.
+
+\cl{clim-user} is a package that programmers can use if they don't wish to
+create their own package.  It is the CLIM analog of \cl{common-lisp-user}.
+
+
+\section {``Spread'' Point Arguments to Functions \label{spread-vs-point}}
+
+Many functions that take point arguments come in two forms: \concept{structured}
+and \concept{spread}.  Functions that take structured point arguments take the
+argument as a single \cl{point} object.  Functions that take spread point
+arguments take a pair of arguments that correspond to the $x$ and $y$
+coordinates of the point.
+
+Functions that take spread point arguments, or return spread point values have
+an asterisk in their name, for example, \cl{draw-line*}.
+
+
+\section {Immutability of Objects}
+
+Most CLIM objects are \concept{immutable}, that is, at the protocol level none
+of their components can be modified once the object is created.  Examples of
+immutable objects include all of the members of the \cl{region} classes, colors
+and opacities, text styles, and line styles.  Since immutable objects by
+definition never change, functions in the CLIM API can safely capture immutable
+objects without first copying them.  This also allows CLIM to cache immutable
+objects.  Constructor functions that return immutable objects are free to either
+create and return a new object, or return an already existing object.
+
+A few CLIM objects are \concept{mutable}.  Examples of mutable objects include
+streams and output records.  Some components of mutable objects can be modified
+once the object has been created, usually via \cl{setf} accessors.
+
+In CLIM, object immutability is maintained at the class level.  Throughout this
+specification, the immutability or mutability of a class will be explicitly
+specified.
+
+Some immutable classes also allow \concept{interning}.  A class is said to be
+interning if it guarantees that two instances that are equivalent will always be
+\cl{eq}.  For example, if the class \cl{color} were interning, calling
+\cl{make-rgb-color} twice with the same arguments would return \cl{eq} values.
+CLIM does not specify that any class is interning, however all immutable classes
+are allowed to be interning at the discretion of the implementation.
+
+In some rare cases, CLIM will modify objects that are members of immutable
+classes.  Such objects are referred to as being \concept{volatile}.  Extreme
+care must be take with volatile objects.  This specification will note whenever
+some object that is part of the API is volatile.
+
+
+\subsection {Behavior of Interfaces}
+
+In this specification, any interfaces that take or return mutable objects can
+be classified in a few different ways.
+
+Most functions \concept{do not capture} their mutable input objects, that is,
+these functions will either not store the objects at all, or will copy any
+mutable objects before storing them, or perhaps store only some of the
+components of the objects.  Later modifications to those objects will not
+affect the internal state of CLIM.
+
+Some functions \concept{may capture} their mutable input objects.  That is, it
+is unspecified as to whether a CLIM implementation will or will not capture the
+mutable inputs to some function.  For such functions, programmers should assume
+that these objects will be captured and must not modify these objects
+capriciously.  Furthermore, it is unspecified what will happen if these objects
+are later modified.
+
+Some programmers might choose to create a mutable subclass of an immutable
+class.  If CLIM captures an object that is a member of such a class, it is
+unspecified what will happen if the programmer later modifies that object.  If a
+programmer passes such an object to a CLIM function that may capture its inputs,
+he is responsible for either first copying the object or ensuring that the
+object does not change later.
+
+Some functions that return mutable objects are guaranteed to create
+\concept{fresh outputs}.  These objects can be modified without affecting the
+internal state of CLIM.
+
+Functions that return mutable objects that are not fresh objects fall into two
+categories: those that return \concept{read-only state}, and those that return
+\concept{read/write state}.  If a function returns read-only state, programmers
+must not modify that object; doing so might corrupt the state of CLIM.  If a
+function returns read/write state, the modification of that object is part of
+CLIM's interface, and programmers are free to modify the object in ways that
+``make sense''.
+
+
+\section {Protocol Classes and Predicates}
+
+CLIM supplies a set of predicates that can be called on an object to determine
+whether or not that object satisfies a certain protocol.  These predicates can
+be implemented in one of two ways.
+
+The first way is that a class implementing a particular protocol will inherit
+from a \concept{protocol class} that corresponds to that protocol.  A protocol
+class is an ``abstract'' class with no slots and no methods (except perhaps for
+some default methods), and exists only to indicate that some subclass obeys the
+protocol.  In the case when a class inherits from a protocol class, the
+predicate could be implemented using \cl{typep}.  All of the CLIM region,
+design, sheet, and output record classes use this convention.  For example, the
+presentation protocol class and predicate could be implemented in this way:
+
+\begin{verbatim}
+(defclass presentation () ())
+
+(defun presentationp (object)
+  (typep object 'presentation))
+\end{verbatim}
+
+Note that in some implementations, it may be more efficient not to use
+\cl{typep}, and instead use a generic function for the predicate.  However,
+simply implementing a method for the predicate that returns \term{true} is not
+necessarily enough to assert that a class supports that protocol; the class must
+include the protocol class as a superclass.
+
+CLIM always provides at least one ``standard'' instantiable class that
+implements each protocol.
+
+The second way is that a class implementing a particular protocol must simply
+implement a method for a predicate generic function that returns \term{true} if
+and only if that class supports the protocol (otherwise, it returns
+\term{false}).  Most of the CLIM stream classes use this convention.  Protocol
+classes are not used in these cases because, as in the case of some of the
+stream classes, the underlying Lisp implementation may not be arranged so as to
+permit it.  For example, the extended input stream protocol might be implemented
+in this way:
+
+\begin{verbatim}
+(defgeneric extended-input-stream-p (object))
+
+(defmethod extended-input-stream-p ((object t)) nil)
+
+(defmethod extended-input-stream-p ((object basic-extended-input-protocol)) t)
+
+(defmethod extended-input-stream-p
+           ((encapsulating-stream standard-encapsulating-stream))
+  (with-slots (stream) encapsulating-stream
+    (extended-input-stream-p stream)))
+\end{verbatim}
+
+Whenever a class inherits from a protocol class or returns \term{true} from the
+protocol predicate, the class must implement methods for all of the generic
+functions that make up the protocol.
+
+
+\section {Specialized Arguments to Generic Functions}
+
+Unless otherwise stated, this specification uses the following convention
+for specifying which arguments to generic functions are specialized:
+
+\begin{itemize}
+\item If the generic function is a \cl{setf} function, the second argument is
+the one that is intended to be specialized.
+
+\item If the generic function is a ``mapping'' function (such as
+\cl{map-over-region-set-regions}), the second argument (the object that
+specifies what is being mapped over) is the one that is specialized.  The
+first argument (the functional argument) is not intended to be specialized.
+
+\item Otherwise, the first argument is the one that is intended to be
+specialized.
+\end{itemize}
+
+
+%% Use \tt instead of \cl, such the hairy \cl macro will blow chow
+\section {Multiple Value {\tt setf}}
+
+Some functions in CLIM that return multiple values have \cl{setf} functions
+associated with them.  For example, \cl{output-record-position} returns the
+position of an output record as two values that correspond to the $x$ and $y$
+coordinates.  In order to change the position of an output record, the
+programmer would like to invoke \cl{(setf~output-record-position)}.  Normally
+however, \cl{setf} only takes a single value with which to modify the specified
+place.  CLIM provides a ``multiple value'' version of \cl{setf} that allows an
+expression that returns multiple values to be used in updating the specified
+place.  In this specification, this facility will be referred to as \cl{setf*}
+in the guise of function names such as \cl{(setf* output-record-position)}, even
+though \cl{setf*} is not actually a defined form.
+
+For example, the modifying function for \cl{output-record-position} might be
+called in either of the following two ways:
+
+\begin{verbatim}
+(setf (output-record-position record) (values nx ny))
+
+(setf (output-record-position record1) (output-record-position record2))
+\end{verbatim}
+
+The second form works because \cl{output-record-position} itself returns two
+values.
+
+Some CLIM implementations may not support \cl{setf*} due to restrictions imposed
+by the underlying Lisp implementation.  In this case, programmers may use
+special ``setter'' function instead.  In the above example,
+\cl{output-record-set-position} is the ``setter'' function.
+
+
+\section {Sheet, Stream, or Medium Arguments to Macros}
+
+There are many macros that take a sheet, stream, or medium as one of the
+arguments, for example, \cl{with-new-output-record} and \cl{formatting-table}.
+In CLIM, this argument must be a variable bound to a sheet, stream, or medium;
+it may not be an arbitrary form that evaluates to a sheet, stream, or medium.
+\cl{t} and sometimes \cl{nil} are usually allowed as special cases; this causes
+the variable to be interpreted as a reference to another stream variable
+(usually \cl{*standard-output*} for output macros, or \cl{*standard-input*} for
+input macros).  Note that, while the variable outside the macro form and the
+variable inside the body share the same name, they cannot be assumed to be the
+same reference.  That is, the macro is free to create a new binding for the
+variable.  Thus, the following code fragment will not necessarily affect the
+value of \arg{stream} outside the \cl{formatting-table} form:
+
+\begin{verbatim}
+(formatting-table (stream)
+  (setq stream some-other-stream)
+  ...)
+\end{verbatim}
+
+Furthermore, for the macros that take a sheet, stream, or medium argument, the
+position of that variable is always before any forms or other ``inputs''.
+
+
+\section {Macros that Expand into Calls to Advertised Functions}
+
+Some macros that take a ``body'' argument expand into a call to an advertised
+function that takes a functional argument.  This functional argument will
+execute the supplied body.  For a macro named ``{\it \cl{with-}environment}'',
+the function is generally named ``{\it \cl{invoke-with-}environment}''.  For
+example, \cl{with-drawing-options} might be defined as follows:
+
+\begin{verbatim}
+(defgeneric invoke-with-drawing-options (medium continuation &key)
+  (declare (dynamic-extent continuation)))
+
+(defmacro with-drawing-options ((medium &rest drawing-options) &body body)
+  `(flet ((with-drawing-options-body (,medium) ,@body))
+     (declare (dynamic-extent #'with-drawing-options-body))
+     (invoke-with-drawing-options
+       ,medium #'with-drawing-options-body ,@drawing-options)))
+
+(defmethod invoke-with-drawing-options 
+           ((medium clx-display-medium) continuation &rest drawing-options)
+  (with-drawing-options-merged-into-medium (medium drawing-options)
+    (funcall continuation medium)))
+\end{verbatim}
+
+
+\section {Terminology Pertaining to Error Conditions}
+
+When this specification specifies that it ``is an error'' for some situation to
+occur, this means that:
+
+\begin{itemize}
+\item No valid CLIM program should cause this situation to occur.
+
+\item If this situation does occur, the effects and results are undefined as
+far as adherence to the CLIM specification is concerned.
+
+\item CLIM implementations are not required to detect such an error, although
+implementations are encouraged to provide such error detection whenever it is
+reasonable to do so.
+\end{itemize}
+
+When this specification specifies that some argument ``must be a \term{type}''
+or uses the phrase ``the \term{type} \arg{argument}'', this means that it is an
+error if the argument is not of the specified type.  CLIM implementations are
+encouraged, but not required, to generate an argument type error for these
+situations.
+
+When this specification says that ``an error is signalled'' in some situation,
+this means that:
+
+\begin{itemize}
+\item If the situation occurs, an error will be signalled using either
+\cl{error} or \cl{cerror}.
+
+\item Valid CLIM programs may rely on the fact that an error will be signalled.
+
+\item Every CLIM implementation is required to detect such an error.
+\end{itemize}
+
+When this specification says that ``a condition is signalled'' in some
+situation, this is just like ``an error is signalled'' with the exception that
+the condition will be signalled using \cl{signal} instead of \cl{error}.

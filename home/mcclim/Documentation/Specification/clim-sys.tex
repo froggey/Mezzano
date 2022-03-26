@@ -1,0 +1,283 @@
+% -*- Mode: LaTeX; Package: CLIM-USER -*-
+
+\chapter {The CLIM-SYS Package}
+\label {clim-sys-package}
+
+The \cl{clim-sys} package where useful ``system-like'' functionality lives,
+including such things as resources and multi-processing primitives.  It contains
+concepts that are not part of Common Lisp, but which are not conceptually the
+province of CLIM itself.
+
+All of the symbols documented in this appendix must be accessible as external
+symbols in the \cl{clim-sys} package.
+
+
+\section {Resources}
+
+CLIM provides a facility called \concept{resources} that provides for reusing
+objects.  A resource describes how to construct an object, how to initialize and
+deinitialize it, and how an object should be selected from the resource of
+objects based on a set of parameters.
+
+\Defmacro {defresource} {name parameters
+                         \key constructor initializer deinitializer
+                              matcher initial-copies}
+
+Defines a resource named \arg{name}, which must be a symbol.  \arg{parameters}
+is a lambda-list giving names and default values (for optional and keyword
+parameters) of parameters to an object of this type.
+
+\arg{constructor} is a form that is responsible for creating an object, and is
+called when someone tries to allocate an object from the resource and no
+suitable free objects exist.  The constructor form can access the parameters as
+variables.  This argument is required.
+
+\arg{initializer} is a form that is used to initialize an object gotten from the
+resource.  It can access the parameters as variables, and also has access to a
+variable called \arg{name}, which is the object to be initialized.  The
+initializer is called both on newly created objects and objects that are being
+reused.
+
+\arg{deinitializer} is a form that is used to deinitialize an object when it is
+about to be returned to the resource.  It can access the parameters as
+variables, and also has access to a variable called \arg{name}, which is the
+object to be deinitialized.  It is called whenever an object is deallocated back
+to the resource, but is not called by \cl{clear-resource}.  Deinitializers are
+typically used to clear references to other objects.
+
+\arg{matcher} is a form that ensures that an object in the resource ``matches''
+the specified parameters, which it can access as variables.  In addition, the
+matcher also has access to a variable called \arg{name}, which is the object in
+the resource being matched against.  If no matcher is supplied, the system
+remembers the values of the parameters (including optional ones that defaulted)
+that were used to construct the object, and assumes that it matches those
+particular values for all time. This comparison is done with \cl{equal}.  The
+matcher should return \term{true} if there is a match, otherwise it should
+return \term{false}.
+
+\arg{initial-copies} is used to specify the number of objects that should be
+initially put into the resource.  It must be an integer or \cl{nil} (the
+default), meaning that no initial copies should be made.  If initial copies are
+made and there are parameters, all the parameters must be optional; in this
+case, the initial copies have the default values of the parameters.
+
+
+\Defmacro {using-resource} {(variable name \rest parameters) \body body}
+
+The forms in \arg{body} are evaluated with \arg{variable} bound to an object
+allocated from the resource named \arg{name}, using the parameters given by
+\arg{parameters}.  The parameters (if any) are evaluated, but \arg{name} is
+not.
+
+After the body has been evaluated, \cl{using-resource} returns the object in
+\arg{variable} back to the resource.  If some form in the body sets
+\arg{variable} to \cl{nil}, the object will not be returned to the resource.
+Otherwise, the body should not changes the value of \arg{variable}.
+
+
+\Defun {allocate-resource} {name \rest parameters}
+
+Allocates an object from the resource named \arg{name}, using the parameters
+given by \arg{parameters}.  \arg{name} must be a symbol that names a resource.
+The returned value is the allocated object.
+
+\Defun {deallocate-resource} {name object}
+
+Returns the object \arg{object} to the resource named \arg{name}.  \arg{name}
+must be a symbol that names a resource.  \arg{object} must be an object that was
+originally allocated from the same resource.
+
+\Defun {clear-resource} {name}
+
+Clears the resource named \arg{name}, that is, removes all of the resourced
+object from the resource.  \arg{name} must be a symbol that names a resource.
+
+\Defun {map-resource} {function name}
+
+Calls \arg{function} once on each object in the resource named \arg{name}.
+\arg{function} is a function of three arguments, the object, a boolean value
+that is \term{true} if the object is in use or \term{false} if it is free, and
+\arg{name}.  \arg{function} has dynamic extent.
+
+
+\section {Multi-processing}
+
+Most Lisp implementations provide some form of multi-processing.  CLIM provides
+a set of functions that implement a uniform interface to the multi-processing
+functionality.
+
+\Defvar {*multiprocessing-p*}
+
+The value of \cl{*multiprocessing-p*} is \cl{t} if the current Lisp
+environment supports multi-processing, otherwise it is \cl{nil}.
+
+\Defun {make-process} {function \key name}
+
+Creates a process named \arg{name}.  The new process will evaluate the function
+\arg{function}.  On systems that do not support multi-processing,
+\cl{make-process} will signal an error.
+
+\Defun {destroy-process} {process}
+
+Terminates the process \arg{process}.  \arg{process} is an object returned by
+\cl{make-process}.
+
+\Defun {current-process} {}
+
+Returns the currently running process, which will be the same kind of object as
+would be returned by \cl{make-process}.
+
+\Defun {all-processes} {}
+
+Returns a sequence of all of the processes.
+
+\Defpredicate {processp} {object}
+
+Returns \cl{t} if \arg{object} is a process, otherwise returns \arg{nil}.
+
+\defun {process-name} {process}
+\defun {process-state} {process}
+\Defun {process-whostate} {process}
+
+These functions return, respectively, the name, state, and ``whostate'' of the
+process.  These format of these quantities will vary depending on the platform.
+
+\Defun {process-wait} {reason predicate}
+
+Causes the current process to wait until \arg{predicate} returns \term{true}.
+\arg{reason} is a ``reason'' for waiting, usually a string.  On systems that do
+not support multi-processing, \cl{process-wait} will loop until \arg{predicate}
+returns \term{true}.
+
+\Defun {process-wait-with-timeout} {reason timeout predicate}
+
+Causes the current process to wait until either \arg{predicate} returns
+\term{true}, or the number of seconds specified by \arg{timeout} has elapsed.
+\arg{reason} is a ``reason'' for waiting, usually a string.  On systems that do
+not support multi-processing, \cl{process-wait-with-timeout} will loop until
+\arg{predicate} returns \term{true} or the timeout has elapsed.
+
+\Defun {process-yield} {}
+
+Allows other processes to run.  On systems that do not support multi-processing,
+this does nothing.
+
+\Defun {process-interrupt} {process function}
+
+Interrupts the process \arg{process} and causes it to evaluate the function
+\arg{function}.  On systems that do not support multi-processing, this is
+equivalent to \cl{funcall}'ing \arg{function}.
+
+\Defun {disable-process} {process}
+
+Disables the process \arg{process} from becoming runnable until it is enabled
+again.
+
+\Defun {enable-process} {process}
+
+Allows the process \arg{process} to become runnable again after it has been
+disabled.
+
+\Defun {restart-process} {process}
+
+Restarts the process \arg{process} by ``unwinding'' it to its initial state, and
+reinvoking its top-level function.
+
+\Defmacro {without-scheduling} {\body body}
+
+Evaluates \arg{body} in a context that is guaranteed to be free from
+interruption by other processes.  On systems that do not support
+multi-processing, \cl{without-scheduling} is equivalent to \cl{progn}.
+
+\defun {atomic-incf} {reference}
+\Defun {atomic-decf} {reference}
+
+Increments (or decrements) the fixnum value referred to by \arg{reference} as a
+single, atomic operation.
+
+
+\section {Locks}
+
+\Defun {make-lock} {\optional name}
+
+Creates a lock whose name is \arg{name}.  On systems that do not support
+locking, this will return a new list of one element, \cl{nil}.
+
+\Defmacro {with-lock-held} {(place \optional state) \body body}
+
+Evaluates \arg{body} with the lock named by \arg{place}.  \arg{place} is a
+reference to a lock created by \cl{make-lock}.
+
+On systems that do not support locking, \cl{with-lock-held} is equivalent to
+\cl{progn}.
+
+\Defun {make-recursive-lock} {\optional name}
+
+Creates a recursive lock whose name is \arg{name}.  On systems that do not
+support locking, this will return a new list of one element, \cl{nil}.  A
+recursive lock differs from an ordinary lock in that a process that already
+holds the recursive lock can call \cl{with-recursive-lock-held} on the same lock
+without blocking.
+
+\Defmacro {with-recursive-lock-held} {(place \optional state) \body body}
+
+Evaluates \arg{body} with the recursive lock named by \arg{place}.  \arg{place}
+is a reference to a recursive lock created by \cl{make-recursive-lock}.  
+
+On systems that do not support locking, \cl{with-recursive-lock-held} is
+equivalent to \cl{progn}.
+
+
+%% Use \tt instead of \cl, such the hairy \cl macro will blow chow
+\section {Multiple Value {\tt setf}}
+
+CLIM provides a facility, sometimes referred to as \cl{setf*}, that allows
+\cl{setf} to be used on ``places'' that name multiple values.  For example,
+\cl{output-record-position} returns the position of an output record as two
+values that correspond to the $x$ and $y$ coordinates.  In order to change the
+position of an output record, the programmer would like to invoke
+\cl{(setf~output-record-position)}.  Normally however, \cl{setf} only takes a
+single value with which to modify the specified place.  The \cl{setf*} facility
+provides a ``multiple value'' version of \cl{setf} that allows an expression
+that returns multiple values to be used to update the specified place.
+
+\Defmacro {defgeneric*} {name lambda-list \body options}
+
+Defines a \cl{setf*} generic function named \arg{name}.  The last argument in
+\arg{lambda-list} is intended to be class specialized, just as is the case for
+normal \cl{setf} generic functions.  \arg{options} is as for \cl{defgeneric}.
+
+\Defmacro {defmethod*} {name \{method-qualifier\}* specialized-lambda-list \body body}
+
+Defines a \cl{setf*} method for the generic function \arg{name}.  The last
+argument in \arg{specialized-lambda-list} is intended to be class specialized,
+just as is the case for normal \cl{setf} methods.  \arg{\{method-qualifier\}*}
+amd \arg{body} are as for \cl{defgeneric}.
+
+
+For example, \cl{output-record-position} and its \cl{setf*} method for a class
+called \cl{sample-output-record} might be defined as follows:
+
+\begin{verbatim}
+(defgeneric output-record-position (record)
+  (declare (values x y)))
+(defgeneric* (setf output-record-position) (x y record))
+
+(defmethod output-record-position ((record sample-output-record))
+  (with-slots (x y)
+    (values x y)))
+
+(defmethod* (setf output-record-position) (nx ny (record sample-output-record))
+  (with-slots (x y)
+    (setf x nx
+          y ny)))
+\end{verbatim}
+
+The position of such an output record could then be changed as follows:
+
+\begin{verbatim}
+(setf (output-record-position record) (values nx ny))
+
+(setf (output-record-position record1) (output-record-position record2))
+\end{verbatim}
+

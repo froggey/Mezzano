@@ -1,0 +1,116 @@
+Version 0.7.5
+2017-12-10
+Fix FILE-EXISTS-P to return directory truename in CLISP (chaitanyagupta)
+Added support for Common Lisp implementation CLASP. (dg1sbg)
+
+Version 0.7.4
+2016-07-10
+Merge pull request #13 from vibs29/master (Hans Hübner)
+Make copy-stream work for CMUCL Gray Streams (vibs29)
+
+Version 0.7.3
+2014-11-28
+remove version from cl-fad-test system (Hans Huebner)
+update support information (Hans Huebner)
+
+Version 0.7.2
+2013-07-03
+Fix documentation glitch (inconsistent download link) (Luís Oliveira)
+
+Version 0.7.1
+2013-02-18
+Fix for LispWorks (R. Wilker)
+Add :description to .asd file
+
+Version 0.7.0
+2013-01-23
+Tests, pathname manipulation functions (Marco Baringer)
+Temporary files (merged by Marco Baringer)
+Fix symlink behaviour for some platforms (Mihai Bazon and Janis Dzerins)
+
+Version 0.6.4
+2010-11-18
+Adapt to newer ClozureCL version (patch from Zach Beane, thanks to Chun Tian and Ralph Moritz as well)
+
+Version 0.6.3
+2009-09-30
+Removed dependency on :SB-EXECUTABLE (thanks to Attila Lendvai and Tobias Rittweiler)
+
+Version 0.6.2
+2008-03-12
+Never version of OpenMCL have %RMDIR (thanks to Dmitri Hrapof)
+
+Version 0.6.1
+2007-12-29
+Integrated CLISP patch for LIST-DIRECTORY sent by Dan Muller
+
+Version 0.6.0
+2007-05-28
+Support for Scieneer CL (patch from Douglas Crosher)
+
+Version 0.5.2
+2007-05-15
+Fix for (newer versions of) ECL (patch from Dustin Long)
+
+Version 0.5.1
+2006-08-11
+Added CHECKP to COPY-STREAM
+
+Version 0.5.0
+2006-04-21
+Added :BREADTH-FIRST option to WALK-DIRECTORY (thanks to Mac Chan)
+
+Version 0.4.3
+2006-03-15
+For CMUCL use TRUENAME with UNIX-RMDIR to cope with search lists (reported by Pawel Ostrowski)
+
+Version 0.4.2
+2006-01-04
+WALK-DIRECTORY now catches circular symbolic links (thanks to Gary King)
+
+Version 0.4.1
+2006-01-03
+Be more careful in DIRECTORY-WILDCARD (thanks to Gary King)
+Patches for MCL (thanks to Gary King)
+
+Version 0.4.0
+2005-12-10
+Exported COPY-STREAM (suggested by Chris Dean)
+
+Version 0.3.3
+2005-11-14
+Fixed %RMDIR for newer versions of OpenMCL (thanks to James Bielman)
+
+Version 0.3.2
+2005-09-11
+Fixed docs (correct name DELETE-DIRECTORY-AND-FILES)
+Fixed docs (OVERWRITE was missing in COPY-FILE signature)
+Added Debian link
+
+Version 0.3.1
+2005-06-02
+Fixed typo in fad.lisp (thanks to Jack D. Unrue)
+
+Version 0.3.0
+2005-06-01
+Support for ABCL (thanks to Jack D. Unrue)
+
+Version 0.2.0
+2005-05-29
+Support for ECL (thanks to Maciek Pasternacki)
+
+Version 0.1.3
+2005-04-27
+Changed implementation of DIRECTORY-EXISTS-P for LispWorks
+
+Version 0.1.2
+2005-03-17
+Fixed typo in cl-fad.system (tanks to Andrew Philpot)
+
+Version 0.1.1
+2005-01-22
+Fixed typos and versioning
+
+Version 0.1.0
+2005-01-22
+Initial release

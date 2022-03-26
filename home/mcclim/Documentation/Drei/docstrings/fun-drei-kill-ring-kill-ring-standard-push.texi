@@ -1,0 +1,10 @@
+@anchor{Generic-Function drei-kill-ring:kill-ring-standard-push}
+@deffn {Generic Function} {drei-kill-ring:kill-ring-standard-push} kr vector
+@findex drei-kill-ring:kill-ring-standard-push
+Pushes a vector of objects onto the kill ring
+creating a new start of ring position.  This function is much
+like an everyday Lisp push with size considerations.  If the
+length of the kill ring is greater than the maximum size, then
+"older" elements will be removed from the ring until the
+maximum size is reached.
+@end deffn

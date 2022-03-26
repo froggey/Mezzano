@@ -1,0 +1,10 @@
+@anchor{Generic-Function clouseau:note-object-occurrence}
+@deffn {Generic Function} {@symbol{note-object-occurrence,clouseau}} object state presentation stream
+Note that @var{presentation} is a representation of @var{object} in
+@var{stream}.
+
+@var{state} is the state associated with @var{object}.
+
+The main purpose of this generic function is tracking multiple
+occurrences of objects so the circularity can be indicated.
+@end deffn

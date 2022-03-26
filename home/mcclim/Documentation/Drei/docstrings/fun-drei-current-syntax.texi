@@ -1,0 +1,5 @@
+@anchor{Function drei:current-syntax}
+@deffn {Function} {drei:current-syntax}
+@findex drei:current-syntax
+Return the syntax of the current buffer.
+@end deffn

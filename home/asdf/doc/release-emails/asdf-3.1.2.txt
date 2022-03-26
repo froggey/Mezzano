@@ -1,0 +1,9 @@
+Today I have released (with much help from Fare) ASDF 3.1.3.
+
+We urge implementations that are currently shipping with 3.1.2 to move
+forward to 3.1.3.  3.1.3 has no API incompatibilities that we know of,
+and contains significant bug fixes.  Most significantly, 3.1.3 fixes
+bugs that impede hot-upgrade from 3.1.2 to a later version of ASDF,
+which is critical to ASDF development.  In addition, we have fixed
+multiple bugs in ASDF system search caching, that impeded correct use of
+restarts involving adding new systems to a running CL.

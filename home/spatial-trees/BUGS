@@ -1,0 +1,13 @@
+1:
+
+  R* trees sometimes fail their self-tests, with an error message of
+  the form
+
+    There is no applicable method for the generic function
+      #<STANDARD-GENERIC-FUNCTION (SETF PARENT) (1)>
+    when called with arguments
+      (#<SPATIAL-TREE-NODE #<(0.01974988,0.5777439) - (0.58179224,1.8144482)>
+          (# # #)>
+       #S(LEAF-NODE-ENTRY
+          :RECTANGLE #<(0.373667,0.62124753) - (0.58179224,1.5787126)>
+          :DATUM #<(0.373667,0.62124753) - (0.58179224,1.5787126)>)).

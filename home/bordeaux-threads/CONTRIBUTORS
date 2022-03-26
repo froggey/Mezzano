@@ -1,0 +1,17 @@
+-*- outline -*-
+
+Based on original Bordeaux-MP spec by Dan Barlow <dan@telent.net>
+
+Contributors:
+
+* Attila Lendvai <attila.lendvai@gmail.com>
+  - better handling of unsupported Lisps
+* Vladimir Sekissov <svg@surnet.ru>
+  - fixes for CMUCL implementation
+* Pierre Thierry <nowhere.man@levallois.eu.org>
+ - added license information
+* Stelian Ionescu <sionescu@cddr.org>
+  - finished conversion from generic functions
+  - enabled running thread-safe code in unthreaded lisps
+* Douglas Crosher <dtc@scieneer.com>
+  - added Scieneer Common Lisp support

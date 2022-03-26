@@ -1,0 +1,6 @@
+@anchor{Generic-Function drei-syntax:delete-invalid-lexemes}
+@deffn {Generic Function} {drei-syntax:delete-invalid-lexemes} lexer from to
+@findex drei-syntax:delete-invalid-lexemes
+Invalidate all lexemes that could have changed
+as a result of modifications to the buffer
+@end deffn

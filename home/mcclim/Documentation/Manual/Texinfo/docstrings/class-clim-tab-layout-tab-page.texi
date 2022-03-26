@@ -1,0 +1,10 @@
+@anchor{Class clim-tab-layout:tab-page}
+@deftp {Class} {@symbol{tab-page,clim-tab-layout}}
+Class precedence list: @code{@w{tab-page}, @w{standard-object}, @w{slot-object}, @w{t}}
+
+Instances of @code{tab-page} represent the pages in a @code{tab-layout}.
+For each child pane, there is a @code{tab-page} providing the page's title and
+additional information about the child.  Valid initialization arguments
+are :@code{title}, :@code{pane} (required) and :@code{presentation-type},:DRAWING-OPTIONS
+(optional).
+@end deftp

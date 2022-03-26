@@ -1,0 +1,108 @@
+\documentclass[11pt]{book}
+\newcommand{\Comment}[1]{\begin{center}\tt #1 \end{center}}
+% \usepackage{doublespace}
+\usepackage[paperwidth=7.5in, paperheight=9.25in,
+            inner=35mm, outer=25mm,
+            tmargin=25mm, bmargin=30mm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{alltt}
+\usepackage{moreverb}
+\usepackage{fancyvrb}
+\usepackage{epsfig}
+\usepackage{makeidx}
+\usepackage{float}
+\usepackage{color}
+\usepackage{amsthm}
+\usepackage{changebar}
+\usepackage[nottoc]{tocbibind}
+\usepackage{shadow}
+\usepackage{hyperref}
+\setlength\sdim{2mm}
+
+\floatplacement{figure}{!htbp}
+
+\newfloat{codefragment}{!htbp}{cod}[chapter]
+\floatname{codefragment}{Code fragment}
+
+\newtheorem{theorem}{Theorem}[chapter]
+\newtheorem{exercise}{Exercise}[chapter]
+\newtheorem{definition}{Definition}[chapter]
+
+\setlength{\parskip}{0.3cm}
+\setlength{\parindent}{0cm}
+
+\def\lispout#1{\underline{#1}}
+
+\def\mop{MOP}
+\def\bs{$\backslash$}
+\def\lispobj#1{\textsl{#1}}
+\def\lispobjindex#1{\lispobj{#1}\index{#1@\lispobj{#1}}}
+\def\syntax#1{\texttt{#1}}
+\def\metavar#1{\textit{#1}}
+\def\keyword#1{\code{\textbf{#1}}}
+\def\code#1{\textsf{#1}}
+\def\fixme#1{\footnote{\color{red}FIXME: #1}}
+
+\def\sysname{ESA}
+
+\def\inputfig#1{\input #1}
+\def\inputtex#1{\input #1}
+\def\inputal#1{\input #1}
+\def\inputcode#1{\input #1}
+
+\inputtex{logos.tex}
+\inputtex{refmacros.tex}
+\inputtex{spec-macros.tex}
+\inputtex{other-macros.tex}
+
+\newenvironment{itemize0}{
+\begin{itemize}
+\setlength{\parskip}{0cm}%
+}
+{\end{itemize}}
+
+\newenvironment{enumerate0}{
+\begin{enumerate}
+\setlength{\parskip}{0cm}%
+}
+{\end{enumerate}}
+
+\newenvironment{smalltt}{
+\begin{alltt}
+\small
+}
+{\end{alltt}}
+
+%UPDATE version number when it changes.
+\def\majorversion{0}
+\def\minorversion{1}
+\def\bookversion{\majorversion{}.\minorversion{}}
+\title{{\Huge \sysname{}}\\
+A library for writing Emacs-Style Applications.}
+
+\author{Robert Strandh}
+
+\date{2016}
+
+\makeindex
+\begin{document}
+\pagenumbering{roman}
+
+\maketitle
+
+\newpage
+
+{\setlength{\parskip}{0cm}
+\tableofcontents}
+
+\inputtex{chap-intro.tex}
+\inputtex{chap-package.tex}
+\inputtex{chap-basic-use.tex}
+\inputtex{chap-input-output.tex}
+
+\bibliography{esa}{}
+\bibliographystyle{alpha}
+
+\end{document}
+

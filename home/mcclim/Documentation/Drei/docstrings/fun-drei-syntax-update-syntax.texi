@@ -1,0 +1,17 @@
+@anchor{Generic-Function drei-syntax:update-syntax}
+@deffn {Generic Function} {drei-syntax:update-syntax} syntax unchanged-prefix unchanged-suffix &optional begin end
+@findex drei-syntax:update-syntax
+Method combination: @code{VALUES-MAX-MIN} (@w{most-specific-last})
+
+Inform the syntax module that it must update
+its view of the buffer. @code{unchanged-prefix} @code{unchanged-suffix}
+indicate what parts of the buffer has not been changed. @code{begin}
+and @code{end} are offsets specifying the minimum region of the buffer
+that must have an up-to-date parse, defaulting to 0 and the size
+of the buffer respectively. It is perfectly valid for a syntax to
+ignore these hints and just make sure the entire syntax tree is
+up to date, but it *must* make sure at at least the region
+delimited by @code{begin} and @code{end} has an up to date parse. Returns
+two values, offsets into the buffer of the syntax, denoting the
+buffer region thas has an up to date parse.
+@end deffn

@@ -1,0 +1,9 @@
+@anchor{Generic-Function drei-buffer:object-before}
+@deffn {Generic Function} {drei-buffer:object-before} mark
+@findex drei-buffer:object-before
+Return the object that is immediately before
+the mark.  If mark is at the beginning of the buffer, a
+@code{no-such-offset} condition is signaled.  If the mark is at the
+beginning of a line, but not at the beginning of the buffer, a
+newline character is returned.
+@end deffn

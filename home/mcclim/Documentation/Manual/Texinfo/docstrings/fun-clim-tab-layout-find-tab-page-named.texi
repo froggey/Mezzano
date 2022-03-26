@@ -1,0 +1,6 @@
+@anchor{Function clim-tab-layout:find-tab-page-named}
+@deffn {Function} {@symbol{find-tab-page-named,clim-tab-layout}} name tab-layout
+Find the tab page with the specified @code{title} in @code{tab-layout}.
+Note that uniqueness of titles is not enforced; the first page found will
+be returned.
+@end deffn

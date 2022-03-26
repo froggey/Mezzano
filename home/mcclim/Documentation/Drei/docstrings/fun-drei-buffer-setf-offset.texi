@@ -1,0 +1,8 @@
+@anchor{Generic-Function (setf drei-buffer:offset)}
+@deffn {Generic Function} {(setf drei-buffer:offset)} new-offset mark
+@findex (setf drei-buffer:offset)
+Set the offset of the mark into the buffer.  A
+motion-before-beginning condition is signaled if the offset is
+less than zero. A motion-after-end condition is signaled if the
+offset is greater than the size of the buffer.
+@end deffn

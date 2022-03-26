@@ -1,0 +1,882 @@
+@node User manual
+@chapter User manual
+
+@menu
+* Building McCLIM::
+* The first application::
+@c * Photo gallery::
+* Using incremental redisplay::
+* Using presentation types::
+* Using views::
+* Using command tables::
+* Using menu bar::
+@end menu
+
+@node Building McCLIM
+@section Building McCLIM
+
+The @mcclim{} source distribution comes with a number of demos, examples
+and applications.  They are intended to showcase specific @clim{}
+features, demonstrate programming techniques or provide useful tools.
+
+These demos and applications are available in the @file{Examples} and
+@file{Apps} subdirectories of the source tree's root directory.  The
+following sections give a brief overview of the included examples and
+applications and explain how to compile, load and run them.
+Furthermore, the @file{INSTALL} file in the source tree's root directory
+contains more detailed @mcclim{} installation instructions for your Common
+Lisp implementation.
+
+@subsection Examples and demos
+
+Demos are meant to be run after loading the @t{clim-examples} system
+from the frame created with @code{(clim-demo:demodemo)}.
+
+The easiest way to try this is to use the @emph{Quicklisp} library
+manager. Assuming that Quicklisp has already been set up, trying out the
+demos is straightforward:
+
+@lisp
+(ql:quickload :clim-examples)
+(clim-demo:demodemo)
+@end lisp
+
+Alternatively, for the more courageous (which requires separately
+downloading dependencies and setting a local repository), @t{asdf}
+also works well starting from the @mcclim{} source code directory.
+
+@lisp
+(asdf:load-system "clim-examples")
+(clim-demo:demodemo)
+@end lisp
+
+The source code of all demos can be found in the @file{Examples}
+directory.
+
+@subsection Applications
+
+Additionally @mcclim{} has a few bundled applications:
+
+@table @file
+@item Apps/Listener
+
+@clim{}-enabled Lisp listener.  System name is @t{clim-listener}.
+@xref{Listener} for more information.
+
+@lisp
+(asdf:load-system "clim-listener")
+(clim-listener:run-listener)
+@end lisp
+
+@item Apps/Clouseau
+
+@clim{}-enabled Lisp inspector.  System name is
+@t{clouseau}.  @xref{Inspector} for more information.
+
+@lisp
+(asdf:load-system "clouseau")
+(clouseau:inspect clim:+indian-red+)
+@end lisp
+
+@item Apps/Debugger
+
+Common Lisp debugger implemented in @mcclim{}.  It uses the portable
+debugger interface for @t{sldb} (part of Slime project).  System name is
+@t{clim-debugger}.  @xref{Debugger} for more information.
+
+@lisp
+(asdf:load-system "clim-debugger")
+(clim-debugger:with-debugger
+ (break "simple-break"))
+@end lisp
+
+@item Apps/Functional-Geometry
+
+Peter Henderson idea, see
+@uref{http://www.ecs.soton.ac.uk/~ph/funcgeo.pdf} and
+@uref{http://www.ecs.soton.ac.uk/~ph/papers/funcgeo2.pdf} implemented in
+Lisp by Frank Buss.  @clim{} Listener interface by Rainer Joswig. System
+name is @t{functional-geometry}.
+
+@lisp
+(asdf:load-system 'functional-geometry)
+(functional-geometry:run-functional-geometry)
+(clim-plot *fishes*) ; from a listener
+@end lisp
+
+@end table
+
+@node The first application
+@section The first application
+@cindex building an application
+@cindex writing an application
+
+@menu
+* A bit of terminology::
+* How CLIM applications produce output::
+* Panes and Gadgets::
+* Defining Application Frames::
+* A First Attempt::
+* Executing the Application::
+* Adding Functionality::
+* An application displaying a data structure::
+@end menu
+
+@node A bit of terminology
+@subsection A bit of terminology
+
+@clim{} was developed before the GUI toolkits widely used at the moment.
+Qt, GTK and others appeared much later than @clim{} and the difference
+of terminology reflects this.
+
+A @clim{} application is made up of a hierarchy of an @gloss{application
+frame}, @gloss{panes} and @gloss{gadgets} (gadgets are special kinds
+of panes):
+
+@table @asis
+@item application frame
+An @emph{application frame} is what would usually be called an
+application.
+
+@item panes
+At a very high level, panes describe an application frame's visual
+building blocks: a side bar, a menu bar, a table displaying a list of
+items, a text input are all panes. They can be used by application
+programmers to compose the top-level user interface of their
+applications, as well as auxiliary components such as menus and
+dialogs. In addition, panes can be more abstract such as layout panes
+such as @t{hbox}, @t{vbox} to arrange other panes horizontally or
+vertically, etc.
+
+@item gadgets
+@emph{gadgets} correspond to what other toolkits call @emph{widgets}
+and @emph{control}.  Frequently used @clim{} gadgets are
+@gadget{button}s, @gadget{slider}s, etc.
+@end table
+
+@node How CLIM applications produce output
+@subsection How CLIM applications produce output
+
+Although it is easy to imagine panes in terms of their appearance on
+screen, they are much richer: they are actually the series of
+operations that produces that appearance. They are not only the end
+product visible on a screen, but they contain all the step-by-step
+information that led to that representation.
+
+More precisely, @clim{} panes record the series of operations that
+generates an output.  This means that such a pane maintains a display
+list, consisting of a sequence of output records, ordered
+chronologically, from the first output record to be drawn to the last.
+
+This display list is used to fill in damaged areas of the pane, for
+instance as a result of the pane being partially or totally covered by
+other panes, and then having some or all of its area again becoming
+visible.  The output records of the display list that have some parts
+in common with the exposed area are partially or totally replayed (in
+chronological order) to redraw the contents of the area.
+
+An application can have a pane establish this display list in several
+fundamentally different ways, each more sophisticated:
+
+@table @asis
+@item Simple application
+Very simple applications have no internal data structure to keep track
+of application objects, and simply produce output to the pane from
+time to time as a result of running commands, occasionally perhaps
+erasing the pane and starting over.  Such applications typically use
+text or graphics output as a result of running commands.  @clim{}
+maintains the display list for the pane, and adds to the end of it,
+each time also producing the pixels that result from drawing the new
+output record.  If the pane uses scrolling (which it typically does),
+then @clim{} must determine the extent of the pane so as to update the
+scroll bar after each new output.
+
+@item Application with a static display function
+More complicated applications use a display function.  Before the
+display function is run, the existing display list is typically
+deleted, so that the purpose of the display function becomes to
+establish an entirely new display list.  The display function might
+for instance produce some kind of form to be filled in, and
+application commands can use text or graphics operations to fill in
+the form.  A game of tic-tac-toe could work this way, where the
+display function draws the board and commands draw shapes into the
+squares.
+
+@item Application with a dynamic display function
+Even more complicated applications might have some internal data
+structure that has a direct mapping to output, and commands simply
+modify this internal data structure.  In this case, the display
+function is run after each time around the command loop, because a
+command can have modified the internal data structure in some
+arbitrary ways.  Some such applications might simply want to delete
+the existing display list and produce a new one each time (to minimize
+flicker, double buffering could be used).  This is a very simple way
+of structuring an application, and entirely acceptable in many cases.
+Consider, for instance, a board game where pieces can be moved (as
+opposed to just added).  A very simple way of structuring such an
+application is to have an internal representation of the board, and to
+make the display function traverse this data structure and produce the
+complete output each time in the command loop.
+
+@item Application with an incremental static display function
+Some applications have very large internal data structures to be
+displayed, and it would cause a serious performance problem if the
+display list had to be computer from scratch each time around the
+command loop.  To solve this problem, @clim{} contains a feature called
+incremental redisplay.  It allows many of the output records to be kept
+from one iteration of the command loop to the next.  This can be done in
+two different ways.  The simplest way is for the application to keep the
+simple structure which consists of traversing the entire data structure
+each time, but at various points indicate to @clim{} that the output has
+not changed since last time, so as to avoid actually invoking the
+application code for computing it.  This is accomplished by the use of
+@t{updating-output}.  The advantage of @t{updating-output} is that the
+application logic remains straightforward, and it is up to @clim{} to do
+the hard work of recycling output records.  The disadvantage is that for
+some very demanding applications, this method might not be fast enough.
+
+@item Programmer does it all
+The other way is more complicated and requires the programmer to
+structure the application differently.  Essentially, the application has
+to keep track of the output records in the display list, and inform
+@clim{} about modifications to it.  The main disadvantage of this method
+is that the programmer must now write the application to keep track of
+the output records itself, as opposed to leaving it to @clim{}.
+@end table
+
+@node Panes and Gadgets
+@subsection Panes and Gadgets
+
+A @clim{} application is made up of a hierarchy of @gloss{panes} and
+@gloss{gadgets} (gadgets are special kinds of panes).  These elements
+correspond to what other toolkits call @emph{widgets}.  Frequently used
+@clim{} gadgets are @gadget{button}s, @gadget{slider}s, etc, and typical
+panes are the layout panes such as @pane{hbox}, @pane{vbox},
+@pane{hrack}, etc.
+@cindex pane
+@cindex gadget
+
+@node Defining Application Frames
+@subsection Defining Application Frames
+
+Each @clim{} application is defined by an @gloss{application frame}.  An
+application frame is an instance of the class @class{application-frame}.
+As a @clim{} user, you typically define a class that inherits from the
+class @class{application-frame}, and that contains additional slots
+needed by your application.  It is considered good style to keep all
+your application-specific data in slots in the application frame (rather
+than, say, in global variables), and to define your application-specific
+application frame in its own package.
+@cindex application frame
+
+The usual way to define an application frame is to use the macro
+@fmacro{define-application-frame}.  This macro works much like
+@fmacro{defclass}, but also allows you to specify the hierarchy of
+@gloss{panes} and @gloss{gadgets} to use.
+
+@node A First Attempt
+@subsection A First Attempt
+
+Let us define a very primitive @clim{} application.  For that, let us put
+the following code in a file:
+
+@lisp
+@include ex1.lisp
+@end lisp
+
+As we can see in this example, we have put our application in a separate
+package, here a package named @t{APP}.  While not required, putting the
+application in its own package is good practice.
+
+The package for the application uses two packages: @package{CLIM} and
+@package{CLIM-LISP}.  The @package{CLIM} package is the one that
+contains all the symbols needed for using @clim.  The @package{CLIM-LISP}
+package replaces the @package{COMMON-LISP} package for @clim{}
+applications.  It is essentially the same as the @package{COMMON-LISP}
+package as far as the user is concerned.
+
+In our example, we export the symbol that corresponds to the main
+function to start our application, here called @t{run-my-first-app}.
+
+The most important part of the code in our example is the definition
+of the application-frame.  In our example, we have defined an
+application frame called @t{my-first-clim-app}, which becomes a CLOS
+class that automatically inherits from some standard @clim{} application
+frame class.
+
+The second argument to @fmacro{define-application-frame} is a list of
+additional superclasses from which you want your application frame to
+inherit.  In our example, this list is empty, which means that our
+application frame only inherits from the standard @clim{} application
+frame.
+
+The third argument to @fmacro{define-application-frame} is a list of
+CLOS slots to be added to any instance of this kind of application
+frame.  These slots are typically used for holding all
+application-specific data.  The current instance of the application
+frame will always be the value of the special variable
+@t{*application-frame*},
+@vindex @symbol{*application-frame*,clim}
+so that the values of these slots can be accessed.  In our example, we
+do not initially have any further slots.
+
+The rest of the definition of an application frame contains additional
+elements that @clim{} will allow the user to define.  In our example, we
+have two additional (mandatory) elements: @t{:panes} and @t{:layouts}.
+
+The @t{:panes} element defines a collection of @clim{} panes that each
+instance of your application may have.  Each pane has a name, a type,
+and perhaps some options that are used to instantiate that particular
+type of pane.  Here, we have a pane called @t{my-interactor} of type
+@t{:interactor} with a height of 400 units and a width of 600 units.  In
+@mcclim{}, the units are initially physical units (number of pixels) of the
+native windowing system.
+
+The @t{:layouts} element defines one or more ways of organizing the
+panes in a hierarchy.  Each layout has a name and a description of a
+hierarchy.  In our example, only one layout, named @t{my-default}, is
+defined.  The layout called @t{my-default} is the one that is used by
+@clim{} at startup.  In our example, the corresponding hierarchy is
+trivial, since it contains only the one element @t{my-interactor},
+which is the name of our only pane.
+
+@node Executing the Application
+@subsection Executing the Application
+
+In order to run a @clim{} application, you must have a Lisp system that
+contains @mcclim{}.  If you use CMUCL or SBCL, you either need a
+@t{core} file that already has @mcclim{} in it, or else, you have to
+load the @mcclim{} compiled files that make up the @mcclim{}
+distribution.  The first solution is recommended so as to avoid having
+to load the @mcclim{} files each time you start your @clim{}
+application.
+
+To execute the application, load the file containing your code (possibly
+after compiling it) into your running Lisp system.  Then start the
+application.  Our example can be started by typing
+@t{(my-first-app:run-my-first-app)}.
+
+@node Adding Functionality
+@subsection Adding Functionality
+
+In a serious application, you would probably want some area where your
+application objects are to be displayed.  In @clim{}, such an area is
+called an @emph{application pane}, and would be an instance (direct or
+indirect) of the @clim{} class @t{application-pane}.  In fact, instances
+of this class are in reality also @emph{streams} which can be used in
+calls both to ordinary input and output functions such as @t{format} and
+@t{read} and to @clim{}-specific functions such as @t{draw-line}.
+
+Let's consider an improved example, where for sake of efficiency the
+@emph{my-} names have been replaced by shorter versions:
+
+@lisp
+@include ex2.lisp
+@end lisp
+
+In this example we have such an application pane, the name of which is
+@t{app}.  As you can see, we have defined it with an option
+@t{:display-time nil}.  The default value for this option for an
+application pane is @t{:command-loop}, which means that the pane is
+cleared after each iteration in the command loop, and then redisplayed
+using a client-supplied @emph{display function}.  The default display
+function does nothing, and we have not supplied any, so if we had
+omitted the @t{:display-time nil} option, the @t{parity} command would
+have written to the pane.  Then, at the end of the command loop, the
+pane would have been cleared, and nothing else would have been
+displayed.  The net result is that we would have seen no visible output.
+With the option @t{:display-time nil}, the pane is never cleared, and
+output is accumulated every time we execute the @t{parity} command.
+
+For this example, we also added a few @emph{commands}.
+@cindex command
+Such commands are defined by the use of a macro called
+@fmacro{@t{define-}@i{name}@t{-command}}, where @i{name} is the name of
+the application, in our case @t{superapp}. This macro is automatically
+defined by @t{define-application-frame}.
+
+In addition, we added a pane that automatically provides documentation
+for different actions on the pointer device. This was done by
+including @t{(:pointer-documentation t)} in the frame definition.
+
+If you execute this example, you will find that you now have three
+different panes, the application pane, the interactor pane and the
+pointer documentation pane.  In the pointer documentation pane, you will
+see the text @samp{R possibilities} which indicates that if you click the
+right mouse button, you will automatically see a popup menu that lets
+you choose a command.  In our case, you will have the default commands
+that are automatically proposed by @mcclim{} plus the commands that you
+defined yourself, in this case @t{quit} and @t{parity}.
+
+@ref{fig:figex2} shows what ought to be visible on the screen.
+
+@float Figure,fig:figex2
+@center @image{figures/ex2-screenshot,5in,5in,View of the improved example}
+@caption{View of the improved example.}
+@end float
+
+Notice that commands, in order to be available from the command line,
+must have an option of @t{:name t}.  The reason is that some commands
+will be available only from menus or by some other mechanism.
+
+You may notice that if the output of the application is hidden (say by
+the window of some other application) and then re-exposed, the output
+reappears normally, without any intervention necessary on the part of
+the programmer.  This effect is accomplished by a @clim{} mechanism called
+@emph{output recording}.
+@cindex output recording
+Essentially, every piece of output is not only displayed in the pane,
+but also captured in an @emph{output record} associated with the pane.
+When a pane is re-exposed, its output records are consulted and if any
+of them overlap the re-exposed region, they are redisplayed.  In fact,
+some others may be redisplayed as well, because @clim{} guarantees that the
+effect will be the same as when the initial output was created.  It does
+that by making sure that the order between (partially) overlapping
+output records is respected.
+
+Not all panes support output recording, but certainly application panes
+do, so it is good to use some subclass of @class{application-pane} to
+display application-specific object, because output recording is then
+automatic.
+
+@node An application displaying a data structure
+@subsection An application displaying a data structure
+
+Many applications use a central data structure that is to be on display
+at all times, and that is modified by the commands of the application.
+@clim{} allows for a very easy way to write such an application.  The main
+idea is to store the data structure in slots of the application frame,
+and to use a @emph{display function}
+@cindex display function
+that after each iteration of the command loop displays the entire data
+structure to the application pane.
+
+Here is a variation of the previous application that shows this
+possibility:
+
+@lisp
+@include ex2b.lisp
+@end lisp
+
+Here, we have added a slot that is called @t{current-number} to the
+application frame.  It is initialized to @cl{NIL} and it has an accessor
+function that allow us to query and to modify the value.
+
+Observe that in this example, we no longer have the option
+@t{:display-time nil} set in the application pane.  By default, then,
+the @t{:display-time} is @t{:command-loop} which means that the pane
+is erased after each iteration of the command loop.  Also observe the
+option @t{:display-function} in the application pane definition which
+takes a symbol that names a function to be called to display the pane
+after it has been cleared.  In this case, the name is @t{display-app},
+the name of the function defined immediately after the application
+frame.
+
+Instead of immediately displaying information about its argument, the
+command @t{com-parity} instead modifies the new slot of the application
+frame.  Think of this function as being more general, for instance a
+command to add a new object to a set of graphical objects in a figure
+drawing program, or as a command to add a new name to an address book.
+Notice how this function accesses the current application frame by means
+of the special variable @t{*application-frame*}.
+
+A display function is called with the frame and the pane as arguments.
+It is good style to use the pane as the stream in calls to functions
+that will result in output.  This makes it possible for the same
+function to be used by several different frames, should that be called
+for.  In our simple example, the display function only displays the
+value of a single number (or @cl{NIL}), but you could think of this as
+displaying all the objects that have been drawn in some figure drawing
+program or displaying all the entries in an address book.
+
+@c @node Photo gallery
+@c @section Photo gallery
+
+@node Using incremental redisplay
+@section Using incremental redisplay
+
+While the example in the previous section is a very simple way of
+structuring an application (let commands arbitrarily modify the data
+structure, and simply erase the pane and redisplay the structure after
+each iteration of the command loop), the visual result is not so great
+when many objects are to be displayed.  There is most often a noticeable
+flicker between the moment when the pane is cleared and the objects are
+drawn.  Sometimes this is inevitable (as when nearly all objects
+change), but most of the time, only an incremental modification has been
+made, and most of the objects are still in the same place as before.
+
+In simple toolkits, the application programmer would have to figure out
+what has changed since the previous display, and only display the
+differences.  @clim{} offers a mechanism called @emph{incremental
+redisplay}
+@cindex incremental redisplay
+that automates a large part of this task.  As we mentioned earlier,
+@clim{} captures output in the form of @emph{output records}.  The same
+mechanism is used to obtain incremental redisplay.
+
+To use incremental redisplay, client code remains structured in the
+simple way that was mention above: after each iteration of the command
+loop, the display function output the entire data structure as usual,
+except that it helps the incremental redisplay mechanism by telling @clim{}
+which piece of output corresponds to which piece of output during the
+previous iteration of the command loop.  It does this by giving some
+kind of @emph{unique identity} to some piece of output, and some means
+of indicating whether the contents of this output is @emph{the same} as
+it was last time.  With this information, the @clim{} incremental redisplay
+mechanism can figure out whether some output is new, has disappeared, or
+has been moved, compared to the previous iteration of the command loop.
+As with re-exposure, @clim{} guarantees that the result is identical to
+that which would have been obtained, had all the output records been
+output in order to a blank pane.
+
+The next example illustrates this idea.  It is a simple application that
+displays a fixed number (here 20) of lines, each line being a number.
+Here is the code:
+
+@lisp
+@include ex2c.lisp
+@end lisp
+
+We store the numbers in a slot called @slot{numbers} of the application
+frame.  However, we store each number in its own list.  This is a simple
+way to provide a unique identity for each number.  We could not use the
+number itself, because two numbers could be the same and the identities
+would not be unique.  Instead, we use the cons cell that store the
+number as the unique identity.  By using @t{:id-test #'eq} we inform
+@clim{} that it can figure out whether an output record is the same as one
+that was issued previous time by using the function @t{eq} to compare
+them.  But there is a second test that has to be verified, namely
+whether an output record that was issued last time has to be redisplayed
+or not.  That is the purpose of the cache-value.  Here we use the number
+itself as the cache value and @t{eql} as the test to determine whether
+the output is going to be the same as last time.
+
+For convenience, we display a @t{*} at the beginning of the current
+line, and we provide two commands @command{next} and @command{previous}
+to navigate between the lines.
+
+Notice that in the declaration of the pane in the application frame, we
+have given the option @t{:incremental-redisplay t}.  This informs @clim{}
+not to clear the pane after each command-loop iteration, but to keep the
+output records around and compare them to the new ones that are produced
+during the new iteration.
+
+@node Using presentation types
+@section Using presentation types
+@cindex presentation type
+
+@menu
+* What is a presentation type::
+* A simple example::
+@end menu
+
+@node What is a presentation type
+@subsection What is a presentation type
+
+The concept of @emph{presentation types} is central to @clim{}.  Client
+code can choose to output graphical or textual representations of
+application objects either as just graphics or text, or to associate
+such output with an arbitrary Common Lisp object and a presentation
+type.  The presentation type is not necessarily related to the idea
+Common Lisp might have of the underlying object.
+
+When a @clim{} command or some other client code requests an object (say as
+an argument) of a certain presentation type, the user of the application
+can satisfy the request by clicking on any visible output labeled with a
+compatible presentation type.  The command then receives the underlying
+Common Lisp object as a response to the request.
+
+@clim{} presentation types are usually distinct from Common Lisp types.
+The reason is that the Common Lisp type system, although very powerful,
+is not quite powerful enough to represent the kind of relationships
+between types that are required by @clim{}.  However, every Common Lisp
+class (except the built-in classes) is automatically a presentation
+type.
+
+A presentation type has a name, but can also have one or more
+@emph{parameters}.  Parameters of presentation types are typically used
+to restrict the type.  For instance, the presentation type @t{integer}
+takes as parameters the low and the high values of an interval.  Such
+parameters allow the application to restrict objects that become
+clickable in certain contexts, for instance if a date in the month of
+March is requested, only integers between 1 and 31 should be clickable.
+
+@node A simple example
+@subsection A simple example
+
+Consider the following example:
+
+@lisp
+@include ex3.lisp
+@end lisp
+
+In this application, we have two main panes, an application pane and an
+interactor pane.  The application pane is given the option
+@t{:display-time t} which means that it will not be erased before every
+iteration of the command loop.
+
+We have also defined two presentation types: @t{name-of-month} and
+@t{day-of-month}.  The @t{out} command uses
+@t{with-output-as-presentation} in order to associate some output, a
+presentation type, and an underlying object.  In this case, it will show
+the string ``March'' which is considered to be of presentation type
+@t{name-of-month} with the underlying object being the character string
+@t{"The third month"}.  It will also show the string ``fifteen'' which
+is considered to be of presentation type @t{day-of-month} with the
+underlying object being the number 15.  The argument @t{t} to
+@t{with-output-as-presentation} indicates that the stream to present on
+is @t{*standard-output*}.
+
+Thus, if the @t{out} command has been executed, and then the user types
+@samp{Get Date} in the interactor pane, the @t{get-date} command will
+try to acquire its arguments, the first of presentation type
+@t{name-of-month} and the second of type @t{day-of-month}.  At the first
+prompt, the user can click on the string @samp{March} but not on the
+string @samp{fifteen} in the application pane.  At the second prompt it
+is the string @samp{fifteen} that is clickable, whereas @samp{March} is
+not.
+
+The @t{get-date} command will acquire the underlying objects.  What is
+finally displayed (in the interactor pane, which is the standard input
+of the frame), is @samp{the 15 of The third month}.
+
+@node Using views
+@section Using views
+@cindex view
+
+The @clim{} specification mentions a concept called a @emph{view}, and also
+lists a number of predefined views to be used in various different
+contexts.
+
+In this chapter we show how the @emph{view} concept can be used in some
+concrete programming examples.  In particular, we show how to use a
+single pane to show different views of the application data structure at
+different times.  To switch between the different views, we supply a set
+of commands that alter the @t{stream-default-view} feature of all @clim{}
+extended output streams.
+
+The example shown here has been stripped to a bare minimum in order to
+illustrate the important concepts.  A more complete version can be found
+in @file{Examples/views.lisp} in the @mcclim{} source tree.
+
+Here is the example:
+
+@lisp
+@include views.lisp
+@end lisp
+
+The example shows a stripped-down example of a simple database of
+members of some organization.
+
+The main trick used in this example is the @t{display-main-pane}
+function that is declared to be the display function of the main pane in
+the application frame.  The @t{display-main-pane} function trampolines
+to a generic function called @t{display-pane-with-view}, and which takes
+an additional argument compared to the display functions of @clim{} panes.
+This additional argument is of type @class{view} which allows us to dispatch
+not only on the type of frame and the type of pane, but also on the type
+of the current default view.  In this example the view argument is
+simply taken from the default view of the pane.
+
+A possibility that is not obvious from reading the @clim{} specification
+is to have views that contain additional slots.  Our example defines two
+subclasses of the @clim{} @class{view} class, namely
+@class{members-view} and @class{person-view}.
+
+The first one of these does not contain any additional slots, and is
+used when a global view of the members of our organization is wanted.
+Since no instance-specific data is required in this view, we follow the
+idea of the examples of the @clim{} specification to instantiate a
+singleton of this class and store that singleton in the
+@t{stream-default-view} of our main pane whenever a global view of our
+organization is required.
+
+The @t{person-view} class, on the other hand, is used when we want a
+closer view of a single member of the organization.  This class
+therefore contains an additional slot which holds the particular person
+instance we are interested in.  The method on @t{display-pane-with-view}
+that specializes on @t{person-view} displays the data of the particular
+person that is contained in the view.
+
+To switch between the views, we provide two commands.  The command
+@t{com-show-all} simply changes the default view of the main pane to be
+the singleton instance of the @t{members-view} class.  The command
+@t{com-show-person} is more complicated.  It takes an argument of type
+person, creates an instance of the @t{person-view} class initialized
+with the person that was passed as an argument, and stores the instance
+as the default view of the main pane.
+
+@node Using command tables
+@section Using command tables
+
+@cindex command table
+@cindex command processing
+@cindex command tables
+
+
+A @emph{command table} is an object that is used to determine what
+commands are available in a particular context and the ways in which
+commands can be executed.
+
+Simple applications do not manage command tables explicitly.  A default
+command table is created as a result of a call to the macro
+@t{define-application-frame} and that command table has the same name as
+the application frame.
+
+Each command table has a @emph{name} and that @clim{} manages a global
+@emph{namespace} for command tables.
+
+@defun {@symbol{find-command-table,clim}} name &key (errorp t)
+This function returns the command table with the name @var{name}.  If
+there is no command table with that name, then what happens depends on
+the value of @var{errorp}.  If @var{errorp} is @emph{true}, then an
+error of type @class{command-table-not-found} is signaled.  If @var{errorp}
+is @emph{false}, otherwise @t{nil} is returned.
+@end defun
+
+@node Using menu bar
+@section Using menu bar
+
+@cindex menu bar
+
+@menu
+* Creating Menu bar::
+* Modifying Menu bar::
+@end menu
+
+Menu bar has become essential part of every GUI system, including
+@mcclim{}. Ideally, @mcclim{} should try to use the menu bar provided by
+host window system via @mcclim{} backends, but the current
+@t{clx-backend} doesn't supports native menu bars. That's why it has
+some quirks of its own, like you need to keep mouse button pressed
+while accessing the sub-menus.
+
+@node Creating Menu bar
+@subsection Creating Menu bar
+
+@mcclim{} makes creating menu bar quite easy.
+
+@lisp
+(clim:define-application-frame foo ()
+  ;; ...
+  (:menu-bar t)
+  ;; ...
+  )
+@end lisp
+
+The only argument for @t{:menu-bar} can be:
+@table @code
+@item T (default)
+@mcclim{} will provide the menu bar. Later, when you start defining
+commands, you can provide a @code{(:menu t)} argument to command
+definition that will add this command to menu bar.
+
+@item NIL
+@mcclim{} won't provide the menu bar.
+
+@item command-table
+If you provide a named command table as argument, that command table
+is used to provide the menu bar (@xref{Using command tables}).
+@end table
+
+@cindex Adding sub-menu to menu bar
+
+To add a sub-menu to menu bar, you need to change the type of
+menu-item from @t{:command} to @t{:menu} (which requires another
+@t{command-table} as argument) which is described in the next section.
+
+@node Modifying Menu bar
+@subsection Modifying Menu bar
+
+Menu bar can be changed anytime by changing @t{command-table}
+associated with the current @t{frame}.
+
+@lisp
+(setf (frame-command-table *application-frame*)
+      new-command-table)
+@end lisp
+
+Example above changes menu bar of @t{*application-frame*} by replacing
+current @t{command-table} (accessible with @t{frame-command-table}
+function) with @t{new-command-table}.
+
+@subsubheading Modifying menu items of command table
+
+@include fun-clim-add-menu-item-to-command-table.texi
+
+Function arguments:
+@table @var
+
+@item command-table
+Command table to which we want to add the menu item.
+
+@item string
+Name of the menu item as it will appear on the menu bar. Its character
+case is ignored e.g. you may give it @samp{file} or @samp{FILE} but it
+will appear as @samp{File}.
+
+@item type and value
+@var{type} can be one of @t{:command}, @t{:function}, @t{:menu} and
+@t{:divider}. Value of @var{value} depends on @var{type}:
+
+@table @code
+@item :command
+@var{value} must be a command or a cons of command name and its
+arguments. If you omit the arguments @mcclim{} will prompt for them.
+
+@item :function
+@var{value} must be a function having indefinite extent that, when
+called, returns a command.  The function must accept two arguments: the
+gesture (keyboard or mouse press event) and a @t{numeric argument}.
+
+@item :menu
+@var{value} must be another command table. This type is used to add
+sub-menus to the menu.
+
+@item :divider
+@var{value} is ignored and @var{string} is used as a divider
+string. Using @samp{|} as string will make it obvious to users that it is a
+divider.
+@end table
+
+@item documentation
+You can provide the documentation (for non-obvious menu items) which
+will be displayed on pointer-documentation pane (if you have one).
+
+@item after (default @t{:end})
+This determines where item will be inserted in the menu. The default
+is to add it to the end. Other values could be @t{:start}, @t{:sort}
+(add in alphabetical order) or @t{string} which is name of existing
+menu-item to add after it.
+
+@item keystroke
+If @var{keystroke} is supplied, it will be added to comand tables
+keystroke accelerator table. Value must be a keyboard gesture name
+e.g. @code{(:s :control)} for @kbd{Control + s}.
+
+@item text-style
+Either a text style spec or @t{NIL}. It is used to indicate that the
+command menu item should be drawn with the supplied text style in
+command menus.
+
+@item error-p
+If @t{T} and the item already exists in the menu, it signal a
+@class{command-already-present} error. If @t{NIL}, it will first remove
+the existing item and add the new item to the command-table.
+@end table
+
+To remove items from command table, the following function is used:
+
+@include fun-clim-remove-menu-item-from-command-table.texi
+
+Where @var{command-table} is command-table-designator and @var{string}
+is the menu item's name (it is case-insensitive). You can provide
+@code{:error-p nil} to suppress the error if item is not in the
+command-table.
+
+Note that both of the above functions @emph{do not} automatically
+update the menu bar. For that you need to replace the existing
+@t{frame-command-table} with the modified command table using
+@t{setf}. The typical way to do this is to use @t{let} to create a
+copy of @t{frame-command-table}, modify it and at the end call
+@t{setf} to replace the original.

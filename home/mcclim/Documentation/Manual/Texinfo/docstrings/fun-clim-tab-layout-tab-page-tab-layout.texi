@@ -1,0 +1,4 @@
+@anchor{Generic-Function clim-tab-layout:tab-page-tab-layout}
+@deffn {Generic Function} {@symbol{tab-page-tab-layout,clim-tab-layout}} tab-page
+Return the @code{tab-layout} this page belongs to.
+@end deffn

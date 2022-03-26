@@ -1,0 +1,8 @@
+@anchor{Condition drei-buffer:offset-before-beginning}
+@deftp {Condition} {drei-buffer:offset-before-beginning}
+@tindex drei-buffer:offset-before-beginning
+Class precedence list: @code{@w{offset-before-beginning}, @w{no-such-offset}, @w{error}, @w{serious-condition}, @w{condition}, @w{slot-object}, @w{t}}
+
+This condition is signaled whenever an attempt is
+made to access buffer contents that is before the beginning of the buffer.
+@end deftp

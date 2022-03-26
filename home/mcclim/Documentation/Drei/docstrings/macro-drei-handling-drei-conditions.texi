@@ -1,0 +1,9 @@
+@anchor{Macro drei:handling-drei-conditions}
+@deffn {Macro} {drei:handling-drei-conditions} &body body
+@findex drei:handling-drei-conditions
+Evaluate @code{body} while handling Drei user notification
+signals. The handling consists of displaying their meaning to the
+user in the minibuffer. This is the macro that ensures conditions
+such as motion-before-end does not land the user in the
+debugger.
+@end deffn

@@ -1,0 +1,13 @@
+
+(mk:defsystem :unzip
+  :source-pathname #.(make-pathname :name nil :type nil
+                                    :defaults (truename *load-pathname*) )
+  :source-extension "lisp"
+  :components
+  (:serial
+   "package.lisp"
+   "binary-io.lisp"
+   "octet-streams.lisp"
+   "inflate.lisp"
+   "interface.lisp" ))
+

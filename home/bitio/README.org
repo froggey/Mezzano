@@ -1,0 +1,758 @@
+* BITIO: A Common Lisp library for processing octet streams as bit streams.
+
+This library can currently only provide READING stream of bits. Later, it will
+support WRITING a stream of bits. Under the conditions of reading/writing bits
+that are multiples of 8 when also being octet-aligned in the underlying stream,
+bitio will have good performance. It is recommended to use FAST-IO with BITIO,
+but it is not required.
+
+Reading bits as a bit stream is a funny business and requires a bit of
+demonstration (no pun intended) of the edge cases and structural format of how
+the bits are laid out on disk, in memory, and in multi-part integers.
+
+Before getting to the nitty gritty about the API and how it works, here is a
+quick example with no explanation about how it works, only what it does.
+
+* A fast example:
+
+#+BEGIN_SRC common-lisp
+;; Suppose we want to read a binary octet stream where we must read in order:
+;; 32 bits as a signed integer in little endian format, then
+;; 16 bits as a signed integer in big endian format, then
+;; 3 bits as an unsigned integer, then
+;; 8 bits as an unsigned integer, then
+;; 5 bits as an unsigned integer, then
+;; read a number of octets denoted by the 8-bit number,
+;; for a total of 8 + N bytes read.
+
+;; Usually, to implement the 3/8/5 bit reads, you'd read 2 bytes, then do a pile
+;; of bit masking/shifting/anding/etc in order to retrieve the values you
+;; desire. You would also implicitly assume some bit orderings while doing the
+;; masking. Here is a possible (of several, actually) rendering of the above in
+;; bitio:
+
+(with-open-file (fin (asdf:system-relative-pathname :bitio "binfile")
+                     :element-type '(unsigned-byte 8))
+  ;; Wrap fin stream with a bitio stream.
+  (let ((bitio (make-bitio fin #'read-byte #'read-sequence)))
+    (let ((32-bits (bitio:read-integer bitio :unsignedp nil))
+          (16-bits (bitio:read-integer bitio :num-bytes 2 :byte-endian :be
+                                             :unsignedp nil))
+          (3-bits (bitio:read-integer bitio :num-bytes 1 :bits-per-byte 3))
+          (8-bits (bitio:read-integer bitio :num-bytes 1))
+          (5-bits (bitio:read-integer bitio :num-bytes 1 :bits-per-byte 5))
+          (seq (make-array 8-bit :element-type '(unsigned-byte 8)))
+          (num-read (bitio:read-bytes bitio seq :be 8)))
+      (format t "Do something with the read data values....~%"))))
+#+END_SRC
+
+* Bit Stream Representation
+** Canonical Form of a Set of Bits
+BITIO uses unsigned integers to represent a set of ordered raw bits in CL
+memory.
+
+The following representation is both the "written on paper" representation and
+also the in-memory representation of the bits in CL memory. For N bits in an
+ordered set of bits, we have:
+
+|---------+---------+---------+-----+-------+-------|
+| MSBit   |         |         |     |       | LSBit |
+|---------+---------+---------+-----+-------+-------|
+| 2^{N-1} | 2^{N-2} | 2^{N-3} | ... | 2^{1} | 2^{0} |
+|---------+---------+---------+-----+-------+-------|
+| 0       |       1 |       0 | ... |     1 | 1     |
+|---------+---------+---------+-----+-------+-------|
+
+Suppose we have an 8-bit ordered bit set represented by the unsigned integer
+#b01010011 in canonical form. The MSBit is the left most 0 and the LSBit is the
+right most 1.
+
+In BITIO, the unsigned integer representing the raw bits and the count of those
+bits are often found together in the API. This allows it to know that we are
+dealing with a bit set of N bits, even if all of those bits are 0.
+
+The ordering aspect arises in that we can only append/take bits from the MSBit
+or the LSBit side of the bit set in canonical form. We cannot take any bits from
+the middle.
+
+It is usually the case that when inserting bits into the Canonical Form, the
+bits are inserted on the LSBit side of the result and shifted left 1 bit for
+every bit that needs to be inserted into the result.
+
+** Octet Stream Source for Bits: Function ~MAKE-BITIO~
+BITIO is a stream that explicity wraps another stream. Let's call this other
+stream S. S *must* have the type (UNSIGNED-BYTE 8) and hence will supply 8-bit
+unsigned integers.
+
+Here is an abstract representation of S where the Octet + 0 column is the octet
+about to be read from the octet stream, then, Octet + 1 is the next octet read,
+and so on, and Remaining Octets is all of the rest of the ordered octets in
+stream S, as expected.
+
+| Octet + 0 | Octet + 1 | Octet + 2  | Remaining Octets |
+|-----------+-----------+------------+------------------|
+| #x33      | #xAB      | #x4D       | ...              |
+
+BITIO is agnostic about the streams it wraps. Upon construction of a BITIO
+instance you must supply the stream being wrapped and the functions for reading
+and writing that are associated with the wrapped stream. These functions
+must have the same ordinary lambda lists as CL's READ-BYTE and
+READ-SEQUENCE, respectively.
+
+A more useful manner to think about the octet stream is that each
+(UNSIGNED-BYTE 8) octet is automatically in a canonical form for an 8-bit
+unsigned integer. It is infact the form that all modern OS's and hardware will
+read an octet stream from memory, network, or storage. The MSBit is the leftmost
+bit, and the LSBit is the rightmost bit.
+
+| Octet + 0  | Octet + 1  | Octet + 2  | Remaining Octets |
+|------------+------------+------------+------------------|
+| #b00110011 | #b10101011 | #b01001101 | ...              |
+
+From this convenient representation, we now describe how to read individual bits
+from it.
+
+To wrap a previously created octet stream, one calls this BITIO function:
+
+#+BEGIN_SRC common-lisp
+;; Wrap an octet stream with a BITIO stream.
+(bitio:make-bitio octet-stream bitio/read-octet bitio/read-sequence &rest initargs)
+#+END_SRC
+
+which returns a BITIO instance from which 1 or more individual bits may be read.
+
+Here is an example using regular CLHS streams:
+
+#+BEGIN_SRC common-lisp
+(with-open-file (fin (asdf:system-relative-pathname :bitio "binfile")
+                     :element-type '(unsigned-byte 8))
+  ;; Wrap fin stream with a bitio stream. Pass appropriate function to
+  ;; read unsigned 8-bit integers from the stream.
+  (let ((bitio (make-bitio fin #'read-byte #'read-sequence)))
+    (format t "Read some bits here...~%")))
+#+END_SRC
+
+Here is an example of wrapping a FAST-IO stream for a file:
+
+#+BEGIN_SRC common-lisp
+(defun wrap-fast-read-sequence (vec buf &key (start 0) (end nil))
+  "Must wrap this so it has the same signature as clhs' READ-SEQUENCE."
+  (fast-io:fast-read-sequence vec buf start end))
+
+(with-open-file (fin (asdf:system-relative-pathname :bitio "binfile")
+                     :element-type '(unsigned-byte 8))
+  (fast-io:with-fast-input (fin-fast nil fin)
+    ;; Wrap the fin stream with a bitio stream. Notice we pass the appropriate
+    ;; unsigned 8-bit reader function for this stream type.
+    (let ((bitio (make-bitio fin-fast
+                             #'fast-io:fast-read-byte
+                             #'wrap-fast-read-sequence)))
+      (format t "Read some bits here...~%"))))
+#+END_SRC
+
+And last, but not least, here we wrap FAST-IO to read bytes from a buffer:
+
+#+BEGIN_SRC common-lisp
+(defun wrap-fast-read-sequence (vec buf &key (start 0) (end nil))
+  "Must wrap this so it has the same signature as clhs' READ-SEQUENCE."
+  (fast-io:fast-read-sequence vec buf start end))
+
+(fast-io:with-fast-input (fiobuf (vector #xbb #x11 #x0d #x44))
+  (let ((bitio (make-bitio fiobuf
+                           #'fast-io:fast-read-byte
+                           #'wrap-fast-read-sequence)))
+    (format t "Read some bits here...~%")))
+#+END_SRC
+
+** Reading from BITIO
+Before talking about the various ways we can read bits from the wrapped octet
+stream, we must label them so we can accurately talk about each bit.
+
+Here is an example of labeling the canonical form bits in the octet stream. I've
+removed the CL #b prefix, so the individual bits align with their identifier.
+
+| Octet + 0 | Octet + 1 | Octet + 2 | Remaining Octets |
+|-----------+-----------+-----------+------------------|
+| =00110011=  | =10101011=  | =01001101=  | ...              |
+| =abcdefgh=  | =ijklmnop=  | =qrstuvwx=  | ...              |
+
+To be explicit, this is the mapping of IDs to bits in the octet stream:
+
+| Bit ID | Bit Value |
+|--------+-----------|
+| =a=    |           =0= |
+| =b=    |           =0= |
+| =c=    |           =1= |
+| =d=    |           =1= |
+| =e=    |           =0= |
+| =f=    |           =0= |
+| =g=    |           =1= |
+| =h=    |           =1= |
+| =i=    |           =1= |
+| =j=    |           =0= |
+| =k=    |           =1= |
+| =l=    |           =0= |
+| =m=    |           =1= |
+| =n=    |           =0= |
+| =o=    |           =1= |
+| =p=    |           =1= |
+| =q=    |           =0= |
+| =r=    |           =1= |
+| =s=    |           =0= |
+| =t=    |           =0= |
+| =u=    |           =1= |
+| =v=    |           =1= |
+| =w=    |           =0= |
+| =x=    |           =1= |
+|--------+-----------|
+
+*** Bit Reading: Function ~READ-BITS~
+When reading individual bits from the BITIO stream, we must specify the number
+of bits we intend to read and *from which side of the canonical form* of the
+octets from which they are read. The bits are returned in a canonical form with
+the first bit read being in the MSBit of the result and the last bit read being
+in the LSBit of the result.
+
+The function to read bits from a BITIO stream is:
+
+#+BEGIN_SRC common-lisp
+;; Read N bits from the BITIO stream.
+(bitio:read-bits bitio bit-read-count bit-endian
+                 &optional (eof-error-p t) (eof-value nil))
+#+END_SRC
+
+NOTE: This function doesn't understand properties of integers. It only reads raw
+bits from the underlying octet stream. Under certain conditions, it is
+meaningful to interpret the numbers this function returns as unsigned integers,
+but in general, if you want to read integers explicitly, there is a function for
+that described later.
+
+The arguments are:
+
+|----------------+---------------------------------------|
+| Argument       | Meaning                               |
+|----------------+---------------------------------------|
+| BITIO          | A BITIO instance                      |
+|----------------+---------------------------------------|
+| BIT-READ-COUNT | Number of bits to read                |
+|----------------+---------------------------------------|
+| BIT-ENDIAN     | :BE for big-endian                    |
+|                | :LE for litte-endian                  |
+|                | Indicates from which end to take bits |
+|----------------+---------------------------------------|
+| EOF-ERROR-P    | Same an in READ                       |
+|----------------+---------------------------------------|
+| EOF-VALUE      | Same as in READ                       |
+|----------------+---------------------------------------|
+
+The return is a values of the bits in canoncal form and the number of bits read.
+In the case of a short/EOF read and you're using EOF-ERROR-P with a NIL value,
+you may get less than the number of bytes you expected to read.
+
+Now let's be more clear about what the BIT-ENDIAN argument actually means when
+reading the bits.
+
+**** Bit Big Endian Reads
+Suppose we have wrapped this octet stream:
+
+|-----------+-----------+-----------+------------------|
+| Octet + 0 | Octet + 1 | Octet + 2 | Remaining Octets |
+|-----------+-----------+-----------+------------------|
+| =00110011= | =10101011= | =01001101= | ...                 |
+| =abcdefgh= | =ijklmnop= | =qrstuvwx= | ...                 |
+|-----------+-----------+-----------+------------------|
+
+Then, we call this function:
+
+#+BEGIN_SRC common-lisp
+(bitio:read-bits bitio 5 :be)
+#+END_SRC
+
+Then, for EACH bit of the 5 bits, we strip one bit from the MSBit side of the
+Octet + 0 octet, and shift them into canonical form.
+
+We first read the 'a' bit, then the 'b' bit, then the 'c' bit, and so on with
+'d', and 'e'. Each bit goes into the 2^{0} position of the result with the
+previous bits shifted to the left. Leaving the MSBit of the result (which is in
+canonical form) being bit 'a' and the LSBit of the result being bit 'e'.
+
+The return values of the above function will be:
+
+#+BEGIN_SRC common-lisp
+#b00110
+;;abcde
+5
+#+END_SRC
+
+Now, the BITIO stream will look like this:
+
+|-----------+-----------+-----------+------------------|
+| Octet + 0 | Octet + 1 | Octet + 2 | Remaining Octets |
+|-----------+-----------+-----------+------------------|
+| =-----011= | =10101011= | =01001101= | ...                 |
+| =-----fgh= | =ijklmnop= | =qrstuvwx= | ...                 |
+|-----------+-----------+-----------+------------------|
+
+NOTE: The - character represents bits that have been stripped off of the bit
+stream, and are now unavailable for further reading.
+
+Suppose we continue reading 3 more bits with :be setting:
+
+#+BEGIN_SRC common-lisp
+(bitio:read-bits bitio 3 :be)
+#+END_SRC
+
+We'll read 'f' first, then 'g', then 'h'. 'f' goes into the 2^{0} part of the
+result, then the next bit causes a shift left of the result, and so in, until we
+return:
+
+#+BEGIN_SRC common-lisp
+#b011
+;;fgh
+3
+#+END_SRC
+
+At this point, the BITIO stream will look like this:
+
+|-----------+-----------+-----------+------------------|
+| Octet + 0 | Octet + 1 | Octet + 2 | Remaining Octets |
+|-----------+-----------+-----------+------------------|
+| =--------= | =10101011= | =01001101= | ...                 |
+| =--------= | =ijklmnop= | =qrstuvwx= | ...                 |
+|-----------+-----------+-----------+------------------|
+
+which simplifies to:
+
+|-----------+-----------+-----------+------------------|
+| Octet + 0 | Octet + 1 | Octet + 2 | Remaining Octets |
+|-----------+-----------+-----------+------------------|
+| =10101011= | =01001101= | ......... | ...                |
+| =ijklmnop= | =qrstuvwx= | ......... | ...                |
+|-----------+-----------+-----------+------------------|
+
+**** Bit Little Endian Reads
+In little endian reads, we take individual bits from the LSBit side of the octet
+and corral them into Canonical Form. This can result in some non-intuitive bit
+sets.
+
+Let's start with the original BITIO stream:
+
+|-----------+-----------+-----------+------------------|
+| Octet + 0 | Octet + 1 | Octet + 2 | Remaining Octets |
+|-----------+-----------+-----------+------------------|
+| =00110011= | =10101011= | =01001101= | ...                 |
+| =abcdefgh= | =ijklmnop= | =qrstuvwx= | ...                 |
+|-----------+-----------+-----------+------------------|
+
+Then, we call this function:
+
+#+BEGIN_SRC common-lisp
+(bitio:read-bits bitio 5 :le)
+#+END_SRC
+
+Here, we read the individual bits from the LSBit side of Octet + 0 and store
+them into Canonical Form.
+
+So, we read bits 'h', 'g', 'f', 'e', and 'd' and store them into canonical form
+like:
+
+|-------+-------+-------+-------+-------|
+| MSBit |       |       |       | LSBit |
+|-------+-------+-------+-------+-------|
+| 2^{4} | 2^{3} | 2^{2} | 2^{1} | 2^{0} |
+|-------+-------+-------+-------+-------|
+| h     | g     | f     | e     | d     |
+|-------+-------+-------+-------+-------|
+| 1     | 1     | 0     | 0     | 1     |
+|-------+-------+-------+-------+-------|
+
+The final returned values are:
+
+#+BEGIN_SRC common-lisp
+#b11001
+;;hgfed
+5
+#+END_SRC
+
+Then, the BITIO stream is in this state:
+
+|-----------+-----------+-----------+------------------|
+| Octet + 0 | Octet + 1 | Octet + 2 | Remaining Octets |
+|-----------+-----------+-----------+------------------|
+| =001-----= | =10101011= | =01001101= | ...                 |
+| =abc-----= | =ijklmnop= | =qrstuvwx= | ...                 |
+|-----------+-----------+-----------+------------------|
+
+Notice carefully, that bits 'a', 'b', and 'c' are available to be read from
+Octet + 0.
+
+Suppose we read those bits, and a few more with this call:
+
+#+BEGIN_SRC common-lisp
+(bitio:read-bits bitio 7 :le)
+#+END_SRC
+
+We will read the bits in this order: 'c', 'b', 'a', 'p', 'o', 'n', 'm' and put
+them into the Canonical form of cbaponm.
+
+Then, we return these values:
+
+#+BEGIN_SRC common-lisp
+#b1001101
+;;cbaponm
+7
+#+END_SRC
+
+which leaves the stream in this state:
+
+|-----------+-----------+-----------+------------------|
+| Octet + 0 | Octet + 1 | Octet + 2 | Remaining Octets |
+|-----------+-----------+-----------+------------------|
+| =--------= | =1010----= | =01001101= | ...                 |
+| =--------= | =ijkl----= | =qrstuvwx= | ...                 |
+|-----------+-----------+-----------+------------------|
+
+which simplifies to:
+
+|-----------+-----------+-----------+------------------|
+| Octet + 0 | Octet + 1 | Octet + 2 | Remaining Octets |
+|-----------+-----------+-----------+------------------|
+| =1010----= | =01001101= | ........  | ...                |
+| =ijkl----= | =qrstuvwx= | ........  | ...                |
+|-----------+-----------+-----------+------------------|
+
+**** Mixed Bit Endian Reads
+It is fully possible to intermix big bit-endianness and little bit-endianness
+reads. Let's do an example to see how this works.
+
+First start with the BITIO stream:
+
+|-----------+-----------+-----------+------------------|
+| Octet + 0 | Octet + 1 | Octet + 2 | Remaining Octets |
+|-----------+-----------+-----------+------------------|
+| =00110011= | =10101011= | =01001101= | ...                 |
+| =abcdefgh= | =ijklmnop= | =qrstuvwx= | ...                 |
+|-----------+-----------+-----------+------------------|
+
+Then, we call this function:
+
+#+BEGIN_SRC common-lisp
+(bitio:read-bits bitio 3 :le)
+#+END_SRC
+
+And get back these results:
+
+#+BEGIN_SRC common-lisp
+#b110
+;;hgf
+3
+#+END_SRC
+
+leaving the BITIO stream in this configuration:
+
+|-----------+-----------+-----------+------------------|
+| Octet + 0 | Octet + 1 | Octet + 2 | Remaining Octets |
+|-----------+-----------+-----------+------------------|
+| =00110---= | =10101011= | =01001101= | ...                 |
+| =abcde---= | =ijklmnop= | =qrstuvwx= | ...                 |
+|-----------+-----------+-----------+------------------|
+
+Then, we switch bit endianness and read 3 bits. These three bits are read from
+the MSBit side of the Octet + 0 value, so, starting at bit 'a'.
+
+#+BEGIN_SRC common-lisp
+(bitio:read-bits bitio 3 :be)
+#+END_SRC
+
+which returns these values:
+
+#+BEGIN_SRC common-lisp
+#b001
+;;abc
+3
+#+END_SRC
+
+and leaves the BITIO stream in this state:
+
+|-----------+-----------+-----------+------------------|
+| Octet + 0 | Octet + 1 | Octet + 2 | Remaining Octets |
+|-----------+-----------+-----------+------------------|
+| =---10---= | =10101011= | =01001101= | ...                 |
+| =---de---= | =ijklmnop= | =qrstuvwx= | ...                 |
+|-----------+-----------+-----------+------------------|
+
+Notice how the 'd' and 'e' bits are left to be read!
+
+Let's read them in an :le manner and some additional bits too and see what
+happens:
+
+#+BEGIN_SRC common-lisp
+(bitio:read-bits bitio 6 :le)
+#+END_SRC
+
+We read bits in this order: 'e' 'd' 'p' 'o' 'n' 'm'
+
+And these are the values we get back:
+
+#+BEGIN_SRC common-lisp
+#b011101
+;;edponm
+6
+#+END_SRC
+
+And now the BITIO stream is in this state:
+
+|-----------+-----------+-----------+------------------|
+| Octet + 0 | Octet + 1 | Octet + 2 | Remaining Octets |
+|-----------+-----------+-----------+------------------|
+| =--------= | =1010----= | =01001101= | ...                 |
+| =--------= | =ijkl----= | =qrstuvwx= | ...                 |
+|-----------+-----------+-----------+------------------|
+
+which simplifies to:
+
+|-----------+-----------+-----------+------------------|
+| Octet + 0 | Octet + 1 | Octet + 2 | Remaining Octets |
+|-----------+-----------+-----------+------------------|
+| =1010----= | =01001101= | ........  | ...                |
+| =ijkl----= | =qrstuvwx= | ........  | ...                |
+|-----------+-----------+-----------+------------------|
+
+One can easily achieve some pretty complex arbitrary bit reads from the
+underlying octet stream with the function read-bits.
+
+*** Integer Reading: Function ~READ-INTEGER~
+Integers (both signed and unsigned) are interpretations of raw bits stored in a
+canonical form with certain constraints and in a certain structure.
+
+The constraint in question are the parameters under which sign extension
+happens. Sign extension in languages like C are easy to perform since there are
+assembly level operations to perform this for each hardware-sized quantity in
+which the bit pattern is stored. In Common Lisp, with arbitrarily-sized
+integers, there is more work to accomodate sign extension rules. To explain
+deeper for CL, an unsigned value is considered to have an infinite number of
+zero bits prefixing it. A signed value that is negative happens to have an
+infinite number of 1 bits prefixing it. There is a little bit of math to enable
+this idea of infinite prefixes of zeros or ones that we must accomplish in CL.
+
+The structure in question is the ordering of the multiple bytes that constitute
+a multi-part integer (here, defined here as M N-bit unsigned chunks). This is
+the usual understanding of *Byte Endianess* with respect to multi-byte integers.
+
+For the purposes of BITIO, the bytes that constitute a single integer can be
+N-bits long, but they must ALL be N-bits long. The bit level endianness of those
+bytes themselves can also be little or big, but that setting must be true for
+ALL bytes read on behalf of an integer. Then, all of the bytes can be treated as
+little or big endian in terms of how they are placed into the final integer
+form.
+
+NOTE: To be explicit, the term _byte_ is defined to be an unsigned N-bit quantity,
+as opposed to its traditional definition of an unsigned 8-bit quantity.
+
+It is also the case that you can intermix calls that change the endianness of
+either the bytes being read, or the endianness of the byte ordering--along with
+not being octet-aligned, and this function will do the right thing.
+
+So, without further ado, we introduce a new function called:
+
+#+BEGIN_SRC common-lisp
+(bitio:read-integer bitio
+                    &key
+                    (bit-endian :be)
+                    (byte-endian :le)
+                    (num-bytes 4)
+                    (bits-per-byte 8)
+                    (unsignedp T))
+#+END_SRC
+
+The arguments are:
+
+|-------------+----------------------------------------------|
+| Argument    | Meaning                                      |
+|-------------+----------------------------------------------|
+| BITIO       | A BITIO instance                             |
+|-------------+----------------------------------------------|
+| BIT-ENDIAN  | :BE for big-endian                           |
+|             | :LE for litte-endian                         |
+|             | Indicates bit endianness of all read bytes   |
+|-------------+----------------------------------------------|
+| BYTE-ENDIAN | :BE for big-endian                           |
+|             | :LE for little-endian                        |
+|             | Indicates byte level ordering in the integer |
+|-------------+----------------------------------------------|
+| NUM-BYTES   | How many bytes will be read for this integer |
+|-------------+----------------------------------------------|
+| BITS-PER-BYTE  | The bit-width of each byte                   |
+|-------------+----------------------------------------------|
+| UNSIGNEDP   | Should we treat the integer as unsigned      |
+|-------------+----------------------------------------------|
+
+This function is the meat and potatoes for reading integers out of a BITIO
+stream. The read integers need not be octet-aligned, and the bytes constituting
+them need not be 8-bits wide.
+
+Let's do an example of this call:
+
+First, we show a BITIO stream (with hexadecimal view added):
+
+|-----------+-----------+-----------+-----------+------------------|
+| Octet + 0 | Octet + 1 | Octet + 2 | Octet + 3 | Remaining Octets |
+|-----------+-----------+-----------+-----------+------------------|
+| =#x33=      | =#xAB=      | =#x4D=      | =#xF0=      | ........         |
+| =00110011=  | =10101011=  | =01001101=  | =11110000=  | ........         |
+| =abcdefgh=  | =ijklmnop=  | =qrstuvwx=  | =yzABCDEF=  | ........         |
+|-----------+-----------+-----------+-----------+------------------|
+
+Then, we perform this call:
+
+#+BEGIN_SRC common-lisp
+(bitio:read-integer bitio :unsignedp NIL)
+#+END_SRC
+
+Here is what happens. This description is semantically what happens, but not
+necessarily algorithmically what happens.
+
++ Since BITS-PER-BYTE is 8, _each byte_ is going to be 8 bits long.
++ Since BIT-ENDIAN is :be, we read the bits in a left to right order for _each
+  byte_.
++ Since NUM-BYTES is 4, we read 4 8-bit unsigned values.
++ Since BYTE-ENDIAN is :le, we'll pack the bytes into the integer in little
+  endian order.
++ Since UNSIGNEDP is NIL, we will treat the value as signed.
+
+So, the first thing we do is read the 4 bytes in this order:
+
+#x33 #xAB #x4D #xF0
+
+and then pack them into the integer such that the leftmost byte is the least
+significant byte in the integer:
+
+#xF04DAB33
+
+And then, since UNSIGNEDP is NIL, we convert this unsigned value, using the
+knowledge of the total number of bits we need to represent this number (*
+num-bytes bits-per-byte), and that the MSBit in this integer is 1 which makes it
+unsigned.
+
+To get this decimal value: -263345357
+
+We can check our work like this:
+
+#+BEGIN_EXAMPLE
+CL-USER> (ldb (byte 32 0) -263345357)
+4031621939 (32 bits, #xF04DAB33)
+#+END_EXAMPLE
+
+which allows us to recover the original unsigned integer (before processing as a
+signed value) after reading it from the octet stream.
+
+*** Extended example with ~read-integer~
+
+Here we write out the code that will read a BITIO wrapped stream that is reading
+a FLAC binary file. The parser is expected to read a FRAME_HEADER which is
+defined here. A number in the left column like <14> means to read 14 bits from
+the binary stream. <4> means read 4 bits, <1> mean read one bit, and so on.
+
+https://xiph.org/flac/format.html#frame_header
+
+NOTE: All numbers are in big-endian format in FLAC unless otherwise noted. Even
+though bitio:read-integer defaults to :le for byte-endian, it only matters if
+reading more than 1 byte to create the integer. So, in those places we manually
+specify the ordering.
+
+NOTE: In a future revision of BITIO, I may revisit this issue and store things
+like default settings in the BITIO instance itself.
+
+The point of this example is to see how we avoid the perilous bit-masking that
+this code would normally have to do to read the above binary format. Where we do
+extract bits, it is following the specification in a logical and meaningful
+manner.
+
+#+BEGIN_SRC common-lisp
+(defun parse-frame-header (bitio)
+  "Parse a FRAME_HEADER and return a structure with that information in it."
+  (let* ((sync-code (bitio:read-bits bitio 14 :be))
+         (reserved-0 (bitio:read-bits bitio 1 :be))
+         (blocking-strategy (bitio:read-bits bitio 1 :be))
+         (inter-channel-block-size
+           (bitio:read-integer bitio :num-bytes 1 :bits-per-byte 4))
+         (sample-rate (bitio:read-integer bitio :num-bytes 1 :bits-per-byte 4))
+         (channel-assignment
+           (bitio:read-integer bitio :num-bytes 1 :bits-per-byte 4))
+         (sample-size-in-bits
+           (bitio:read-integer bitio :num-bytes 1 :bits-per-byte 3))
+         (reserved-1 (bitio:read-bits bitio 1 :be))
+         (coded-frame-or-sample
+           (if (eql blocking-strategy 1)
+               ;; variable blocksize
+               (parse-utf8 bitio 36)
+               ;; fixed blocksize
+               (parse-utf8 bitio 31)))
+         (blocksize-value
+           (when (eql #b011 (ldb (byte 3 1) inter-channel-block-size))
+             (if (zerop (ldb (byte 1 0) inter-channel-block-size))
+                 (bitio:read-integer :num-bytes 1)
+                 (bitio:read-integer :num-bytes 2 :byte-endian :be))))
+         (sample-rate-value
+           (let ((trigger (ldb (byte 2 2) sample-rate))
+                 (kind (ldb (byte 2 0) sample-rate)))
+             (when (eql #b11 trigger)
+               (cond
+                 ((eql kind #b00)
+                  (bitio:read-integer bitio :num-bytes 1))
+                 ((eql kind #b01)
+                  (bitio:read-integer bitio :num-bytes 2 :byte-endian :be))
+                 ((eql kind #b10)
+                  (* 10 (bitio:read-integer bitio :num-bytes 2
+                                                  :byte-endian :be)))
+                 ((eql kind #b11)
+                  (error
+                   "invalid parse of frame-header: mimic sync code"))))))
+         (crc-8 (bitio:read-integer bitio :num-bytes 1)))
+    (unless (eql sync-code #b11111111111110)
+      (error "invalid parse of frame-header: bad sync code"))
+    ;; Then pack it up and send it off.
+    (make-frame-header blocking-strategy
+                       inter-channel-block-size
+                       sample-rate
+                       channel-assignment
+                       sample-size-in-bits
+                       coded-frame-or-sample
+                       blocksize-value
+                       sample-rate-value
+                       crc-8)))
+
+(defun parse-utf8 (bitio num-bits)
+  (let ((bit-set (bitio:read-bits bitio num-bits :be)))
+    ;; Next function defined elsewhere.
+    (convert-to-utf8 bit-set)))
+#+END_SRC
+
+The above represents a pretty complex use of BITIO to save a lot of work. It
+allows a natural parsing (and ease of debugging) of the format of the
+FRAME_HEADER in the FLAC binary format.
+
+** Writing to BITIO
+Writing bits to the stream is not implemented at this time. It will be
+implemented in a future revision of BITIO.
+*** Bit Writing
+*** Integer Writing
+** API Summary
+*** Type BITIO
+TBD
+*** Function MAKE-BITIO
+TBD
+*** Function READ-BITS
+TBD
+*** Function READ-ONE-BYTE
+TBD
+*** Function READ-BYTES
+TBD
+*** Function READ-INTEGER
+TBD
+*** Function OCTET-READ-BOUNDARY-P
+TBD
+** Known Bugs & Omissions
++ There is no equivalent for WITH-OPEN-FILE for BITIO yet.
++ You cannot CLOSE a BITIO yet.
++ You cannot write a bit stream yet.

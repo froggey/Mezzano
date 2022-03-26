@@ -1,0 +1,11 @@
+*.fasl
+*~
+quicklisp.tar
+quicklisp.tar.gz
+asdf.lisp.*
+cache
+client-info.sexp
+dists
+local-projects
+retired
+tmp

@@ -1,0 +1,212 @@
+
+UTF-8 encoded sample plain-text file
+
+
+Markus Kuhn [maks kun] <http://www.cl.cam.ac.uk/~mgk25/>  2002-07-25
+
+
+The ASCII compatible UTF-8 encoding used in this plain-text file
+is defined in Unicode, ISO 10646-1, and RFC 2279.
+
+
+Using Unicode/UTF-8, you can write in emails and source code things such as
+
+Mathematics and sciences:
+
+   Eda = Q,  n  ,  f(i) =  g(i),      
+                                            a+b 
+  x: x = x,    = (  ),     
+                                             c   
+            ,                          
+                                                  
+   < a  b  c  d    (A  B),            
+                                             a-b
+  2H + O  2HO, R = 4.7 k,  200 mm     i=1    
+
+Linguistics and dictionaries:
+
+  i ntnnl fntk sosien
+  Y [psiln], Yen [jn], Yoga [jog]
+
+APL:
+
+  ((VV)=V)/V,V    
+
+Nicer typography in plain text files:
+
+  
+                                            
+      single and double quotes         
+                                            
+      Curly apostrophes: Weve been here 
+                                            
+      Latin-1 apostrophe and accents: '`  
+                                            
+      deutsche Anfhrungszeichen       
+                                            
+      , , , , 34, , 5/+5, ,       
+                                            
+      ASCII safety test: 1lI|, 0OD, 8B     
+                                 
+      the euro symbol:  14.95           
+                                 
+  
+
+Combining characters:
+
+  STARGTE SG-1, a = v = r, a  b
+
+Greek (in Polytonic):
+
+  The Greek anthem:
+
+      
+     ,
+      
+       .
+
+     
+     
+     
+  ,  , !
+
+  From a speech of Demosthenes in the 4th century BC:
+
+      ,   ,
+           
+          
+     ,   
+    ,      
+     .     
+        ,   ,
+       .  ,  
+            
+  ,       ,  
+         
+      ,   
+  .     ,    
+           
+     ,    
+     .
+
+  ,  
+
+Georgian:
+
+  From a Unicode conference invitation:
+
+      Unicode-  
+   ,   10-12 ,
+  . , .    
+        Unicode-,
+    , Unicode- 
+   ,   , ,
+       .
+
+Russian:
+
+  From a Unicode conference invitation:
+
+        
+  Unicode,   10-12  1997     .
+          
+    Unicode,   ,  
+   Unicode      
+  , ,     .
+
+Thai (UCS Level 2):
+
+  Excerpt from a poetry on The Romance of The Three Kingdoms (a Chinese
+  classic 'San Gua'):
+
+  [----------------------------|------------------------]
+       
+         
+               
+           
+          
+            
+              
+              
+
+  (The above is a two-column text. If combining characters are handled
+  correctly, the lines of the second column should be aligned with the
+  | character above.)
+
+Ethiopian:
+
+  Proverbs in the Amharic language:
+
+     
+     
+     
+       
+     
+     
+   
+      
+     
+       
+      
+       
+     
+       
+       
+     
+      
+     
+
+Runes:
+
+             
+
+  (Old English, which transcribed into Latin reads 'He cwaeth that he
+  bude thaem lande northweardum with tha Westsae.' and means 'He said
+  that he lived in the northern land near the Western Sea.')
+
+Braille:
+
+      
+
+           
+          
+         
+         
+          
+       
+
+         
+
+            
+         
+          
+          
+          
+         
+           
+         
+        
+
+  (The first couple of paragraphs of "A Christmas Carol" by Dickens)
+
+Compact font selection example text:
+
+  ABCDEFGHIJKLMNOPQRSTUVWXYZ /0123456789
+  abcdefghijklmnopqrstuvwxyz 
+    
+     
+
+Greetings in various languages:
+
+  Hello world,  , 
+
+Box drawing alignment tests:                                          
+                                                                      
+                        
+                    
+                                  
+                           
+                               
+                     
+                    
+                                               

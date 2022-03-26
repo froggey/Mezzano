@@ -1,0 +1,8 @@
+@anchor{Generic-Function drei:synchronize-view}
+@deffn {Generic Function} {drei:synchronize-view} view &key begin end force-p &allow-other-keys
+@findex drei:synchronize-view
+Synchronize the view with the object under
+observation @code{-} what exactly this entails, and what keyword
+arguments are supported, is up to the individual view
+subclass.
+@end deffn

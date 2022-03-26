@@ -1,0 +1,22 @@
+We would like to announce the release of ASDF 3.1.6, the latest bug fix release for ASDF.  As usual many thanks are due to Faré for many bug fixes, clean ups, explanations, etc.  Thanks are also owed to Dave Cooper, for testing on the Windows platform, enabling the maintainers to test on Windows, and identifying uncaught bugs. Thanks to Anton Vodonosov for testing the release candidate against Quicklisp on cl-test-grid.  Finally, thanks to all who found bugs, provided patches, and used prerelease candidates.
+
+We urge implementations that are currently bundling previous versions of ASDF to adopt 3.1.6.  3.1.6 does not introduce any API incompatibilities that we know of, and contains significant bug fixes on multiple platforms and implementations.  See the Changelog (below) for a list of the major bug fixes.  Details on minor bugfixes can be found at launchpad.net/asdf
+
+We had hoped that 3.1.5 would be the last 3.1.x bug fix release, paving the way for us to move to developing ASDF 3.2, which we expect will add new features.  Maybe this time!
+
+Here is the changelog entry for 3.1.6:
+
+  Bug fix and portability release:
+  * Fix backtrace on SBCL.
+  * Fix RUN-PROGRAM of string (shell command) on Windows SBCL (ticket
+    #1501373).
+  * Fix a number of issues with bundle operations (especially on
+    non-C-compiler-based implementations).
+  * Fix component-finding in package-inferred-system.
+  * Fix race condition between multiple concurrent lisp processes
+    doing ASDF builds (ticket #1483948).
+  * Fix misplaced fasl cache on Windows.
+  * Miscellaneous bug fixes.
+  * Documentation improvements.
+
+ -- Robert P. Goldman <rpgoldman@sift.net>  Sat, 17 Oct 2015 15:01:34 -0500

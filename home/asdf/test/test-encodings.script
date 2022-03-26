@@ -1,0 +1,136 @@
+;;; -*- Lisp -*-
+(in-package :asdf-test)
+
+(when (member :clisp *features*)
+  (quit 0))
+
+(defparameter *lambda-string* nil)
+
+(defun string-char-codes (s)
+  (loop :for c :across s :collect (char-code c)))
+
+(defun expected-char-codes (x)
+  #-asdf-unicode '(#xCE #xBB)
+  #+asdf-unicode
+  (ecase x
+    (:utf-8 '(955))
+    ((:latin1 :latin-1) '(206 187))
+    ((:latin2 :latin-2) '(206 357))
+    ((:latin3 :latin-3) '(206 287))
+    (:koi8-r '(1085 9577))
+    (:default (expected-char-codes
+               #+clozure ccl:*default-external-format*
+               #+sbcl sb-impl::*default-external-format*
+               #-(or clozure sbcl) (error "can't determine default external-format")))))
+
+(defmacro with-encoding-test ((encoding &key (op 'load-source-op) (path "lambda")) def-test-system &body body)
+  (let ((sys (second def-test-system)))
+    `(with-asdf-session (:override t)
+       (format t "~&Test ~A: should be ~A~%" ',sys ',encoding)
+       (setf *lambda-string* nil)
+       ,def-test-system
+       (let ((c (find-component ',sys ',path)))
+         ;; mlisp has an issue of :LATIN-2 vs :latin-2. Smooth things with string-equal.
+         (assert-compare (string-equal (component-encoding c) ',encoding))
+         (loop :for o :in (output-files 'compile-op c)
+               :do (delete-file-if-exists o)))
+       ,@(when op
+           `((operate ',op ',(second def-test-system) :force t)))
+       ,@body
+       (eval `(assert-equal (string-char-codes ,*lambda-string*)
+                            (expected-char-codes ',',encoding))))))
+
+#-asdf-unicode
+(leave-test "No Unicode support to test on this lisp implementation" 0)
+
+#+abcl
+(let* ((version (lisp-implementation-version))
+       (version-nums (subseq version 0 (position-if-not (lambda (x) (find x "0123456789.")) version))))
+  (when (version< version-nums "1.1.2")
+    (leave-test "Your old ABCL is known to fail this test script, so skipping it." 0)))
+
+(with-encoding-test (:utf-8)
+  (def-test-system :test-encoding-explicit-u8
+    :components ((:file "lambda" :encoding :utf-8))))
+
+;; NB: recent clozure can autodetect without asdf-encodings with :default (!)
+
+#+sbcl
+(progn
+  #+sbcl (setf sb-impl::*default-external-format* :latin-3)
+  (with-encoding-test (:default)
+    (def-test-system :test-encoding-explicit-default
+      :components ((:file "lambda" :encoding :default))))
+  (with-encoding-test (:utf-8)
+    (def-test-system :test-encoding-implicit-default
+        :components ((:file "lambda")))))
+
+#+ecl
+(unless (>= ext:+ecl-version-number+ 160000)
+  (leave-test "This version of ECL is known to have broken encoding support" 0))
+
+;; Try to load asdf-encodings
+(setf *central-registry*
+      (list *asdf-directory* ;; be sure that *OUR* asdf is first of any possible ASDF
+            *uiop-directory* ;; be sure that ouir uiop is there, too.
+            ;; try finding asdf-encodings it right next to asdf.
+            (subpathname *asdf-directory* "ext/asdf-encodings/")))
+(unless (find-system :asdf-encodings nil)
+  ;; try harder by enabling the user's source-registry
+  (initialize-source-registry ""))
+(unless (find-system :asdf-encodings nil)
+  (leave-test "Couldn't find ASDF-ENCODINGS. Skipping the rest the test." 0))
+;; Disable any user source registry.
+(initialize-source-registry `(:source-registry :ignore-inherited-configuration))
+
+
+(load-system :asdf-encodings)
+
+(with-expected-failure (#+lispworks "LispWorks doesn't have LATIN-2") ;; Check that it indeed still is broken before we punt.
+  (with-encoding-test (:latin-2)
+    (def-test-system :test-encoding-implicit-autodetect
+      :components ((:file "lambda")))))
+
+#+sbcl
+(with-encoding-test (:koi8-r)
+  (def-test-system :test-encoding-explicit-koi8-r
+    :components ((:file "lambda" :encoding :koi8-r))))
+
+
+(with-encoding-test (:utf-8)
+  (def-test-system :test-file-encoding-u8
+    :encoding :latin-1
+    :components ((:file "lambda" :encoding :utf-8))))
+(with-encoding-test (:latin-1)
+  (def-test-system :test-file-encoding-l1
+    :encoding :utf-8
+    :components ((:file "lambda" :encoding :latin-1))))
+(with-encoding-test (:utf-8 :op load-source-op)
+  (def-test-system :test-system-encoding-u8
+    :encoding :utf-8
+    :components ((:file "lambda"))))
+(with-encoding-test (:utf-8 :op load-op)
+  (def-test-system :test-system-encoding-u8-load-op
+    :encoding :utf-8
+    :components ((:file "lambda"))))
+(with-encoding-test (:latin-1)
+  (def-test-system :test-system-encoding-l1
+    :encoding :latin-1
+    :components ((:file "lambda"))))
+#-ecl-bytecmp
+(with-encoding-test (:latin-1 :op load-op)
+  (def-test-system :test-system-encoding-l1-load-op
+    :encoding :latin-1
+    :components ((:file "lambda"))))
+(with-encoding-test (:utf-8 :path ("foo" "lambda"))
+  (def-test-system :test-module-encoding-u8
+    :encoding :latin-1
+    :components
+    ((:module "foo" :pathname "" :encoding :utf-8
+      :components ((:file "lambda"))))))
+(with-encoding-test (:latin-1 :path ("foo" "lambda"))
+  (def-test-system :test-module-encoding-l1
+    :encoding :utf-8
+    :components
+    ((:module "foo" :pathname "" :encoding :latin-1
+      :components ((:file "lambda"))))))

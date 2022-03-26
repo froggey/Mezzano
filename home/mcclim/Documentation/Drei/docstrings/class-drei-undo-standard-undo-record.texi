@@ -1,0 +1,15 @@
+@anchor{Class drei-undo:standard-undo-record}
+@deftp {Class} {drei-undo:standard-undo-record}
+@tindex drei-undo:standard-undo-record
+Class precedence list: @code{@w{standard-undo-record}, @w{undo-record}, @w{standard-object}, @w{slot-object}, @w{t}}
+
+Slots:
+@itemize
+@item @code{tree} 
+
+The undo tree to which the undo record
+belongs.
+@end itemize
+
+Standard instantiable class for undo records.
+@end deftp

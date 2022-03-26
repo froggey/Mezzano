@@ -1,0 +1,15 @@
+@anchor{Class drei-syntax:lexer}
+@deftp {Class} {drei-syntax:lexer}
+@tindex drei-syntax:lexer
+Class precedence list: @code{@w{lexer}, @w{standard-object}, @w{slot-object}, @w{t}}
+
+Slots:
+@itemize
+@item @code{buffer} --- initargs: @code{@w{:buffer}}
+
+The buffer associated with the
+lexer.
+@end itemize
+
+The base class for all lexers.
+@end deftp

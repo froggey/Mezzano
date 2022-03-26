@@ -1,0 +1,9 @@
+@anchor{Generic-Function drei-syntax:skip-inter-lexeme-objects}
+@deffn {Generic Function} {drei-syntax:skip-inter-lexeme-objects} lexer scan
+@findex drei-syntax:skip-inter-lexeme-objects
+This generic function is called by the
+incremental lexer to skip inter-lexeme buffer objects.  The
+default method for this generic function increments the scan mark
+until the object after the mark is not an inter-lexeme object, or
+until the end of the buffer has been reached.
+@end deffn

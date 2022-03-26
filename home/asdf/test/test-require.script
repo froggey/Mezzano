@@ -1,0 +1,209 @@
+;; -*- Lisp -*-
+
+;;; This script verifies the invariants of both
+;;; *function* REQUIRE-SYSTEM and *class* REQUIRE-SYSTEM.
+;;; Based on work by Daniel Kochmański
+
+(import 'asdf::registered-system)
+
+
+(DBG "---- Tests related to the behavior of preloaded systems")
+
+(DBG "- Even dummy `preloaded-system' is listed in `already-loaded-systems'")
+(register-preloaded-system "test-preloaded-dummy" :version "1.0")
+(assert (registered-system "test-preloaded-dummy"))
+(assert-equal (component-version (registered-system "test-preloaded-dummy")) "1.0")
+
+(DBG "- Loaded `preloaded-system' is listed in `already-loaded-systems'")
+(assert (component-loaded-p (registered-system "test-preloaded-dummy")))
+(assert (member "test-preloaded-dummy" (already-loaded-systems) :test #'equal))
+
+(DBG "- Dummy `preloaded-system' doesn't get overwritten by `require-system'")
+(require-system "test-preloaded-dummy")
+(assert-equal (component-version (registered-system "test-preloaded-dummy")) "1.0")
+
+(DBG "- Dummy `preloaded-system' doesn't get overwritten by `load-system' because there is no alternative in the filesystem")
+(load-test-system "test-preloaded-dummy")
+(assert-equal (component-version (registered-system "test-preloaded-dummy")) "1.0")
+
+(DBG "- Function `clear-system' doesn't remove `preloaded-system'")
+(assert (not (clear-system "test-preloaded-dummy")))
+(assert-equal (component-version (registered-system "test-preloaded-dummy")) "1.0")
+
+(DBG "-`preloaded-system' overridden by defsystem")
+(def-test-system "test-preloaded-dummy" :version "2.0")
+(assert-equal (component-version (registered-system "test-preloaded-dummy")) "2.0")
+
+(DBG "- Function `clear-system' restores `preloaded-system'")
+(assert (not (clear-system "test-preloaded-dummy")))
+(assert-equal (component-version (registered-system "test-preloaded-dummy")) "1.0")
+
+
+(DBG "-`preloaded-system' overridden by find-system")
+(assert (not (registered-system "require-system/preloaded")))
+(register-preloaded-system "require-system/preloaded" :version "1.0")
+(assert-equal (component-version (registered-system "require-system/preloaded")) "1.0")
+(assert (component-loaded-p (registered-system "require-system/preloaded")))
+(find-system "require-system/preloaded")
+(assert-equal (component-version (registered-system "require-system/preloaded")) "2.0")
+
+(DBG "-`find-system' doesn't make the new system loaded")
+(assert (not (component-loaded-p (registered-system "require-system/preloaded"))))
+
+(DBG "-`load-system' does")
+(load-system "require-system/preloaded")
+(assert (component-loaded-p (registered-system "require-system/preloaded")))
+
+(DBG "- Function `clear-system' restores registered, preloaded `preloaded-system'")
+(assert (not (clear-system "require-system/preloaded")))
+(assert-equal (component-version (registered-system "require-system/preloaded")) "1.0")
+(assert (component-loaded-p (registered-system "require-system/preloaded")))
+(assert (member "require-system/preloaded" (already-loaded-systems) :test #'equal))
+
+(DBG "- Function `require-system' doesn't overwrite `preloaded-system'")
+(require-system "require-system/preloaded")
+(assert-equal (component-version (registered-system "require-system/preloaded")) "1.0")
+
+(DBG "- Function `require-system' doesn't trigger a side-effect reloading system")
+;;; `require-system' called `load-system' regardless if the system was
+;;; loaded or not. While the `:force' and `:force-not' flags were
+;;; handled correctly, `load-system' had a nasty side-effect which
+;;; were overwriting our system loaded in-memory, so the second
+;;; `require-system' loaded the new `asd'-defined system.
+(require-system "require-system/preloaded")
+(assert-equal (component-version (registered-system "require-system/preloaded")) "1.0")
+
+(DBG "- System `preloaded-system' won't be reloaded on `require-system' when cache is empty")
+(reset-session)
+(assert-equal (component-version (registered-system "require-system/preloaded")) "1.0")
+(require-system "require-system/preloaded")
+(assert-equal (component-version (registered-system "require-system/preloaded")) "1.0")
+
+(DBG "- Function `load-system' overwrites `preloaded-system'")
+(load-system "require-system/preloaded")
+(assert-equal (component-version (registered-system "require-system/preloaded")) "2.0")
+
+(DBG "- Update the preloaded system version after loading from asd")
+(register-preloaded-system "require-system/preloaded")
+(assert-equal (component-version (registered-system "require-system/preloaded")) "2.0")
+(assert (not (clear-system "require-system/preloaded")))
+(assert-equal (component-version (registered-system "require-system/preloaded")) "2.0")
+
+;; Not implemented:
+#|
+(deregister-preloaded-system "require-system/preloaded")
+(assert-equal (component-version (registered-system "require-system/preloaded")) "2.0")
+(assert (clear-system "require-system/preloaded"))
+(assert (not (registered-system "require-system/preloaded")))
+|#
+
+(DBG "---- Tests related to the behavior of immutable systems")
+
+(DBG "- Test function `register-immutable-system'")
+;; Note: it's not immutable *yet*, but loaded from file.
+(assert-equal (component-version (registered-system "require-system/immutable")) "2.0")
+(clear-system "require-system/immutable")
+(def-test-system "require-system/immutable" :version "1.0"
+                 :depends-on ("require-system/not-loaded")
+                 :components ((:file "file1")))
+(assert (not (component-loaded-p "require-system/immutable")))
+(assert-equal (component-version (registered-system "require-system/immutable")) "1.0")
+(let ((system (registered-system "require-system/immutable")))
+  (register-immutable-system "require-system/immutable")
+  (assert (eq system (registered-system "require-system/immutable"))))
+(assert (eq 'system (type-of (registered-system "require-system/immutable"))))
+(assert-equal 1 (length (component-children (registered-system "require-system/immutable"))))
+(assert (not (component-loaded-p "require-system/immutable"))) ;; *not* marked loaded
+(assert-equal (component-version (registered-system "require-system/immutable")) "1.0")
+
+(DBG "- Function `require-system' doesn't overwrite `immutable-system'")
+(require-system "require-system/immutable")
+(assert-equal (component-version (registered-system "require-system/immutable")) "1.0")
+(assert (not (component-loaded-p "require-system/immutable"))) ;; *not* marked loaded
+
+(DBG "- Function `load-system' doesn't overwrite `immutable-system'")
+(load-system "require-system/immutable")
+(assert-equal (component-version (registered-system "require-system/immutable")) "1.0")
+(assert (not (component-loaded-p "require-system/immutable"))) ;; *not* marked loaded
+
+(DBG "- Function `load-system' doesn't load an immutable system's dependencies")
+(assert (not (component-loaded-p "require-system/not-loaded"))) ;; *not* marked loaded
+
+(DBG "- Function `clear-system' leaves `immutable-system' loaded, but clears build information")
+(assert-equal 1 (length (component-children (registered-system "require-system/immutable"))))
+(assert (not (component-loaded-p "require-system/immutable"))) ;; still not marked loaded
+(clear-system "require-system/immutable")
+(assert-equal (component-version (registered-system "require-system/immutable")) "1.0")
+(assert-equal 0 (length (component-children (registered-system "require-system/immutable"))))
+(assert (component-loaded-p "require-system/immutable")) ;; *YES* marked loaded!
+
+(DBG "- System `immutable-system' won't be reloaded when cache is empty")
+(reset-session)
+(load-system "require-system/immutable")
+(assert-equal (component-version (registered-system "require-system/immutable")) "1.0")
+
+
+
+(DBG "---- Tests related to the behavior of ordinary systems")
+
+(DBG "- Require-system doesn't replace already loaded system")
+(def-test-system "require-system/ordinary" :version "1.0")
+(asdf::mark-component-preloaded "require-system/ordinary")
+(assert (component-loaded-p "require-system/ordinary"))
+(require-system "require-system/ordinary")
+(assert-equal (component-version (registered-system "require-system/ordinary")) "1.0")
+
+(DBG "- Load-system loads system from the disk")
+(reset-session)
+(load-system "require-system/ordinary")
+(assert-equal (component-version (registered-system "require-system/ordinary")) "2.0")
+
+
+;;; ASDF assumes that if a same-named system can be found by find-system, then
+;;; it overrides any same-named implementation-dependent module (after downcasing)
+;;; specified via (:require ...), so as to avoid recursive calls to asdf:operate from
+;;; within plan execution, and any double-loading or infinite loop that could result.
+;;;
+;;; That means that we can't "just" test the (:require ...) feature portably by
+;;; relying on the ASDF hook into CL:REQUIRE that many implementations provide.
+
+#+clisp
+(defparameter *dynmod-list*
+  (mapcar 'pathname-name
+          (directory-files (subpathname (lisp-implementation-directory) "dynmod/") "*.lisp")))
+
+(defparameter *mod*
+  (or
+   #+abcl :abcl-contrib
+   #+allegro :sax
+   #+clisp (first (remove "asdf" *dynmod-list* :test 'equal))
+   #+(or clozure cmucl) :defsystem
+   #+ecl :sockets
+   #+lispworks "comm"
+   #+mkcl :walker
+   #+sbcl :sb-md5
+   #+scl :http-library))
+
+(unless *mod*
+  (leave-test "This implementation doesn't provide a known module" 0))
+
+;; Prevent ASDF from finding the modules as ASDF systems on ECL, MKCL, SBCL (and maybe more).
+(setf asdf::*system-definition-search-functions*
+      (remove 'asdf::sysdef-source-registry-search asdf::*system-definition-search-functions*))
+(asdf::clear-registered-systems)
+(reset-session)
+
+
+(defun has-module-p (x)
+  ;; note that the spec is case-sensitive, but we'll cast a wider net.
+  (and (member x *modules* :test 'string-equal) t))
+
+(DBG :before *modules*)
+(assert (not (find-system *mod* nil)))
+(assert (not (has-module-p *mod*)))
+
+(eval `(def-test-system :require-test :depends-on ((:require ,*mod*))))
+
+(load-system :require-test)
+(DBG :after *modules*)
+(assert (has-module-p *mod*))

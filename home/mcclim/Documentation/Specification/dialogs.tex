@@ -1,0 +1,221 @@
+% -*- Mode: LaTeX; Package: CLIM-USER -*-
+
+\chapter {Dialog Facilities}
+\label {dialogs}
+
+\Issue {SWM} {There is a general issue about how these dialogs fit in with the
+dialogs that might be provided by the underlying toolkit.  For example, under
+what circumstances is CLIM allowed to directly use the dialog facility provided
+by the host?}
+
+
+\Defmacro {accepting-values} {(\optional stream
+                               \key own-window exit-boxes 
+                                    initially-select-query-identifier modify-initial-query
+                                    resynchronize-every-pass resize-frame
+                                    align-prompts label scroll-bars 
+                                    x-position y-position width height
+                                    command-table frame-class)
+                              \body body}
+
+Builds a dialog for user interaction based on calls to \cl{accept} within
+\arg{body}. The user can select the values and change them, or use defaults if
+they are supplied.  The dialog will also contain some sort of ``end'' and
+``abort'' choices.  If ``end'' is selected, then \cl{accepting-values} returns
+whatever values the body returns.  If ``abort'' is selected,
+\cl{accepting-values} will invoke the \cl{abort} restart.
+
+\arg{stream} is an interactive stream that \cl{accepting-values} will use to
+build up the dialog.  The \arg{stream} argument is not evaluated, and must be a
+symbol that is bound to a stream.  If \arg{stream} is \cl{t} (the default),
+\cl{*standard-input*} is used.
+
+\arg{body} is the body of the dialog, which contains calls to \cl{accept} that
+will be intercepted by \cl{accepting-values} and used to build up the dialog.
+\arg{body} may have zero or more declarations as its first forms.
+
+An \cl{accepting-values} dialog is implemented as an application frame with a
+looping structure.  First, \arg{body} is evaluated in order to collect the
+output.  While the body is being evaluated, all calls to \cl{accept} call the
+\cl{accept-present-default} presentation methods instead of calling the
+\cl{accept} presentation methods.  The output is then displayed, preferably
+using incremental redisplay in order to avoid unnecessary redisplay of unchanged
+output.  If \arg{align-prompts} is \term{true} (the default is \cl{nil}), then
+the fields of the dialog will be displayed within a call to
+\cl{formatting-table} so that the prompts are aligned vertically on their
+right-hand sides and the input fields are aligned on their left-hand sides.
+This option is intended to support toolkits where users expect dialogs to have
+this sort of layout.
+
+After \cl{accepting-values} has displayed all of the fields, it awaits a user
+gesture, such as clicking on one of the fields of the dialog.  When the user
+clicks on a field, \cl{accepting-values} reads a new value for that field using
+\cl{accept} and replaces the old value with the new value.  Then the loop is
+started again, until the user either exits or aborts from the dialog.
+
+Because of its looping structure, \cl{accepting-values} needs to be able to
+uniquely identify each call to \cl{accept} in the body of the dialog.  The
+\concept{query identifier} is used to identify the calls to \cl{accept}.  The
+query identifier for a call to \cl{accept} is computed on each loop through the
+dialog, and should therefore be free of side-effects.  Query identifiers are
+compared using \cl{equal}.  Inside of \cl{accepting-values}, programmers should
+supply the \cl{:query-identifier} argument to each call to \cl{accept}.  If
+\cl{:query-identifier} is not explicitly supplied, the prompt for that call to
+\cl{accept} is used as the query identifier.  Thus, if \cl{:query-identifier} is
+not supplied, programmers must ensure that all of the prompts are different.  If
+there is more than one call to \cl{accept} with the same query identifier, the
+behavior of \cl{accepting-values} is unspecified.  
+
+While inside \cl{accepting-values}, calls to \cl{accept} return a third value, a
+boolean (``changed-p'') that indicates whether the object is the result of new
+input by the user, or is just the previously supplied default.  The third value
+will be \term{true} in the former case, \term{false} in the latter.
+
+{\bf Implementation note:} each invocation of \cl{accepting-values} will
+probably need to maintain a table that maps from a query identifier to the
+output record for the field that used the query identifier, and the output
+record for each field in the dialog will probably need a mapping back to the
+query identifier.  A mediating object (a ``query object'') is also useful, for
+instance, as a place to store the ``changed-p'' flag.
+
+The class of the application frame created by \cl{accepting-values} will be
+\cl{accept-values} or a subclass of \cl{accept-values}.  Programmers can use a
+class of their own by supplying the name of a class via the \arg{frame-class}
+argument.  CLIM will use the command table \cl{accept-values} as the command
+table for \cl{accepting-values}.  Programmers can supply a command table of their
+own by supplying the \arg{command-table} argument.
+
+When \arg{own-window} is non-\cl{nil}, the dialog will appear in its own
+``popped-up'' window.  In this case the initial value of \arg{stream} is a
+window with which the dialog is associated.  (This is similar to the
+\arg{associated-window} argument to \cl{menu-choose}.)  Within the \arg{body},
+the value of \arg{stream} will be the ``popped-up'' window.  \arg{own-window} is
+either \cl{t} or a list of alternating keyword options and values.  The accepted
+options are \cl{:right-margin} and \cl{:bottom-margin}; their values control the
+amount of extra space to the right of and below the dialog (useful if the user's
+responses to the dialog take up more space than the initially displayed
+defaults).  The allowed values for \cl{:right-margin} are the same as for the
+\cl{:x-spacing} option to \cl{formatting-table}; the allowed values for
+\cl{:bottom-margin} are the same as for the \cl{:y-spacing} option.
+
+\issue {barmar, SWM} {When the programmer supplies \cl{:right-margin} or
+\cl{:bottom-margin} options in the own-window argument, how is he supposed to
+determine what's needed?  How about providing an option to permit the window to
+resize itself dynamically?  There really needs to be a hook into
+\cl{note-space-requirements-changed} or something.}
+
+\arg{exit-boxes} specifies what the exit boxes should look like.  The default
+behavior is though the following were supplied:
+
+\begin{verbatim}
+'((:exit "<End> uses these values")
+  (:abort "<Abort> aborts"))
+\end{verbatim}
+
+\issue {barmar} {We need to describe the interpretation of the \arg{exit-boxes}
+argument.  Are other keywords beside \cl{:exit} and \cl{:abort} permitted, such
+as \cl{:help}?  It's pretty common for a dialog to have multiple ways to exit;
+perhaps \cl{accepting-values} should return a second value that indicates which
+exit box was selected.  This alist looks sort of like a menu item list; perhaps
+the full generality should be permitted (so that the style of the exit box
+messages can be specified).  The text strings that are shown in the default
+value look more like documentation than button labels; I think both are
+necessary, and the programmer must be able to find out what the default labels
+are so that he can include them in the documentation (rather than hard-coding
+"<End>" and "<Abort>").}
+
+\arg{initially-select-query-identifier} specifies that a particular field in the
+dialog should be pre-selected when the user interaction begins. The field to be
+selected is tagged by the \cl{:query-identifier} option to \cl{accept}.  When
+the initial display is output, the input editor cursor appears after the prompt
+of the tagged field, just as if the user had selected that field by clicking on
+it.  The default value, if any, for the selected field is not displayed.  When
+\arg{modify-initial-query} is \term{true}, the initially selected field is
+selected for modification rather than for replacement; the default is \cl{nil}.
+
+\arg{resynchronize-every-pass} is a boolean option specifying whether earlier
+queries depend on later values; the default is \term{false}.  When it is
+\term{true}, the contents of the dialog are redisplayed an additional time after
+each user interaction.  This has the effect of ensuring that, when the value of
+some field of a dialog depends on the value of another field, all of the
+displayed fields will be up to date.
+
+When \arg{resize-frame} is \term{true}, own-window dialogs will be resized after
+each pass through the redisplay loop.  The default is \cl{nil}.
+
+\arg{label} is as for \cl{menu-choose}.  \arg{x-position} and \arg{y-position}
+are as for \cl{menu-choose-from-drawer}.  \arg{width} and \arg{height} are real
+numbers that specify the initial width and height of own-window dialogs.
+
+
+\Defframe {accept-values}
+
+\cl{accepting-values} must be implemented as a CLIM application frame that uses
+\cl{accept-values} as the name of the frame class.
+
+
+\Defgeneric {display-exit-boxes} {frame stream view}
+
+Displays the exits boxes for the \cl{accepting-values} frame \arg{frame} on the
+stream \arg{stream} in the view \arg{view}.  The exit boxes specification is not
+passed in directly, but is a slot in the frame.  The default method (on
+\cl{accept-values}) simply writes a line of text associating the Exit and Abort
+strings with presentations that either exit or abort from the dialog.
+
+The \arg{frame}, \arg{stream}, and \arg{view} arguments may be specialized to
+provide a different look-and-feel for different host window systems.
+
+\Defgeneric {accept-values-resynchronize} {stream}
+
+Causes \cl{accepting-values} to resynchronizes the dialog once on the accepting
+values stream \arg{stream} before it restarts the dialog loop.
+
+
+\Defmacro {accept-values-command-button} {(\optional stream
+                                           \key documentation query-identifier
+                                                cache-value cache-test resynchronize) 
+                                          prompt
+                                          \body body}
+
+Displays the prompt \arg{prompt} on the stream \arg{stream} and creates an area
+(the ``button'').  When a pointer button is clicked in this area at runtime,
+\arg{body} will be evaluated.
+
+\cl{accept-values-command-button} must be implemented by expanding into a call
+to \cl{invoke-accept-values-command-button}, supplying a function that executes
+\arg{body} as the \arg{continuation} argument to \cl{accept-values-command-button}.
+
+The \arg{stream} argument is not evaluated, and must be a symbol that is bound
+to a stream.  If \arg{stream} is \cl{t} (the default), \cl{*standard-input*} is
+used.  \arg{body} may have zero or more declarations as its first forms.
+
+\Defmethod {invoke-accept-values-command-button}
+           {stream continuation view prompt
+            \key documentation query-identifier cache-value cache-test resynchronize}
+
+Displays the prompt \arg{prompt} on the stream \arg{stream} and creates an area
+(the ``button'').  When a pointer button is clicked in this area at runtime, the
+continuation will be called.  \arg{continuation} is a function that takes no
+arguments.  \arg{view} is a view.
+
+\arg{prompt} may be either a string (which will be displayed via
+\cl{write-string}), or a form that will be evaluated to draw the button.
+
+\arg{documentation} is an object that will be used to produce pointer
+documentation for the button.  It defaults to \arg{prompt}.  If it is a string,
+the string itself will be used as the pointer documentation.  Otherwise it must
+be a function of one argument, the stream to which the documentation should be
+written.
+
+When \arg{resynchronize} is \term{true}, the dialog will be redisplayed an
+additional time whenever the command button is clicked on.  See the
+\arg{resynchronize-every-pass} argument to \cl{accepting-values}.
+ 
+\arg{cache-value} and \arg{cache-test} are as for \cl{updating-output}.  That
+is, \arg{cache-value} should evaluate to the same value if and only if the
+output produced by \arg{prompt} does not ever change.  \arg{cache-test} is a
+function of two arguments that is used to compare cache values.
+\arg{cache-value} defaults to \cl{t} and \arg{cache-test} defaults to \cl{eql}.
+
+This function may only be used inside the dynamic context of an
+\cl{accepting-values}.

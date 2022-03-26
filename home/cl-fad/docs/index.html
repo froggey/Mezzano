@@ -1,0 +1,700 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN">
+<html> 
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+  <title>CL-FAD - A portable pathname library for Common Lisp</title>
+  <style type="text/css">
+  pre { padding:5px; background-color:#e0e0e0 }
+  h3, h4, h5 { text-decoration: underline; }
+  a { text-decoration: none; padding: 1px 2px 1px 2px; }
+  a:visited { text-decoration: none; padding: 1px 2px 1px 2px; }
+  a:hover { text-decoration: none; padding: 1px 1px 1px 1px; border: 1px solid #000000; } 
+  a:focus { text-decoration: none; padding: 1px 2px 1px 2px; border: none; }
+  a.none { text-decoration: none; padding: 0; }
+  a.none:visited { text-decoration: none; padding: 0; } 
+  a.none:hover { text-decoration: none; border: none; padding: 0; } 
+  a.none:focus { text-decoration: none; border: none; padding: 0; } 
+  a.noborder { text-decoration: none; padding: 0; } 
+  a.noborder:visited { text-decoration: none; padding: 0; } 
+  a.noborder:hover { text-decoration: none; border: none; padding: 0; } 
+  a.noborder:focus { text-decoration: none; border: none; padding: 0; }  
+  pre.none { padding:5px; background-color:#ffffff }
+  </style>
+</head>
+
+<body bgcolor=white>
+
+<h2>CL-FAD - A portable pathname library for Common Lisp</h2>
+
+<blockquote>
+<br>&nbsp;<br><h3><a name=abstract class=none>Abstract</a></h3>
+
+CL-FAD (for "<font color=red>F</font>iles <font color=red>a</font>nd
+<font color=red>D</font>irectories") is a thin layer atop Common
+Lisp's standard pathname functions.  It is intended to provide some
+unification between current CL implementations on Windows, OS X,
+Linux, and Unix.  Most of the code was written by Peter Seibel for his book <a href="http://www.gigamonkeys.com/book/"><em>Practical Common Lisp</em></a>.
+
+<p>
+
+CL-FAD comes with a <a
+href="http://www.opensource.org/licenses/bsd-license.php">BSD-style
+license</a> so you can basically do with it whatever you want.
+
+<p>
+<font color=red>Download shortcut:</font> <a href="http://weitz.de/files/cl-fad.tar.gz">http://weitz.de/files/cl-fad.tar.gz</a>.
+</blockquote>
+
+<br>&nbsp;<br><h3><a class=none name="contents">Contents</a></h3>
+<ol>
+  <li><a href="#download">Download and installation</a>
+  <li><a href="#implementations">Supported Lisp implementations</a>
+  <li><a href="#dictionary">The CL-FAD dictionary</a>
+  <ol>
+    <li><a href="#querying">Querying files, directories and pathnames</a>
+      <ol>
+        <li><a href="#directory-exists-p"><code>directory-exists-p</code> [function]</a>
+        <li><a href="#directory-pathname-p"><code>directory-pathname-p</code> [function]</a>
+        <li><a href="#file-exists-p"><code>file-exists-p</code> [function]</a>
+        <li><a href="#pathname-absolute-p"><code>pathname-absolute-p</code> [function]</a>
+        <li><a href="#pathname-equal"><code>pathname-equal</code> [function]</a>
+        <li><a href="#pathname-relative-p"><code>pathname-relative-p</code> [function]</a>
+        <li><a href="#pathname-root-p"><code>pathname-root-p</code> [function]</a>
+    </ol> </li>
+    <li><a href="#manipulating">Manipulating pathnames</a>
+      <ol>
+        <li><a href="#canonical-pathname"><code>canonical-pathname</code> [function]</a>
+        <li><a href="#merge-pathnames-as-directory"><code>merge-pathnames-as-directory</code> [function]</a>
+        <li><a href="#merge-pathnames-as-file"><code>merge-pathnames-as-file</code> [function]</a>
+        <li><a href="#pathname-as-directory"><code>pathname-as-directory</code> [function]</a>
+        <li><a href="#pathname-as-file"><code>pathname-as-file</code> [function]</a>
+        <li><a href="#pathname-directory-pathname"><code>pathname-directory-pathname</code> [function]</a>
+        <li><a href="#pathname-parent-directory"><code>pathname-parent-directory</code> [function]</a>
+    </ol> </li>
+    <li><a href="#traversing">Traversing directories</a>
+      <ol>
+        <li><a href="#list-directory"><code>list-directory</code> [function]</a>
+        <li><a href="#walk-directory"><code>walk-directory</code> [function]</a>
+    </ol> </li>
+    <li><a href="#temporary-files">Temporary Files</a>
+      <ol>
+        <li><a href="#open-temporary"><code>open-temporary</code> [function]</a>
+        <li><a href="#with-output-to-temporary-file"><code>with-output-to-temporary-file</code> [macro]</a>
+        <li><a href="#with-open-temporary-file"><code>with-open-temporary-file</code> [macro]</a>
+        <li><a href="#star-default-template-star"><code>*default-template*</code> [variable]</a>
+        <li><a href="#cannot-create-temporary-file"><code>cannot-create-temporary-file</code> [condition]</a>
+        <li><a href="#invalid-temporary-pathname-template"><code>invalid-temporary-pathname-template</code> [condition]</a>
+        <li><a href="#missing-temp-environment-variable"><code>missing-temp-environment-variable</code> [condition]</a>
+        <li><a href="#lp-host-temporary-files"><code>temporary-files</code> [logical pathname host]</a>
+      </ol>
+    </li>
+    <li><a href="#modifying">Modifying the file system</a>
+      <ol>
+        <li><a href="#copy-file"><code>copy-file</code> [function]</a>
+        <li><a href="#copy-stream"><code>copy-stream</code> [function]</a>
+        <li><a href="#delete-directory-and-files"><code>delete-directory-and-files</code> [function]</a>
+    </ol> </li>
+    <li><a href="#package-path"><code>path</code> [package]</a>
+  </ol>
+  <li><a href="#ack">Acknowledgements</a>
+</ol>
+
+
+
+<br>&nbsp;<br><h3><a class=none name="download">Download and installation</a></h3>
+
+CL-FAD together with this documentation can be downloaded from <a
+href="https://github.com/edicl/cl-fad/releases/latest">https://github.com/edicl/cl-fad/releases/latest</a>. The
+current version is 0.7.5.
+<p>
+CL-FAD comes with simple system definitions for <a
+href="http://www.cliki.net/mk-defsystem">MK:DEFSYSTEM</a> and <a
+href="http://www.cliki.net/asdf">asdf</a> so you can either adapt it
+to your needs or just unpack the archive and from within the CL-FAD
+directory start your Lisp image and evaluate the form
+<code>(mk:compile-system&nbsp;&quot;cl-fad&quot;)</code> - or <code>(asdf:oos&nbsp;'asdf:load-op&nbsp;:cl-fad)</code> for asdf - which should compile and load the whole
+system.
+Installation via <a
+href="http://www.cliki.net/asdf-install">asdf-install</a> should as well
+be possible.  Plus, there are ports
+for <a href="http://www.gentoo.org/proj/en/common-lisp/index.xml">Gentoo Linux</a> thanks to Matthew Kennedy
+and for <a href="http://packages.debian.org/cgi-bin/search_packages.pl?keywords=cl-fad&amp;searchon=names&amp;subword=1&amp;version=all&amp;release=all">Debian Linux</a> thanks to Ren&eacute; van Bevern.
+<p>
+If for some reason you can't or don't want to use MK:DEFSYSTEM or asdf you
+can just <code>LOAD</code> the file <code>load.lisp</code>.
+<p>
+The latest version of the source code lives in the github repository <a href="https://github.com/edicl/cl-fad">edicl/cl-fad</a>.
+
+If you want to send patches,
+please <a href="http://weitz.de/patches.html">read this first</a>.
+Please submit your changes
+as <a href="https://github.com/edicl/cl-fad/pulls">GitHub pull
+request"</a>.
+
+<br>&nbsp;<br><h3><a class=none name="implementations">Supported Lisp implementations</a></h3>
+
+<p>
+The following Common Lisp implementations are currently supported:
+<ul>
+<li><a href="http://armedbear.org/abcl.html">Armed Bear Common Lisp</a>
+<li><a href="http://www.cons.org/cmucl/">CMUCL</a>
+<li><a href="http://www.cormanlisp.com/">Corman Common Lisp</a>
+<li><a href="http://ecls.sf.net/">ECL</a>
+<li><a href="http://www.franz.com/products/allegrocl/">Franz AllegroCL</a>
+<li><a href="http://clisp.cons.org/">GNU CLISP</a>
+<li><a href="http://www.lispworks.com/">LispWorks</a>
+<li><a href="http://www.digitool.com/">Macintosh Common Lisp</a>
+<li><a href="http://openmcl.clozure.com/">OpenMCL</a>
+<li><a href="http://www.scieneer.com/scl/">Scieneer Common Lisp</a>
+<li><a href="http://sbcl.sourceforge.net/">Steel Bank Common Lisp</a>
+</ul>
+
+I'll gladly accepts patches to make CL-FAD work on other platforms.
+
+
+<br>&nbsp;<br><h3><a class=none name="dictionary">The CL-FAD dictionary</a></h3>
+
+<h4><a class=none name="querying">Querying files, directories and pathnames</a></h4>
+
+<p><br>[Function]
+<br><a class=none name="directory-exists-p"><b>directory-exists-p</b> <i> pathspec </i> =&gt; <i> generalized-boolean</i></a>
+
+<blockquote><br>
+Checks whether the file named by the <a href="http://www.lispworks.com/documentation/HyperSpec/Body/26_glo_p.htm#pathname_designator">pathname designator</a> <code><i>pathspec</i></code>
+exists and if it is a directory.  Returns its <a href="http://www.lispworks.com/documentation/HyperSpec/Body/26_glo_t.htm#truename">truename</a> if this is the
+case, <code>NIL</code> otherwise.  The truename is returned in <em>directory form</em> as if
+by <a href="#pathname-as-directory"><code>PATHNAME-AS-DIRECTORY</code></a>.
+</blockquote>
+
+<p><br>[Function]
+<br><a class=none name="directory-pathname-p"><b>directory-pathname-p</b> <i> pathspec </i> =&gt; <i> generalized-boolean</i></a>
+
+<blockquote><br>
+Returns <code>NIL</code> if <code><i>pathspec</i></code> (a <a href="http://www.lispworks.com/documentation/HyperSpec/Body/26_glo_p.htm#pathname_designator">pathname designator</a>) does not designate
+a directory, <code><i>pathspec</i></code> otherwise.  It is irrelevant whether the file or
+directory designated by <code><i>pathspec</i></code> does actually exist.
+</blockquote>
+
+<p><br>[Function]
+<br><a class=none name="file-exists-p"><b>file-exists-p</b> <i> pathspec </i> =&gt; <i> generalized-boolean</i></a>
+
+<blockquote><br>
+Checks whether the file named by the <a href="http://www.lispworks.com/documentation/HyperSpec/Body/26_glo_p.htm#pathname_designator">pathname designator</a> <code><i>pathspec</i></code>
+exists and returns its <a href="http://www.lispworks.com/documentation/HyperSpec/Body/26_glo_t.htm#truename">truename</a> if this is the case, <code>NIL</code> otherwise.
+The truename is returned in "canonical" form, i.e. the truename of a
+directory is returned in <em>directory form</em> as if by <a href="#pathname-as-directory"><code>PATHNAME-AS-DIRECTORY</code></a>.
+</blockquote>
+
+<p><br>[Function]<br><a class=none name='pathname-absolute-p'><b>pathname-absolute-p</b> <i>a</i> =&gt; <i>result</i></a>
+<blockquote>
+<p>Returns true if <code><i>a</i></code> is an absolute pathname. This simply
+tests if <code><i>a</i></code>&#039;s directory list starts with <code>:ABSOLUTE</code></p>
+</blockquote>
+
+<p><br>[Function]<br><a class=none name='pathname-equal'><b>pathname-equal</b> <i>a b</i> =&gt; <i>result</i></a>
+<blockquote>
+
+<p>Returns <em>true</em> if <code><i>a</i></code> and <code><i>b</i></code>
+represent the same pathname. This function does not access the
+filesystem, it only looks at the components of the two pathnames to
+test if they are the same (though by passing both <code><i>a</i></code>
+and <code><i>b</i></code> to probe-file one can make this function test for
+file &#039;sameness&#039;.</p>
+
+<p>Equality is defined as:</p>
+
+<ul>
+  <li>strings that are <code>string=</code>
+  <li>symbols (including <code>nil</code> and keywords) which are <code>eql</code>
+  <li>lists of the same length with equal (as per these rules) elements.
+</ul>
+
+<p>If any of these tree conditions is false for any of the components in
+<code><i>a</i></code> and <code><i>b</i></code> then <code><i>a</i></code>
+and <code><i>b</i></code> are different, otherwise they are the same.</p>
+
+<p><em>NB:</em> This function does not convert name strings to pathnames. So
+&quot;foo.txt&quot; and #P&quot;foo.txt&quot; are different pathnames.</p>
+
+</blockquote>
+
+<p><br>[Function]<br><a class=none name='pathname-relative-p'><b>pathname-relative-p</b> <i>a</i> =&gt; <i>result</i></a>
+<blockquote>
+<p>Returns true if <code><i>a</i></code> is a relative pathname. This simply
+tests if <code><i>a</i></code>&#039;s directory starts
+with <code>:RELATIVE</code>.</p>
+</blockquote>
+
+<p><br>[Function]<br><a class=none name='pathname-root-p'><b>pathname-root-p</b> <i>a</i> =&gt; <i>result</i></a>
+<blockquote>
+<p>Returns <em>true</em> if <code><i>pathname</i></code> is the root
+directory (in other words, a directory which is its own parent).</p>
+</blockquote>
+
+<h4><a class=none name="manipulating">Manipulating pathnames</a></h4>
+
+<p><br>[Function]<br><a class=none name='canonical-pathname'><b>canonical-pathname</b> <i>pathname</i> =&gt; <i>result</i></a>
+<blockquote>
+<p>Remove redundant information from PATHNAME.</p>
+
+<p>This simply walks down <code>PATHNAME</code>&#039;s
+pathname-directory and drops &quot;.&quot; directories, removes :back
+and its preceding element.</p>
+
+<p>NB: This function does not access the filesystem, it only looks at the
+values in the pathname and works on their known (or assumed)
+meanings.</p>
+
+<p>NB: Since this function does not access the filesystem it will only
+remove <code>:BACK</code> elements from the path (not <code>:UP</code>
+elements). Since some lisps, ccl/sbcl/clisp convert &quot;..&quot; in
+pathnames to <code>:UP</code>, and not <code>:BACK</code>, the actual
+utility of the function is limited.</p>
+</blockquote>
+
+<p><br>[Function]<br><a class=none name='merge-pathnames-as-directory'><b>merge-pathnames-as-directory</b> <i><tt>&amp;rest</tt> pathnames</i> =&gt; <i>result</i></a>
+<blockquote>
+<p>Given a list of (probably relative) pathnames, this returns a single
+directory pathname containing the logical concatenation of them all.</p>
+
+<p>The returned value is the current directory if one were to cd into
+each of <code><i>pathnames</i></code> in order. For this reason an
+absolute pathname will, effectively, cancel the affect of any previous
+relative pathnames.</p>
+
+<p>The returned value&#039;s defaults are taken from the first element of
+<code><i>pathnames</i></code> (host, version and device).</p>
+
+<p><em>NB:</em> Since this function only looks at directory names the name and
+type of the elements of <code><i>pathnames</i></code> are ignored. Make sure to properly
+use either trailing #\/s, or <a href="#pathname-as-directory">pathname-as-directory</a>, to get the
+expected results.</p>
+
+<p>Examples:</p>
+
+<pre>
+  (merge-pathnames-as-directory #P&quot;foo/&quot; #P&quot;bar/&quot;) == #P&quot;foo/bar/&quot;
+
+  (merge-pathnames-as-directory #P&quot;foo/&quot; #P&quot;./bar/&quot;) == #P&quot;foo/./bar/&quot;
+
+  (merge-pathnames-as-directory #P&quot;foo/&quot; #P&quot;/bar/&quot;) == #P&quot;/bar/&quot;
+
+  (merge-pathnames-as-directory #P&quot;foo/&quot; #P&quot;/bar/&quot; #P&#039;quux/file.txt) == #P&quot;/bar/quux/&quot;
+</pre>
+
+</blockquote>
+
+<p><br>[Function]<br><a class=none name='merge-pathnames-as-file'><b>merge-pathnames-as-file</b> <i><tt>&amp;rest</tt> pathnames</i> =&gt; <i>result</i></a>
+<blockquote>
+<p>Given a list of, probably relative, pathnames returns a single
+filename pathname containing the logical concatenation of them all.</p>
+
+<p>The returned value&#039;s defaults are taken from the first element of
+<code><i>pathnames</i></code> (host, version and device). The returned
+values&#039;s name, type and version are taken from the last element
+of <code><i>pathnames</i></code>. The intervening elements are used only for
+their pathname-directory values.</p>
+
+Examples:
+
+<pre>
+  (merge-pathnames-as-file #P&quot;foo/&quot; #P&quot;bar.txt&quot;) == #P&quot;foo/bar.txt&quot;
+
+  (merge-pathnames-as-file #P&quot;foo/&quot; #P&quot;./bar.txt&quot;) == #P&quot;foo/./bar.txt&quot;
+
+  (merge-pathnames-as-file #P&quot;foo/&quot; #P&quot;/bar/README&quot;) == #P&quot;/bar/README&quot;
+
+  (merge-pathnames-as-file #P&quot;/foo/&quot; #P&quot;/bar/&quot; #P&#039;quux/file.txt) == #P&quot;/bar/quux/file.txt&quot;
+</pre>
+
+</blockquote>
+
+<p><br>[Function]
+<br><a class=none name="pathname-as-directory"><b>pathname-as-directory</b> <i> pathspec </i> =&gt; <i> pathname</i></a> 
+<blockquote><br>
+Converts the <em>non-wild</em> <a href="http://www.lispworks.com/documentation/HyperSpec/Body/26_glo_p.htm#pathname_designator">pathname designator</a> <code><i>pathspec</i></code> to <em>directory form</em>, i.e. it returns a <a href="http://www.lispworks.com/documentation/HyperSpec/Body/26_glo_p.htm#pathname">pathname</a> which would return a <em>true</em> value if fed to <a href="#directory-pathname-p"><code>DIRECTORY-PATHNAME-P</code></a>.
+</blockquote>
+
+<p><br>[Function]
+<br><a class=none name="pathname-as-file"><b>pathname-as-file</b> <i> pathspec </i> =&gt; <i> pathname</i></a>
+
+<blockquote><br>
+Converts the <em>non-wild</em> <a href="http://www.lispworks.com/documentation/HyperSpec/Body/26_glo_p.htm#pathname_designator">pathname designator</a> <code><i>pathspec</i></code> to <em>file form</em>, i.e. it returns a <a href="http://www.lispworks.com/documentation/HyperSpec/Body/26_glo_p.htm#pathname">pathname</a> which would return a <code>NIL</code> value if fed to <a href="#directory-pathname-p"><code>DIRECTORY-PATHNAME-P</code></a>.
+</blockquote>
+
+<p><br>[Function]<br><a class=none name='pathname-directory-pathname'><b>pathname-directory-pathname</b> <i>pathname</i> =&gt; <i>result</i></a>
+<blockquote>
+<p>Returns a complete pathname representing the directory of
+<code><i>pathname</i></code>. If <code><i>pathname</i></code> is
+already a directory pathname
+(<code>name</code> <code>nil</code>, <code>type</code>
+<code>nil</code>) returns a pathname equal (as
+per <a href="#pathname-equal">pathname-equal</a>) to it.</p>
+</blockquote>
+
+<p><br>[Function]<br><a class=none name='pathname-parent-directory'><b>pathname-parent-directory</b> <i>pathname</i> =&gt; <i>result</i></a>
+<blockquote>
+
+<p>Returns a pathname which would, by name at least,
+contain <code><i>pathname</i></code> as one of its direct
+children. Symlinks can make the parent/child relationship a like
+opaque, but generally speaking the value returned by this function is
+a directory name which contains <code><i>pathname</i></code>.</p>
+
+<p>The root directory, #P&quot;/&quot;, is its own parent. The parent
+directory of a filename is the parent of the filename&#039;s
+dirname.</p>
+
+</blockquote>
+
+<h4><a class=none name="traversing">Traversing directories</a></h4>
+
+<p><br>[Function]
+<br><a class=none name="list-directory"><b>list-directory</b> <i> dirname <tt>&amp;key</tt> follow-symlinks</i> =&gt; <i> list</i></a>
+
+<blockquote><br>
+<p>
+Returns a <a href="http://www.lispworks.com/documentation/HyperSpec/Body/26_glo_f.htm#fresh">fresh</a> list of pathnames corresponding to
+all files within the directory named by the non-wild <a href="http://www.lispworks.com/documentation/HyperSpec/Body/26_glo_p.htm#pathname_designator">pathname designator</a> <code><i>dirname</i></code>.  The pathnames of sub-directories are returned in
+<em>directory form</em> - see <a href="#pathname-as-directory"><code>PATHNAME-AS-DIRECTORY</code></a>.
+</p>
+<p>
+  If <code><i>follow-symlinks</i></code> is true (which is the
+  default), then the returned list contains truenames (symlinks will
+  be resolved) which essentially means that it might also return files
+  from <b>outside</b> the directory.  This works on all platforms.
+</p>
+<p>
+  When <code><i>follow-symlinks</i></code> is <code>NIL</code>, it should return the actual directory
+  contents, which might include symlinks. (This is currently implemented only on SBCL and CCL.)
+</p>
+</blockquote>
+
+<p><br>[Function]
+<br><a class=none name="walk-directory"><b>walk-directory</b> <i> dirname fn <tt>&amp;key</tt> directories if-does-not-exist test follow-symlinks</i> =&gt; |</a>
+
+<blockquote><br>
+<p>
+  Recursively applies the function designated by the <a href="http://www.lispworks.com/documentation/HyperSpec/Body/26_glo_f.htm#function_designator">function 
+  designator</a> <code><i>fn</i></code> to all files within the directory named 
+  by the non-wild <a href="http://www.lispworks.com/documentation/HyperSpec/Body/26_glo_p.htm#pathname_designator">pathname 
+  designator</a> <code><i>dirname</i></code> and all of its sub-directories. <code><i>fn</i></code> 
+  will only be applied to files for which the function <code><i>test</i></code> 
+  returns a <em>true</em> value. (The default value for <code><i>test</i></code> 
+  always returns <em>true</em>.) If <code><i>directories</i></code> is not <code>NIL</code>, 
+  <code><i>fn</i></code> and <code><i>test</i></code> are applied to directories 
+  as well. If <code><i>directories</i></code> is <code>:DEPTH-FIRST</code>, <code><i>fn</i></code> 
+  will be applied to the directory's contents first. If <code><i>directories</i></code> 
+  is <code>:BREADTH-FIRST</code> and <code><i>test</i></code> returns <code>NIL</code>, the 
+  directory's content will be skipped.  <code><i>if-does-not-exist</i></code> must 
+  be one of <code>:ERROR</code> or <code>:IGNORE</code> where <code>:ERROR</code> 
+  (the default) means that an error will be signaled if the directory <code><i>dirname</i></code> 
+  does not exist.
+</p>
+<p>
+  If <code><i>follow-symlinks</i></code> is true (which is
+  the default), then your callback will receive truenames.  Otherwise
+  you should get the actual directory contents, which might include
+  symlinks.  This might not be supported on all platforms.  See
+  <a href="#list-directory"><code>LIST-DIRECTORY</code></a>.
+</p>
+</blockquote>
+
+<h4><a class=none name="temporary-files">Temporary Files</a></h4>
+
+<h5>Synopsis</h5>
+
+    <p>
+      Create a temporary file and return its name:
+<pre>CL-USER&gt; (temporary-file:<code xmlns=""><a href="#with-output-to-temporary-file">with-output-to-temporary-file</a></code> (foo)
+           (print "hello" foo))
+#P"/var/folders/Yu/YuNMNBNPGoqs9G-1Wmj1dk+++TI/-Tmp-/temp-yjck024x"</pre>
+    </p>
+    <p>
+      Create a temporary file, read and write it, have it be deleted
+      automatically:
+<pre>CL-USER&gt; (temporary-file:<code xmlns=""><a href="#with-open-temporary-file">with-open-temporary-file</a></code> (foo :direction :io)
+           (print "hello" foo)
+           (file-position foo 0)
+           (read foo))
+"hello"</pre>
+    </p>
+  
+  <h5><a class="none" name="default-temporary-directory">Default temporary file directory</a></h5>
+    By default, temporary files are created in a system specific
+    directory that defaults based on operating system conventions.  On
+    Unix and Unix-like systems, the directory <tt>/tmp/</tt> is used
+    by default.  It can be overridden by setting the <tt>TMPDIR</tt>
+    environment variable.  On Windows, the value of the environment
+    variable <tt>TEMP</tt> is used.  If it is not set, temporary file
+    creation will fail.
+  
+  <h5><a class="none" name="defining-temporary-directory">Defining the temporary file directory</a></h5>
+    <p>
+      The Lisp application can set the default directory in which
+      temporary files are created by the way of the
+      <code xmlns=""><a href="#temporary-files">temporary-files</a></code> logical pathname host:
+
+<pre>(setf (<a xmlns="" href="http://www.lispworks.com/documentation/HyperSpec/Body/f_logica.htm">logical-pathname-translations</a> "<code xmlns=""><a href="#temporary-files">temporary-files</a></code>") '(("*.*.*" "/var/tmp/")))</pre>
+
+      This would set the directory for temporary files to
+      <tt>/var/tmp/</tt>.  For more information about logical
+      pathnames, please refer to <a href="http://www.cs.cmu.edu/afs/cs/project/ai-repository/ai/html/cltl/clm/node208.html#SECTION002715000000000000000">Common
+      Lisp the Language, 2nd Edition</a> and the <a href="http://clhs.lisp.se/Body/19_.htm">Common Lisp
+      HyperSpec</a>.
+    </p>
+    <p>
+      Physical path names have restrictions regarding the permitted
+      character in file names.  If these restrictions conflict with
+      your desired naming scheme, you can pass a physical pathname as
+      TEMPLATE parameter to the temporary file generation function.
+    </p>
+    <p>
+      Here are a few examples:
+<pre>CL-USER&gt; (<a xmlns="" href="http://www.lispworks.com/documentation/HyperSpec/Body/f_logica.htm">logical-pathname-translations</a> "temporary-files")
+(("*.*.*" #P"/var/folders/Yu/YuNMNBNPGoqs9G-1Wmj1dk+++TI/-Tmp-/"))
+CL-USER&gt; (temporary-file:<code xmlns=""><a href="#with-open-temporary-file">with-open-temporary-file</a></code> (foo)
+           (<a xmlns="" href="http://www.lispworks.com/documentation/HyperSpec/Body/f_pn.htm">pathname</a> foo))
+#P"/var/folders/Yu/YuNMNBNPGoqs9G-1Wmj1dk+++TI/-Tmp-/temp-6rdqdkd1"</pre>
+
+      This used the temporary directory established in the TMPDIR
+      environment variable, by the way of the definition of the
+      temporary-files logical host definition.
+
+<pre>CL-USER&gt; (temporary-file:<code xmlns=""><a href="#with-open-temporary-file">with-open-temporary-file</a></code> (foo :template "/tmp/file.with.dots.in.name.%.txt")
+           (<a xmlns="" href="http://www.lispworks.com/documentation/HyperSpec/Body/f_pn.htm">pathname</a> foo))
+#P"/tmp/file.with.dots.in.name.2EF04KUJ.txt"</pre>
+
+      Here, a physical pathname was used for the
+      <code xmlns=""><i>:template</i></code> keyword argument so that a
+      filename containing multiple dots could be generated.
+
+<pre>CL-USER&gt; (temporary-file:<code xmlns=""><a href="#with-open-temporary-file">with-open-temporary-file</a></code> (foo :template "temporary-files:blah-%.txt")
+           (<a xmlns="" href="http://www.lispworks.com/documentation/HyperSpec/Body/f_pn.htm">pathname</a> foo))
+#P"/var/folders/Yu/YuNMNBNPGoqs9G-1Wmj1dk+++TI/-Tmp-/blah-72mj450d.txt"</pre>
+
+      This used the temporary-files logical pathname host, but changed
+      the filename slightly.
+
+<pre>CL-USER&gt; *default-pathname-defaults*
+#P"/Users/hans/"
+CL-USER&gt; (temporary-file:<code xmlns=""><a href="#with-open-temporary-file">with-open-temporary-file</a></code> (foo :template "blah-%.txt")
+           (<a xmlns="" href="http://www.lispworks.com/documentation/HyperSpec/Body/f_pn.htm">pathname</a> foo))
+#P"/Users/hans/blah-5OEJELG2.txt"</pre>
+
+      Here, a relative pathname was used in the template, which
+      caused the file to be generated in the directory established
+      by <a xmlns="" href="http://www.lispworks.com/documentation/HyperSpec/Body/v_defaul.htm">*default-pathname-defaults*</a>.
+    </p>
+    <p>
+      Alternatively, the <code xmlns=""><a href="#*default-template*">*default-template*</a></code>
+      special variable can be set to define a custom default template
+      for generating names.
+    </p>
+  
+  <h5 xmlns=""><a class="none" name="security">Security</a></h5>
+    The TEMPORARY-FILE library does not directly address security
+    issues.  The application that uses it needs to take additional
+    measures if it is important that files created by one process
+    cannot be accessed by other, unrelated processes.  This can be
+    done by using the system dependent security mechanisms like
+    default file permissions or access control lists.
+
+  <h5>Dictionary</h5>
+
+
+    <p xmlns="">[Function]<br><a class="none" name="open-temporary"><b>open-temporary</b> <i><clix:lambda-list xmlns:clix="http://bknr.net/clixdoc"><tt>&amp;rest</tt> open-arguments <tt>&amp;key</tt> template generate-random-string max-tries <tt>&amp;allow-other-keys</tt></clix:lambda-list></i>
+          =&gt;
+          <i>stream</i></a><blockquote><clix:description xmlns:clix="http://bknr.net/clixdoc">
+        <p xmlns="http://www.w3.org/1999/xhtml">
+          Create a file with a randomly generated name and return the
+          opened stream.  The resulting pathname is generated from
+          <code xmlns=""><i>template</i></code>, which is a string
+          representing a pathname template.  A percent sign (%) in
+          that string is replaced by a randomly generated string to
+          make the filename unique.  The default for
+          <code xmlns=""><i>template</i></code> places temporary files in the
+          <code xmlns=""><a href="#temporary-files">temporary-files</a></code> logical pathname host,
+          which is automatically set up in a system specific manner.
+          The file name generated from <code xmlns=""><i>template</i></code>
+          is merged with <a xmlns="" href="http://www.lispworks.com/documentation/HyperSpec/Body/v_defaul.htm">*default-pathname-defaults*</a>,
+          so random pathnames relative to that directory can be
+          generated by not specifying a directory in
+          <code xmlns=""><i>template</i></code>.
+        </p>
+        <p xmlns="http://www.w3.org/1999/xhtml">
+          <code xmlns=""><i>generate-random-string</i></code> can be passed to
+          override the default function that generates the random name
+          component.  It should return a random string consisting of
+          characters that are permitted in a pathname (logical or
+          physical, depending on <code xmlns=""><i>template</i></code>).
+        </p>
+        <p xmlns="http://www.w3.org/1999/xhtml">
+          The name of the temporary file can be accessed calling the
+          <a xmlns="" href="http://www.lispworks.com/documentation/HyperSpec/Body/f_pn.htm">pathname</a>
+          function on <code xmlns=""><i>stream</i></code>.  For convenience,
+          the temporary file is opened on the physical pathname,
+          i.e. if the <code xmlns=""><i>template</i></code> designate a
+          logical pathname the translation to a physical pathname is
+          performed before opening the stream.
+        </p>
+        <p xmlns="http://www.w3.org/1999/xhtml">
+          In order to create a unique file name,
+          <code xmlns=""><a href="#open-temporary">open-temporary</a></code> may loop internally up
+          to <code xmlns=""><i>max-tries</i></code> times before giving up and
+          signalling a
+          <code xmlns=""><a href="#cannot-create-temporary-file">cannot-create-temporary-file</a></code> condition.
+        </p>
+        <p xmlns="http://www.w3.org/1999/xhtml">
+          Any unrecognized keyword arguments are passed to the call to
+          <a xmlns="" href="http://www.lispworks.com/documentation/HyperSpec/Body/f_open.htm">open</a>.
+        </p>
+      </clix:description></blockquote></p>
+    <p xmlns="">[Macro]<br><a class="none" name="with-output-to-temporary-file"><b>with-output-to-temporary-file</b> <i><clix:lambda-list xmlns:clix="http://bknr.net/clixdoc">(stream <tt>&amp;rest</tt> args) <tt>&amp;body</tt> body</clix:lambda-list></i>
+          =&gt;
+          <i>pathname</i></a><blockquote><clix:description xmlns:clix="http://bknr.net/clixdoc">
+        Create a temporary file using
+        <code xmlns=""><a href="#open-temporary">open-temporary</a></code> with
+        <code xmlns=""><i>args</i></code> and run <code xmlns=""><i>body</i></code>
+        with <code xmlns=""><i>stream</i></code> bound to the temporary file
+        stream.  Returns the pathname of the file that has been
+        created.  See <code xmlns=""><a href="#open-temporary">open-temporary</a></code> for
+        permitted options.
+      </clix:description></blockquote></p>
+    <p xmlns="">[Macro]<br><a class="none" name="with-open-temporary-file"><b>with-open-temporary-file</b> <i><clix:lambda-list xmlns:clix="http://bknr.net/clixdoc">(stream <tt>&amp;rest</tt> args <tt>&amp;key</tt> keep <tt>&amp;allow-other-keys</tt>) <tt>&amp;body</tt> body</clix:lambda-list></i>
+          =&gt;
+          <i>values</i></a><blockquote><clix:description xmlns:clix="http://bknr.net/clixdoc">
+        Create a temporary file using
+        <code xmlns=""><a href="#open-temporary">open-temporary</a></code> with
+        <code xmlns=""><i>args</i></code> and run <code xmlns=""><i>body</i></code>
+        with <code xmlns=""><i>stream</i></code> bound to the temporary file
+        stream.  Returns the values returned by
+        <code xmlns=""><i>body</i></code>.  By default, the file is deleted
+        when <code xmlns=""><i>body</i></code> is exited. If a true value is
+        passed in <code xmlns=""><i>keep</i></code>, the file is not deleted
+        when the body is exited.  See
+        <code xmlns=""><a href="#open-temporary">open-temporary</a></code> for more permitted
+        options.
+      </clix:description></blockquote></p>
+    <p xmlns="">
+      [Special variable]<br><a class="none" name="*default-template*"><b>*default-template*</b></a><blockquote><clix:description xmlns:clix="http://bknr.net/clixdoc">
+        This variable can be set to a string representing the desired
+        default template for temporary file name generation.  See
+        <code xmlns=""><a href="#open-temporary">open-temporary</a></code> for a description of the
+        template string format.
+      </clix:description></blockquote></p>
+    <p xmlns="">
+      [Condition type]<br><a class="none" name="cannot-create-temporary-file"><b>cannot-create-temporary-file</b></a><blockquote><clix:description xmlns:clix="http://bknr.net/clixdoc">
+        Signalled when an attempt to create unique temporary file name
+        failed after the established number of retries.
+      </clix:description></blockquote></p>
+    <p xmlns="">
+      [Condition type]<br><a class="none" name="invalid-temporary-pathname-template"><b>invalid-temporary-pathname-template</b></a><blockquote><clix:description xmlns:clix="http://bknr.net/clixdoc">
+        Signalled when the <code xmlns=""><i>template</i></code> argument to
+        <code xmlns=""><a href="#open-temporary">open-temporary</a></code> does not contain a valid
+        template string.  The template string must contain a percent
+        sign, which is replaced by the generated random string to
+        yield the filename.
+      </clix:description></blockquote></p>
+    <p xmlns="">
+      [Condition type]<br><a class="none" name="missing-temp-environment-variable"><b>missing-temp-environment-variable</b></a><blockquote><clix:description xmlns:clix="http://bknr.net/clixdoc">
+        (Windows only) Signalled when the TEMP environment variable is
+        not set.
+      </clix:description></blockquote></p>
+    <p xmlns="">
+      [Logical Pathname Host]<br><a class="none" name="lp-host-temporary-files"><b>temporary-files</b></a><blockquote><clix:description xmlns:clix="http://bknr.net/clixdoc">
+        This logical pathname host defines where temporary files are
+        stored by default.  It is initialized in a suitable system
+        specific fashion: On Unix and Unix-like systems, the directory
+        specified in the TMPDIR environment variable is used.  If that
+        variable is not set, /tmp is used as the default.  On Windows,
+        the directory specified in the TEMP environment variable is
+        used.  If it is not set, a
+        <code xmlns=""><a href="#missing-temp-environment-variable">missing-temp-environment-variable</a></code> error
+        is signalled.
+      </clix:description></blockquote></p>
+
+
+<h4><a class=none name="modifying">Modifying the file system</a></h4>
+
+<p><br>[Function]
+<br><a class=none name="copy-file"><b>copy-file</b> <i> from to <tt>&amp;key</tt> overwrite</i> =&gt; |</a>
+
+<blockquote><br>
+Copies the file designated by the non-wild <a href="http://www.lispworks.com/documentation/HyperSpec/Body/26_glo_p.htm#pathname_designator">pathname designator</a> <code><i>from</i></code> to the
+file designated by the non-wild <a href="http://www.lispworks.com/documentation/HyperSpec/Body/26_glo_p.htm#pathname_designator">pathname designator</a> <code><i>to</i></code>.  If <code><i>overwrite</i></code> is <em>true</em> (the default is <code>NIL</code>)
+overwrites the file designated by <code><i>to</i></code> if it exists.
+</blockquote>
+
+<p><br>[Function]
+<br><a class=none name="copy-stream"><b>copy-stream</b> <i> from to <tt>&amp;optional</tt> checkp</i> =&gt; |</a>
+
+<blockquote><br> Copies into <code><i>to</i></code> (a stream)
+from <code><i>from</i></code> (also a stream) until the end
+of <code><i>from</i></code> is reached.  The streams should have the
+same <a
+href="http://www.lispworks.com/documentation/HyperSpec/Body/f_stm_el.htm">element
+type</a> unless they are bivalent.  If <code><i>checkp</i></code> is
+true (which is the default), the function will signal an error if the
+element types aren't the same.
+</blockquote>
+<p><br>[Function]
+<br><a class=none name="delete-directory-and-files"><b>delete-directory-and-files</b> <i> dirname <tt>&amp;key</tt> if-does-not-exist</i> =&gt; |</a>
+
+<blockquote><br>
+<p>
+Recursively deletes all files and directories within the directory
+designated by the non-wild <a href="http://www.lispworks.com/documentation/HyperSpec/Body/26_glo_p.htm#pathname_designator">pathname designator</a> <code><i>dirname</i></code> including
+<code><i>dirname</i></code> itself.  <code><i>if-does-not-exist</i></code> must be one of <code>:ERROR</code> or <code>:IGNORE</code>
+where <code>:ERROR</code> (the default) means that an error will be signaled if the directory
+<code><i>dirname</i></code> does not exist.
+</p>
+<p>
+  <b>Warning:</b> this function <em>might</em> remove files from outside the
+  directory, if the directory that you are deleting contains links to
+  external files.  This is currently fixed for SBCL and CCL.
+</p>
+</blockquote>
+
+<h4>The <code>PATH</code> package</h4>
+
+<p><br>[Package]
+<br><a class=none name="package-path">(defpackage <b>path</b>)</a>
+
+<blockquote>
+Provides a set of short names for commonly used pathname manipulation
+functions (these are all functions from the <code>cl-fad</code>
+package which are being exported under different names):
+<dl>
+  <dt><code>dirname</code></dt> <dd><a href="#pathname-as-directory">pathname-as-directory</a></dd>
+  <dt><code>basename</code></dt> <dd><code>cl:file-namestring</code></dd>
+  <dt><code>-e</code></dt> <dd><a href="#file-exists-p">file-exists-p</a></dd>
+  <dt><code>-d</code></dt> <dd><a href="#directory-exists-p">directory-exists-p</a></dd>
+  <dt><code>catfile</code></dt> <dd><a href="#merge-pathnames-as-file">merge-pathnames-as-file</a></dd>
+  <dt><code>catdir</code></dt> <dd><a href="#merge-pathnames-as-directory">merge-pathnames-as-directory</a></dd>
+  <dt><code>rm-r</code></dt> <dd><a href="#delete-directory-and-files">delete-directory-and-files</a></dd>
+  <dt><code>=</code></dt> <dd><a href="#pathname-equal">pathname-equal</a></dd>
+  <dt><code>absolute-p</code></dt> <dd><a href="#pathname-absolute-p">pathname-absolute-p</a></dd>
+  <dt><code>relative-p</code></dt> <dd><a href="#pathname-relative-p">pathname-relative-p</a></dd>
+  <dt><code>root-p</code></dt> <dd><a href="#pathname-root-p">pathname-root-p</a></dd>
+</dl>
+</blockquote>
+
+
+<br>&nbsp;<br><h3><a class=none name="ack">Acknowledgements</a></h3>
+
+The original code for this library was written by Peter Seibel for his
+book <a href="http://www.gigamonkeys.com/book/"><em>Practical Common
+Lisp</em></a>. I added some stuff and made sure it worked properly on
+Windows, specifically with CCL.  Thanks to James Bielman, Maciek
+Pasternacki, Jack D. Unrue, Gary King, and Douglas Crosher who sent
+patches for OpenMCL, ECL, ABCL, MCL, and Scieneer&nbsp;CL.
+
+<p>
+$Header: /usr/local/cvsrep/cl-fad/doc/index.html,v 1.33 2009/09/30 14:23:12 edi Exp $
+<p><a href="http://weitz.de/index.html">BACK TO MY HOMEPAGE</a>
+
+</body>
+</html>
+

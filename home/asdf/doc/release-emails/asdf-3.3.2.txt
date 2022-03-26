@@ -1,0 +1,34 @@
+Today we release ASDF 3.3.2, the second bugfix release for the 3.3 release series.  Of primary interest in this release are
+
+1. Multiple fixes in handling misnamed (or "legacy-named," if you prefer) secondary systems ("foo-test" instead of "foo/test").  Thanks to Eric Timmons, there is also a similar fix for package-inferred-systems.
+
+2. Fix an annoying warning message for compute-action-stamp.
+
+3. Add support for the Mezzano implementation (thanks to E. Housel, H. Harrington).
+
+4. Miscellaneous minor fixes and documentation tweaks.
+
+We urge implementations that are currently bundling previous versions of ASDF -- and especially those bundling 3.3.0 or 3.3.1 -- to upgrade to 3.3.2 at their earliest convenience.
+
+Immense thanks, as always, to Fare Rideau.  Also thanks to the many bug reporters and patch submitters (see the Changelog), and to Anton Vodonosov and Dave Cooper for help with testing.
+
+Here is the changelog entry for 3.3.2:
+
+cl-asdf (2:3.3.2-1) unstable; urgency=low
+
+  Bug fix release:
+  * Dependency tracking: fix bugs in handling misnamed secondary systems.
+    We now distinguish between "syntactic" and "semantic" primariness,
+    properly warn in case a secondary system is misnamed, yet properly
+    recompile or avoid spurious recompilation depending on whether
+    there or not is a conflict or redefinition.
+    Similarly handle package-inferred-system (thanks to Eric Timmons).
+    Better warning in a fishy case of compute-action-stamp.
+  * UIOP: Add package location information to define-package on SBCL.
+  * Upgrade: fix issue with asdf/bundle.
+  * Portability: add support for Mezzano (thanks to E. Housel, H. Harrington)
+  * Documentation: add discussion of best practices.
+  * Package-inferred system: Improve source file handling.
+  * Test and documentation improvements.
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Thu, 03 May 2018 22:46:19 -0400

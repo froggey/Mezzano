@@ -1,0 +1,30 @@
+language: lisp
+
+env:
+  matrix:
+    # - LISP=abcl
+    # - LISP=allegro
+    - LISP=sbcl
+    - LISP=sbcl32
+    - LISP=ccl
+    - LISP=ccl32
+    - LISP=clisp
+    - LISP=clisp32
+    # - LISP=cmucl
+    - LISP=ecl
+
+matrix:
+  allow_failures:
+    - env: LISP=ecl
+
+install:
+  - curl -L https://github.com/luismbo/cl-travis/raw/master/install.sh | sh
+  - if [ "${LISP:(-2)}" = "32" ]; then
+      sudo apt-get install libc6-dev-i386;
+    fi
+
+script:
+  - cl -e '(ql:quickload :cffi-grovel)
+           (ql:quickload :trivial-features-tests)
+           (unless (trivial-features-tests:run)
+             (uiop:quit 1))'

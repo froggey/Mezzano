@@ -1,0 +1,8 @@
+@anchor{Generic-Function drei-buffer:buffer-object}
+@deffn {Generic Function} {drei-buffer:buffer-object} buffer offset
+@findex drei-buffer:buffer-object
+Return the object at the offset in the buffer.
+The first object has offset 0. If @code{offset} is less than zero or
+greater than or equal to the size of the buffer, a
+@code{no-such-offset} condition is signaled.
+@end deffn

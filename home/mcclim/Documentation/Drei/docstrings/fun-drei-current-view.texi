@@ -1,0 +1,6 @@
+@anchor{Function drei:current-view}
+@deffn {Function} {drei:current-view} &optional object
+@findex drei:current-view
+Return the view of the provided object. If no object is
+provided, the currently running Drei instance will be used.
+@end deffn

@@ -1,0 +1,17 @@
+;;; -*- Lisp -*-
+
+(defparameter *fasl1* (test-fasl "file1.lisp"))
+(defparameter *fasl2* (test-fasl "file2.lisp"))
+
+(delete-file-if-exists *fasl1*)
+(delete-file-if-exists *fasl2*)
+(DBG "should load file1 but not file2")
+
+;;; Use REQUIRE where we boast integration, load-system where not.
+(if (or #+(or abcl clozure cmucl ecl mkcl sbcl) t
+        #+clisp (find-symbol* '#:*module-provider-functions* :custom nil))
+    (funcall 'require :test3)
+    (load-system :test3))
+
+(assert (probe-file *fasl1*))
+(assert (not (probe-file *fasl2*)))

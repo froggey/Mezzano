@@ -1,0 +1,10 @@
+FIVEAM-ASDF is a library enabling suites of FiveAM tests to be
+associated with ASDF systems in such a way that ASDF:TEST-SYSTEM will
+cause the tests to be run and will raise an exception if something
+unexpected happens.
+
+FIVEAM-ASDF is licensed under the terms of the Lisp Lesser GNU
+Public License (http://opensource.franz.com/preamble.html), known as
+the LLGPL.  The LLGPL consists of a preamble (see above URL) and the
+LGPL.  Where these conflict, the preamble takes precedence.
+FIVEAM-ASDF is referenced in the preamble as the "LIBRARY."

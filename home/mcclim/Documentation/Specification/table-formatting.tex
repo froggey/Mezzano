@@ -1,0 +1,604 @@
+% -*- Mode: LaTeX; Package: CLIM-USER -*-
+
+\chapter {Table Formatting}
+\label {table-formatting}
+
+CLIM provides a mechanism for tabular formatting of arbitrary output.
+
+To employ these facilities the programmer annotates some output-generating code
+with advisory macros that describe the high-level formatting constraints, for
+example, what parts of code produce a row of the table, what parts of that
+produce the cells in the row.
+
+For example, the following produces a table consisting of three columns
+containing a number, its square, and its cube.  The output can be seen in
+Figure~\ref{table-example}.
+
+\begin{verbatim}
+(defun table-test (count stream)
+  (fresh-line stream)
+  (formatting-table (stream :x-spacing '(3 :character))
+    (dotimes (i count)
+      (formatting-row (stream)
+        (formatting-cell (stream :align-x :right)
+          (prin1 i stream))
+        (formatting-cell (stream :align-x :right)
+          (prin1 (* i i) stream))
+        (formatting-cell (stream :align-x :right)
+          (prin1 (* i i i) stream))))))
+\end{verbatim}
+
+\begin{figure}
+\centerline{\includegraphics{table-example}}
+\caption{\label{table-example} Example of tabular output.}
+\end{figure}
+
+The general contract of these facilities is described in the next section.
+
+
+\section {Overview of Table Formatting Facilities}
+
+In general, table formatting involves a sharing of responsibilities between
+user-written code and CLIM code.  Code that employs only the lower level output
+facilities has full control over ``where every piece of ink goes'' in the
+output.  In contrast, code that employs CLIM's table formatting facilities
+passes control to CLIM at a higher level.  The programmer benefits by being able
+to specify the appearance of output in more compact abstract terms, and by not
+having to write the code that constrains the output to appear in proper tabular
+form.
+
+Tabular output consists of a rectangular array of pieces of output corresponding
+to the bounding rectangles of the output.  Each piece of output forms the
+contents of a \concept{table cell}.  There is no restriction on the contents of
+a table cell; cells may contain text, graphics, even other tables.  For purposes
+of this discussion, we draw a strong distinction between specifying what goes in
+a cell, and specifying how the cells are arranged to form a table.
+
+Specifying the contents of a cell is the responsibility of the programmer.  A
+programmer using the table formatting facilities can predict the appearance of
+any individual cell by simply looking at the code for that cell.  A cell's
+appearance does not depend upon where in the table it lies, for instance.  The
+only thing about a cell's appearance that cannot be predicted from that cell
+alone is the amount of space the table formatting has to introduce in order to
+perform the desired alignment.
+
+Specifying the relative arrangements of cells to form a table is the
+responsibility of CLIM based on the advice of the programmer.  The programmer
+advises CLIM about extra space to put between rows or columns, for instance, but
+does not directly control the absolute positioning of a cell's contents.
+
+For purposes of understanding table formatting, the following model may
+be used. 
+\begin{itemize}
+\item The code for a cell draws to a stream that has a ``private''  (local to
+that cell) drawing plane.
+
+\item After output for a cell has finished, the bounding rectangle of all output
+on the ``private'' drawing plane is found.  The region within that bounding
+rectangle forms the contents of a cell.
+
+\item Additional rectangular regions, containing only background ink, are
+attached to the edges of the cell contents.  These regions ensure that the
+cells satisfy the tabular constraints that within a row all cells have the same
+height, and within a column all cells have the same width.  CLIM may also
+introduce additional background for other purposes as described below.
+
+\item The cells are assembled into rows and columns.
+\end{itemize}
+
+Some tables are ``multiple column'' tables, in which two or more rows of the
+table are placed side by side (usually with intervening spacing) rather than
+all rows being aligned vertically.  Multiple column tables are generally used
+to produce a table that is more esthetically pleasing, or to make more
+efficient use of space on the output device.  When a table is a multiple
+column table, one additional step takes place in the formatting of the table:
+the rows of the table are rearranged into multiple columns in which some rows
+are placed side by side.
+
+The advice that the programmer gives to CLIM on how to assemble the table
+consists of the following:
+\begin{itemize}
+\item How to place the contents of the cell within the cell (such as centered
+vertically, flush-left, and so forth). The possibilities for this advice are
+described below.
+
+\item Optionally, how much additional space to insert between columns and
+between rows of the table.
+
+\item Optionally, whether to make all columns the same size.
+\end{itemize}
+
+The advice describing how to place the contents of the cell within the cell
+consists of two pieces---how to constrain the cell contents in the horizontal
+direction, and how to constrain them in the vertical direction.
+
+\section {Table Formatting Functions}
+
+\Defmacro {formatting-table} {(\optional stream
+                               \key x-spacing y-spacing
+                                    multiple-columns multiple-columns-x-spacing
+                                    equalize-column-widths 
+                                    (move-cursor \cl{t}) record-type \allow)
+                              \body body}
+
+Binds the local environment in such a way that the output of \arg{body} will be done
+in a tabular format.  This must be used in conjunction with \cl{formatting-row}
+or \cl{formatting-column}, and \cl{formatting-cell}.  The table is placed so
+that its upper left corner is at the current text cursor position of
+\arg{stream}.  If the boolean \arg{move-cursor} is \term{true} (the default),
+then the text cursor will be moved so that it immediately follows the last cell
+of the table.
+
+The returned value is the output record corresponding to the table.
+
+\arg{stream} is an output recording stream to which output will be done.  The
+\arg{stream} argument is not evaluated, and must be a symbol that is bound to a
+stream.  If \arg{stream} is \cl{t} (the default), \cl{*standard-output*} is
+used.  \arg{body} may have zero or more declarations as its first forms.
+
+\arg{x-spacing} specifies the number of units of spacing to be inserted between
+columns of the table; the default is the width of a space character in the
+current text style.  \arg{y-spacing} specifies the number of units of spacing to
+be inserted between rows in the table; the default is the default vertical
+spacing of the stream.  Possible values for these two options option are:
+
+\begin{itemize}
+\item An integer---a size in the current units to be used for spacing.
+
+\item A string or character---the spacing is the width or height of the string
+or character in the current text style. 
+
+\item A function---the spacing is the amount of horizontal or vertical space the
+function would consume when called on the stream. 
+
+\item A list---the list is of the form \cl{(\arg{number} \arg{unit})}, where
+\arg{unit} is one of \cl{:point}, \cl{:pixel}, \cl{:mm}, \cl{:character}, or
+\cl{:line}.  When \arg{unit} is \cl{:character}, the width of an ``M'' in the
+current text style is used as the width of one character.
+\end{itemize}
+
+\arg{multiple-columns} is either \cl{nil}, \cl{t}, or an integer.  If it is
+\cl{t} or an integer, the table rows will be broken up into a multiple columns.
+If it is \cl{t}, CLIM will determine the optimal number of columns.  If it is an
+integer, it will be interpreted as the desired number of columns.
+\arg{multiple-columns-x-spacing} has the same format as \arg{x-spacing}.  It
+controls the spacing between the multiple columns.  It defaults to the value of
+the \arg{x-spacing} option.
+
+When the boolean \arg{equalize-column-widths} is \term{true}, CLIM will make all
+of the columns have the same width (the width of the widest cell in any column
+in the entire table).
+
+\arg{record-type} specifies the class of output record to create.  The default
+is \cl{standard-table-output-record}.  This argument should only be supplied by
+a programmer if there is a new class of output record that supports the table
+formatting protocol.
+
+
+\Defmacro {formatting-row} {(\optional stream \key record-type \allow)
+                            \body body} 
+
+Binds the local environment in such a way the output of \arg{body} will be
+grouped into a table row.  All of the output performed by \arg{body} becomes the
+contents of one row.  This must be used inside of \cl{formatting-table}, and in
+conjunction with \cl{formatting-cell}.
+
+\arg{stream} is an output recording stream to which output will be done.  The
+\arg{stream} argument is not evaluated, and must be a symbol that is bound to a
+stream.  If \arg{stream} is \cl{t} (the default), \cl{*standard-output*} is
+used.  \arg{body} may have zero or more declarations as its first forms.
+
+Once a table has had a row added to it via \cl{formatting-row}, no columns may
+be added to it.
+
+\arg{record-type} specifies the class of output record to create.  The default
+is \cl{standard-row-output-record}.  This argument should only be supplied by a
+programmer if there is a new class of output record that supports the row
+formatting protocol.
+
+
+\Defmacro {formatting-column} {(\optional stream \key record-type \allow)
+                               \body body} 
+
+Binds the local environment in such a way the output of \arg{body} will be
+grouped into a table column.  All of the output performed by \arg{body} becomes
+the contents of one column.  This must be used inside of \cl{formatting-table},
+and in conjunction with \cl{formatting-cell}.
+
+\arg{stream} is an output recording stream to which output will be done.  The
+\arg{stream} argument is not evaluated, and must be a symbol that is bound to a
+stream.  If \arg{stream} is \cl{t} (the default), \cl{*standard-output*} is
+used.  \arg{body} may have zero or more declarations as its first forms.
+
+Once a table has had a column added to it via \cl{formatting-column}, no rows
+may be added to it.
+
+\arg{record-type} specifies the class of output record to create.  The default
+is \cl{standard-column-output-record}.  This argument should only be supplied
+by a programmer if there is a new class of output record that supports the
+column formatting protocol.
+
+
+\Defmacro {formatting-cell} {(\optional stream
+                              \key (align-x \cl{':left}) (align-y \cl{':baseline}) 
+                                   min-width min-height record-type \allow)
+                             \body body}
+
+Controls the output of a single cell inside a table row or column, or of a
+single item inside \cl{formatting-item-list}.  All of the output performed by
+\arg{body} becomes the contents of the cell.
+
+\arg{stream} is an output recording stream to which output will be done.  The
+\arg{stream} argument is not evaluated, and must be a symbol that is bound to a
+stream.  If \arg{stream} is \cl{t} (the default), \cl{*standard-output*} is
+used.  \arg{body} may have zero or more declarations as its first forms.
+
+\arg{align-x} specifies how the output in a cell will be aligned relative to
+other cells in the same table column.  The default, \cl{:left}, causes the cells
+to be flush-left in the column.  The other possible values are \cl{:right}
+(meaning flush-right in the column) and \cl{:center} (meaning centered in the
+column).  Each cell within a column may have a different alignment; thus it is
+possible, for example, to have centered legends over flush-right numeric data.
+
+\arg{align-y} specifies how the output in a cell will be aligned vertically.
+The default, \cl{:baseline}, causes textual cells to be aligned along their
+baselines and graphical cells to be aligned at the bottom.  The other possible
+values are \cl{:bottom} (align at the bottom of the output), \cl{:top} (align at
+the top of the output), and \cl{:center} (center the output in the cell).
+
+\arg{min-width} and \arg{min-height} are used to specify minimum width or height
+of the cell.  The default, \cl{nil}, causes the cell to be only as wide or high
+as is necessary to contain the cell's contents.  Otherwise, \arg{min-width} and
+\arg{min-height} are specified in the same way as the \cl{:x-spacing} and
+\cl{:y-spacing} arguments to \cl{formatting-table}.
+
+\arg{record-type} specifies the class of output record to create.  The default
+is \cl{standard-cell-output-record}.  This argument should only be supplied by
+a programmer if there is a new class of output record that supports the cell
+formatting protocol.
+
+
+\Defmacro {formatting-item-list} {(\optional stream
+                                   \key x-spacing y-spacing
+                                        n-columns n-rows 
+                                        stream-width stream-height max-width max-height
+                                        initial-spacing (row-wise \cl{t})
+                                        (move-cursor \cl{t}) record-type \allow) 
+                                  \body body}
+
+Binds the local environment in such a way that the output of \arg{body} will be
+done in an item list (that is, menu) format.  This must be used in conjunction
+with \cl{formatting-cell}, which delimits each item.  The item list is placed so
+that its upper left corner is at the current text cursor position of
+\arg{stream}.  If the boolean \arg{move-cursor} is \term{true} (the default),
+then the text cursor will be moved so that it immediately follows the last cell
+of the item list.
+
+``Item list output'' is more strictly defined as: each row of the item list
+consists of a single cell.  Rows are placed with the first row on top, and each
+succeeding row has its top aligned with the bottom of the previous row (plus the
+specified \arg{y-spacing}).  Multiple rows and columns are constructed after
+laying the item list out in a single column.  Item list output takes place in a
+normalized +$y$-downward coordinate system.
+
+If \arg{row-wise} is \term{true} (the default) and the item list requires
+multiple columns, each successive element in the item list is layed out from
+left to right.  If \arg{row-wise} is \term{false} and the item list requires
+multiple columns, each successive element in the item list is layed out below
+its predecessor, like in a telephone book.
+
+The returned value is the output record corresponding to the table.
+
+\arg{stream} is an output recording stream to which output will be done.  The
+\arg{stream} argument is not evaluated, and must be a symbol that is bound to a
+stream.  If \arg{stream} is \cl{t} (the default), \cl{*standard-output*} is
+used.  \arg{body} may have zero or more declarations as its first forms.
+
+\arg{x-spacing} specifies the number of units of spacing to be inserted between
+columns of the item list; the default is the width of a \verb+#\Space+ character
+in the current text style.  \arg{y-spacing} specifies the number of units of
+spacing to be inserted between rows in the item list; the default is default
+vertical spacing of the stream.  The format of these arguments is as for
+\cl{formatting-table}.
+
+When the boolean \arg{equalize-column-widths} is \term{true}, CLIM will make all
+of the columns have the same width (the width of the widest cell in any column
+in the entire item list).
+
+\arg{n-columns} and \arg{n-rows} specify the number of columns or rows in the
+item list.  The default for both is \cl{nil}, which causes CLIM to pick an
+aesthetically pleasing layout, possibly constrained by the other options.  If
+both \arg{n-columns} and \arg{n-rows} are supplied and the item list contains
+more elements than will fit according to the specification, CLIM will format the
+item list as if \arg{n-rows} were supplied as \cl{nil}.
+
+\arg{max-width} and \arg{max-height} constrain the layout of the item list.
+CLIM will not make the item list any wider than \arg{max-width}, unless it is
+overridden by \arg{n-rows}.  It will not make the item list any taller than
+\arg{max-height}, unless it is overridden by \arg{n-columns}.
+
+\cl{formatting-item-list} normally spaces items across the entire width of the
+stream.  When \arg{initial-spacing} is \term{true}, it inserts some whitespace
+(about half as much space as is between each item) before the first item on each
+line.  When it is \term{false} (the default), the initial whitespace is not
+inserted.
+
+\arg{record-type} specifies the class of output record to create.  The default
+is \cl{standard-item-list-output-record}.  This argument should only be
+supplied by a programmer if there is a new class of output record that supports
+the item list formatting protocol.
+
+
+\Defun {format-items} {items \key stream printer presentation-type
+                                  x-spacing y-spacing
+                                  n-columns n-rows
+                                  max-width max-height
+                                  cell-align-x cell-align-y
+                                  initial-spacing (row-wise \cl{t})
+                                  (move-cursor \cl{t}) record-type}
+
+This is a function interface to the item list formatter.  The elements of the
+sequence \arg{items} are formatted as separate cells within the item list.
+
+\arg{stream} is an output recording stream to which output will be done.  It
+defaults to \cl{*standard-output*}.
+
+\arg{printer} must be a function that takes two arguments, an item and a stream,
+and outputs the item on the stream.  \arg{printer} has dynamic extent.  The
+default for \arg{printer} is \cl{prin1}.
+
+\arg{presentation-type} is a presentation-type.  When \arg{printer} is not
+supplied, the items will be printed as if \arg{printer} were
+\begin{verbatim}
+#'(lambda (item stream)
+    (present item presentation-type :stream stream))
+\end{verbatim}
+When \arg{printer} is supplied, each item will be enclosed in a presentation
+whose type is \arg{presentation-type}.
+
+\arg{x-spacing}, \arg{y-spacing}, \arg{n-columns}, \arg{n-rows},
+\arg{max-width}, \arg{max-height}, \arg{initial-spacing}, \arg{row-wise}, and
+\arg{move-cursor} are as for \cl{formatting-item-list}.
+
+\arg{cell-align-x} and \arg{cell-align-y} are used to supply \cl{:align-x} and
+\cl{:align-y} to an implicitly used \cl{formatting-cell}.
+
+\arg{record-type} is as for \cl{formatting-item-list}.
+
+
+\section {The Table and Item List Formatting Protocols}
+
+Both table and item list formatting is implemented on top of the basic output
+recording protocol, using \cl{with-new-output-record} to specify the appropriate
+type of output record.  For example, \cl{formatting-table} first collects all
+the output that belongs in the table into a collection of row, column, and cell
+output records, all of which are children of a single table output record.
+During this phase, \cl{stream-drawing-p} is bound to \cl{nil} and
+\cl{stream-recording-p} is bound to \cl{t}.  When all the output has been
+generated, the table layout constraint solver (\cl{adjust-table-cells} or
+\cl{adjust-item-list-cells}) is called to compute the table layout, taking into
+account such factors as the widest cell in a given column.  If the table is to
+be split into multiple columns, \cl{adjust-multiple-columns} is now called.
+Finally, the table output record is positioned on the stream at the current text
+cursor position and then displayed by calling \cl{replay} on the table (or item
+list) output record.
+
+
+\subsection {Table Formatting Protocol}
+
+Any output record class that implements the following generic functions is said
+to support the table formatting protocol.
+
+In the following subsections, the term ``non-table output records'' will be used
+to mean any output record that is not a table, row, column, cell, or item list
+output record.  When CLIM ``skips over intervening non-table output records'',
+this means that it will bypass all the output records between two such table
+output records (such as a table and a row, or a row and a cell) that are not
+records of those classes (most notably, presentation output records).  CLIM
+implementations are encouraged to detect invalid nesting of table output
+records, such as a row within a row, a cell within a cell, or a row within a
+cell.  Note that this does not prohibit the nesting of calls to
+\cl{formatting-table}, it simply requires that programmers include the inner
+table within one of the cells of the outer table.
+
+
+\Defprotoclass {table-output-record}
+
+The protocol class that represents tabular output records; a subclass of
+\cl{output-record}.
+\IfYouWantClass {a} {table output record} {table-output-record}
+
+\Defpredicate {table-output-record-p} {object}
+
+Returns \term{true} if \arg{object} is a \term{table output record}, otherwise
+returns \term{false}.
+
+\definitarg {:x-spacing}
+\definitarg {:y-spacing}
+\definitarg {:multiple-columns-x-spacing}
+\Definitarg {:equalize-column-widths}
+
+All subclasses of \cl{table-output-record} must handle these initargs, which are
+used to specify, respectively, the $x$ and $y$ spacing, the multiple column $x$
+spacing, and equal-width columns attributes of the table.
+
+\Defclass {standard-table-output-record}
+
+The instantiable class of output record that represents tabular output.  Its
+children will be a sequence of either rows or columns, with presentation output
+records possibly intervening.  This is a subclass of \cl{table-output-record}.
+
+\Defgeneric {map-over-table-elements} {function table-record type}
+
+Applies \arg{function} to all the rows or columns of \arg{table-record} that
+are of type \arg{type}.  \arg{type} is either \cl{:row}, \cl{:column}, or
+\cl{:row-or-column}.  \arg{function} is a function of one argument, an output
+record; it has dynamic extent.  \cl{map-over-table-elements} is responsible
+for ensuring that rows, columns, and cells are properly nested.  It must skip
+over intervening non-table output record structure, such as presentations.
+
+\Defgeneric {adjust-table-cells} {table-record stream}
+
+This function is called after the tabular output has been collected, but before
+it has been replayed.  The method on \cl{standard-table-output-record}
+implements the usual table layout constraint solver (described above) by moving
+the rows or columns of the table output record \arg{table-record} and the cells
+within the rows or columns.    \arg{stream} is the stream on which the table is
+displayed.
+
+\Defgeneric {adjust-multiple-columns} {table-record stream}
+
+This is called after \cl{adjust-table-cells} to account for the case where the
+programmer wants the table to have multiple columns.  \arg{table-record} and
+\arg{stream} are as for \cl{adjust-table-cells}.
+
+
+\subsection {Row and Column Formatting Protocol}
+
+Any output record class that implements the following generic functions is said
+to support the row (or column) formatting protocol.
+
+\Defprotoclass {row-output-record}
+
+The protocol class that represents one row in a table; a subclass of
+\cl{output-record}.
+\IfYouWantClass {a} {row output record} {row-output-record}
+
+\Defpredicate {row-output-record-p} {object}
+
+Returns \term{true} if \arg{object} is a \term{row output record}, otherwise
+returns \term{false}.
+
+\Defclass {standard-row-output-record}
+
+The instantiable class of output record that represents a row of output within a
+table.  Its children will be a sequence of cells, and its parent (skipping
+intervening non-tabular records such as presentations) will be a table output
+record.  This is a subclass of \cl{row-output-record}.
+
+\Defgeneric {map-over-row-cells} {function row-record}
+
+Applies \arg{function} to all the cells in the row \arg{row-record}, skipping
+intervening non-table output record structure.  \arg{function} is a function of
+one argument, an output record corresponding to a table cell within the row; it
+has dynamic extent.
+
+\issue {PM} {All these map-* functions should mind the hierarchy, I guess. So if a table is put within a table cell ...}
+
+\Defprotoclass {column-output-record}
+
+The protocol class that represents one column in a table; a subclass of
+\cl{output-record}.
+\IfYouWantClass {a} {column output record} {column-output-record}
+
+\Defpredicate {column-output-record-p} {object}
+
+Returns \term{true} if \arg{object} is a \term{column output record}, otherwise
+returns \term{false}.
+
+\Defclass {standard-column-output-record}
+
+The instantiable class of output record that represents a column of output within
+a table.  Its children will be a sequence of cells, and its parent (skipping
+intervening non-tabular records such as presentations) will be a table output
+record; presentation output records may intervene.  This is a subclass of
+\cl{column-output-record}.
+
+\Defgeneric {map-over-row-cells} {function column-record}
+
+Applies \arg{function} to all the cells in the column \arg{column-record},
+skipping intervening non-table output record structure.  \arg{function} is a
+function of one argument, an output record corresponding to a table cell within
+the column; it has dynamic extent.
+
+
+\subsection {Cell Formatting Protocol}
+
+Any output record class that implements the following generic functions is said
+to support the cell formatting protocol.
+
+\Defprotoclass {cell-output-record}
+
+The protocol class that represents one cell in a table or an item list; a
+subclass of \cl{output-record}.
+\IfYouWantClass {a} {cell output record} {cell-output-record}
+
+\Defpredicate {cell-output-record-p} {object}
+
+Returns \term{true} if \arg{object} is a \term{cell output record}, otherwise
+returns \term{false}.
+
+\definitarg {:align-x}
+\definitarg {:align-y}
+\definitarg {:min-width}
+\Definitarg {:min-height}
+
+All subclasses of \cl{cell-output-record} must handle these initargs, which are
+used to specify, respectively, the $x$ and $y$ alignment, and the minimum width
+and height attributes of the cell.
+
+\Defclass {standard-cell-output-record}
+
+The instantiable class of output record that represent a single piece of output
+within a table row or column, or an item list.  Its children will either be
+presentations, or output records that represent displayed output.  This is a
+subclass of \cl{cell-output-record}.
+
+\defgeneric {cell-align-x} {cell}
+\defgeneric {cell-align-y} {cell}
+\defgeneric {cell-min-width}  {cell}
+\Defgeneric {cell-min-height} {cell}
+
+These functions return, respectively, the $x$ and $y$ alignment and minimum
+width and height of the \term{cell output record} \arg{cell}.
+
+
+\subsection {Item List Formatting Protocol}
+
+\Defprotoclass {item-list-output-record}
+
+The protocol class that represents an item list; a subclass of
+\cl{output-record}.
+\IfYouWantClass {an} {item list output record} {item-list-output-record}
+
+\Defpredicate {item-list-output-record-p} {object}
+
+Returns \term{true} if \arg{object} is an \term{item list output record},
+otherwise returns \term{false}.
+
+\definitarg {:x-spacing}
+\definitarg {:y-spacing}
+\definitarg {:initial-spacing}
+\definitarg {:row-wise}
+\definitarg {:n-rows}
+\definitarg {:n-columns}
+\definitarg {:max-width}
+\Definitarg {:max-height}
+
+All subclasses of \cl{item-list-output-record} must handle these initargs, which
+are used to specify, respectively, the $x$ and $y$ spacing, the initial spacing,
+row-wise, the desired number of rows and columns, and maximum width and height
+attributes of the item list.
+
+\Defclass {standard-item-list-output-record}
+
+The instantiable output record that represents item list output.  Its children
+will be a sequence of cells, with presentations possibly intervening.  This is a
+subclass of \cl{item-list-output-record}.
+
+\Defgeneric {map-over-item-list-cells} {function item-list-record}
+
+Applies \arg{function} to all of the cells in \arg{item-list-record}.
+\cl{map-over-item-list-cells} must skip over intervening non-list output record
+structure, such as presentations.  \arg{function} is a function of one argument,
+an output record corresponding to a cell in the item list; it has dynamic
+extent.
+
+\Defgeneric {adjust-item-list-cells} {item-list-record stream}
+
+This function is called after the item list output has been collected, but
+before the record has been replayed.  The method on
+\cl{standard-item-list-output-record} implements the usual item list layout
+constraint solver.  \arg{item-list-record} is the item list output record, and
+\arg{stream} is the stream on which the item list is displayed.
+

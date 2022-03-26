@@ -1,0 +1,9 @@
+(with-asdf-session (:override t)
+  (load-system "test-asdf/test-module-depend"))
+
+(defparameter *plan* (make-plan () 'load-op "test-asdf/test-module-depend"))
+(DBG :foo *plan*
+     (component-depends-on 'compile-op '("test-asdf/test-module-depend" "quux" "file3mod" "file3"))
+     (asdf::component-if-feature (find-component "test-asdf/test-module-depend" '("quux" "file3mod" "file3"))))
+
+(assert (not (in-plan-p *plan* '(compile-op "test-asdf/test-module-depend" "file1"))))

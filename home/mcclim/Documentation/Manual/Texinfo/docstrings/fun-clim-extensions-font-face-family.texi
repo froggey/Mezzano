@@ -1,0 +1,4 @@
+@anchor{Generic-Function clim-extensions:font-face-family}
+@deffn {Generic Function} {@symbol{font-face-family,clim-extensions}} font-face
+Return the font family this face belongs to.
+@end deffn

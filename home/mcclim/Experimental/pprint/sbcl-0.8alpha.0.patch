@@ -1,0 +1,250 @@
+diff -x *.fasl -x *-expr -x *.h -rc orig/sbcl-0.8alpha.0/src/code/early-pprint.lisp sbcl-0.8alpha.0/src/code/early-pprint.lisp
+*** orig/sbcl-0.8alpha.0/src/code/early-pprint.lisp	Sat Oct 21 01:30:33 2000
+--- sbcl-0.8alpha.0/src/code/early-pprint.lisp	Sat May 17 02:16:01 2003
+***************
+*** 32,37 ****
+--- 32,38 ----
+  
+  (defmacro pprint-logical-block ((stream-symbol
+  				 object
++                                  &rest rest
+  				 &key
+  				 prefix
+  				 per-line-prefix
+***************
+*** 41,121 ****
+    "Group some output into a logical block. STREAM-SYMBOL should be either a
+     stream, T (for *TERMINAL-IO*), or NIL (for *STANDARD-OUTPUT*). The printer
+     control variable *PRINT-LEVEL* is automatically handled."
+    (when (and prefix per-line-prefix)
+      (error "cannot specify both PREFIX and a PER-LINE-PREFIX values"))
+!   (multiple-value-bind (stream-var stream-expression)
+!       (case stream-symbol
+! 	((nil)
+! 	 (values '*standard-output* '*standard-output*))
+! 	((t)
+! 	 (values '*terminal-io* '*terminal-io*))
+! 	(t
+! 	 (values stream-symbol
+! 		 (once-only ((stream stream-symbol))
+! 		   `(case ,stream
+! 		      ((nil) *standard-output*)
+! 		      ((t) *terminal-io*)
+! 		      (t ,stream))))))
+!     (let* ((object-var (if object (gensym) nil))
+! 	   (block-name (gensym "PPRINT-LOGICAL-BLOCK-"))
+! 	   (count-name (gensym "PPRINT-LOGICAL-BLOCK-LENGTH-"))
+! 	   (pp-pop-name (gensym "PPRINT-POP-"))
+! 	   (body
+! 	    ;; FIXME: It looks as though PPRINT-LOGICAL-BLOCK might
+! 	    ;; expand into a boatload of code, since DESCEND-INTO is a
+! 	    ;; macro too. It might be worth looking at this to make
+! 	    ;; sure it's not too bloated, since PPRINT-LOGICAL-BLOCK
+! 	    ;; is called many times from system pretty-printing code.
+! 	    `(descend-into (,stream-var)
+! 	       (let ((,count-name 0))
+! 		 (declare (type index ,count-name) (ignorable ,count-name))
+! 		 (start-logical-block ,stream-var
+! 				      (the (or null string)
+! 					,(or prefix per-line-prefix))
+! 				      ,(if per-line-prefix t nil)
+! 				      (the string ,suffix))
+! 		 (block ,block-name
+! 		   (flet ((,pp-pop-name ()
+! 			    ,@(when object
+! 				`((unless (listp ,object-var)
+! 				    (write-string ". " ,stream-var)
+! 				    (output-object ,object-var ,stream-var)
+! 				    (return-from ,block-name nil))))
+! 			    (when (and (not *print-readably*)
+! 				       (eql ,count-name *print-length*))
+! 			      (write-string "..." ,stream-var)
+! 			      (return-from ,block-name nil))
+! 			    ,@(when object
+! 				`((when (and ,object-var
+! 					     (plusp ,count-name)
+! 					     (check-for-circularity
+! 					      ,object-var))
+! 				    (write-string ". " ,stream-var)
+! 				    (output-object ,object-var ,stream-var)
+! 				    (return-from ,block-name nil))))
+! 			    (incf ,count-name)
+! 			    ,@(when object
+! 				`((pop ,object-var)))))
+! 		     (declare (ignorable #',pp-pop-name))
+! 		     (macrolet ((pprint-pop ()
+! 				  '(,pp-pop-name))
+! 				(pprint-exit-if-list-exhausted ()
+! 				  ,(if object
+! 				       `'(when (null ,object-var)
+! 					   (return-from ,block-name nil))
+! 				       `'(return-from ,block-name nil))))
+! 		       ,@body)))
+! 		 ;; FIXME: Don't we need UNWIND-PROTECT to ensure this
+! 		 ;; always gets executed?
+! 		 (end-logical-block ,stream-var)))))
+!       (when object
+! 	(setf body
+! 	      `(let ((,object-var ,object))
+! 		 (if (listp ,object-var)
+! 		     ,body
+! 		     (output-object ,object-var ,stream-var)))))
+!       `(with-pretty-stream (,stream-var ,stream-expression)
+! 	 ,body))))
+  
+  (defmacro pprint-exit-if-list-exhausted ()
+    #!+sb-doc
+--- 42,65 ----
+    "Group some output into a logical block. STREAM-SYMBOL should be either a
+     stream, T (for *TERMINAL-IO*), or NIL (for *STANDARD-OUTPUT*). The printer
+     control variable *PRINT-LEVEL* is automatically handled."
++   (declare (ignore suffix))
+    (when (and prefix per-line-prefix)
+      (error "cannot specify both PREFIX and a PER-LINE-PREFIX values"))
+!   (let ((var (case stream-symbol
+!                ((nil) '*standard-output*)
+!                ((t)   '*terminal-io*)
+!                (otherwise stream-symbol)))
+!         (cont (gensym "CONT."))
+!         (pprint-pop-fn (gensym "PPRINT-POP-FN."))
+!         (pprint-exit-if-list-exhausted-fn (gensym "PPRINT-EXIT-IF-LIST-EXHAUSTED-FN.")))
+!     `(labels ((,cont (,var ,pprint-pop-fn ,pprint-exit-if-list-exhausted-fn)
+!                (macrolet ((pprint-pop ()
+!                             `(funcall ,',pprint-pop-fn))
+!                           (pprint-exit-if-list-exhausted ()
+!                             `(funcall ,',pprint-exit-if-list-exhausted-fn)))
+!                  ,@body)))
+!       (declare (dynamic-extent #',cont))
+!       (invoke-with-logical-block ,var #',cont ,object ,@rest))))
+  
+  (defmacro pprint-exit-if-list-exhausted ()
+    #!+sb-doc
+diff -x *.fasl -x *-expr -x *.h -rc orig/sbcl-0.8alpha.0/src/code/pprint.lisp sbcl-0.8alpha.0/src/code/pprint.lisp
+*** orig/sbcl-0.8alpha.0/src/code/pprint.lisp	Wed Jan  8 11:59:11 2003
+--- sbcl-0.8alpha.0/src/code/pprint.lisp	Sat May 17 02:07:16 2003
+***************
+*** 179,184 ****
+--- 179,225 ----
+    ;; The line number
+    (section-start-line 0 :type index))
+  
++ (defun invoke-with-logical-block (stream continuation object
++                                   &key prefix per-line-prefix (suffix ""))
++   (declare (type function continuation))
++   (with-pretty-stream (stream stream)
++     (if (listp object)
++         (descend-into (stream)
++                       (let ((count 0))
++                         (start-logical-block stream
++                                              (the (or null string) (or prefix per-line-prefix))
++                                              (if per-line-prefix t nil)
++                                              (the string suffix))
++                         (block .block.
++                           (flet ((pp-pop ()
++                                    (unless (listp object)
++                                      (write-string ". " stream)
++                                      (output-object object stream)
++                                      (return-from .block. nil))
++                                    (when (and (not *print-readably*)
++                                               (eql count *print-length*))
++                                      (write-string "..." stream)
++                                      (return-from .block. nil))
++                                    (when (and object
++                                               (plusp count)
++                                               (check-for-circularity
++                                                object))
++                                      (write-string ". " stream)
++                                      (output-object object stream)
++                                      (return-from .block. nil))
++                                    (incf count)
++                                    (pop object)))
++                             (funcall continuation
++                                      stream
++                                      #'pp-pop
++                                      #'(lambda ()
++                                          (when (null object)
++                                            (return-from .block. nil)))) ))
++                         ;; FIXME: Don't we need UNWIND-PROTECT to ensure this
++                         ;; always gets executed?
++                         (end-logical-block stream)))
++         (output-object object stream))))
++ 
+  (defun really-start-logical-block (stream column prefix suffix)
+    (let* ((blocks (pretty-stream-blocks stream))
+  	 (prev-block (car blocks))
+***************
+*** 677,686 ****
+  		  ((t) *terminal-io*)
+  		  ((nil) *standard-output*)
+  		  (t stream))))
+!     (when (print-pretty-on-stream-p stream)
+!       (enqueue-newline stream kind)))
+    nil)
+  
+  (defun pprint-indent (relative-to n &optional stream)
+    #!+sb-doc
+    "Specify the indentation to use in the current logical block if STREAM
+--- 718,730 ----
+  		  ((t) *terminal-io*)
+  		  ((nil) *standard-output*)
+  		  (t stream))))
+!     (stream-pprint-newline stream kind))
+    nil)
+  
++ (defun stream-pprint-newline (stream kind)
++   (when (print-pretty-on-stream-p stream)
++     (enqueue-newline stream kind)))
++ 
+  (defun pprint-indent (relative-to n &optional stream)
+    #!+sb-doc
+    "Specify the indentation to use in the current logical block if STREAM
+***************
+*** 700,709 ****
+  		  ((t) *terminal-io*)
+  		  ((nil) *standard-output*)
+  		  (t stream))))
+!     (when (print-pretty-on-stream-p stream)
+!       (enqueue-indent stream relative-to n)))
+    nil)
+  
+  (defun pprint-tab (kind colnum colinc &optional stream)
+    #!+sb-doc
+    "If STREAM (which defaults to *STANDARD-OUTPUT*) is a pretty-printing
+--- 744,756 ----
+  		  ((t) *terminal-io*)
+  		  ((nil) *standard-output*)
+  		  (t stream))))
+!     (stream-pprint-indent stream relative-to n))
+    nil)
+  
++ (defun stream-pprint-indent (stream relative-to n)
++   (when (print-pretty-on-stream-p stream)
++     (enqueue-indent stream relative-to n)))
++ 
+  (defun pprint-tab (kind colnum colinc &optional stream)
+    #!+sb-doc
+    "If STREAM (which defaults to *STANDARD-OUTPUT*) is a pretty-printing
+***************
+*** 725,733 ****
+  		  ((t) *terminal-io*)
+  		  ((nil) *standard-output*)
+  		  (t stream))))
+!     (when (print-pretty-on-stream-p stream)
+!       (enqueue-tab stream kind colnum colinc)))
+    nil)
+  
+  (defun pprint-fill (stream list &optional (colon? t) atsign?)
+    #!+sb-doc
+--- 772,783 ----
+  		  ((t) *terminal-io*)
+  		  ((nil) *standard-output*)
+  		  (t stream))))
+!     (stream-pprint-tab stream kind colnum colinc))
+    nil)
++ 
++ (defun stream-pprint-tab (stream kind colnum colinc)
++   (when (print-pretty-on-stream-p stream)
++     (enqueue-tab stream kind colnum colinc)))
+  
+  (defun pprint-fill (stream list &optional (colon? t) atsign?)
+    #!+sb-doc

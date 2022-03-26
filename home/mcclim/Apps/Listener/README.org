@@ -1,0 +1,44 @@
+#+TITLE:    McCLIM Lisp Listener README
+#+LANGUAGE: en
+
+#+OPTIONS: num:nil toc:nil
+
+* Overview
+
+  The McCLIM Listener provides an interactive toplevel with full
+  access to the graphical capabilities of CLIM and a set of built-in
+  commands intended to be useful for Lisp development and
+  experimentation. Present features include:
+
+  - Reading/evaluation of Lisp expressions
+
+  - Ability to run external programs
+
+  - Commands for inspecting classes (superclasses/subclasses, slots,
+    etc.)
+
+  - Navigation of the filesystem, including a directory stack
+
+* Quick Start
+
+  Load the Listener with
+
+  #+BEGIN_SRC lisp :exports both :results silent
+    (asdf:load-system "clim-listener")
+  #+END_SRC
+
+  Once loaded, you can run the Listener using:
+
+  #+BEGIN_SRC list :exports both :results silent
+    (clim-listener:run-listener)
+  #+END_SRC
+
+  A typical Lisp prompt will be displayed, with the package name
+  preceding the prompt. You may type Lisp forms or commands to this
+  prompt. The =,= (comma) character starts a command, every other
+  input will be treated by the Listener as a form to be evaluated.
+
+* Documentation
+
+  For in-depth documentation for the Listener see the Listener chapter
+  in the manual.

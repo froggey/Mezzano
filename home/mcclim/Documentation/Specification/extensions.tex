@@ -1,0 +1,105 @@
+% -*- Mode: LaTeX; Package: CLIM-USER -*-
+
+\chapter {Suggested Extensions to CLIM}
+\label {extensions}
+
+This appendix describes some suggested extensions to CLIM.  Conforming CLIM
+implementations need not implement any of these extensions.  However, if a CLIM
+implementation chooses to implement any of this functionality, it is suggested
+that is conform to the suggested API.
+
+All of the symbols documented in this appendix should be accessible as external
+symbols in the \cl{clim} package.
+
+
+\section {Support for PostScript Output}
+
+CLIM implementations may choose to implement a PostScript back-end.  Such a
+back-end must include a medium that supports CLIM's medium protocol, and should
+support CLIM's output stream protocol as well.
+
+\Defmacro {with-output-to-postscript-stream} {(stream-var file-stream
+                                               \key device-type multi-page scale-to-fit 
+                                                    orientation header-comments) 
+                                               \body body} 
+
+Within \arg{body}, \arg{stream-var} is bound to a stream that produces
+PostScript code.  This stream is suitable as a stream or medium argument to any
+CLIM output utility, such as \cl{draw-line*} or \cl{write-string}.  A PostScript
+program describing the output to the \arg{stream-var} stream will be written to
+\arg{file-stream}.  \arg{stream-var} must be a symbol.  \arg{file-stream} is a
+stream.
+
+\arg{device-type} is a symbol that names some sort of PostScript display device.
+Its default value is unspecified, but must be a useful display device type for
+the CLIM implementation.
+
+\arg{multi-page} is a \term{boolean} that specifies whether or not the output
+should be broken into multiple pages if it is larger than one page.  How the
+output is broken into multiple pages, and how these multiple pages should be
+pieced together is unspecified.  The default is \cl{nil}.
+
+\arg{scale-to-fit} is a \term{boolean} that specifies whether or not the output
+should be scaled to fit on a single page if it is larger than one page.  The
+default is \cl{nil}.  It is an error if \arg{multi-page} and \cl{scale-to-fit}
+are both supplied as \term{true}.
+
+\arg{orientation} may be one of \cl{:portrait} (the default) or \cl{:landscape}.
+It specifies how the output should be oriented.
+
+\arg{header-comments} allows the programmer to specify some PostScript header
+comment fields for the resulting PostScript output.  The value of
+\arg{header-comments} is a list consisting of alternating keyword and value
+pairs.  These are the supported keywords:
+
+\begin{itemize}
+\item \cl{:title}---specifies a title for the document, as it will appear in the
+"%%Title:"  header comment.
+
+\item \cl{:for}---specifies who the document is for.  The associated value will
+appear in a "%%For:" document comment.
+\end{itemize}
+
+
+\Defun {new-page} {stream}
+
+Give a PostScript stream \arg{stream}, \cl{new-page} sends all of the currently
+collected output to the related file stream (by emitting a PostScript
+\cl{showpage} command), and resets the PostScript stream to have no output.
+
+
+\section {Support for Reading Bitmap Files}
+
+CLIM implementations may supply some functions that read standard bitmap and
+pixmaps files.  The following is the suggested API for such functionality.
+
+\Defgeneric {read-bitmap-file} {type pathname \key}
+
+Reads a bitmap file of type \arg{type} from the file named by \arg{pathname}.
+\arg{type} is a symbol that indicates what type of bitmap file is to be read.  
+\cl{read-bitmap-file} can \cl{eql}-specialize on \arg{type}.
+
+\cl{read-bitmap-file} may take keyword arguments to provide further information
+to the method decoding the bitmap file.
+
+For example, a CLIM implementation might support an \cl{:x11} type.
+\cl{read-bitmap-file} could take a \arg{format} keyword argument, whose value
+can be either \cl{:bitmap} or \cl{:pixmap}.
+
+\cl{read-bitmap-file} will return two values.  The first is a 2-dimensional
+array of ``pixel'' values.  The second is a sequence of CLIM colors (or \cl{nil}
+if the result is a monochrome image).
+
+
+\Defun {make-pattern-from-bitmap-file} {pathname \key type designs \allow}
+
+Reads the contents of the bitmap file \arg{pathname} and creates a CLIM
+\cl{pattern} object that represents the file.  \arg{type} is as for
+\cl{read-bitmap-file}.
+
+\arg{designs} is a sequence of CLIM designs (typically color objects) that will
+be used as the second argument in a call to \cl{make-pattern}.  \arg{designs}
+must be supplied if no second value will be returned from \cl{read-bitmap-file}.
+
+\cl{make-pattern-from-bitmap-file} will pass any additional keyword arguments
+along to \cl{read-bitmap-file}.

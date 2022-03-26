@@ -1,0 +1,106 @@
+% @c -*- Coding: utf-8; Mode: Texinfo -*-
+
+\input texinfo
+
+@documentencoding UTF-8
+@documentlanguage en
+
+@syncodeindex vr fn
+@syncodeindex tp fn
+
+@paragraphindent 0
+
+@setfilename mcclim
+@settitle McCLIM User's Manual
+
+@set MCCLIMVERSION 0.9.7-dev
+
+@copying
+Copyright @copyright{} 2004,2005,2006,2007,2008,2017,2019 the McCLIM hackers.
+@end copying
+
+@dircategory Common Lisp
+@direntry
+* McCLIM User's Manual: (mcclim). A free implementation of CLIM.
+@end direntry
+
+@titlepage
+@title McCLIM User's Manual
+
+@sp 5
+@center @titlefont{The Users Guide}
+@sp 2
+@center @titlefont{and}
+@sp 2
+@center @titlefont{API Reference}
+@sp 2
+
+@page
+@vskip 0pt plus 1filll
+@insertcopying
+
+@end titlepage
+
+@contents
+
+@ifnottex
+@node Top
+@top McCLIM User's Manual
+@insertcopying
+@end ifnottex
+
+@include macros.texi
+
+@menu
+* Introduction::
+* User manual::
+* Reference manual::
+* Developer manual::
+* Extensions::
+* Applications::
+* Auxiliary material::
+* Concept index::
+* Function and macro and variable and type index::
+@end menu
+
+@node Introduction
+@unnumbered Introduction
+@include introduction.texi
+
+@c @node User manual
+@c @chapter User manual
+@include user-manual.texi
+
+@c @node Reference manual
+@c @chapter Reference manual
+@include reference-manual.texi
+
+@c @node Developer manual
+@c @chapter Developer manual
+@include developer-manual.texi
+
+@c @node Extensions
+@c @chapter Extensions
+@include extensions.texi
+
+@node Applications
+@chapter Applications
+@include chap-debugger.texi
+@include chap-inspector.texi
+@include chap-listener.texi
+
+@c @node Auxiliary material
+@c @unnumbered Auxiliary material
+@include auxiliary-material.texi
+
+@node Concept index
+@unnumbered Concept index
+
+@printindex cp
+
+@node Function and macro and variable and type index
+@unnumbered Function and macro and variable and type index
+
+@printindex fn
+
+@bye

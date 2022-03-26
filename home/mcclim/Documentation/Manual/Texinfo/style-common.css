@@ -1,0 +1,224 @@
+/*
+ * Based on version 1.0.1 of the texinfo-css stylesheet published by
+ * sirgazil (https://bitbucket.org/sirgazil/texinfo-css).
+ *
+ * Public domain 2016 sirgazil. All rights waived.
+*/
+
+/* NATIVE ELEMENTS */
+a:link,
+a:visited {
+    color: #1E90FF;
+    text-decoration: none;
+}
+
+a:active,
+a:focus,
+a:hover {
+    text-decoration: underline;
+}
+
+abbr,
+acronym {
+    cursor: help;
+}
+
+blockquote {
+    color: #555753;
+    font-style: oblique;
+    margin: 30px 0px;
+    padding-left: 3em;
+}
+
+body {
+    background-color: white;
+    box-shadow: 0 0 2px gray;
+    box-sizing: border-box;
+    color: #333;
+    font-family: sans-serif;
+    font-size: 16px;
+    margin: 50px auto;
+    max-width: 80%;
+    padding: 50px;
+}
+
+code,
+samp,
+tt,
+var {
+    color: purple;
+    font-size: 0.8em;
+}
+
+kbd {
+    padding-left: .25em;
+    padding-right: .25em;
+    border: solid 1px #C2C2C2;
+    border-radius: 4px;
+    background-color: #F0F0F0;
+    box-shadow: 1px 1px silver;
+}
+
+div.example,
+div.lisp {
+    margin: 0px;
+}
+
+dl {
+    margin: 3em 0em;
+}
+
+dl dl {
+    margin: 0em;
+}
+
+dt {
+    background-color: #F5F5F5;
+    padding: 0.5em;
+}
+
+h1,
+h2,
+h2.contents-heading,
+h3,
+h4 {
+    padding: 20px 0px 0px 0px;
+    font-weight: normal;
+}
+
+h1 {
+    font-size: 2.4em;
+}
+
+h2 {
+    font-size: 2.2em;
+    font-weight: bold;
+}
+
+h3 {
+    font-size: 1.8em;
+}
+
+h4 {
+    font-size: 1.4em;
+}
+
+hr {
+    background-color: silver;
+    border-style: none;
+    height: 1px;
+    margin: 0px;
+}
+
+html {
+    background-color: #F5F5F5;
+}
+
+img {
+    max-width: 100%;
+}
+
+li {
+    padding: 5px;
+}
+
+div.display,
+div.example,
+div.format,
+div.lisp,
+div.verbatim {
+    overflow: auto;
+}
+
+div.example,
+div.lisp,
+div.verbatim {
+    background-color: #F5F5F5;
+    font-size: smaller;
+    padding: 1em;
+
+    /* border with rounded corner */
+    border-color: #000;
+    border-radius: 4px;
+    border-style: solid;
+    border-width: thin;
+}
+
+pre {
+    padding: 0;
+    margin: 0 0 1em 0;
+}
+pre:last-of-type {
+    margin: 0 0 0 0;
+}
+
+table {
+    border-collapse: collapse;
+    margin: 40px 0px;
+}
+
+table.index-cp *,
+table.index-fn *,
+table.index-ky *,
+table.index-pg *,
+table.index-tp *,
+table.index-vr * {
+    background-color: inherit;
+    border-style: none;
+}
+
+td,
+th {
+    border-color: silver;
+    border-style: solid;
+    border-width: thin;
+    padding: 10px;
+}
+
+th {
+    background-color: #F5F5F5;
+}
+/* END NATIVE ELEMENTS */
+
+
+
+/* CLASSES */
+.contents {
+    margin-bottom: 4em;
+}
+
+/* Restrict TOC to depth 3 */
+.contents > ul ul ul ul {
+    display: none;
+}
+
+.float {
+    margin: 3em 0em;
+}
+
+.float-caption {
+    font-size: smaller;
+    text-align: center;
+}
+
+.float > img {
+    display: block;
+    margin: auto;
+}
+
+.footnote {
+    font-size: smaller;
+    margin: 5em 0em;
+}
+
+.footnote h3 {
+    display: inline;
+    font-size: small;
+}
+
+.key {
+    color: purple;
+    font-size: 0.8em;
+}
+
+/* END CLASSES */

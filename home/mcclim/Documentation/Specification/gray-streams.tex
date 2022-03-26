@@ -1,0 +1,295 @@
+% -*- Mode: LaTeX; Package: CLIM-USER -*-
+
+\chapter {Common Lisp Streams}
+\label {gray-streams}
+
+CLIM performs all of its character-based input and output operations on objects
+called \concept{streams}.  Streams are divided into two layers, the
+\concept{basic stream protocol}, which is character-based and compatible with
+existing Common Lisp programs, and the \concept{extended stream protocol}, which
+introduces extended gestures such as pointer gestures and synchronous
+window-manager communication.
+
+This appendix describes the basic stream-based input and output protocol used by
+CLIM.  The protocol is taken from the \cl{STREAM-DEFINITION-BY-USER} proposal to
+the X3J13 committee, made by David Gray of TI.  This proposal was not accepted
+by the X3J13 committee as part of the ANSI Common Lisp language definition, but
+many Lisp implementations do support it.   For those implementations that do not
+support it, it is implemented as part of CLIM.
+
+
+\section {Stream Classes}
+
+The following classes must be used as superclasses of user-defined stream
+classes.  They are not intended to be directly instantiated; they just provide
+places to hang default methods.
+
+
+\Defclass {fundamental-stream}
+
+This class is the base class for all CLIM streams.  It is a subclass of
+\cl{stream} and of \cl{standard-object}.
+
+\Defgeneric {streamp} {object}
+
+Returns \term{true} if \arg{object} is a member of the class
+\cl{fundamental-stream}.  It may return \term{true} for other objects that are
+not members of the \cl{fundamental-stream} class, but claim to serve as streams.
+(It is not sufficient to implement \cl{streamp} as \cl{(typep object
+'fundamental-stream)}, because implementations may have additional ways of
+defining streams.)
+
+
+\Defclass {fundamental-input-stream}
+
+A subclass of \cl{fundamental-stream} that implements input streams.
+
+\Defgeneric {input-stream-p} {object}
+
+Returns \term{true} when called on any object that is a member of the class
+\cl{fundamental-input-stream}.  It may return \term{true} for other objects that
+are not members of the \cl{fundamental-input-stream} class, but claim to serve
+as input streams.
+
+
+\Defclass {fundamental-output-stream}
+
+A subclass of \cl{fundamental-stream} that implements output streams.
+
+\Defgeneric {output-stream-p} {object}
+
+Returns \term{true} when called on any object that is a member of the class
+\cl{fundamental-output-stream}.  It may return \term{true} for other objects
+that are not members of the \cl{fundamental-output-stream} class, but claim to
+serve as output streams.
+
+Bidirectional streams can be formed by including both
+\cl{fundamental-input-stream} and \cl{fundamental-output-stream}.
+
+
+\Defclass {fundamental-character-stream}
+
+A subclass of \cl{fundamental-stream}.  It provides a method for
+\cl{stream-element-type}, which returns \cl{character}.
+
+\Defclass {fundamental-binary-stream}
+    
+A subclass of \cl{fundamental-stream}.  Any instantiable class that includes
+this needs to define a method for \cl{stream-element-type}.
+
+
+\Defclass {fundamental-character-input-stream}
+
+A subclass of both \cl{fundamental-input-stream} and
+\cl{fundamental-character-stream}.  It provides default methods for several
+generic functions used for character input.
+
+\Defclass {fundamental-character-output-stream}
+
+A subclass of both \cl{fundamental-output-stream} and
+\cl{fundamental-character-stream}.  It provides default methods for several
+generic functions used for character output.
+
+
+\Defclass {fundamental-binary-input-stream}
+
+A subclass of both \cl{fundamental-input-stream} and
+\cl{fundamental-binary-stream}.
+
+
+\Defclass {fundamental-binary-output-stream}
+
+A subclass of both \cl{fundamental-output-stream} and
+\cl{fundamental-binary-stream}.
+
+
+\section {Basic Stream Functions}
+
+These generic functions must be defined for all stream classes.
+
+\Defgeneric {stream-element-type} {stream}
+
+This existing Common Lisp function is made generic, but otherwise behaves the
+same.  Class \cl{fundamental-character-stream} provides a default method that
+returns \cl{character}.
+
+\Defgeneric {open-stream-p} {stream}
+
+This function is made generic.  A default method is provided by class
+\cl{fundamental-stream} that returns \term{true} if \cl{close} has not been
+called on the stream.
+
+\Defgeneric {close} {stream \key abort}
+
+The existing Common Lisp function \cl{close} is redefined to be a generic
+function, but otherwise behaves the same.  The default method provided by the
+class \cl{fundamental-stream} sets a flag used by \cl{open-stream-p}.  The value
+returned by \cl{close} will be as specified by the X3J13 issue
+\cl{closed-stream-operations}.
+
+\defgeneric {stream-pathname} {stream}
+\Defgeneric {stream-truename} {stream}
+
+These are used to implement \cl{pathname} and \cl{truename}.  There is no
+default method since these are not valid for all streams.
+
+
+\section {Character Input}
+
+A character input stream can be created by defining a class that includes
+\cl{fundamental-character-input-stream} and defining methods for the generic
+functions below.
+
+\Defgeneric {stream-read-char} {stream}
+
+Reads one character from \arg{stream}, and returns either a character object or
+the symbol \cl{:eof} if the stream is at end-of-file.  There is no default
+method for this generic function, so every subclass of
+\cl{fundamental-character-input-stream} must define a method.
+
+\Defgeneric {stream-unread-char} {stream character}
+
+Undoes the last call to \cl{stream-read-char}, as in \cl{unread-char}, and
+returns \cl{nil}.  There is no default method for this, so every subclass of
+\cl{fundamental-character-input-stream} must define a method.
+
+\Defgeneric {stream-read-char-no-hang} {stream}
+
+Returns either a character, or \cl{nil} if no input is currently available, or
+\cl{:eof} if end-of-file is reached.  This is used to implement
+\cl{read-char-no-hang}.  The default method provided by
+\cl{fundamental-character-input-stream} simply calls \cl{stream-read-char}; this
+is sufficient for file streams, but interactive streams should define their own
+method.
+
+\Defgeneric {stream-peek-char} {stream}
+
+Returns either a character or \cl{:eof} without removing the character from the
+stream's input buffer.  This is used to implement \cl{peek-char}; this
+corresponds to peek-type of \cl{nil}.  The default method calls
+\cl{stream-read-char} and \cl{stream-unread-char.}
+
+\Defgeneric {stream-listen} {stream}
+
+Returns \term{true} if there is any input pending on \arg{stream}, otherwise it
+returns \term{false}.  This is used by \cl{listen}.  The default method uses
+\cl{stream-read-char-no-hang} and \cl{stream-unread-char}.  Most streams should
+define their own method since it will usually be trivial and will generally be
+more efficient than the default method.
+
+\Defgeneric {stream-read-line} {stream}
+
+Returns a string as the first value, and \cl{t} as the second value if the
+string was terminated by end-of-file instead of the end of a line.  This is used
+by \cl{read-line}.  The default method uses repeated calls to
+\cl{stream-read-char}.
+
+\Defgeneric {stream-clear-input} {stream}
+
+Clears any buffered input associated with \arg{stream}, and returns
+\term{false}.  This is used to implement \cl{clear-input}.  The default method
+does nothing.
+
+
+\section {Character Output}
+
+A character output stream can be created by defining a class that includes
+\cl{fundamental-character-output-stream} and defining methods for the generic
+functions below.
+
+\Defgeneric {stream-write-char} {stream character}
+
+Writes \arg{character} to \arg{stream}, and returns \arg{character} as its
+value.  Every subclass of \cl{fundamental-character-output-stream} must have a
+method defined for this function.
+
+\Defgeneric {stream-line-column} {stream}
+
+This function returns the column number where the next character will be written
+on \arg{stream}, or \cl{nil} if that is not meaningful.  The first column on a
+line is numbered 0.  This function is used in the implementation of \cl{pprint}
+and the \cl{format} \verb+~T+ directive.  Every character output stream class
+must define a method for this, although it is permissible for it to always
+return \cl{nil}.
+
+\Defgeneric {stream-start-line-p} {stream}
+
+Returns \term{true} if \arg{stream} is positioned at the beginning of a line,
+otherwise returns \term{false}.  It is permissible to always return
+\term{false}.  This is used in the implementation of \cl{fresh-line}.
+
+Note that while a value of 0 from \cl{stream-line-column} also indicates the
+beginning of a line, there are cases where \cl{stream-start-line-p} can be
+meaningfully implemented when \cl{stream-line-column} cannot.  For example, for
+a window using variable-width characters, the column number isn't very
+meaningful, but the beginning of the line does have a clear meaning.  The
+default method for \cl{stream-start-line-p} on class
+\cl{fundamental-character-output-stream} uses \cl{stream-line-column}, so if
+that is defined to return \cl{nil}, then a method should be provided for either
+\cl{stream-start-line-p} or \cl{stream-fresh-line}.
+
+\Defgeneric {stream-write-string} {stream string \optional (start \cl{0}) end}
+
+Writes the string \arg{string} to \arg{stream}.  If \arg{start} and \arg{end}
+are supplied, they specify what part of \arg{string} to output.  \arg{string} is
+returned as the value.  This is used by \cl{write-string}.  The default method
+provided by \cl{fundamental-character-output-stream} uses repeated calls to
+\cl{stream-write-char}.
+
+\Defgeneric {stream-terpri} {stream}
+
+Writes an end of line character on \arg{stream}, and returns \term{false}.  This
+is used by \cl{terpri}.  The default method does \cl{stream-write-char} of
+\verb+#\Newline+.
+
+\Defgeneric {stream-fresh-line} {stream}
+
+Writes an end of line character on \arg{stream} only if the stream is not at the
+beginning of the line.  This is used by \cl{fresh-line}.  The default method
+uses \cl{stream-start-line-p} and \cl{stream-terpri}.
+
+\Defgeneric {stream-finish-output} {stream}
+
+Ensures that all the output sent to \arg{stream} has reached its destination,
+and only then return \term{false}.  This is used by \cl{finish-output}.  The
+default method does nothing.
+
+\Defgeneric {stream-force-output} {stream}
+
+Like \cl{stream-finish-output}, except that it may return \term{false} without
+waiting for the output to complete.  This is used by \cl{force-output}.  The
+default method does nothing.
+
+\Defgeneric {stream-clear-output} {stream}
+
+Aborts any outstanding output operation in progress, and returns \term{false}.
+This is used by \cl{clear-output}.  The default method does nothing.
+
+\Defgeneric {stream-advance-to-column} {stream column}
+
+Writes enough blank space on \arg{stream} so that the next character will be
+written at the position specified by \arg{column}.  Returns \term{true} if the
+operation is successful, or \cl{nil} if it is not supported for this stream.
+This is intended for use by \cl{pprint} and \cl{format} \verb+~T+.  The default
+method uses \cl{stream-line-column} and repeated calls to \cl{stream-write-char}
+with a \verb+#\Space+ character; it returns \cl{nil} if \cl{stream-line-column}
+returns \cl{nil}.
+
+
+\section {Binary Streams}
+
+Binary streams can be created by defining a class that includes either
+\cl{fundamental-binary-input-stream} or \cl{fundamental-binary-output-stream}
+(or both) and defining a method for \cl{stream-element-type} and for one or both
+of the following generic functions.
+
+\Defgeneric {stream-read-byte} {stream}
+
+Returns either an integer, or the symbol \cl{:eof} if \arg{stream} is at
+end-of-file.  This is used by \cl{read-byte}.
+
+\Defgeneric {stream-write-byte} {stream integer}
+
+Writes \arg{integer} to \arg{stream}, and returns \arg{integer} as the
+result.  This is used by \cl{write-byte}.
+

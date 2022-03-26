@@ -1,0 +1,42 @@
+;;; -*- Lisp -*-
+
+;;; check that added nesting via modules doesn't confuse ASDF
+
+(def-test-system test-nested-components-a
+  :components
+  ((:module "nested-components"
+            :pathname ""
+            :components ((:file "test-nested-1")))))
+
+(def-test-system test-nested-components-b
+  :components
+  ((:file "test-nested-1")))
+
+(def-test-system db-agraph-preflight
+  :components
+  ((:module "preflight-checks"
+            :components ((:file "preflight")))))
+
+(defsystem db-agraph-preflight-2
+  :pathname "preflight-checks" :source-file nil
+  :components
+  ((:file "preflight")))
+
+(writeln
+ (list
+  :a
+  (traverse 'compile-op 'test-nested-components-a)
+  (traverse 'compile-op 'test-nested-components-b)
+  :x
+  (traverse 'compile-op 'db-agraph-preflight)
+  (traverse 'compile-op 'db-agraph-preflight-2)))
+
+#|
+(oos 'compile-op 'test-nested-components-a)
+(oos 'compile-op 'test-nested-components-b)
+
+(writeln
+ (list
+  (traverse 'load-op 'test-nested-components-a)
+  (traverse 'load-op 'test-nested-components-b)))
+|#

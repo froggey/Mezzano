@@ -1,0 +1,27 @@
+@c Some plain TeX macrology to wrap text in \hbox{} only if the text
+@c contains no hyphens.
+@iftex
+@tex
+\newif\ifdash
+\long\def\dashp#1{\expandafter\setnext#1-\dashphelper}
+\long\def\setnext#1-{\futurelet\next\dashphelper}
+\long\def\dashphelper#1\dashphelper{
+  \ifx\dashphelper\next\dashfalse\else\dashtrue\fi
+}
+\def\lw#1{\leavevmode\dashp{#1}\ifdash#1\else\hbox{#1}\fi}
+@end tex
+@end iftex
+
+@c A Texinfo binding for the plain TeX above.  Analogous to Texinfo's
+@c @w, but for Lisp symbols.  AFAICT, the comment characters are
+@c necessary to prevent treating the newline as a space.
+@macro lw{word}
+@iftex
+@tex
+\\lw{\word\}%
+@end tex
+@end iftex
+@ifnottex
+\word\@c
+@end ifnottex
+@end macro

@@ -1,0 +1,37 @@
+The client-info file format is a simple s-expression plist that is
+read with *READ-EVAL* set to nil.
+
+There should be the following keys and values:
+
+  :VERSION - a string representing the version of the
+  client. Traditionally this is an ISO8601 date string.
+
+  :CLIENT-INFO-FORMAT - a string representing the version of the
+  client-info file format. Currently this is "1". When the file format
+  is updated it will change.
+
+Three remaining keys use the client-info-file plist format. That
+format has the following keys and values:
+
+  :URL - an URL string to use for fetching the file
+
+  :SIZE - an integer representing the size in octets of the file
+
+  :md5 - a string representing the hexadecimal MD5 digest of the file
+
+  :sha256 - a string representing the hexadecimal SHA256 digetst of
+  the file
+
+There remaining three keys are as follows:
+
+  :CLIENT-TAR - a client-info-file plist for the tarball containing
+  the Quicklisp client code
+
+  :SETUP - a client-info-file plist for the setup.lisp file that is
+  loaded when starting Quicklisp
+
+  :ASDF - a client-info-file plist for asdf.lisp
+
+A file with a plist of this structure can be loaded with
+LOAD-CLIENT-INFO to produce a CLIENT-INFO instance. See
+client-info.lisp and client-update.lisp for more information.

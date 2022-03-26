@@ -1,0 +1,46 @@
+;;; -*- Lisp -*-
+
+;;;---------------------------------------------------------------------------
+;;; Intended to test behaviors that we see when the deferred warnings check is
+;;; NOT deferred.
+;;; ---------------------------------------------------------------------------
+
+(in-package :asdf-test)
+
+(setf asdf/session:*asdf-session* nil)
+
+(disable-deferred-warnings-check)
+
+(def-test-system :undefined-variables
+  :components ((:file "fun-with-undefined-locals")))
+
+;;; DEF-TEST-SYSTEM cannot parse :PERFORM arguments
+#+nil(def-test-system :undefined-variables-throttled
+  :components ((:file "fun-with-undefined-locals"
+                  :perform (compile-op :around (op c)
+                                 (declare (ignorable op c))
+                                 (let ((asdf:*compile-file-warnings-behaviour* :ignore))
+                                   (call-next-method))))))
+(assert
+ (asdf:find-system :undefined-variables-throttled))
+
+;; GCL fails to warn; CMUCL, SBCL and presumably SCL defer warning to end of compilation unit;
+;; SCL and XCL not actually tested
+(format t "Check for proper errors on warning.~%")
+(errors #+(or abcl allegro clisp clozure (and ecl (not ecl-bytecmp)) lispworks mkcl xcl) compile-file-error
+        #+(or cmucl (and ecl ecl-bytecmp) gcl sbcl scl) null
+        (let ((*compile-file-warnings-behaviour* :error))
+          (load-system :undefined-variables :force t)))
+(format t  "Check for proper warnings on warning.~%")
+(errors #+(or abcl allegro clisp clozure (and ecl (not ecl-bytecmp)) lispworks mkcl xcl) compile-file-error
+        #+(or cmucl (and ecl ecl-bytecmp) gcl sbcl scl) null
+        (let ((*compile-file-warnings-behaviour* :warning))
+          (load-system :undefined-variables :force t)))
+(format t "check for undefined variable warnings to not fail a build.~%")
+(assert
+ (let ((*compile-file-warnings-behaviour* :ignore))
+   (load-system :undefined-variables :force t)))
+(format t "check for undefined variable-warnings throttled by PERFORM around method not failing a build.~%")
+(assert
+ (let ((*compile-file-warnings-behaviour* :error))
+   (asdf:load-system :undefined-variables-throttled :force t)))

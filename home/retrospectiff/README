@@ -1,0 +1,33 @@
+
+Retrospectiff is a common lisp library for reading, and, hopefully,
+one day, writing images in the TIFF (Tagged Image File Format)
+format.
+
+The git repository can be found at:
+
+https://github.com/slyrus/retrospectiff
+
+See the test directory for examples of using the read-tiff-file and
+write-tiff-file functions.
+
+The following types of images can be read and written:
+
+* bitmap images
+* grayscale images (8 or 4-bits per pixel)
+* RGB, and ARGB images (8- or 16-bits per pixel)
+
+The following compression schemes are supported:
+
+* None (uncompressed images)
+* LZW
+* packbits
+* deflate (read only)
+* JPEG (read only)
+
+Planned features include:
+
+ * Writing more formats of TIFF images
+ * Performance enhancements
+
+For additional examples of using the retrospectiff API, check out the
+opticl <http://github.com/slyrus/opticl> library.

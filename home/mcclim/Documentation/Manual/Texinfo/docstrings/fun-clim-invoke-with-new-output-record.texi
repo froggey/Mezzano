@@ -1,0 +1,4 @@
+@anchor{Generic-Function clim:invoke-with-new-output-record}
+@deffn {Generic Function} {@symbol{invoke-with-new-output-record,clim}} stream continuation record-type constructor &key parent &allow-other-keys
+Same as in CLIM 2.2 (missing CONSTRUCTOR added).
+@end deffn

@@ -1,0 +1,6 @@
+#! /bin/sh
+
+# This script simply writes some text to STDERR, to check and
+# make sure that ASDF:RUN-SHELL-COMMAND handles it properly.
+
+echo "Writing to standard error." >& 2

@@ -1,0 +1,49 @@
+\chapter{Raster Image backend}
+Raster image backend includes a medium that supports:
+\begin{itemize}
+\item CLIM's medium protocol, 
+\item CLIM's output stream protocol, and
+\item CLIM's Pixmap protocol.
+\end{itemize}
+
+Package \texttt{mcclim-raster-image} exports the following macros:
+
+\Defmacro {mcclim-render:with-output-to-raster-image-stream} {(stream-var file-stream format \rest options) \body body}
+\Defmacro {mcclim-render:with-output-to-rgb-pattern} {(stream-var image \rest options) \body body}
+
+Within \arg{body}, \arg{stream-var} is bound to a stream that produces
+a raster image.  This stream is suitable as a stream or medium argument to any
+CLIM output utility, such as \cl{draw-line*} or \cl{write-string}.  
+
+The value of \arg{options} is a list consisting of alternating keyword and value
+pairs.  These are the supported keywords:
+\begin{itemize}
+\item \cl{:width}---specifies the width of the image. Its default value is 1000.
+\item \cl{:height}---specifies the height of the image. Its default value is 1000. 
+\end{itemize}
+
+\Defmacro {mcclim-render:with-output-to-raster-image-stream} {(stream-var file-stream format \rest options) \body body}
+
+An image describing the output to the \arg{stream-var} stream will be
+written to the stream \arg{file-stream} using the format
+\arg{format}. \arg{format} is a symbol that names the type of the
+image. Valid values are \cl{:png}, \cl{:jpg}, \cl{:jpeg}, \cl{tiff},
+\cl{tif}, \cl{gif}, \cl{pbm}, \cl{pgm}, and \cl{ppm}. Its default
+value is \cl{:png}.
+
+\Defmacro {mcclim-render:with-output-to-rgb-pattern} {(stream-var image \rest options) \body body}
+
+An image describing the output to the \arg{stream-var} stream will be
+returned as an rgb-pattern (of class \cl{climi::rgb-pattern}).
+
+
+To run an example:
+\begin{verbatim}
+(ql:quickload :clim-examples)
+(load "Examples/drawing-tests")
+(clim-demo::run-drawing-tests)
+\end{verbatim}
+
+
+
+

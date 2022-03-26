@@ -1,0 +1,22 @@
+;;; -*- Lisp -*-
+
+(defparameter *a* 0)
+
+(def-test-system :foo
+  :components
+  ((:file "file1"
+    :perform (load-op :before (o c)
+                      (incf *a*)
+                      (format t "Method run before ~A - *a* = ~S~%~%" (action-description o c) *a*)))
+   (:file "file2" :depends-on ("file1")
+    :perform (load-op (o c)
+                      (incf *a*)
+                      (format t "Method run for ~A - *a* = ~S~%" (action-description o c) *a*)
+                      (call-next-method)))))
+
+;;; Note: not calling load-system, because on ECL that could end up being a load-fasl-op,
+;;; and at most the file1 load-op happen, whereas the file2 .o is linked and never loaded
+;;; (the linked fasl, on the other hand, will be loaded, but won't trigger the inline method).
+(operate 'load-op :foo)
+
+(assert-equal *a* 2)

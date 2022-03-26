@@ -1,0 +1,131 @@
+% -*- Mode: LaTeX; Package: CLIM-USER -*-
+
+\chapter {Encapsulating Streams}
+\label {encapsulating-streams}
+
+An \concept{encapsulating stream} is a special kind of stream that ``closes
+over'' another stream, handling some of the usual stream protocol operations
+itself, and delegating the remaining operations to the ``encapsulated'' stream.
+Encapsulating streams may be used by some CLIM implementations in order to
+facilitate the implementation of features that require the dynamic modification
+of a stream's state and operations.  For example, \cl{accepting-values} dialogs
+can be implemented by using an encapsulating stream that tailors calls to
+\cl{accept} and \cl{prompt-for-accept} in such a way that the output is captured
+and formatted into a dialog that contains prompts and fields that can be clicked
+on and modified by the user.  Input editing can also be implemented using an
+encapsulating stream that manages the interaction between \cl{read-gesture} and
+the input editing commands and rescanning.  The form \cl{filling-output} can be
+implemented by having an encapsulating stream that buffers output and inserts
+line breaks appropriately.
+
+CLIM implementations need not use encapsulating streams at all.  If
+encapsulating streams are used, they must adhere to the following protocols.
+Encapsulating streams are not part of CLIM's API.
+
+\section {Encapsulating Stream Classes}
+
+\Defprotoclass {encapsulating-stream}
+
+The protocol class that corresponds to an encapsulating stream.
+\IfYouWantClass {an} {encapsulating stream} {encapsulating-stream}
+\Mutable
+
+\Defpredicate {encapsulating-stream-p} {object}
+
+Returns \term{true} if \arg{object} is an \term{encapsulating stream}, otherwise
+returns \term{false}.  
+
+\Definitarg {:stream}
+
+All encapsulating streams must handle the \cl{:stream} initarg, which is used to
+specify the stream to be encapsulated.
+
+\Defclass {standard-encapsulating-stream}
+
+This instantiable class provides a standard implementation of an encapsulating
+stream.
+
+
+\subsection {Encapsulating Stream Protocol}
+
+The \cl{standard-encapsulating-stream} class must provide ``trampoline'' methods
+for {\sl all} stream protocol operations.  These ``trampolines'' will simply
+call the same generic function on the encapsulated stream.  In particular, all
+of the generic functions in the following protocols must have trampolines.
+
+\begin{itemize}
+\item The basic input and output stream protocols, as specified by the Gray
+stream proposal in Chapter~\ref{gray-streams}.
+
+\item The sheet protocols, as specified in Chapters~\ref{sheet-properties} and
+\ref{sheet-protocols}.
+
+\item The medium protocol, as specified in Chapter~\ref{drawing-options}.
+
+\item The text style binding forms, as specified in Chapter~\ref{text-styles}.
+
+\item The drawing functions, as specified in Chapter~\ref{graphics}.
+
+\item The extended output stream protocol, as specified in
+Chapter~\ref{extended-output}.
+
+\item The output recording stream protocol, as specified in
+Chapter~\ref{output-recording}.
+
+\item The incremental redisplay stream protocol, as specified in
+Chapter~\ref{incremental-redisplay}.
+
+\item The extended input stream protocol, as specified in
+Chapter~\ref{extended-input}.
+
+\item The stream generics for presentation types, as specified in
+Chapter~\ref{presentation-types}.
+\end{itemize}
+
+The following generic function must also be implemented for all encapsulating
+stream classes.
+
+\Defgeneric {encapsulating-stream-stream} {encapsulating-stream}
+
+Returns the stream encapsulated by the \term{encapsulating stream}
+\arg{encapsulating-stream}.
+
+
+\subsection {The ``Delegation Problem''}
+
+The suggested implementation of encapsulating streams has a potential problem
+that we label the ``delegation'' or ``multiple self'' problem.  Here is an
+example of the problem.
+
+Suppose we implement \cl{accepting-values} by using an encapsulating stream
+class called \cl{accepting-values-stream} that will be used to close over an
+ordinary extended input and output stream.  Let us examine two generic
+functions, \cl{stream-accept} and \cl{prompt-for-accept}.  The
+\cl{stream-accept} method on an ordinary stream calls \cl{prompt-for-accept}.
+Now suppose that \cl{accepting-values-stream} specializes
+\cl{prompt-for-accept}.  If we now create a stream of type
+\cl{accepting-values-stream} (which we will designate $A$) which encapsulates an
+ordinary stream $S$, and then call \cl{stream-accept} on the stream $E$, it will
+trampoline to \cl{stream-accept} on the stream $S$.  The desired behavior is
+for \cl{stream-accept} to call the \cl{prompt-for-accept} method on the stream
+$E$, but instead what happens is that the \cl{prompt-for-accept} method on the
+stream $S$ is called.
+
+In order to side-step this problem without attempting to solve a difficult
+general problem in object-oriented programming, CLIM implementations may
+introduce a special variable, \cl{*original-stream*}, which is bound by
+trampoline functions to the original encapsulating stream.  Therefore, the
+\cl{stream-accept} on the ordinary stream $S$ will call \cl{prompt-for-accept}
+on the value of \cl{(or *original-stream* \arg{stream})}.  This idiom only needs
+to be used in places where one stream protocol function calls a second stream
+protocol function that some encapsulating stream specializes.
+
+This ``solution'' does not solve the more general problem of multiple levels of
+encapsulation, but the complete stream protocol provided by CLIM should allow
+implementors to avoid using nested encapsulating streams.
+
+\Defvar {*original-stream*}
+
+This variable is bound by the trampoline methods on encapsulating streams to the
+encapsulating stream, before the operation is delegated to the underlying,
+encapsulated stream.

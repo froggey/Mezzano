@@ -1,0 +1,26 @@
+@anchor{Class drei-kill-ring:kill-ring}
+@deftp {Class} {drei-kill-ring:kill-ring}
+@tindex drei-kill-ring:kill-ring
+Class precedence list: @code{@w{kill-ring}, @w{standard-object}, @w{slot-object}, @w{t}}
+
+Slots:
+@itemize
+@item @code{max-size} --- initargs: @code{@w{:max-size}}
+
+The limitation placed upon the
+number of elements held by the kill ring.  Once the maximum size
+has been reached, older entries must first be removed before new
+ones can be added. When altered, any surplus elements will be
+silently dropped.
+@item @code{cursorchain} 
+
+The cursorchain associated with
+the kill ring.
+@item @code{yankpoint} 
+
+The flexicursor associated with
+the kill ring.
+@end itemize
+
+A class for all kill rings
+@end deftp

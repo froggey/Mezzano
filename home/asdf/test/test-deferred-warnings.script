@@ -1,0 +1,130 @@
+;;; -*- Lisp -*-
+
+(in-package :asdf-test)
+
+(enable-deferred-warnings-check)
+
+(def-test-system :unintern-foo
+  :components ((:file "unintern-foo")))
+(def-test-system :use-foo-only
+  :depends-on (:unintern-foo)
+  :components ((:file "use-foo")))
+(def-test-system :use-foo-with-wrapper
+  :depends-on (:unintern-foo)
+  :components ((:file "use-foo"
+                :perform (compile-op :around (op c)
+                                 (declare (ignorable op c))
+                                 (let ((asdf:*compile-file-warnings-behaviour* :error))
+                                   (call-next-method))))))
+(def-test-system :use-then-defun-foo
+  :depends-on (:unintern-foo)
+  :serial t
+  :components ((:file "use-foo") (:file "defun-foo")))
+(def-test-system :use-then-defmacro-foo
+  :depends-on (:unintern-foo)
+  :serial t
+  :components ((:file "use-foo") (:file "defmacro-foo")))
+(def-test-system :use-setf-foo-only
+  :depends-on (:unintern-foo)
+  :components ((:file "use-setf-foo")))
+(def-test-system :use-setf-then-defun-foo
+  :depends-on (:unintern-foo)
+  :serial t
+  :components ((:file "use-setf-foo") (:file "defun-setf-foo")))
+(def-test-system :use-setf-then-defsetf-foo
+  :depends-on (:unintern-foo)
+  :serial t
+  :components ((:file "use-setf-foo") (:file "defsetf-foo")))
+(def-test-system :undefined-variables
+  :components ((:file "fun-with-undefined-locals")))
+
+(DBG :tdw0 *compile-file-warnings-behaviour*)
+(handler-bind
+    ((error (lambda (c) (DBG :cfwbi-ufo c))))
+  (let ((*compile-file-warnings-behaviour* :ignore))
+    (load-system :use-foo-only :force t)))
+
+(reset-session)
+(handler-bind
+    ((error (lambda (c) (DBG :cfwbi-ufww c))))
+  (load-system :use-foo-with-wrapper :force t))
+
+(reset-session)
+(handler-bind
+    ((error (lambda (c) (DBG :cfwbi-usfo c))))
+  (let ((*compile-file-warnings-behaviour* :ignore))
+    (load-system :use-setf-foo-only :force t)))
+
+(reset-session)
+(DBG :tdw1 *warnings-file-type*)
+(assert
+ (handler-case
+     (let ((*warnings-file-type* nil))
+       (load-system :use-foo-only :force t)
+       t)
+   (error ()
+     (DBG :wftn c)
+     nil)))
+
+(unless *warnings-file-type*
+  (leave-test "Your Lisp does not support deferred-warnings" 0))
+
+(reset-session)
+(assert
+ (handler-case
+     (let ((*compile-file-warnings-behaviour* :error))
+       (perform 'compile-op :use-foo-only)
+       nil)
+   (compile-warned-error () t)))
+
+(reset-session)
+(assert
+ (handler-case
+     (let ((*compile-file-warnings-behaviour* :error))
+       (perform 'compile-op :use-setf-foo-only)
+       nil)
+   (compile-warned-error () t)))
+
+(reset-session)
+(let ((*compile-file-warnings-behaviour* :error))
+  (load-system :use-then-defun-foo))
+
+(setf *compile-file-warnings-behaviour* :error)
+
+(reset-session)
+(load-system :use-setf-then-defun-foo)
+
+;; FIXME: on CCL, the defmacro warning is found while loading the defmacro fasl.
+;; We should probably beef up the detection in reify-deferred-warnings,
+;; possibly file a bug.
+(reset-session)
+(with-expected-failure (#+clozure "CCL warns while loading, not compiling")
+  (assert
+   (handler-case
+       (load-system :use-then-defmacro-foo :force t)
+     ((or compile-file-error compile-warned-error) () t)
+     ;;(t (c) (DBG :utdf0 c))
+     (:no-error (&rest values) (DBG :utdf1 values) nil))))
+
+(reset-session)
+(with-expected-failure (#+clozure "CCL warns while loading, not compiling")
+  (assert
+   (handler-case
+       (load-system :use-setf-then-defsetf-foo :force t)
+     ((or compile-file-error compile-warned-error) () t)
+     ;;(t (c) (DBG :ustdf0 c))
+     (:no-error (&rest values) (DBG :ustdf1 values) nil))))
+
+(reset-session)
+(errors #+(or allegro clozure) compile-file-error
+        #+(or cmucl scl) compile-warned-error
+        #+sbcl compile-failed-error
+        (let ((*compile-file-warnings-behaviour* :error))
+          (load-system :undefined-variables :force t)))
+
+(reset-session)
+(errors #+(or allegro clozure) compile-file-error
+        #+(or cmucl scl) null
+        #+sbcl compile-failed-error
+        (let ((*compile-file-warnings-behaviour* :warning))
+          (load-system :undefined-variables :force t)))

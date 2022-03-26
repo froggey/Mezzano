@@ -1,0 +1,8 @@
+@anchor{Generic-Function drei-buffer:beginning-of-line}
+@deffn {Generic Function} {drei-buffer:beginning-of-line} mark
+@findex drei-buffer:beginning-of-line
+Move the mark to the beginning of the line.
+The mark will be positioned either immediately after the closest
+receding newline character, or at the beginning of the buffer if
+no preceding newline character exists. Returns @code{mark}.
+@end deffn

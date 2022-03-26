@@ -1,0 +1,9 @@
+@anchor{Generic-Function drei-buffer:insert-buffer-object}
+@deffn {Generic Function} {drei-buffer:insert-buffer-object} buffer offset object
+@findex drei-buffer:insert-buffer-object
+Insert the object at the offset in the buffer.
+Any left-sticky marks that are placed at the offset will remain
+positioned before the inserted object.  Any right-sticky marks
+that are placed at the offset will be positioned after the
+inserted object.
+@end deffn

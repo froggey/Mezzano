@@ -1,0 +1,108 @@
+;;; cl-pdf copyright 2002-2004 Marc Battyani see license.txt for details of the license
+;;; You can reach me at marc.battyani@fractalconcept.com or marc@battyani.net
+
+This is the change log for cl-pdf. 
+See also contributors.txt and to-do.txt
+
+Current version:
+
+08 February 2004: Release 2.1
+   Added Custom encodings.  [Thanks to Dmitri Ivanov]
+   Fonts without font data. [Thanks to Dmitri Ivanov]
+   Added a few with-standard-io-syntax so that the pdf are generated 
+         correctly when people change the printer settings.
+   Added a :stacked-series option to the histograms.
+   Changed zlib (again!) for dynamic loading of the library in delivered applications.
+   Added a *default-encoding* special variable. 
+   Added pdf meta information to documents.[Thanks to Eric Marsden]
+   Corrected handling of the min/max-value in the charts.[Thanks to Eric Marsden]
+   Corrected pfb file loading.
+   Font names are case insensitive now.
+   Added improved code128 barcodes [Thanks to Lars Rustemeier].
+
+26 December 2003:
+   Mailing Lists and code repository.
+
+24 October 2003: Release 2.0.3
+   Only loads the AFM files for the 14 standard fonts.
+   The other AFM files must be loaded with the font data by load-t1-font.
+   Small fixes.
+
+23 October 2003: Release 2.0.2
+   Small fixes and improvements
+
+21 October 2003: Release 2.0.1
+   A small fix to make the font cache work with the new encodings
+
+15 October 2003: Release 2.0
+   This release provides support for cl-typesetting
+   Major changements in the fonts and font-metrics classes
+   Support for custom character encodings
+   Loading and embedding of type1 fonts
+   Several fixes
+
+03 March 2003: Release 1.1.2
+   A small fix for zlib compression with CMUCL
+
+24 February 2003: Release 1.1.1
+   A small fix for Franz 'modern-mode'
+
+20 February 2003: Release 1.1
+   It's mostly a maintenance release
+   Better kerning support
+   Corrected file loading order in the defsystems
+   A few fixes for a better support of some Lisp implementations
+
+23 December 2002: Release 1.0
+   :)
+
+20 December 2002:
+   Added a readme file.
+   Added a config.lisp file to put most of the customization variables.
+   Added plot-xy chart (look at chart.lisp for details.)
+
+13 December 2002:
+   Added support for the various character sets and encodings.
+   Changed the font objects and all the font handling in the PDF files.
+
+10 December 2002:
+   Added Adobe Font Metrics files parsing.
+
+09 December 2002:
+   Added ASDF and mk:defsystem files.
+   Converted the zlib compress FFI to UFFI. 
+   Moved previous zlib versions and previous defsystems to a contrib directory.
+
+02 August 2002:
+   Added very basic formatted text (centered, left, right) outputs
+   Added some basic charts (histogram, pie chart, legend, axis)
+
+10 June 2002: 
+   Added support for JPEG images
+   Added outlines
+   Added internal and URL links.
+
+13 February 2002: Release 0.45
+   Added compression for CMUCL 
+   Compression is now optional
+   Bugs corrected (ACL compress, with-* macros, etc)
+   Improved arc functions, new example 6
+
+09 February 2002: Release 0.41
+   Small modifs and added rounded polylines.
+
+08 February 2002: Release 0.4
+   Added internal PDF data compression for Lispworks and Allegro Common Lisp
+   Added arcs functions (look at pdf-geom.lisp for details)
+
+02 February 2002: Release 0.3
+   Removed the use of keywords as PDF names
+   Cleaned up the code, put back write-line, removed gensym, etc.
+   Added a maze generation example
+
+29 january 2002: Release 0.21 
+   Corrected example4 in examples.lisp
+   Renaming the pdf directory as cl-pdf-<release number>
+
+28 january 2002: Release 0.2
+   First public release

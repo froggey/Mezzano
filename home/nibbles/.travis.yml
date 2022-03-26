@@ -1,0 +1,22 @@
+language: common-lisp
+sudo: required
+
+env:
+  matrix:
+    - LISP=sbcl
+    - LISP=ccl
+    - LISP=clisp
+    - LISP=abcl
+    - LISP=allegro
+
+install:
+  # Install cl-travis
+  - curl https://raw.githubusercontent.com/luismbo/cl-travis/master/install.sh | bash
+
+script:
+  - cl -l nibbles -l nibbles-tests
+       -e '(setf *debugger-hook*
+                 (lambda (&rest ignorable)
+                   (declare (ignore ignorable))
+                   (uiop:quit -1)))'
+       -e '(rt:do-tests)'

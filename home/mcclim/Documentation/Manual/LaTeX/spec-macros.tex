@@ -1,0 +1,172 @@
+% -*- Mode: LaTeX; Package: CLIM-USER -*-
+
+%%
+%%  MACROS for CLIM Specs
+%%
+
+\newskip  \normalparskip        
+\normalparskip = 0pc
+
+\def\removedepth{\ifdim \prevdepth>-1000pt \vskip -\prevdepth\fi}
+\def\Vskip #1!{\endgraf
+               \removedepth     
+               \ifdim \lastskip<#1 \ifdim \lastskip>0pc
+               \removelastskip\fi 
+               \vskip#1\fi}
+
+%%
+%% Basic macros
+%%
+
+\def\curly#1{$\{${\it #1\/}$\}$}
+\def\star#1{#1{\rm *}}
+\def\form{\curly{form}}
+\def\place{\curly{place}}
+\def\paren#1{\rm({\it #1\/})}
+\def\brac#1{\rm[{\it #1\/}]}
+\def\ttbrac#1{\tt[{\it #1\/}]}
+\def\plus#1{$\hbox{#1}^+$}
+\def\placeplus{ $\{${\it place}$\}^+$}
+\def\lparen{{\rm (}}
+\def\rparen{{\rm )}}
+
+\def\optional{{\tt\&optional\ }}
+\def\rest{{\tt\&rest\ }}
+\def\key{{\tt\&key\ }}
+\def\allow{{\tt\&allow-other-keys\ }}
+\def\body{{\tt\&body\ }}
+
+\def\arg#1{{\it #1}}
+
+%% When you supply a default value for optional or keyword arguments,
+%% use this idiom:  \key (filled \cl{t})
+%% \newcommand {\cl} [1] {{\tt #1}}
+
+%% This allows hyphenation of CL symbols at the hyphens that exist in
+%% the symbol name, but noplace else, e.g., \cl{standard\-region\-union}.
+%% The reason we don't use this is that the backslashes in the symbol
+%% names make Tags Search next to useless.
+%% \def\cl#1{{\def\-{\discretionary{-}{}{-}}\tt #1}}
+
+%% Spiffier version that hyphenates only at hyphens, but makes hyphens
+%% be active characters, so we don't break Tags Search.  Thanks to
+%% Stephen Gildea for providing this.
+{\catcode`\-=\active
+\gdef\cl{\bgroup
+  \catcode`\-=\active \def-{{\tt \char`\-}\penalty\exhyphenpenalty}%
+  \@cl}}
+\def\@cl#1{\texttt{#1}\egroup}
+
+%% Use \concept when you are introducing a term for the first time, and
+%% want it in the index.  Use \term after that.
+\newcommand {\concept} [1] {{\sl #1}\index{#1}}
+\newcommand {\term} [1] {{\sl #1}}
+
+%%
+%% Miscellaneous
+%%
+
+\long\def\comment #1 {}
+
+\long\def\keepout #1 {}
+
+\long\def\Issue #1 #2 {{\bf Major issue: } {\sl #2 ---~#1}}
+\long\def\issue #1 #2 {{\bf Minor issue: } {\sl #2 ---~#1}}
+
+%%
+%% Definition types
+%%
+
+\def\outdent#1{\noindent\hbox to 0pc{\hskip -1.5pc #1\hss}\ignorespaces}
+
+\newcommand {\Dodocf} [3] {\outdent{$\Rightarrow$}{\tt #1 {\it #2} \hfill\mbox{\brac{\it #3\/}}}
+                           \index{{\tt #1} #3}
+                           \Vskip\normalparskip!}
+\newcommand {\Dodocv} [2] {\outdent{$\Rightarrow$}{\tt #1 \hfill\mbox{\brac{\it #2\/}}}
+                           \index{{\tt #1} #2}
+                           \Vskip\normalparskip!}
+
+%% Use these when you want to leave some vertical whitespace afterwards
+\def\Defmacro #1 #2 {\Dodocf {#1} {#2} {Macro}}
+\def\Defun #1 #2 {\Dodocf {#1} {#2} {Function}}
+\def\Defgeneric #1 #2 {\Dodocf {#1} {#2} {Generic~Function}}
+\def\Defmethod #1 #2 {\Dodocf {#1} {#2} {Method}}
+\def\Defaftermethod #1 #2 {\Dodocf {#1} {#2} {:After~Method}}
+\def\Defaroundmethod #1 #2 {\Dodocf {#1} {#2} {:Around~Method}}
+\def\Defvar #1 {\Dodocv {#1} {Variable}}
+\def\Defconst #1 {\Dodocv {#1} {Constant}}
+\def\Defprotoclass #1 {\Dodocv {#1} {Protocol~Class}}
+\def\Defpredicate #1 #2 {\Dodocf {#1} {#2} {Protocol~Predicate}}
+\def\Defclass #1 {\Dodocv {#1} {Class}}
+\def\Definitarg #1 {\Dodocv {#1} {Initarg}}
+\def\Deftype #1 {\Dodocv {#1} {Type}}
+\def\Defoption #1 {\Dodocv {#1} {Option}}
+\def\Defptype #1 #2 {\Dodocf {#1} {#2} {Presentation~Type}}
+\def\DefptypeAbbrev #1 #2 {\Dodocf {#1} {#2} {Presentation~Type~Abbreviation}}
+\def\Defcondition #1 {\Dodocv {#1} {Condition}}
+\def\Deferror #1 {\Dodocv {#1} {Error Condition}}
+\def\Defrestart #1 {\Dodocv {#1} {Restart}}
+
+\newcommand {\dodocf} [3] {\outdent{$\Rightarrow$}{\tt #1 {\it #2} \hfill\mbox{\brac{\it #3\/}}} 
+                           \index{{\tt #1} #3}
+                           \linebreak}
+\newcommand {\dodocv} [2] {\outdent{$\Rightarrow$}{\tt #1 \hfill\mbox{\brac{\it #2\/}}}
+                           \index{{\tt #1} #2}
+                           \linebreak}
+
+%% Use these when you don't want to leave any vertical whitespace afterwards
+\def\defmacro #1 #2 {\dodocf {#1} {#2} {Macro}}
+\def\defun #1 #2 {\dodocf {#1} {#2} {Function}}
+\def\defgeneric #1 #2 {\dodocf {#1} {#2} {Generic~Function}}
+\def\defmethod #1 #2 {\dodocf {#1} {#2} {Method}}
+\def\defvar #1 {\dodocv {#1} {Variable}}
+\def\defconst #1 {\dodocv {#1} {Constant}}
+\def\defprotoclass #1 {\dodocv {#1} {Protocol~Class}}
+\def\defpredicate #1 #2 {\dodocf {#1} {#2} {Protocol~Predicate}}
+\def\defclass #1 {\dodocv {#1} {Class}}
+\def\definitarg #1 {\dodocv {#1} {Initarg}}
+\def\defoption #1 {\dodocv {#1} {Option}}
+
+\def\Defcommandtable #1 {\Dodocv {#1} {Command~Table}}
+\def\Defframe #1 {\Dodocv {#1} {Application~Frame}}
+
+\def\Defgadget #1 {\Dodocv {#1} {Abstract~Gadget}}
+\def\defgadget #1 {\dodocv {#1} {Abstract~Gadget}}
+
+\def\Defspane #1 {\Dodocv {#1} {Service~Pane}}
+\def\defspane #1 {\dodocv {#1} {Service~Pane}}
+\def\Deflpane #1 {\Dodocv {#1} {Layout~Pane}}
+\def\deflpane #1 {\dodocv {#1} {Layout~Pane}}
+
+\def\Callback #1 #2 {\Dodocf {#1} {#2} {Callback~Generic~Function}}
+\def\callback #1 #2 {\dodocf {#1} {#2} {Callback~Generic~Function}}
+
+%%
+%% Canned phrases.
+%%
+
+\def\IfYouWantClass #1 #2 #3 {If you want to create a new class that behaves
+like #1 #2, it should be a subclass of \cl{#3}.  All instantiable subclasses of
+\cl{#3} must obey the #2 protocol.\ }
+
+\def\AbstractClass{This class is an abstract class, intended only to be
+subclassed, not instantiated.\ }
+
+\def\Mutable{Members of this class are mutable.\ }
+
+\def\Immutable{Members of this class are immutable.\ }
+
+\def\UncapturedInputs{This function does not capture any of its mutable inputs.\ }
+
+\def\MayCaptureInputs{This function is permitted to capture its mutable inputs; the
+consequences of modifying those objects are unspecified.\ }
+
+\def\FreshOutputs{This function returns fresh objects that may be modified.\ } 
+
+\def\ReadOnly{This function returns objects that reveal CLIM's internal state;
+do not modify those objects.\ }
+
+\def\ReadWrite{This function returns objects that reveal CLIM's internal state;
+these objects may be modified.\ }
+
+\def\NotInRelease2{{\sl This is not fully supported in Release 2.\ }} 

@@ -1,0 +1,5 @@
+@anchor{Generic-Function drei-buffer:buffer}
+@deffn {Generic Function} {drei-buffer:buffer} mark
+@findex drei-buffer:buffer
+Return the buffer that the mark is positioned in.
+@end deffn

@@ -1,0 +1,10 @@
+@anchor{Generic-Function drei:undo-accumulate}
+@deffn {Generic Function} {drei:undo-accumulate} buffer
+@findex drei:undo-accumulate
+A list of the changes that have been made to
+@code{buffer} since the last time undo was added to the undo tree for
+the buffer. The list returned by this function is initially
+NIL (the empty list). The :before methods on
+@code{insert-buffer-object}, @code{insert-buffer-sequence}, and
+@code{delete-buffer-range} push undo records on to this list.
+@end deffn

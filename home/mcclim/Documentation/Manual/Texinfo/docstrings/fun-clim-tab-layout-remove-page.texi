@@ -1,0 +1,6 @@
+@anchor{Function clim-tab-layout:remove-page}
+@deffn {Function} {@symbol{remove-page,clim-tab-layout}} page
+Remove @code{page} from its tab layout.  This is a convenience wrapper around
+SHEET-DISOWN-CHILD, which can also be used directly to remove the page's
+pane with the same effect.
+@end deffn

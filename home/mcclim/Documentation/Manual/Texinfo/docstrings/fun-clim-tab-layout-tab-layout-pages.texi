@@ -1,0 +1,8 @@
+@anchor{Generic-Function clim-tab-layout:tab-layout-pages}
+@deffn {Generic Function} {@symbol{tab-layout-pages,clim-tab-layout}} tab-layout
+Return all TAB-PAGEs in this tab layout, in order
+from left to right.  Do not modify the resulting list destructively.
+Use the @code{setf} function of the same name to assign a new list of pages.
+The @code{setf} function will automatically add tabs for new page objects, remove
+old pages, and reorder the pages to conform to the new list.
+@end deffn

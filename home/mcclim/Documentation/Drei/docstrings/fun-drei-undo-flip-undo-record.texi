@@ -1,0 +1,11 @@
+@anchor{Generic-Function drei-undo:flip-undo-record}
+@deffn {Generic Function} {drei-undo:flip-undo-record} undo-record
+@findex drei-undo:flip-undo-record
+This function is called by the undo module whenever
+the current state is changed from its current value to that of the
+parent state (presumably as a result of a call to undo) or to that of
+one of its child states.
+
+Client code is required to supply methods for this function on
+client-specific subclasses of @code{undo-record}.
+@end deffn

@@ -1,0 +1,198 @@
+Robert Strandh's Generalized Hash Table Proposal
+
+
+Background 
+---------- 
+
+
+The standard specifies only four types of hash tables possible, 
+according to whether the equality function is eq, eql, equal or 
+equalp.  Many applications need to define their own key hashing 
+functions and key equality tests.  This often becomes an exercise 
+in transforming the desired key into something that is acceptable to 
+one of these equality function. 
+
+
+This proposal is for extending the concepts of hashing and equality so 
+that the user can define application-specific extensions. 
+
+
+Proposal 
+-------- 
+
+
+The idea is to introduce two new generic functions: 
+
+
+  hash object situation                             [generic function] 
+  eqv object1 object2 situation                     [generic function] 
+
+
+The crucial idea (perhaps not original) is the last argument, a 
+`key situation' which is an object that determines how objects are 
+compared or hashed.  Client code will typically write methods on these 
+functions. 
+
+
+The hash function must return a nonnegative fixnum[1]. 
+
+
+Client code must respect the following invariant: 
+
+
+  (eqv object1 object2 situation) 
+  implies 
+  (= (hash object1 situation) (hash object2 situation)) 
+
+
+There would be a number of predefined key situations, and methods to 
+compare objects in these situations.   
+
+
+For that, situations are organized into a hierarchy of CLOS classes. 
+
+
+  key-situation                                      [protocol class] 
+
+
+The base class for all key situations.   
+
+
+  builtin-key-situation                                       [class] 
+
+
+This class is a subclass of key-situation.  All predefined situations 
+are subclasses of builtin-key-situation. 
+
+
+Client code is not allowed to alter or override the predefined methods 
+for hash and eqv.  The reason is that an implementation should be able 
+to assume that it deals with the predefined methods and optimize 
+compiled code by inlining them. 
+
+
+  eq-key-situation                                            [class] 
+
+
+This class is a subclass of builtin-key-situation.  When eqv is called 
+with an instance of this class as its third argument, it behaves like 
+eq with respect to the first two arguments. 
+
+
+  +eq-key-situation+                                       [constant] 
+
+
+This constant contains an instance of the class eq-key-situation. 
+
+
+  eql-key-situation                                           [class] 
+
+
+This class is a subclass of builtin-key-situation.  When eqv is called 
+with an instance of this class as its third argument, it behaves like 
+eql with respect to the first two arguments. 
+
+
+  +eql-key-situation+                                      [constant] 
+
+
+This constant contains an instance of the class eql-key-situation. 
+
+
+  equal-key-situation                                         [class] 
+
+
+This class is a subclass of builtin-key-situation.  When eqv is called 
+with an instance of this class as its third argument, it behaves like 
+equal with respect to the first two arguments. 
+
+
+  +equal-key-situation+                                    [constant] 
+
+
+This constant contains an instance of the class equal-key-situation. 
+
+
+  equalp-key-situation                                        [class] 
+
+
+This class is a subclass of builtin-key-situation.  When eqv is called 
+with an instance of this class as its third argument, it behaves like 
+equalp with respect to the first two arguments. 
+
+
+  +equalp-key-situation+                                   [constant] 
+
+
+This constant contains an instance of the class equalp-key-situation. 
+
+
+  case-sensitive-key-situation                                [class] 
+
+
+This class is a subclass of builtin-key-situation.  It is defined only 
+when both object arguments are string designators.  When eqv is called 
+with an instance of this class, then it behaves like string=. 
+
+
+  +case-sensitive-key-situation+                           [constant] 
+
+
+This constant contains an instance of the class 
+case-sensitive-key-situation. 
+
+
+  case-insensitive-key-situation                              [class] 
+
+
+This class is a subclass of builtin-key-situation.  It is defined only 
+when both object arguments string designators.  When eqv is called 
+with an instance of this class, then it behaves like string-equal. 
+
+
+  +case-insensitive-key-situation+                         [constant] 
+
+
+This constant contains an instance of the class 
+case-insensitive-key-situation. 
+
+
+The proposal calls for a new type of hash table to be introduced: 
+
+
+  make-generalized-hash-table situation                    [function] 
+
+
+returns a hash table that will call the `hash' generic function to 
+hash the keys that are inserted in the table, and `eqv' to compare 
+them.  The situation that was passed to make-generalized-hash-table is 
+used as the last argument to these functions. 
+
+
+Two new functions are needed to access elements in the table, say: 
+
+
+  htref table key                                          [function] 
+  (setf htref) object table key                            [function] 
+
+
+Acknowledgments 
+--------------- 
+
+
+Thanks to Bruno Haible, Christophe Rhodes, Rudi Schlatte, and 
+Aleksandar Bakic for their invaluable comments about many aspects of 
+this proposal. 
+
+
+Notes 
+----- 
+
+
+[1] In most cases, the size of a fixnum is the size of a native 
+integer minus 2 or 3 bits, and a native integer is usually capable of 
+expressing the entire address space.  It is therefore unlikely that 
+we would need more different hash codes that the number of objects 
+that will fit in the address space of the machine.  And it is handy to 
+be able to assume that a nonnegative fixnum is returned for 
+performance reasons.

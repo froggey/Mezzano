@@ -1,0 +1,60 @@
+RELEASE NOTES FOR McCLIM 0.9.6, "St. George's Day":
+
+Compatibility
+=============
+
+This release was tested and found to work on the following
+implementations:
+
+ * SBCL
+ * CMUCL 19d
+ * Clozure CL 1.2 (RC 1)
+ * CLISP 2.41 (requires "Telent" CLX)
+ * Allegro Common Lisp 8.1 in ANSI Mode
+
+McCLIM currently does not support lisps with case-sensitive
+readers (Allegro CL "modern mode" and lower-case Scieneer CL).
+
+To run McCLIM on Mac OS X 10.5, it is currently necessary to pass
+an explicit DISPLAY argument to work around incompatibility between
+Leopard's X11 auto-start facility and CLX.
+
+
+Changes in mcclim-0.9.6 "St. George's Day" relative to 0.9.5:
+==============================================================
+
+From the NEWS file:
+* New extension: mcclim-truetype: provides a 100% lisp path for 
+  AA fonts with CLX using cl-vectors and zpb-ttf, as an alternative
+  to mcclim-freetype.
+* Improvement: Faster drawing and AA text rendering. AA text requires
+  a fix to the Xrender support of CLX, available in Christophe Rhodes's
+  current CLX distribution from darcs.
+* Improvement: Look up arbitrary truetype fonts by name via fontconfig.
+* Drei improvements
+** New redisplay engine that is faster and has more features.
+** Support for "views" concept.
+** Support for modes a la Emacs "mini-modes".
+** Improvement: Goal-columns for line movement.
+** Improvement: More Emacs-like expression movement for Lisp syntax.
+** Bug fix: Input prompting now works for directly recursive calls to
+   ACCEPT.
+* Specification compliance: READ-BITMAP-FILE and
+  MAKE-PATTERN-FROM-BITMAP-FILE from CLIM 2.2. Includes new example
+  program, IMAGE-VIEWER.
+* Specification compliance: The :inherit-menu keyword argument to
+  DEFINE-COMMAND-TABLE and MAKE-COMMAND-TABLE is now implemented with
+  CLIM 2.2 semantics. The :keystrokes value is not handled yet.
+* Specification compliance: :PRINTER functions for MENU-CHOOSE are
+  now called with the menu item, not the display object.
+* Bug fix: ESA's help commands are better at finding bindings and
+  describing them
+* Bug fix: Some missing methods and functions have been implemented
+  for the Null backend, allowing headless operation for many
+  applications.
+* Bug fix: correct computation of bounding rectangle after
+   clear-output-record and recompute-extent-for-new-child.
+* Bug fix: label panes no longer have a restrictive maximum width.
+* Bug fix: ellipses with a zero radius no longer cause errors.
+* Bug fix: bezier drawing in CLIM-FIG less likely to cause errors.
+* Bug fix: restored somewhat working undo in CLIM-FIG.

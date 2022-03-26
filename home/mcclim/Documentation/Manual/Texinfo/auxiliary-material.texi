@@ -1,0 +1,349 @@
+@node Auxiliary material
+@unnumbered Auxiliary material
+
+@menu
+* Glossary::
+* Development History::
+@end menu
+
+@node Glossary
+@section Glossary
+
+@glossentry{Active gadget}
+
+An active gadget is available for input. For most gadgets, this means
+processing events when active and ignoring events when not active.
+
+@glossentry{Armed gadget}
+
+The exact definition of arming and disarming varies between kinds of
+gadgets, but typically a gadget becomes armed when the pointer is moved
+into its region.
+
+@glossentry{Device transformation}
+
+TODO
+
+@glossentry{Direct mirror}
+
+A @glossref{mirror, Mirror} of a sheet which is not shared with any of the
+ancestors of the sheet.  All grafted @mcclim{} sheets have mirrors, but not
+all have direct mirrors.  A @mcclim{} sheet that does not have a direct
+mirror uses the direct mirror of its first ancestor having a direct
+mirror for graphics output.  Asking for the direct mirror of a sheet
+that does not have a direct mirror returns @t{nil}.
+
+Whether a @mcclim{} sheet has a direct mirror or not, is decided by the
+frame manager.  Some frame managers may only allow for the graft to be a
+mirrored sheet.  Even frame managers that @emph{allow} hierarchical
+mirrors may decide not to allocate a direct mirror for a particular
+sheet.  Although sheets with a direct mirror must be instances of the
+class @class{mirrored-sheet-mixin}, whether a @mcclim{} sheet has a
+direct mirror or not is not determined statically by the class of a
+sheet, but dynamically by the frame manager.
+
+@glossentry{Medium}
+
+An object that contains the state information required for producing
+output on a particular sheet.
+
+@glossentry{Medium transformation}
+
+A transformation that converts the coordinates presented to the drawing
+functions to the medium's coordinate system.  The identity
+transformation by default.
+
+@glossentry{Mirror}
+
+A device window such as an X11 window that parallels a @gloss{sheet} in
+the @clim{} @gloss{sheet hierarchy}.  A @gloss{sheet} having such a
+@emph{direct} mirror is called a @glossref{mirrored sheet,Mirrored
+sheet}.  When @gloss{drawing functions} are called on a
+@gloss{mirrored sheet}, they are forwarded to the host windowing system
+as drawing commands on the @gloss{mirror}.
+
+@clim{} @gloss{sheet}s that are not mirrored must be @gloss{descendents}
+(direct or indirect) of a @glossref{mirrored sheet,Mirrored sheet}, which
+will then be the @gloss{sheet} that receives the drawing commands.
+
+@glossentry{Mirrored sheet}
+
+A @gloss{sheet} in the @clim{} @gloss{sheet hiearchy} that has a direct
+parallel (called the @glossref{direct mirror,Direct mirror}) in the host
+windowing system.  A mirrored sheet is always an instance of the class
+@class{mirrored-sheet-mixin}, but instances of that class are not
+necessarily mirrored sheets.  The sheet is called a mirrored sheet only
+if it currently has a direct mirror.  There may be several reasons for
+an instance of that class not to currently have a direct mirror.  One is
+that the sheet is not @gloss{grafted}.  Only grafted sheets can have
+mirrors.  Another one is that the @gloss{frame manager} responsible for
+the look and feel of the sheet hierarchy may decide that it is
+inappropriate for the sheet to have a direct mirror, for instance if the
+underlying windowing system does not allow nested windows inside an
+application, or that it would simply be a better use of resources not to
+create a direct mirror for the sheet.  An example of the last example
+would be a stream pane inside a the @gloss{viewport} of a
+@gloss{scroller pane}.  The graphics objects (usually text) that appear
+in a stream pane can have very large coordinate values, simply because
+there are many lines of text.  Should the stream pane be mirrored, the
+coordinate values used on the mirror may easily go beyond what the
+underlying windowing system accepts.  X11, for instance, can not handle
+coordinates greater than 64k (16 bit unsigned integer).  By not having a
+direct mirror for the stream pane, the coordinates will be translated to
+those of the (not necessarily direct) mirror of the @gloss{viewport}
+before being submitted to the windowing system, which gives more
+reasonable coordinate values.
+
+It is important to realize the implications of this terminology.  A
+mirrored sheet is therefore not a sheet that has a mirror.  All grafted
+sheets have mirrors.  For the sheet to be a mirrored sheet it has to
+have a @emph{direct} mirror.  Also, a call to @genfun{sheet-mirror}
+returns a mirror for all grafted sheets, whether the sheet is a mirrored
+sheet or not.  A call to @genfun{sheet-direct-mirror}, on the other
+hand, returns @t{nil} if the sheet is not a mirrored sheet.
+
+@glossentry{Mirror transformation}
+
+The transformation that transforms coordinates in the coordinate system
+of a mirror (i.e. the native coordinates of the mirror) to native
+coordinates of its parent in the underlying windowing system.  On most
+systems, including X, this transformation will be a simple translation.
+
+@glossentry{Native coordinates}
+
+Each mirror has a coordinate system called the native coordinate system.
+Usually, the native coordinate system of a mirror has its origin in the
+upper-left corner of the mirror, the x-axis grows to the right and the
+y-axis downwards.  The unit is usually pixels, but the frame manager can
+impose a native coordinate system with other units, such as millimeters.
+
+The native coordinate system of a sheet is the native coordinate system
+of its mirror (direct or not).  Thus, a sheet without a direct mirror
+has the same native coordinate system as its parent.  To obtain native
+coordinates of the parent of a mirror, use the @glossref{mirror
+transformation,Mirror transformation}.
+
+@glossentry{Native region}
+
+The native region of a sheet is the intersection of its region and the
+sheet region of all of its parents, expressed in the @glossref{native
+coordinates,Native coordinates} of the sheet.
+
+@glossentry{Native transformation}
+
+TODO
+
+@glossentry{Potentially visible area}
+
+A bounded area of an otherwise infinte drawing plane that is visible
+unless it is covered by other @glossref{visible areas,Visible area}.
+
+@glossentry{Sheet coordinates}
+
+The coordinate system of coordinates obtained by application of the
+@glossref{user transformation,User transformation}.
+
+@glossentry{Sheet region}
+
+The @gloss{region} of a sheet determines the visible part of the drawing
+plane.  The dimensions of the sheet region are given in @glossref{sheet
+coordinates,Sheet coordinates}.  The location of the visible part of a
+sheet within its @gloss{parent sheet} is determined by a combination of
+the @glossref{sheet transformation,Sheet transformation} and the position
+of the sheet region.
+
+For instance, assuming that the sheet region is a rectangle with its
+upper-left corner at @math{(2, 1)} and that the sheet transformation is
+a simple translation @math{(3, 2)}.  Then the origin of the
+@glossref{sheet coordinate system,Sheet coordinates} is at the point
+@math{(3, 2)} within the @gloss{sheet coordinate system} of its
+@gloss{parent sheet}.  The origin of its coordinate system is not
+visible, however, because the visible region has its upper-left corner
+at @math{(2, 1)} in the @gloss{sheet coordinate system}.  Thus, the
+visible part will be a rectangle whose upper-left corner is at @math{(5,
+3)} in the @gloss{sheet coordinate system} of the @gloss{parent sheet}.
+
+Panes and gadgets alter the region and @gloss{sheet transformation} of
+the underlying sheets (panes and gadgets are special kinds of sheets) to
+obtain effects such as scrolling, zooming, coordinate system
+transformations, etc.
+
+@glossentry{Sheet transformation}
+
+The transformation used to transform @glossref{sheet coordinates,Sheet
+coordinates} of a sheet to @gloss{sheet coordinates} of its
+@gloss{parent sheet}.  The sheet transformation determines the position,
+shape, etc. of a sheet within the coordinate system of its parent.
+
+Panes and gadgets alter the transformation and @glossref{sheet
+region,Sheet region} of the underlying sheets (panes and gadgets are
+special kinds of sheets) to obtain effects such as scrolling, zooming,
+coordinate system transformations, etc.
+
+@glossentry{Clipping region}
+
+TODO
+
+@glossentry{User clipping region}
+
+A @glossref{clipping region,Clipping region} used to limit the effect of
+@gloss{drawing functions}.  The user @gloss{clipping region} is stored
+in the @glossref{medium,Medium}.  It can be altered either by updating the
+@gloss{medium}, or by passing a value for the @code{:clipping-region}
+@gloss{drawing option} to a @gloss{drawing function}.
+
+@glossentry{User coordinates}
+
+The coordinate system of coordinates passed to the @gloss{drawing
+functions}.
+
+@glossentry{User transformation}
+
+A transformation used to transform @glossref{user coordinates,User
+coordinates} into @glossref{sheet coordinates,Sheet coordinates}.  The
+user transformation is stored in the @glossref{medium,Medium}.  It can be
+altered either by updating the @gloss{medium}, or by passing a value for
+the :transformation @gloss{drawing option} to a @gloss{drawing
+function}.
+
+@glossentry{Visible area}
+
+TODO
+
+@node Development History
+@section Development History
+
+Mike McDonald started developing @mcclim{} in 1998.  His initial objective
+was to be able to run the famous ``address book'' demo, and to
+distribute the first version when this demo ran.  With this in mind, he
+worked ``horizontally'', i.e., writing enough of the code for many of
+the chapters of the specification to be able to run the address book
+example.  In particular, Mike wrote the code for chapters 15 (Extended
+Stream Output), 16 (Output Recording), and 28 (Application Frames), as
+well as the code for interactor panes.  At the end of 1999, Mike got too
+busy with other projects, and nothing really moved.
+
+Also in 1998, Gilbert Baumann started working ``vertically'', writing a
+mostly-complete implementation of the chapters 3 (Regions) and 5 (Affine
+Transformations).  At the end of 1999, he realized that he was not going
+to be able to finish the project by himself.  He therefore posted his
+code to the free-@clim{} mailing list.  Gilbert's code was distributed
+according to the GNU Lesser General Public License (LGPL).
+
+Robert Strandh picked up the project in 2000, starting from Gilbert's
+code and writing large parts of chapters 7 (Properties of Sheets) and 8
+(Sheet Protocols) as well as parts of chapters 9 (Ports, Grafts, and
+Mirrored Sheets), 10 (Drawing Options), 11 (Text Styles), 12 (Graphics),
+and 13 (Drawing in Color).
+
+In early 2000, Robert got in touch with Mike and eventually convinced
+him to distribute his code, also according to the LGPL.  This was a
+major turning point for the project, as the code base was now
+sufficiently large that a number of small demos were actually running.
+Robert then spent a few months merging his code into that produced by
+Mike.
+
+Arthur Lemmens wrote the initial version of the code for the gadgets in
+June of 2000.
+
+Bordeaux students Iban Hatchondo and Julien Boninfante were hired by
+Robert for a 3-month summer project during the summer of 2000.  Their
+objective was to get most of the pane protocols written (in particular
+space composition and space allocation) as well as some of the gadgets
+not already written by Arthur, in particular push buttons.  The
+calculator demo was written to show the capabilities of their code.
+
+In July of 2000, Robert invited Gilbert to the LSM-2000 meeting in
+Bordeaux (libre software meeting).  This meeting is a gathering of
+developers of free software with the purpose of discussing strategy,
+planning future projects, starting new ones, and working on existing
+ones.  The main result of this meeting was that Gilbert managed to merge
+his code for regions and transformations into the main code base written
+by Mike, Robert, Iban, and Julien.  This was also a major step towards a
+final system.  We now had one common code base, with a near-complete
+implementation of regions, transformations, sheet protocols, ports,
+grafts, graphics, mediums, panes, and gadgets.
+
+Meanwhile, Mike was again able to work on the project, and during 2000
+added much of the missing code for handling text interaction and
+scrolling.  In particular, output recording could now be used to
+redisplay the contents of an interactor pane.  Mike and Robert also
+worked together to make sure the manipulation of sheet transformations
+and sheet regions as part of scrolling and space-allocation respected
+the specification.
+
+Robert had initially planned for Iban and Julien to work on @mcclim{}
+for their fifth-year student project starting late 2000 and continuing
+until end of march 2001.  For reasons beyond his control, however, he
+was forced to suggest a different project.  Thus, Iban and Julien,
+together with two other students, were assigned to work on Gsharp, an
+interactive score editor.  Gsharp was the original reason for Robert to
+start working on @clim{} as he needed a toolkit for writing a graphical
+user interface for Ghsarp.  The lack of a freely-available version of a
+widely-accepted toolkit such as @clim{} made him decide to give it a
+shot.  Robert's idea was to define the student project so that a maximum
+of code could be written as part of @mcclim{}.  The result was a
+complete rewrite of the space-allocation and space-composition
+protocols, and many minor code snippets.
+
+As part of the Gsharp project, Robert wrote the code for menu bars and
+for a large part of chapter 27 (Command Processing).
+
+Julien was hired for six months (April to September of 2001) by Robert
+to make major progress on @mcclim{}.  Julien's first task was to create a
+large demo that showed many of the existing features of @mcclim{} (a
+``killer app'').  It was decided to use Gsharp since Julien was already
+familiar with the application and since it was a sufficiently
+complicated application that most of the features would be tested.  An
+additional advantage of a large application was to serve as a ``smoke
+test'' to run whenever substantial modifications to the code base had
+been made.  As part of the Gsharp project, Julien first worked on adding
+the possibility of using images as button labels.
+
+Early 2001, Robert had already written the beginning of a library for
+manipulating 2-dimensional images as part of @mcclim{}.  A group of four
+fourth-year students (Gregory Bossard, Michel Cabot, Cyrille Dindart,
+Lionel Verg@'e) at the university of Bordeaux was assigned the task of
+writing efficient code for displaying such images subject to arbitrary
+affine transformations.  This code would be the base for drawing all
+kinds of images such as icons and button labels, but also for an
+application for manipulating document images.  The project lasted from
+January to May of 2001.
+
+Another group of four fourth-year students (Lo@"ic Lacomme, Nicolas Louis,
+Arnaud Rouanet, Lionel Salabartan) at the university of Bordeaux was
+assigned the task of writing a file-selector gadget presented as a tree
+of directories and files, and with the ability to open and close
+directories, to select files, etc.  The project lasted from January to
+May of 2001.
+
+One student in particular, Arnaud Rouanet started becoming interested in
+the rest of @clim{} as well.  During early 2001, he fixed several bugs and
+also added new code, in particular in the code for regions, graphics,
+and clx-mediums.
+
+Arnaud and Lionel were hired by Robert for the summer of 2001 to work on
+several things.  In particular, they worked on getting output recording
+to work and wrote @clim{}-fig, a demo that shows how output recording is
+used.  They also worked on various sheet protocols, and wrote the first
+version of the PostScript backend.
+
+Alexey Dejneka joined the project in the summer of 2001. He wrote the
+code for table formatting, bordered output and continued to develop the
+PostScript output facility.
+
+In the fall of 2001 Tim Moore became interested in the presentation type
+system.  He implemented presentation type definition and presentation
+method dispatch.  Wanting to see that work do something useful, he went
+on to implement present and accept methods, extended input streams,
+encapsulating streams, and the beginnings of input editing streams.  In
+the spring of 2002 he wrote the core of Goatee, an Emacs-like editor.
+This is used to implement @clim{} input editing.
+
+Brian Spilsbury became involved towards the beginning of 2001.  His
+motivation for getting involved was in order to have
+internationalization support.  He quickly realized that the first step
+was to make SBCL and CMUCL support Unicode.  He therefore worked to make
+that happen.  So far (summer 2001) he has contributed a number of
+cosmetic fixes to @mcclim{} and also worked on a GTK-like gadget set.  He
+finally started work to get the OpenGL backend operational.

@@ -1,0 +1,1068 @@
+% -*- Mode: LaTeX; Package: CLIM-USER -*-
+\chapter {Gadgets}
+\label {gadgets}
+
+\section {Overview of Gadgets}
+
+\concept{Gadgets} are panes that implement such common toolkit components as
+push buttons or scroll bars.  Each gadget class has a set of associated generic
+functions that serve the same role that callbacks serve in traditional toolkits.
+For example, a push button has an ``activate'' callback function that is invoked
+when its button is ``pressed''; a scroll bar has a ``value changed'' callback
+that is invoked after its indicator has been moved.
+
+The gadget definitions specified by CLIM are abstract, in that the gadget
+definition does not specify the exact user interface of the gadget, but only
+specifies the semantics that the gadget should provide.  For instance, it is not
+defined whether the user clicks on a push button with the mouse or moves the
+mouse over the button and then presses some key on the keyboard to invoke the
+``activate'' callback.  Each toolkit implementations will specify the ``look and
+feel'' of their gadgets.  Typically, the look and feel will be derived directly
+from the underlying toolkit.
+
+Each of CLIM's abstract gadgets has at least one standard implementation that is
+written using the facilities provided solely by CLIM itself.  The gadgets'
+appearances are achieved via calls to the CLIM graphics functions, and their
+interactive behavior is defined in terms of the CLIM input event processing
+mechanism.  Since these gadget implementations are written entirely in terms of
+CLIM, they are portable across all supported CLIM host window systems.
+Furthermore, since the specific look and feel of each such gadget is ``fixed''
+in CLIM Lisp code, the gadget implementation will look and behave the same in
+all environments.
+
+
+\section {Abstract Gadgets}
+
+The push button and slider gadgets alluded to above are \concept{abstract
+gadgets}.  The callback interface to all of the various implementations of the
+gadget is defined by the abstract class.  In the \cl{:panes} clause of
+\cl{define-application-frame}, the abbreviation for a gadget is the name of the
+abstract gadget class.
+
+At pane creation time (that is, \cl{make-pane}), the frame manager resolves the
+abstract class into a specific implementation class; the implementation classes
+specify the detailed look and feel of the gadget.  Each frame manager will keep
+a mapping from abstract gadgets to an implementation class; if the frame manager
+does not implement its own gadget for the abstract gadget classes in the
+following sections, it should use the portable class provided by CLIM.  Since
+every implementation of an abstract gadget class is a subclass of the abstract
+class, they all share the same programmer interface.
+
+
+\subsection {Using Gadgets}
+
+Every gadget has a \concept{client} that is specified when the gadget is
+created.  The client is notified via the callback mechanism when any important
+user interaction takes place.   Typically, a gadget's client will be an
+application frame or a composite pane.  Each callback generic function is
+invoked on the gadget, its client, the gadget id (described below), and other
+arguments that vary depending on the callback.
+
+For example, the argument list for \cl{activate-callback} looks like
+\arg{(gadget client gadget-id)}.  Assuming the programmer has defined an
+application frame called \cl{button-test} that has a CLIM stream pane in the
+slot \cl{output-pane}, he could write the following method:
+
+\begin{verbatim}
+(defmethod activate-callback
+           ((button push-button) (client button-test) gadget-id) 
+  (with-slots (output-pane) client
+    (format output-pane "The button ~S was pressed, client ~S, id ~S."
+       button client gadget-id)))
+\end{verbatim}
+
+One problem with this example is that it differentiates on the class of the
+gadget, not on the particular gadget instance.  That is, the same method will
+run for every push button that has the \cl{button-test} frame as its client.
+
+One way to distinguish between the various gadgets is via the \concept{gadget
+id}, which is also specified when the gadget is created.  The value of the
+gadget id is passed as the third argument to each callback generic function.  In
+this case, if we have two buttons, we might install \cl{start} and \cl{stop} as
+the respective gadget ids and then use \cl{eql} specializers on the gadget ids.
+We could then refine the above as:
+
+\begin{verbatim}
+(defmethod activate-callback
+           ((button push-button) (client button-test) (gadget-id (eql 'start)))
+  (start-test client))
+
+(defmethod activate-callback
+           ((button push-button) (client button-test) (gadget-id (eql 'stop)))
+  (stop-test client))
+
+;; Create the start and stop push buttons
+(make-pane 'push-button
+  :label "Start"
+  :client frame :id 'start)
+(make-pane 'push-button
+  :label "Stop"
+  :client frame :id 'stop)
+\end{verbatim}
+
+Another way to distinguish between gadgets is to explicitly specify what
+function should be called when the callback is invoked.  This is specified when
+the gadget is created by supplying an appropriate initarg.  The above example
+could then be written as follows:
+
+\begin{verbatim}
+;; No callback methods needed, just create the push buttons
+(make-pane 'push-button
+  :label "Start"
+  :client frame :id 'start
+  :activate-callback
+    #'(lambda (gadget)
+        (start-test (gadget-client gadget))))
+(make-pane 'push-button
+  :label "Stop"
+  :client frame :id 'stop
+  :activate-callback
+    #'(lambda (gadget)
+        (stop-test (gadget-client gadget))))
+\end{verbatim}
+
+
+\subsection {Implementing Gadgets}
+
+The following shows how a push button gadget might be implemented.
+
+\begin{verbatim}
+;; Here is a concrete implementation of a CLIM PUSH-BUTTON.
+;; The "null" frame manager create a pane of type PUSH-BUTTON-PANE when
+;; asked to create a PUSH-BUTTON.
+(defclass push-button-pane
+          (push-button
+           leaf-pane
+           space-requirement-mixin)
+    ((show-as-default :initarg :show-as-default
+                      :accessor push-button-show-as-default)
+     (armed :initform nil)))
+
+;; General highlight-by-inverting method.
+(defmethod highlight-button ((pane push-button-pane) medium)
+  (with-bounding-rectangle* (left top right bottom) (sheet-region pane)
+    (draw-rectangle* medium left top right bottom
+                     :ink +flipping-ink+ :filled t)
+    (medium-force-output medium)))
+
+;; Compute the amount of space required by a PUSH-BUTTON-PANE.
+(defmethod compose-space ((pane push-button-pane) &key width height)
+  (let ((x-margin 4)
+        (y-margin 2))
+  (multiple-value-bind (width height)
+      (compute-gadget-label-size pane)
+    (make-space-requirement :width  (+ width  (* x-margin 2))
+                            :height (+ height (* y-margin 2))))
+
+;; This gets invoked to draw the push button.
+(defmethod handle-repaint ((pane push-button-pane) region)
+  (declare (ignore region))
+  (with-sheet-medium (medium pane)
+    (let ((text (gadget-label pane))
+          (text-style (slot-value pane 'text-style))
+          (armed (slot-value pane 'armed))
+          (region (sheet-region pane)))
+      (multiple-value-call #'draw-rectangle*
+        medium (bounding-rectangle* (sheet-region pane))
+        :filled nil)
+      (draw-text medium text (bounding-rectangle-center region)
+                 :text-style text-style
+                 :align-x ':center :align-y ':center)
+      (when (eql armed ':button-press)
+        (highlight-button pane medium)))))
+
+(defmethod handle-event :around ((pane push-button-pane) (event pointer-event))
+  (when (gadget-active-p pane)
+    (call-next-method)))
+
+;; When we enter the push button's region, arm it.  If there is a pointer
+;; button down, make the button active as well.
+(defmethod handle-event ((pane push-button-pane) (event pointer-enter-event))
+  (with-slots (armed) pane
+    (unless armed
+      (cond ((let ((pointer (pointer-event-pointer event)))
+               (and (pointer-button-state pointer)
+                    (not (zerop (pointer-button-state pointer)))))
+             (setf armed :active)
+             (with-sheet-medium (medium pane)
+               (highlight-button pane medium)))
+            (t (setf armed t)))
+      (armed-callback pane (gadget-client pane) (gadget-id pane)))))
+
+;; When we leave the push button's region, disarm it.
+(defmethod handle-event ((pane push-button-pane) (event pointer-exit-event))
+  (with-slots (armed) pane
+    (when armed
+      (when (prog1 (eq armed :active) (setf armed nil))
+        (with-sheet-medium (medium pane)
+          (highlight-button pane medium)))
+      (disarmed-callback pane (gadget-client pane) (gadget-id pane)))))
+
+;; When the user presses a pointer button, ensure that the button
+;; is armed, and highlight it. 
+(defmethod handle-event ((pane push-button-pane) (event pointer-button-press-event))
+  (with-slots (armed) pane
+    (when armed
+      (setf armed :active)
+      (with-sheet-medium (medium pane)
+        (highlight-button pane medium)))))
+
+;; When the user releases the button and the button is still armed,
+;; call the activate callback.
+(defmethod handle-event ((pane push-button-pane) (event pointer-button-release-event))
+  (with-slots (armed) pane
+    (when (eq armed :active)
+      (setf armed t)
+      (with-sheet-medium (medium pane)
+        (highlight-button pane medium))
+      (activate-callback pane (gadget-client pane) (gadget-id pane)))))
+\end{verbatim}
+
+
+\section {Basic Gadget Classes}
+
+The following are the basic gadget classes upon which all gadgets are built.
+
+\Defprotoclass {gadget}
+
+The protocol class that corresponds to a gadget, a subclass of \cl{pane}.
+\IfYouWantClass {a} {gadget} {gadget}
+
+All of the subclasses of \cl{gadget} are mutable.
+
+\Defpredicate {gadgetp} {object}
+
+Returns \term{true} if \arg{object} is a \term{gadget}, otherwise returns
+\term{false}.
+
+\Defclass {basic-gadget}
+
+The basic class on which all CLIM gadgets are built, a subclass of \cl{gadget}.
+\AbstractClass
+
+\definitarg {:id}
+\definitarg {:client}
+\definitarg {:armed-callback}
+\Definitarg {:disarmed-callback}
+
+All subclasses of \cl{gadget} must handle these four initargs, which are used to
+specify, respectively, the gadget id, client, armed callback, and disarmed
+callback of the gadget.
+
+\defgeneric {gadget-id} {gadget}
+\Defgeneric {(setf gadget-id)} {id gadget}
+
+Returns (or sets) the gadget id of the gadget \arg{gadget}.  The id is typically
+a simple Lisp object that uniquely identifies the gadgets.
+
+\defgeneric {gadget-client} {gadget}
+\Defgeneric {(setf gadget-client)} {client gadget}
+
+Returns the client of the gadget \arg{gadget}.  The client is often an
+application frame, but it could be another gadget (for example, in the case of a
+push button that is contained in a radio box, the client of the button could be
+the radio box).
+
+\defgeneric {gadget-armed-callback} {gadget}
+\Defgeneric {gadget-disarmed-callback} {gadget}
+
+Returns the functions that will be called when the armed or disarmed callback,
+respectively, are invoked.  These functions will be invoked with a single
+argument, the gadget.
+
+When these functions return \cl{nil}, that indicates that there is no armed (or
+disarmed) callback for the gadget.
+
+\callback {armed-callback} {gadget client gadget-id}
+\Callback {disarmed-callback} {gadget client gadget-id}
+
+These callbacks are invoked when the gadget \arg{gadget} is, respectively, armed
+or disarmed.
+
+The exact definition of arming and disarming varies from gadget to gadget, but
+typically a gadget becomes armed when the pointer is moved into its region, and
+disarmed when the pointer moves out of its region.  A gadget will not call the
+activate or value-changed callback unless it is armed.
+
+The default methods (on \cl{basic-gadget}) call the function stored in
+\cl{gadget-armed-callback} or \cl{gadget-disarmed-callback} with one argument,
+the gadget.
+
+\Defgeneric {activate-gadget} {gadget}
+
+Causes the host gadget to become active, that is, available for input.
+
+\Defgeneric {deactivate-gadget} {gadget}
+
+Causes the host gadget to become inactive, that is, unavailable for input.  In
+some environments this may cause the gadget to become grayed over; in others, no
+visual effect may be detected.
+
+\Defgeneric {gadget-active-p} {gadget}
+
+Returns \cl{t} if the gadget \arg{gadget} is active (that is, has been activated
+with \cl{activate-gadget}), otherwise returns \cl{nil}.
+
+\Defgeneric {note-gadget-activated} {client gadget}
+
+This function is invoked after a gadget is made active.  It is intended to allow
+the client of the gadget to notice when the gadget has been activated.
+
+\Defgeneric {note-gadget-deactivated} {client gadget}
+
+This function is invoked after a gadget is made inactive.  It is intended to
+allow the client of the gadget to notice when the gadget has been activated.
+For instance, when the client is an application frame, the frame may invoke the
+frame manager to ``gray out'' deactivated gadgets.
+
+
+\Defclass {value-gadget}
+
+The class used by gadgets that have a value; a subclass of \cl{basic-gadget}.
+\AbstractClass
+
+\definitarg {:value}
+\Definitarg {:value-changed-callback}
+
+All subclasses of \cl{value-gadget} must handle these two initargs, which are
+used to specify, respectively, the initial value and the value changed callback
+of the gadget.
+
+\Defgeneric {gadget-value} {value-gadget}
+
+Returns the value of the gadget \arg{value-gadget}.  The interpretation of the
+value varies from gadget to gadget.  For example, a scroll bar's value might be
+a number between 0 and 1, while a toggle button's value is either \cl{t} or
+\cl{nil}.  (The documentation of each individual gadget below specifies how to
+interpret the value.)
+
+\Defgeneric {(setf gadget-value)} {value value-gadget \key invoke-callback}
+
+Sets the gadget's value to the specified value.
+
+If \arg{invoke-callback} is \term{true}, the value changed callback for the
+gadget is invoked.  The default is \term{false}.  The syntax for using
+\cl{(setf~gadget-value)} in conjunction with \arg{invoke-callback} is:
+
+\begin{verbatim}
+(setf (gadget-value gadget :invoke-callback t) new-value)
+\end{verbatim}
+
+\Defgeneric {gadget-value-changed-callback} {value-gadget}
+
+Returns the function that will be called when the value changed callback is
+invoked.  This function will be invoked with a two arguments, the gadget and
+the new value.
+
+When this function returns \cl{nil}, that indicates that there is no value
+changed callback for the gadget.
+
+\Callback {value-changed-callback} {value-gadget client gadget-id value}
+
+This callback is invoked when the value of a gadget is changed, either by the
+user or programmatically.
+
+The default method (on \cl{value-gadget}) calls the function stored in
+\cl{gadget-value-changed-callback} with two arguments, the gadget and the new
+value.
+
+CLIM implementations must implement or inherit a method for
+\cl{value-changed-callback} for every gadget that is a subclass of
+\cl{value-gadget}.
+
+
+\Defclass {action-gadget}
+
+The class used by gadgets that perform some kind of action, such as a push
+button; a subclass of \cl{basic-gadget}.
+\AbstractClass
+
+\Definitarg {:activate-callback}
+
+All subclasses of \cl{action-gadget} must handle this initarg, which is used to
+specify the activate callback of the gadget.
+
+\Defgeneric {gadget-activate-callback} {action-gadget}
+
+Returns the function that will be called when the gadget is activated.  This
+function will be invoked with one argument, the gadget.
+
+When this function returns \cl{nil}, that indicates that there is no value
+activate callback for the gadget.
+
+\Callback {activate-callback} {action-gadget client gadget-id}
+
+This callback is invoked when the gadget is activated.
+
+The default method (on \cl{action-gadget}) calls the function stored in
+\cl{gadget-activate-callback} with one argument, the gadget.
+
+CLIM implementations must implement or inherit a method for
+\cl{activate-callback} for every gadget that is a subclass of
+\cl{action-gadget}.
+
+
+\Defclass {oriented-gadget-mixin}
+
+The class that is mixed in to a gadget that has an orientation associated with
+it, for example, a slider.  This class is not intended to be instantiated.
+
+\Definitarg {:orientation}
+
+All subclasses of \cl{oriented-gadget-mixin} must handle this initarg,
+which is used to specify the orientation of the gadget.
+
+\Defgeneric {gadget-orientation} {oriented-gadget}
+
+Returns the orientation of the gadget \arg{oriented-gadget}.  Typically, this
+will be a keyword such as \cl{:horizontal} or \cl{:vertical}.
+
+
+\Defclass {labelled-gadget-mixin}
+
+The class that is mixed in to a gadget that has a label, for example, a push
+button.  This class is not intended to be instantiated.
+
+\definitarg {:label}
+\definitarg {:align-x}
+\Definitarg {:align-y}
+
+All subclasses of \cl{labelled-gadget-mixin} must handle these initargs, which
+are used to specify the label, and its $x$ and $y$ alignment.  Labelled gadgets
+will also have a text style for the label, but this is managed by the usual text
+style mechanism for panes.
+
+\defgeneric {gadget-label} {labelled-gadget}
+\Defgeneric {(setf gadget-label)} {label labelled-gadget}
+
+Returns (or sets) the label of the gadget \arg{labelled-gadget}.  The label must
+be a string.  Changing the label of a gadget may result in invoking the layout
+protocol on the gadget and its ancestor sheets.
+
+\defgeneric {gadget-label-align-x} {labelled-gadget}
+\defgeneric {(setf gadget-label-align-x)} {alignment labelled-gadget}
+\defgeneric {gadget-label-align-y} {labelled-gadget}
+\Defgeneric {(setf gadget-label-align-y)} {alignment labelled-gadget}
+
+Returns (or sets) the alignment of the label of the gadget
+\arg{labelled-gadget}.  Changing the alignment a gadget may result in invoking
+the layout protocol on the gadget and its ancestor sheets.
+
+
+\Defclass {range-gadget-mixin}
+
+The class that is mixed in to a gadget that has a range, for example, a slider.
+This class is not intended to be instantiated.
+
+\definitarg {:min-value}
+\Definitarg {:max-value}
+
+All subclasses of \cl{range-gadget-mixin} must handle these two initargs, which
+are used to specify the minimum and maximum value of the gadget.
+
+\defgeneric {gadget-min-value} {range-gadget}
+\Defgeneric {(setf gadget-min-value)} {min-value range-gadget}
+
+Returns (or sets) the minimum value of the gadget \arg{range-gadget}.  It will be a real
+number.
+
+\defgeneric {gadget-max-value} {range-gadget}
+\Defgeneric {(setf gadget-max-value)} {max-value range-gadget}
+
+Returns (or sets) the maximum value of the gadget \arg{range-gadget}.  It will
+be a real number.
+
+\Defgeneric {gadget-range} {range-gadget}
+
+Returns the range of \arg{range-gadget}, that is, the difference of the maximum value
+and the minimum value.
+
+\Defgeneric {gadget-range*} {range-gadget}
+
+Returns the minimum and maximum values of \arg{range-gadget} as two values.
+
+
+\section {Abstract Gadget Classes}
+
+CLIM supplies a set of abstract gadgets that have been designed to be compatible
+with with a variety of user interface toolkits, including Xt widget-based
+toolkits (such as Motif), OpenLook, and MacApp and MicroSoft Windows.
+
+CLIM's ``concrete'' gadget classes will all be subclasses of these abstract
+gadget classes.  Each concrete gadget maps to an implementation-specific object
+that is managed by the underlying toolkit.  For example, while a CLIM program
+manipulates an object of class \cl{scroll-bar}, the underlying
+implementation-specific object might be an Xt widget of type
+\cl{Xm\_Scroll\_Bar}.  As events are processed on the underlying object the
+corresponding generic operations are applied to the Lisp gadget.
+
+\issue {ILA} {Do we want to define something like \cl{gadget-handle} that is a
+documented way to get ahold of the underlying toolkit object?}
+
+Note that not all operations will necessarily be generated by particular toolkit
+implementations.  For example, a user interface toolkit that is designed for a
+3-button mouse may generate significantly more gadget events than one designed
+for a 1-button mouse.
+
+%% Use \tt instead of \cl, such the hairy \cl macro will blow chow
+\def\Gadget #1 {\subsection {The {\tt #1} Gadget}}
+
+
+\Gadget {push-button}
+
+The \cl{push-button} gadget provides press-to-activate switch behavior.
+
+\cl{arm-callback} will be invoked when the push button becomes armed (such as
+when the pointer moves into it, or a pointer button is pressed over it).  When
+the button is actually activated (by releasing the pointer button over it),
+\cl{activate-callback} will be invoked.  Finally, \cl{disarm-callback} will be
+invoked after \cl{activate-callback}, or when the pointer is moved outside of
+the button.
+
+\Defclass {push-button}
+
+The instantiable class that implements an abstract push button.  It is a
+subclass of \cl{action-gadget} and \cl{labelled-gadget-mixin}.
+
+\Definitarg {:show-as-default}
+
+This is used to initialize the ``show as default'' property for the gadget,
+described below.
+
+\Defgeneric {push-button-show-as-default} {push-button}
+
+Returns the ``show as default'' property for the push button gadget.  When
+\term{true}, the push button will be drawn with a heavy border, which indicates
+that this button is the ``default operation''.
+
+\Defclass {push-button-pane}
+
+The instantiable class that implements a portable push button; a subclass of
+\cl{push-button}.
+
+
+\Gadget {toggle-button}
+
+The \cl{toggle-button} gadget provides ``on/off'' switch behavior.  This gadget
+typically appears as a box that is optionally highlighted with a check-mark.  If
+the check-mark is present, the gadget's value is \cl{t}, otherwise it is
+\cl{nil}.
+
+\cl{arm-callback} will be invoked when the toggle button becomes armed (such as
+when the pointer moves into it, or a pointer button is pressed over it).  When
+the toggle button is actually activated (by releasing the pointer button over
+it), \cl{value-changed-callback} will be invoked.  Finally, \cl{disarm-callback}
+will be invoked after \cl{value-changed-callback}, or when the pointer is moved
+outside of the toggle button.
+
+\Defclass {toggle-button}
+
+The instantiable class that implements an abstract toggle button.  It is a
+subclass of \cl{value-gadget} and \cl{labelled-gadget-mixin}.
+
+\Definitarg {:indicator-type}
+
+This is used to initialize the indicator type property for the gadget,
+described below.
+
+\Defgeneric {toggle-button-indicator-type} {toggle-button}
+
+Returns the indicator type for the toggle button.  This will be either
+\cl{:one-of} or \cl{:some-of}.  The indicator type controls the appearance of
+the toggle button.  For example, many toolkits present a one-of-many choice
+differently from a some-of-many choice.
+
+\Defmethod {gadget-value} {(button \cl{toggle-button})}
+
+Returns \term{true} if the button is selected, otherwise returns \term{false}.
+
+\Defclass {toggle-button-pane}
+
+The instantiable class that implements a portable toggle button; a subclass of
+\cl{toggle-button}.
+
+
+\Gadget {menu-button}
+
+The \cl{menu-button} gadget provides similar behavior to the \cl{toggle-button}
+gadget, except that it is intended for items in menus.  The returned value is
+generally the item chosen from the menu.
+
+\cl{arm-callback} will be invoked when the menu button becomes armed (such as
+when the pointer moves into it, or a pointer button is pressed over it).  When
+the menu button is actually activated (by releasing the pointer button over
+it), \cl{value-changed-callback} will be invoked.  Finally, \cl{disarm-callback}
+will be invoked after \cl{value-changed-callback}, or when the pointer is moved
+outside of the menu button.
+
+\Defclass {menu-button}
+
+The instantiable class that implements an abstract menu button.  It is a
+subclass of \cl{value-gadget} and \cl{labelled-gadget-mixin}.
+
+\Defclass {menu-button-pane}
+
+The instantiable class that implements a portable menu button; a subclass of
+\cl{menu-button}.
+
+
+\Gadget {scroll-bar}
+
+The \cl{scroll-bar} gadget corresponds to a scroll bar.
+
+\Defclass {scroll-bar}
+
+The instantiable class that implements an abstract scroll bar.  This is a
+subclass of \cl{value-gadget}, \cl{oriented-gadget-mixin}, and
+\cl{range-gadget-mixin}.
+
+\definitarg {:drag-callback}
+\definitarg {:scroll-to-bottom-callback}
+\definitarg {:scroll-to-top-callback}
+\definitarg {:scroll-down-line-callback}
+\definitarg {:scroll-up-line-callback}
+\definitarg {:scroll-down-page-callback}
+\Definitarg {:scroll-up-page-callback}
+
+Specifies the drag and other scrolling callbacks for the scroll bar.
+
+\Defgeneric {scroll-bar-drag-callback} {scroll-bar}
+
+Returns the function that will be called when the indicator of the scroll bar is
+dragged.  This function will be invoked with a two arguments, the scroll bar and
+the new value.
+
+\defgeneric {scroll-bar-scroll-to-bottom-callback} {scroll-bar}
+\defgeneric {scroll-bar-scroll-to-top-callback} {scroll-bar}
+\defgeneric {scroll-bar-scroll-down-line-callback} {scroll-bar}
+\defgeneric {scroll-bar-scroll-up-line-callback} {scroll-bar}
+\defgeneric {scroll-bar-scroll-down-page-callback} {scroll-bar}
+\Defgeneric {scroll-bar-scroll-up-page-callback} {scroll-bar}
+
+Returns the functions that will be used as callbacks when various parts of the
+scroll bar are clicked on.  These are all functions of a single argument, the
+scroll bar.
+
+When any of these functions returns \cl{nil}, that indicates that there is no
+callback of that type for the gadget.
+
+\Callback {drag-callback} {scroll-bar client gadget-id value}
+
+This callback is invoked when the value of the scroll bar is changed while the
+indicator is being dragged.  This is implemented by calling the function stored
+in \cl{scroll-bar-drag-callback} with two arguments, the scroll bar and the new
+value.
+
+The \cl{value-changed-callback} is invoked only after the indicator is released
+after dragging it.
+
+\callback {scroll-to-top-callback} {scroll-bar client gadget-id}
+\callback {scroll-to-bottom-callback} {scroll-bar client gadget-id}
+\callback {scroll-up-line-callback} {scroll-bar client gadget-id}
+\callback {scroll-up-page-callback} {scroll-bar client gadget-id}
+\callback {scroll-down-line-callback} {scroll-bar client gadget-id}
+\Callback {scroll-down-page-callback} {scroll-bar client gadget-id}
+
+All of the callbacks above are invoked when appropriate parts of the scroll bar
+are clicked on.  Note that each implementation may not have ``hot spots''
+corresponding to each of these callbacks.
+
+\Defmethod {gadget-value} {(button \cl{scroll-bar})}
+
+Returns a real number within the specified range.
+
+\Defclass {scroll-bar-pane}
+
+The instantiable class that implements a portable scroll bar; a subclass of
+\cl{scroll-bar}.
+
+
+\Gadget {slider}
+
+The \cl{slider} gadget corresponds to a slider.
+
+\Defclass {slider}
+
+The instantiable class that implements an abstract slider.  This is a subclass
+of \cl{value-gadget}, \cl{oriented-gadget-mixin}, \cl{range-gadget-mixin}, and
+\cl{labelled-gadget-mixin}.
+
+\definitarg {:drag-callback}
+\definitarg {:show-value-p}
+\Definitarg {:decimal-places}
+
+Specifies the drag callback for the slider, whether the slider should show its
+current value, and how many decimal places to the right of the decimal point
+should be displayed when the slider is showing its current value.
+
+\definitarg {:min-label}
+\definitarg {:max-label}
+\Definitarg {:range-label-text-style}
+
+Specifies a label to be used at the low end and high end of the slider, and what
+the text style of those labels should be.
+
+\definitarg {:number-of-tick-marks}
+\Definitarg {:number-of-quanta}
+
+Specifies the number of tick marks that should be drawn on the scroll bar, and
+the number of quanta in the scroll bar.  If the scroll bar is quantized, the
+scroll bar will consist of discrete values rather than continuous values.
+
+\Defgeneric {gadget-show-value-p} {slider}
+
+Returns \term{true} if the slider shows its value, otherwise returns \term{false}
+
+\Defgeneric {slider-drag-callback} {slider}
+
+Returns the function that will be called when the indicator of the slider is
+dragged.  This function will be invoked with a two arguments, the slider and the
+new value.
+
+When this function returns \cl{nil}, that indicates that there is no drag
+callback for the gadget.
+
+\Callback {drag-callback} {slider client gadget-id value}
+
+This callback is invoked when the value of the slider is changed while the
+indicator is being dragged.  This is implemented by calling the function stored
+in \cl{slider-drag-callback} with two arguments, the slider and the new value.
+
+The \cl{value-changed-callback} is invoked only after the indicator is released
+after dragging it.
+
+\Defmethod {gadget-value} {(button \cl{slider})}
+
+Returns a real number within the specified range.
+
+\Defclass {slider-pane}
+
+The instantiable class that implements a portable slider; a subclass of
+\cl{slider}.
+
+
+\subsection {The {\tt radio-box} and {\tt check-box} Gadgets}
+
+Radio boxes and check boxes are special kinds of gadgets that constrain one or
+more toggle buttons.  At any one time, only one of the buttons managed by the
+radio box, or zero or more of the buttons managed by a check box, may be ``on''.
+The contents of a radio box or a check box are its buttons, and as such a radio
+box or check bnox is responsible for laying out the buttons that it contains.  A
+radio box or check box is a client of each of its buttons so that the value of
+the radio or check box can be properly computed.
+
+As the current selection changes, the previously selected button and the newly
+selected button both have their \cl{value-changed-callback} handlers invoked.
+
+\Defclass {radio-box}
+
+The instantiable class that implements an abstract radio box, that is, a gadget
+that constrains a number of toggle buttons, only one of which may be selected at
+any one time.  It is a subclass of \cl{value-gadget} and
+\cl{oriented-gadget-mixin}.
+
+\Definitarg {:current-selection}
+
+This is used to specify which button, if any, should be initially selected.
+
+\defgeneric {radio-box-current-selection} {radio-box}
+\Defgeneric {(setf radio-box-current-selection)} {button radio-box}
+
+Returns (or sets) the current selection for the radio box.  The current
+selection will be one of the toggle buttons in the box.
+
+\Defgeneric {radio-box-selections} {radio-box}
+
+Returns a sequence of all of the selections in the radio box.  The elements of
+the sequence will be toggle buttons.
+
+\Defmethod {gadget-value} {(button \cl{radio-box})}
+
+Returns the selected button.  This will return the same value as
+\cl{radio-box-current-selection}
+
+\Defclass {radio-box-pane}
+
+The instantiable class that implements a portable radio box; a subclass of
+\cl{radio-box}.
+
+
+\Defclass {check-box}
+
+The instantiable class that implements an abstract check box, that is, a gadget
+that constrains a number of toggle buttons, zero or more of which may be
+selected at any one time.  It is a subclass of \cl{value-gadget} and
+\cl{oriented-gadget-mixin}.
+
+\Definitarg {:current-selection}
+
+This is used to specify which buttons, if any, should be initially selected.
+
+\defgeneric {check-box-current-selection} {check-box}
+\Defgeneric {(setf check-box-current-selection)} {button check-box}
+
+Returns (or sets) the current selection for the check box.  The current
+selection will be a list of zero or more of the toggle buttons in the box.
+
+\Defgeneric {check-box-selections} {check-box}
+
+Returns a sequence of all of the selections in the check box.  The elements of
+the sequence will be toggle buttons.
+
+\Defmethod {gadget-value} {(button \cl{check-box})}
+
+Returns the selected buttons as a list.  This will return the same value as
+\cl{check-box-current-selection}
+
+\Defclass {check-box-pane}
+
+The instantiable class that implements a portable check box; a subclass of
+\cl{check-box}.
+
+
+\Defmacro {with-radio-box} {(\rest options \key (type \cl{:one-of}) \allow) \body body} 
+
+Creates a radio box whose buttons are created by the forms in \arg{body}.  The
+macro \cl{radio-box-current-selection} can be wrapped around one of forms in
+\arg{body} in order to indicate that that button is the current selection.
+
+If \arg{type} is \cl{:one-of}, a \cl{radio-box} will be created.  If \arg{type}
+is \cl{:some-of}, a \cl{check-box} will be created.
+
+For example, the following creates a radio box with three buttons in it, the
+second of which is initially selected.
+
+\begin{verbatim}
+(with-radio-box ()
+  (make-pane 'toggle-button :label "Mono")
+  (radio-box-current-selection
+    (make-pane 'toggle-button :label "Stereo"))
+  (make-pane 'toggle-button :label "Quad"))
+\end{verbatim}
+
+The following simpler form can also be used when the programmer does not need to
+control the appearance of each button closely.
+
+\begin{verbatim}
+(with-radio-box ()
+  "Mono" "Stereo" "Quad")
+\end{verbatim}
+
+
+\subsection {The {\tt list-pane} and {\tt option-pane} Gadgets}
+
+\Defclass {list-pane}
+
+The instantiable class that implements an abstract list pane, that is, a gadget
+whose semantics are similar to a radio box or check box, but whose visual
+appearance is a list of buttons.  It is a subclass of \cl{value-gadget}.
+
+\Definitarg {:mode}
+
+Either \cl{:nonexclusive} or \cl{:exclusive}.  When it is \cl{:exclusive}, the
+list pane acts like a radio box, that is, only a single item can be selected.
+Otherwise, the list pane acts like a check box, in that zero or more items can
+be selected. The default is \cl{:exclusive}.
+
+\definitarg {:items}
+\definitarg {:name-key}
+\definitarg {:value-key}
+\Definitarg {:test}
+
+The \cl{:items} initarg specifies a sequence of items to use as the items of the
+list pane.  The name of the item is extracted by the function that is the value
+of the \cl{:name-key} initarg, which defaults to \cl{princ-to-string}.  The
+value of the item is extracted by the function that is the value of the
+\cl{:value-key} initarg, which defaults to \cl{identity}.  The \cl{:test}
+initarg specifies a function of two arguments that is used to compare items; it
+defaults to \cl{eql}.
+
+For example,
+
+\begin{verbatim}
+(make-pane 'list-pane
+  :value '("Lisp" "C++")
+  :mode :nonexclusive
+  :items '("Lisp" "Fortran" "C" "C++" "Cobol" "Ada")
+  :test 'string=)
+\end{verbatim}
+
+\Defmethod {gadget-value} {(button \cl{list-pane})}
+
+Returns the single selected item when the mode is \cl{:exclusive}, or a sequence
+of selected items when the mode is \cl{:nonexclusive}.
+
+\Defclass {generic-list-pane}
+
+The instantiable class that implements a portable list pane; a subclass of
+\cl{list-pane}.
+
+\Defclass {option-pane}
+
+The instantiable class that implements an abstract option pane, that is, a
+gadget whose semantics are identical to a list pane, but whose visual appearance
+is a single push button which, when pressed, pops up a menu of selections..  It
+is a subclass of \cl{value-gadget}.
+
+\Definitarg {:mode}
+
+Either \cl{:nonexclusive} or \cl{:exclusive}.  When it is \cl{:exclusive}, the
+option pane acts like a radio box, that is, only a single item can be selected.
+Otherwise, the option pane acts like a check box, in that zero or more items can
+be selected. The default is \cl{:exclusive}.
+
+\definitarg {:items}
+\definitarg {:name-key}
+\definitarg {:value-key}
+\Definitarg {:test}
+
+The \cl{:items} initarg specifies a sequence of items to use as the items of the
+option pane.  The name of the item is extracted by the function that is the value
+of the \cl{:name-key} initarg, which defaults to \cl{princ-to-string}.  The
+value of the item is extracted by the function that is the value of the
+\cl{:value-key} initarg, which defaults to \cl{identity}.  The \cl{:test}
+initarg specifies a function of two arguments that is used to compare items; it
+defaults to \cl{eql}.
+
+For example,
+
+\begin{verbatim}
+(make-pane 'option-pane
+  :value '("Lisp" "C++")
+  :mode :nonexclusive
+  :items '("Lisp" "Fortran" "C" "C++" "Cobol" "Ada")
+  :test 'string=)
+\end{verbatim}
+
+\Defmethod {gadget-value} {(button \cl{option-pane})}
+
+Returns the single selected item when the mode is \cl{:exclusive}, or a sequence
+of selected items when the mode is \cl{:nonexclusive}.
+
+\Defclass {generic-option-pane}
+
+The instantiable class that implements a portable option pane; a subclass of
+\cl{option-pane}.
+
+
+\Gadget {text-field}
+
+The \cl{text-field} gadget corresponds to a small field containing text.
+
+\Defclass {text-field}
+
+The instantiable class that implements an abstract text field.  This is a subclass of
+\cl{value-gadget} and \cl{action-gadget}.
+
+The value of a text field is the text string.  
+
+\Definitarg {:editable-p}
+
+This is used to specify whether or not the text field may be edited.
+
+\Defmethod {gadget-value} {(button \cl{text-field})}
+
+Returns the resulting string.
+
+\Defclass {text-field-pane}
+
+The instantiable class that implements a portable text field; a subclass of
+\cl{text-field}.
+
+
+\Gadget {text-editor}
+
+The \cl{text-editor} gadget corresponds to a large field containing multiple
+lines of text.
+
+\Defclass {text-editor}
+
+The instantiable class that implements an abstract large text field.  This is a
+subclass of \cl{text-field}.
+
+The value of a text editor is the text string.  
+
+\definitarg {:ncolumns}
+\Definitarg {:nlines}
+
+Specifies the width and height of the text editor in columns and number of lines.
+
+\Defmethod {gadget-value} {(button \cl{text-editor})}
+
+Returns the resulting string.
+
+\Defclass {text-editor-pane}
+
+The instantiable class that implements a portable text editor; a subclass of
+\cl{text-editor}.
+
+
+\section {Integrating Gadgets and Output Records}
+
+In addition to gadget panes, CLIM allows gadgets to be used inside of CLIM
+stream panes.  For instance, an \cl{accepting-values} whose fields consist of
+gadgets may appear in an ordinary CLIM stream pane.
+
+Note that many of the functions in the output record protocol must correctly
+manage the case where there are gadgets contained within output records.  For
+example, \cl{(setf* output-record-position)} may need to notify the host window
+system that the toolkit object representing the gadget has moved,
+\cl{window-clear} needs to deactive any gadgets, and so forth.
+
+\Defclass {gadget-output-record}
+
+The instantiable class the represents an output record class that contains a
+gadget.  This is a subclass of \cl{output-record}.
+
+\Defmacro {with-output-as-gadget} {(stream \rest options) \body body} 
+
+Invokes \arg{body} to create a gadget, and then creates a gadget output record
+that contains the gadget and install's it into the output history of the output
+recording stream \arg{stream}.  The returned value of \arg{body} must be the
+gadget.
+
+The options in \arg{options} are passed as initargs to the call to
+\cl{invoke-with-new-output-record} that is used to create the gadget output
+record.
+
+The \arg{stream} argument is not evaluated, and must be a symbol that is bound to
+an output recording stream.  If \arg{stream} is \cl{t}, \cl{*standard-output*} is
+used.  \arg{body} may have zero or more declarations as its first forms.
+
+For example, the following could be used to create an output record containing a
+radio box that itself contains several toggle buttons:
+
+\begin{verbatim}
+(with-output-as-gadget (stream)
+  (let* ((radio-box
+           (make-pane 'radio-box 
+             :client stream :id 'radio-box)))
+    (dolist (item sequence)
+      (make-pane 'toggle-button 
+        :label (princ-to-string (item-name item))
+        :value (item-value item)
+        :id item :parent radio-box))
+    radio-box))
+\end{verbatim}
+
+A more complex (and somewhat contrived) example of a push button that calls back
+into the presentation type system to execute a command might be as follows:
+
+\begin{verbatim}
+(with-output-as-gadget (stream)
+  (make-pane 'push-button
+    :label "Click here to exit"
+    :activate-callback
+      #'(lambda (button)
+          (declare (ignore button))
+          (throw-highlighted-presentation
+            (make-instance 'standard-presentation
+              :object `(com-exit ,*application-frame*)
+              :type 'command)
+            *input-context*
+            (make-instance 'pointer-button-press-event
+              :sheet (sheet-parent button)
+              :x 0 :y 0
+              :modifiers 0
+              :button +pointer-left-button+)))))
+\end{verbatim}

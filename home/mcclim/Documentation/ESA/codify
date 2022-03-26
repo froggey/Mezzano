@@ -1,0 +1,5 @@
+OUTFILE=$(echo $1 | sed -e 's/lisp/code/')
+echo -n "\\" >$OUTFILE
+echo "begin{Verbatim}[frame=single]" >>$OUTFILE
+expand $1 >>$OUTFILE
+echo "\\end{Verbatim}" >>$OUTFILE

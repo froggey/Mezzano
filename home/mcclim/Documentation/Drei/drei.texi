@@ -1,0 +1,1317 @@
+
+\input texinfo
+
+@setfilename drei
+@settitle McCLIM Drei editor substrate Manual
+
+@copying
+Copyright @copyright{} 2004,2005,2006,2007,2008,2017 the McCLIM hackers.
+@end copying
+
+@dircategory Common Lisp
+@direntry
+* Drei editor substrate: (mcclim drei). Documentation and reference manual.
+@end direntry
+
+@titlepage
+@title Drei Manual
+
+@vskip 0pt plus 1filll
+@insertcopying
+@end titlepage
+
+@iftex
+@contents
+@end iftex
+
+@include macros.texi
+
+@ifnottex
+@node Top
+@top Drei Manual
+@insertcopying
+@end ifnottex
+
+@cindex drei
+@cindex input-editor
+@cindex text-editor
+@cindex text-field
+
+@menu
+* Drei Concepts::               The core Drei concepts and design philosophy.
+* External API::                The classes, functions and macros that make
+                                up the core of Drei
+* Standard Drei Variants::      How to use the predefined Drei variants.
+* Protocols::                   Description of protocols used by Drei.
+* Defining Drei Commands::      Information about defining commands for Drei
+
+@c Index
+* Concept Index::
+* Variable Index::
+* Function And Macro Index::
+@end menu
+
+Drei - an acronym for @i{Drei Replaces EINE's Inheritor} - is one of the
+editor substrates provided by McCLIM. Drei is activated by default.
+
+@node Drei Concepts
+@chapter Drei Concepts
+
+The reason for many of Drei's design decisions, and the complexity of
+some of the code, is due to the flexibility that Drei is meant to
+expose. Drei has to work as, at least, an input-editor, a text editor
+gadget and a simple pane. These three different uses have widely
+different semantics for reading input and performing redisplay - from
+passively being fed gestures in the input editor, to having to do event
+handling and redisplay timing manually in the gadget
+version. Furthermore, Drei is extensible software, so we wished to make
+the differences between these three modi operandi transparent to the
+extender (as much as possible at least, unfortunately the Law of Leaky
+Abstractions prevents us from reaching perfection). These two demands
+require the core Drei protocols, especially those pertaining to
+redisplay, gesture handling and accepting input from the user, to be
+customizable by the different specialized Drei classes.
+
+We call a specific instance of the Drei editor substrate a @i{Drei
+instance}. A @i{Drei variant} is a specific subclass of @class{drei}
+that implements a specific kind of editor, such as an input-editor or a
+gadget. A given Drei instance has a single view associated with it, this
+view must be unique to the Drei instance (though this is not enforced),
+but may be changed at any time. The most typical view is one that has a
+buffer and maintains syntax information about the buffer contents. A
+buffer need not be unique to a buffer-view, and may be changed at any
+time. The view instance has two marks into the buffer, called the
+@i{top} and @i{bottom} mark. These marks delimit the visible region of
+the buffer - for some Drei variants, this is always the entire buffer,
+while others may only have a smaller visible region. Note that not all
+of the visible region necessarily is on display on the screen (parts, or
+all, of it may be hidden due to scrolling, for example), but nothing
+outside the visible region is on display, though remember that the same
+buffer may be used in several vires, and that each of these views may
+have their own idea about what the visible region is. Most views also
+maintain marks for the current @i{point} and @i{mark}. This means that
+different views sharing the same buffer may have different points and
+marks. Every Drei instance also has a @i{kill ring} object which
+contains object sequences that have been killed from the buffer, and can
+be yanked back in at the users behest. These are generally not shared.
+
+Every Drei instance is associated with an editor pane - this must be a
+CLIM stream pane that is used for redisplay (@pxref{Redisplay
+Protocol}). This is not necessarily the same object as the Drei instance
+itself, but it can be. (With a little work, the editor pane can be
+@cl{NIL}, which is useful for resting.)
+
+For each Drei instance, Drei attempts to simulate an application
+top-level loop with something called a @i{pseudo command loop}, and
+binds a number of special variables appropriately. This is to make
+command writing more convenient and similar across all Drei variants,
+but it also means that any program that uses one of the low-level Drei
+variants that do not to this, such as @class{drei-pane}, need to bind
+these special variables themselves, or Drei commands are likely to
+malfunction.
+
+@menu
+* Access Functions::
+* Special Variables::
+@end menu
+
+@node Access Functions
+@section Access Functions
+
+The access functions are the primary interface to Drei state, and should
+be used to access the various parts. It is not recommended to save the
+return value of these functions, as they are by nature ephemeral, and
+may change over the course of a command.
+
+@include fun-drei-drei-instance.texi
+@include fun-drei-current-view.texi
+@include fun-esa-current-buffer.texi
+@include fun-drei-point.texi
+@include fun-drei-mark.texi
+@include fun-drei-current-syntax.texi
+
+@node Special Variables
+@section Special Variables
+
+Drei uses only a few special variables to provide access to data
+structures.
+
+@include var-drei-kill-ring-star-kill-ring-star.texi
+
+Additionally, a number of ESA special variables are used in Drei.
+
+@include var-esa-star-minibuffer-star.texi
+@include var-esa-star-previous-command-star.texi
+
+@node External API
+@chapter External API
+
+@include class-drei-drei.texi
+
+@deftp {@class{drei} Initarg} {:editable-p}
+Whether or not the Drei instance will be editable. If @cl{NIL}, the
+buffer will be set to read-only (this also affects programmatic
+access). The default is @cl{T}.
+@end deftp
+
+@deftp {@class{drei} Initarg} {:single-line}
+If @cl{T}, the buffer created for the Drei instance will be single line,
+and a condition of type @class{buffer-single-line} will be signalled if
+an attempt is made to insert a newline character.
+@end deftp
+
+@include macro-drei-handling-drei-conditions.texi
+
+@include macro-drei-with-bound-drei-special-variables.texi
+
+@include macro-drei-performing-drei-operations.texi
+
+@include fun-drei-invoke-performing-drei-operations.texi
+
+@include macro-drei-accepting-from-user.texi
+
+@include fun-drei-invoke-accepting-from-user.texi
+
+@include fun-drei-execute-drei-command.texi
+
+@node Standard Drei Variants
+@chapter Standard Drei Variants
+
+Because the standard @class{drei} class doesn't implement
+immediately-usable editor behavior, three subclasses have been defined
+to provide a concrete implementaton of the editor substrate. These are
+the input-editor-oriented Drei variant, the pane-oriented Drei variant
+and the gadget-oriented Drei variant.
+
+@node Protocols
+@chapter Protocols
+@cindex Drei protocols
+@cindex text-editor protocols
+@cindex text-editor API
+@cindex Drei API
+
+Much of Drei's functionality is based on generic function
+protocols. This section lists some of them.
+
+@menu
+* Buffer Protocol::             
+* Buffer Modification Protocol::  
+* DREI-BASE Package::           
+* Syntax Protocol::             
+* View Protocol::             
+* Unit Protocol::               
+* Redisplay Protocol::          
+* Undo Protocol::               
+* Kill Ring Protocol::          
+@end menu
+
+@node Buffer Protocol
+@section Buffer Protocol
+
+The Drei buffer is what holds textual and other objects to be
+edited and displayed.  Conceptually, the buffer is a potentially
+large sequence of objects, most of which are expected to be
+characters (the full Unicode character set is supported).  However,
+Drei buffers can contain any Common Lisp objects, as long as the
+redisplay engine knows how to render them.
+
+The Drei buffer implementation differs from that of a vector, because it
+allows for very efficient editing operations, such as inserting and
+removing objects at arbitrary offsets.
+
+In addition, the Drei buffer protocols defines that concept of a
+mark.
+
+@menu
+* General Buffer Protocol Parts::  
+* Operations Related To The Offset Of Marks::  
+* Inserting And Deleting Objects::  
+* Getting Objects Out Of The Buffer::  
+* Implementation Hints::        
+@end menu
+
+@node General Buffer Protocol Parts
+@subsection General Buffer Protocol Parts
+
+@include class-drei-buffer-buffer.texi
+
+@include class-drei-buffer-standard-buffer.texi
+
+@include class-drei-buffer-mark.texi
+
+@include class-drei-buffer-left-sticky-mark.texi
+
+@include class-drei-buffer-right-sticky-mark.texi
+
+@include fun-drei-buffer-offset.texi
+
+@include fun-drei-buffer-setf-offset.texi
+
+@include fun-drei-buffer-clone-mark.texi
+
+@include fun-drei-buffer-buffer.texi
+
+@include condition-drei-buffer-no-such-offset.texi
+
+@include condition-drei-buffer-offset-before-beginning.texi
+
+@include condition-drei-buffer-offset-after-end.texi
+
+@include condition-drei-buffer-invalid-motion.texi
+
+@include condition-drei-buffer-motion-before-beginning.texi
+
+@include condition-drei-buffer-motion-after-end.texi
+
+@include fun-drei-buffer-size.texi
+
+@include fun-drei-buffer-number-of-lines.texi
+
+@node Operations Related To The Offset Of Marks
+@subsection Operations Related To The Offset Of Marks
+
+@include fun-drei-buffer-forward-object.texi
+
+@include fun-drei-buffer-backward-object.texi
+
+@include fun-drei-buffer-mark=.texi
+
+@include fun-drei-buffer-mark-lt.texi
+
+@include fun-drei-buffer-mark-lt=.texi
+
+@include fun-drei-buffer-mark-gt.texi
+
+@include fun-drei-buffer-mark-gt=.texi
+
+@include fun-drei-buffer-beginning-of-buffer.texi
+
+@include fun-drei-buffer-end-of-buffer.texi
+
+@include fun-drei-buffer-beginning-of-buffer-p.texi
+
+@include fun-drei-buffer-end-of-buffer-p.texi
+
+@include fun-drei-buffer-beginning-of-line.texi
+
+@include fun-drei-buffer-end-of-line.texi
+
+@include fun-drei-buffer-beginning-of-line-p.texi
+
+@include fun-drei-buffer-end-of-line-p.texi
+
+@include fun-drei-buffer-buffer-line-number.texi
+
+@include fun-drei-buffer-buffer-column-number.texi
+
+@include fun-drei-buffer-line-number.texi
+
+@include fun-drei-buffer-column-number.texi
+
+@node Inserting And Deleting Objects
+@subsection Inserting And Deleting Objects
+
+@include fun-drei-buffer-insert-buffer-object.texi
+
+@include fun-drei-buffer-insert-buffer-sequence.texi
+
+@include fun-drei-buffer-insert-object.texi
+
+@include fun-drei-buffer-insert-sequence.texi
+
+@include fun-drei-buffer-delete-buffer-range.texi
+
+@include fun-drei-buffer-delete-range.texi
+
+@include fun-drei-buffer-delete-region.texi
+
+@node Getting Objects Out Of The Buffer
+@subsection Getting Objects Out Of The Buffer
+
+@include fun-drei-buffer-buffer-object.texi
+
+@include fun-drei-buffer-setf-buffer-object.texi
+
+@include fun-drei-buffer-buffer-sequence.texi
+
+@include fun-drei-buffer-object-before.texi
+
+@include fun-drei-buffer-object-after.texi
+
+@include fun-drei-buffer-region-to-sequence.texi
+
+@node Implementation Hints
+@subsection Implementation Hints
+
+The buffer is implemented as lines organized in a 2-3-tree.  The
+leaves of the tree contain the lines, and the internal nodes contain
+additional information of the left subtree (if it is a 2-node) or the
+left and the middle subtree (if it is a 3-node).  Two pieces of
+information are stored: The number of lines in up to and including
+the subtree and the total number of objects up to an including the
+subtree.  This organization allows us to determine, the line number
+and object position of any mark in O(log N) where N is the number of
+lines.
+
+A line is an instance of the `buffer-line' class.  A line can either
+be open or closed.  A closed line is represented as a sequence.  The
+exact type of the sequence depends on the objects contained in the
+line.  If the line contains only characters of type base-char, then
+the sequence is of type base-string.  If the line contains only
+characters, but not of type base-char, the sequence is a string.
+Otherwise it is a vector of arbitrary objects.  This way, closed
+lines containing characters with code points below 256 have a compact
+representation with 8 bits per character while still allowing for
+arbitrary objects when necessary.  An open line is represented as a
+cursorchain of objects.
+
+Marks in a closed line are represented as an integer offset into the
+sequence.  Marks in an open line are represented as flexicursors.
+
+When a line is opened, it is converted to a cursorchain.  When a line
+is closed, it is examined to determine whether it contains
+non-character objects, in which case it is converted to a vector of
+objects.  If contains only characters, but it contains characters
+with code points above what can be represented in a base-char, it is
+converted to a string.  If it contains only base-chars, it is
+converted to a base-string.
+
+A mark contains two slots: a flexicursor that determines which line it
+is on, and either an integer (if the line is closed) that determines
+the offset within the line or another flexicursor (if the line is
+open).  For each line, open or closed, a list of weak references to
+marks into that line is kept.
+
+Lines are closed according to a LRU scheme.  Whenever objects are
+inserted to or deleted from a line, it becomes the most recently used
+line.  We keep a fixed number of open lines so that when a line is
+opened and the threshold is reached, the least recently used line is
+closed.
+
+@node Buffer Modification Protocol
+@section Buffer Modification Protocol
+
+The buffer modification protocol is based on the ESA observer/observable
+facility, which is in return a fairly ordinary Model-View
+implementation.
+
+@include class-drei-buffer-observable-buffer-mixin.texi
+
+Syntax-views use this information to determine what part of the buffer
+needs to be reparsed. This automatically happens whenever a request is
+made for information that might depend on outdated parsing data.
+
+@node DREI-BASE Package
+@section DREI-BASE Package
+
+The buffer protocol has been designed to be reasonably efficient with a
+variety of different implementation strategies (single gap buffer or
+sequence of independent lines).  It contains (and should only contain)
+the absolute minimum of functionality that can be implemented
+efficiently independently of strategy.  However, this minimum of
+functionality is not always convenient.
+
+The purpose of the @package{DREI-BASE} package is to implement
+additional functionality on top of the buffer protocol, in a way that
+does not depend on how the buffer protocol was implemented.  Thus, the
+@package{DREI-BASE} package should remain intact across different
+implementation strategies of the buffer protocol.
+
+Achieving portability of the @package{DREI-BASE} package is not terribly
+hard as long as only buffer protocol functions are used.  What is
+slightly harder is to be sure to maximize efficiency across several
+implementation strategies.  The next section discusses such
+considerations and gives guidelines to implementers of additional
+functionality.
+
+Implementers of the buffer protocol may use the contents of the next
+section to make sure they respect the efficiency considerations that are
+expected by the @package{DREI-BASE} package.
+
+@menu
+* Efficiency Considerations::   
+@end menu
+
+@node Efficiency Considerations
+@subsection Efficiency considerations
+
+In this section, we give a list of rules that implementors of
+additional functionality should follow in order to make sure that such
+functionality remains efficient (in addition to being portable) across
+a variety of implementation strategies of the buffer protocol.
+
+@quotation Rule
+Comparing the position of two marks is efficient, i.e. at most O(log n)
+where n is the number of marks in the buffer (which is expected to be
+very small compared to the number of objects) in all implementations.
+This is true for all types of comparisons.
+@end quotation
+
+It is expected that marks are managed very efficiently.  Some balanced
+tree management might be necessary, which will make operations have
+logarithmic complexity, but only in the number of marks that are
+actually used.
+
+@quotation Rule
+While computing and setting the offset of a mark is fairly efficient,
+it is not guaranteed to be O(1) even though it might be in an
+implementation using a single gap buffer.  It might have a complexity
+of O(log n) where n is the number of lines in the buffer.  This is
+true for using incf on the offset of a mark as well, as incf expands
+to a setf of the offset.
+
+Do not hesitate computing or setting the offset of a mark, but avoid
+doing it in a tight loop over many objects of the buffer.
+@end quotation
+
+@quotation Rule
+Determining whether a mark is at the beginning or at the end of the
+buffer is efficient, i.e. O(1), in all implementations.
+@end quotation
+
+@quotation Rule
+Determining whether a mark is at the beginning or at the end of a line
+is efficient, i.e. O(1), in all implementations.
+@end quotation
+
+@quotation Rule
+Going to the beginning or to the end of a line might have linear-time
+complexity in the number of characters of the line, though it is
+constant-time complexity if the implementation is line oriented.
+
+It is sometimes inevitable to use this functionality, and since lines
+are expected to be short, it should not be avoided at all cost,
+especially since it might be very efficient in some implementations.
+We do recommend, however to avoid it in tight loops.
+
+Always use this functionality rather than manually incrementing the
+offset of a mark in a loop until a Newline character has been found,
+especially since each iteration might take logarithmic time then.
+@end quotation
+
+@quotation Rule
+Computing the size of the buffer is always efficient, i.e., O(1).
+@end quotation
+
+@quotation Rule
+Computing the number of lines of the buffer is always efficient, i.e.,
+O(1).
+@end quotation
+
+Implementations of the buffer protocol could always track the number
+of insertions and deletions of objects, so there is no reason why this
+operation should be inefficient.
+
+@quotation Rule
+Computing the line number of a mark or of an offset can be very
+costly, i.e. O(n) where n is size of the buffer.
+@end quotation
+
+This operation is part of the buffer protocol because some
+implementations may implement it fairly efficiently, say O(log n)
+where n is the number of lines in the buffer.
+
+@node Syntax Protocol
+@section Syntax Protocol
+
+A syntax module is an object that can be associated with a buffer. The
+syntax module usually consists of an incremental parser that analyzes
+the contents of the buffer and creates some kind of parse tree or other
+representation of the contents in order that it can be exploited by the
+redisplay module and by user commands.
+
+@menu
+* General Syntax Protocol::     
+* Incremental Parsing Framework::  
+* Lexical Analysis::            
+* Earley Parser::               
+* Specifying A Grammar::        
+@end menu
+
+@node General Syntax Protocol
+@subsection General Syntax Protocol
+
+@include class-drei-syntax-syntax.texi
+
+The redisplay module exploits the syntax module for several things:
+
+@itemize @bullet
+@item highlighting of various syntactic entities of the buffer
+@item highlighting of matching parenthesis,
+@item turning syntactic entities into clickable presentations,
+@item marking lines with inconsistent indentation,
+@item etc.
+@end itemize
+
+User commands can use the syntax module for:
+
+@itemize @bullet
+@item moving point by units that are specific to a particular buffer
+syntax, such as expressions, statements, or paragraphs,
+@item transposing syntactic units,
+@item sending the text of a syntactic unit to a language processor,
+@item indenting lines according to the syntax,
+@item etc.
+@end itemize
+
+The ideal is that the view that the syntax module has of the buffer is
+updated only when needed, and then only for the parts of the buffer that
+are needed, though implementing this in practise is decidedly
+nontrivial.  Most syntax modules (such as for programming languages)
+need to compute their representations from the beginning of the buffer
+up to a particular point beyond which the structure of the buffer does
+not need to be known.
+
+There are two primary situations where updating might be needed:
+
+@itemize @bullet
+@item Before redisplay is about to show
+the contents of part of the buffer in a pane, to inform the syntax
+module that its syntax must be valid in the particular region on
+display,
+@item as a result of a command that exploits the syntactic entities of
+the buffer contents.
+@end itemize
+
+These two cases do boil down to ``whenever there is need for the syntax
+information to be correct'', however.
+
+The first case is handled by the invocation of a single generic function:
+
+@include fun-drei-syntax-update-syntax.texi
+
+It is important to realize that the syntax module is not directly
+involved in displaying buffer contents in a pane.  In fact, the syntax
+module should work even if there is no graphic user interface present,
+and it should be exploitable by several, potentially totally different,
+display units.
+
+The second case is slightly trickier, as any views of the syntax should
+be informed that it has reparsed some part of the buffer. Since
+@cl{update-syntax} is only called by views, the view can easily record
+the fact that some part of the buffer has an up-to-date parse. Thus,
+functions accessing syntax information must go to some length to make
+sure that the view of the syntax is notified of any reparses.
+
+@include fun-drei-syntax-update-parse.texi
+
+@node Incremental Parsing Framework
+@subsection Incremental Parsing Framework
+
+@include class-drei-syntax-parse-tree.texi
+
+We use the term parse tree in a wider sense than what is common in the
+parsing literature, in that a lexeme is a (trivial) parse tree.  The
+parser does not distinguish between lexemes and other parse trees, and
+a grammar rule can produce a lexeme if that should be desired.
+
+@include fun-drei-syntax-start-offset.texi
+
+@include fun-drei-syntax-end-offset.texi
+
+The length of a parse-tree is thus the difference of its end offset
+and its start offset.
+
+The start offset and the end offset may be NIL which is typically the
+case when a parse tree is derived from the empty sequence of lexemes.
+
+@node Lexical Analysis
+@subsection Lexical analysis
+
+@include class-drei-syntax-lexer.texi
+
+@include class-drei-syntax-incremental-lexer.texi
+
+In the sequence of lexemes maintained by the incremental lexer, the
+lexemes are indexed by a position starting from zero.
+
+@include fun-drei-syntax-nb-lexemes.texi
+
+@include fun-drei-syntax-lexeme.texi
+
+@include fun-drei-syntax-insert-lexeme.texi
+
+@include fun-drei-syntax-delete-invalid-lexemes.texi
+
+@include fun-drei-syntax-inter-lexeme-object-p.texi
+
+@include fun-drei-syntax-skip-inter-lexeme-objects.texi
+
+@include fun-drei-syntax-update-lex.texi
+
+@include fun-drei-syntax-next-lexeme.texi
+
+@node Earley Parser
+@subsection Earley Parser
+
+Drei contains an incremental parser that uses the Earley
+algorithm.  This algorithm accepts the full set of context-free
+grammars, allowing greater freedom for the developer to define natural
+grammars without having to think about restrictions such as LL(k) or
+LALR(k).
+
+Beware, though, that the Earley algorithm can be quite inefficient if
+the grammar is sufficiently complicated, in particular if the grammar
+is ambiguous.
+
+@node Specifying A Grammar
+@subsection Specifying A Grammar
+
+An incremental parser is created from a grammar.
+
+@include macro-drei-syntax-grammar.texi
+
+@deftp {Rule} symbol -> (&rest arguments) &optional body
+
+Each rule is a list of this form.
+@end deftp
+
+Here @var{symbol} is the target symbol of the rule, and should be the
+name of a CLOS class.
+
+@deftp {Rule argument} (var type test)
+
+The most general form of a rule argument.
+@end deftp
+
+@noindent
+
+Here @var{var} is the name of a lexical variable.  The scope of the
+variable contains the test, all the following arguments and the body
+of the rule.  The @var{type} is a Common Lisp type specification.  The
+rule applies only of the @var{type} of the object contain in var is of
+that type.  The @var{test} contains arbitrary Common Lisp code for
+additional checks as to the applicability of the rule.
+
+@deftp {Rule argument} (var type)
+
+Abbreviated form of a rule argument.
+@end deftp
+
+@noindent
+Here, @var{type} must be a symbol typically the name of a CLOS class.
+This form is an abbreviation for @code{(@var{var} @var{type} t)}.
+
+@deftp {Rule argument} (var test)
+
+Abbreviated form of a rule argument.
+@end deftp
+
+@noindent
+Here, @var{test} must not be a symbol.  This form is an abbreviation
+of @code{(@var{var} @var{var} @var{test})}, i.e., the name of the
+variable is also the name of a type, typically a CLOS class.
+
+@deftp {Rule argument} var
+
+Abbreviated form of a rule argument.
+@end deftp
+
+@noindent
+This form is an abbreviation of @code{(@var{var} @var{var} t)}.
+
+The @var{body} of a rule, if present, contains an expression that should
+have an instance (not necessarily direct) of the class named by the
+symbol (the left-hand-side) of the rule.  It is important that this
+restriction be respected, since the Earley algorithm will not work
+otherwise.
+
+If the @var{body} is absent, it is the same as if a body of the form
+@code{(make-instance '@var{symbol})} had been given.
+
+The body can also be a sequence of forms, the first one of which must be
+a symbol.  These forms typically contain initargs, and will be passed as
+additional arguments to @code{(make-instance '@var{symbol})}.
+
+@node View Protocol
+@section View Protocol
+@cindex view protocol
+@cindex views
+
+Drei extends CLIMs concept of ``views'' to be more than just a manner
+for determining the user interface for accepting values from the
+user. Instead, the view is what controls the user interface of the Drei
+instance the user is interacting with. To simplify the discussion, this
+section assumes that the view is always associated with a single
+buffer. A buffer does not have to be associated with a view, and may be
+associated with many views, though each view may only have a single
+buffer. The view controls how the buffer is displayed to the user, and
+which commands are available to the user for modifying the buffer. A
+view may use a syntax module to maintain syntactical information about
+the buffer contents, and use the resulting information to highlight
+parts of the buffer based on its syntactical value (``syntax
+highlighting'').
+
+@include class-drei-drei-view.texi
+
+@include class-drei-drei-buffer-view.texi
+
+@include method-drei-buffer-buffer-nil-drei-buffer-view.texi
+
+@include class-drei-drei-syntax-view.texi
+
+@include class-drei-point-mark-view.texi
+
+The @cl{synchronize-view} generic function is the heart of all view
+functionality.
+
+@include fun-drei-synchronize-view.texi
+
+@node Unit Protocol
+@section Unit Protocol
+@cindex Drei unit protocol
+@cindex Drei motion protocol
+@cindex Drei editing protocol
+
+Many of the actions performed by an editor is described in terms of the
+syntactically unit(s) they affect. The syntax module is responsible for
+actually dividing the buffer into syntactical units, but the @i{unit
+protocol} is the basic interface for acting on these units. A @i{unit}
+is some single syntactical construct - for example a word, a sentence,
+an expression or a definition. The unit protocol defines a number of
+generic functions for the various unit types that permit a uniform
+interface to moving a mark a given number of units, deleting a unit,
+killing a unit, transposing two units and so forth. A number of macros
+are also provided for automatically generating all these functions,
+given the definition of two simple movement functions. All generic
+functions of the unit protocol dispatch on a syntax, so that every
+syntax can implement its own idea of what exactly, for example, an
+``expression'' is. Defaults are provided for some units - if nothing
+else has been specified by the syntax, a word is considered any sequence
+of alphanumeric characters delimited by non-alphanumeric characters.
+@cindex unit
+
+The type of unit that a protocol function affects is represented
+directly in the name of the function - this means that a new set of
+functions must be generated for every new unit you want the protocol to
+support. In most cases, the code for these functions is very repetitive
+and similar across the unit types, which is why the motion protocol
+offers a set of macros that can generate function definitions for
+you. These generator macros define their generated functions in terms of
+basic motion functions.
+
+A basic motion function is a function named @cl{FORWARD-ONE-@var{unit}}
+or @cl{backward-one-@var{unit}} of the signature @cl{(@var{mark}
+@var{syntax})} that returns true if any motion happened or false if a
+limit was reached.
+@cindex basic motion function
+
+There isn't really a single all-encompassing unit protocol, instead, it
+is divided into two major parts - a motion protocol defining functions
+for moving point in terms of units, and an editing protocol for changing
+the buffer in terms of units. Both use a similar interface and a general
+mechanism for specifying the action to take if the intended operation
+cannot be carried out.
+
+Note that @cl{forward-object} and @cl{backward-object}, by virtue of
+their low-level status and placement in the buffer protocol (see
+buffer.lisp) do not obey this protocol, in that they have no syntax
+argument. Therefore, all @cl{@var{frob}-object} functions and commands
+(@pxref{Editing Protocol}) lack this argument as well. There are no
+@cl{forward-one-object} or @cl{backward-one-object} functions.
+
+@menu
+* Motors And Limit Actions::    
+* Motion Protocol::             
+* Editing Protocol::            
+* Generator Macros::            
+@end menu
+
+@node Motors And Limit Actions
+@subsection Motors And Limit Actions
+
+A limit action is a function usually named
+@cl{@var{mumble}-limit-action} of the signature @cl{(@var{mark}
+@var{original-offset} @var{remaining-units} @var{unit} @var{syntax})}
+that is called whenever a general motion function cannot complete the
+motion. @var{Mark} is the mark the object in motion;
+@var{original-offset} is the original offset of the mark, before any
+motion; @var{remaining-units} is the number of units left until the
+motion would be complete; @var{unit} is a string naming the unit; and
+@var{syntax} is the syntax instance passed to the motion function. There
+is a number of predefined limit actions:
+@cindex limit action
+
+@include fun-drei-motion-beep-limit-action.texi
+
+@include fun-drei-motion-revert-limit-action.texi
+
+@include condition-drei-motion-motion-limit-error.texi
+
+@include fun-drei-motion-error-limit-action.texi
+
+A @i{diligent motor} is a combination of two motion functions that has
+the same signature as a standard motion function (@pxref{Motion
+Protocol}). The primary motion function is called the @i{motor} and the
+secondary motion function is called the @i{fiddler}. When the diligent
+motor is called, it will start by calling its motor - if the motor
+cannot carry out its motion, the fiddler will be called, and if the
+fiddler is capable of performing its motion, the motor will be called
+again, and if this second motor call also fails, the fiddler will be
+called yet again, etc. If at any time the call to the fiddler fails, the
+limit action provided in the call to the diligent motor will be
+activated. A typical diligent motor is the one used to implement a
+@t{Backward Lisp Expression} command - it attempts to move backwards by
+a single expression, and if that fails, it tries to move up a level in
+the expression tree and tries again.
+@cindex limit-action
+
+@include fun-drei-motion-make-diligent-motor.texi
+
+@node Motion Protocol
+@subsection Motion Protocol
+
+The concept of a @i{basic motion function} was introduced in @ref{Unit
+Protocol}. A general motion function is a function named
+@cl{forward-@var{unit}} or @cl{backward-@var{unit}} of the signature
+@cl{(@var{mark} @var{syntax} &optional (@var{count} 1)
+(@var{limit-action} #'ERROR-LIMIT-ACTION))} that returns true if it
+could move forward or backward over the requested number of units,
+@var{count}, which may be positive or negative; and calls the limit
+action if it could not, or returns @cl{NIL} if the limit action is
+@cl{NIL}.
+
+@node Editing Protocol
+@subsection Editing Protocol
+
+An editing function is a function named
+@cl{forward-@var{frob}-@var{unit}} or
+@cl{backward-@var{frob}-@var{unit}}, or just @cl{@var{frob}-@var{unit}}
+in the case where discering between forward and backward commands does
+not make sense (an example is @cl{transpose-@var{unit}}).
+
+A proper unit is a unit for which all the functions required by the
+motion protocol has been implemented, this can be trivially done by
+using the macro @cl{define-motion-commands} (@pxref{Generator Macros}).
+
+@node Generator Macros
+@subsection Generator Macros
+
+@node Redisplay Protocol
+@section Redisplay Protocol
+@cindex Drei redisplay
+@cindex text-editor redisplay
+
+A buffer can be on display in several panes, possibly by being located
+in several Drei instances. Thus, the buffer does not concern itself with
+redisplay, but assumes that whatever is using it will redisplay when
+appropriate. There is no predictable definitive rule for when a Drei
+instance will be redisplayed, but when it is, it will be done by calling
+the following generic function.
+
+@include fun-drei-display-drei.texi
+
+The redisplay engine supports view-specific customization of the display
+in order to facilitate such functionality as syntax highlighting. This
+is done through the following two generic functions, both of which have
+sensible default methods defined by @class{drei-buffer-view} and
+@class{drei-syntax-view}, so if your view is a subclass of either of
+these, you do not need to define them yourself.
+
+@include fun-drei-display-drei-view-contents.texi
+
+@include fun-drei-display-drei-view-cursor.texi
+
+@node Undo Protocol
+@section Undo Protocol
+
+Undo is the facility by which previous modifications to the buffer can
+be undone, returning the buffer state to what it was prior to some
+modification.
+
+Undo is organized into a separate module.  This module conceptually
+maintains a tree where the nodes represent application states and the
+arcs represent transitions between these states.  The root of the tree
+represents the initial state of the application.  The undo module also
+maintains a current state.  During normal application operation, the
+current state is a leaf of a fairly long branch of the tree.  Normal
+application operations add new nodes to the end of this branch.  Moving
+the current state up the tree corresponds to an undo operation and
+moving it down some branch corresponds to some redo operation.
+
+Arcs in the tree are ordered so that they always point FROM the current
+state.  When the current state moves from one state to the other, the
+arc it traversed is reversed.  The undo module does this by calling a
+generic function that client code must supply a method for.
+
+@menu
+* Protocol Specification::      
+* Implementation::              
+* How The Buffer Handles Undo::  
+@end menu
+
+@node Protocol Specification
+@subsection Protocol Specification
+
+@include condition-drei-undo-no-more-undo.texi
+
+@include class-drei-undo-undo-tree.texi
+
+@include class-drei-undo-undo-record.texi
+
+@include class-drei-undo-standard-undo-record.texi
+
+@include fun-drei-undo-add-undo.texi
+
+@include fun-drei-undo-flip-undo-record.texi
+
+@include fun-drei-undo-undo.texi
+
+@include fun-drei-undo-redo.texi
+
+@node Implementation
+@subsection Implementation
+
+Application states have no explicit representation, only undo records
+do.  The current state is a pointer to an undo record (meaning, the
+current state is BELOW the transition represented by the record) or to
+the undo tree itself if the current state is the initial state of the
+application.
+
+@node How The Buffer Handles Undo
+@subsection How The Buffer Handles Undo
+
+@include class-drei-undo-mixin.texi
+
+@include fun-drei-undo-tree.texi
+
+Undo is implemented as :before methods on, insert-buffer-object,
+insert-buffer-sequence and delete-buffer-range specialized on
+undo-mixin.
+
+@include fun-drei-undo-accumulate.texi
+
+@include fun-drei-performing-undo.texi
+
+Three subclasses @cl{insert-record}, @cl{delete-record}, and
+@cl{compound-record} of undo-record are used.  An insert record stores a
+position and some sequence of objects to be inserted, a delete record
+stores a position and the length of the sequence to be deleted, and a
+compound record stores a list of other undo records.
+
+The :before methods on @cl{insert-buffer-object} and
+@cl{insert-buffer-sequence} push a record of type delete-record onto the
+undo accumulator for the buffer, and the :before method on
+@cl{delete-buffer-range} pushes a record of type @cl{insert-record} onto
+the undo accumulator.
+
+@include macro-drei-with-undo.texi
+
+To avoid storing an undo record for each object that is inserted,
+the with-undo macro may in some cases just increment the length of
+the sequence in the last delete-record.
+
+The method on @cl{flip-undo-record} specialized on @cl{insert-record}
+binds @cl{performing-undo} for the buffer to @cl{T}, inserts the
+sequence of objects in the buffer, and calls @cl{change-class} to
+convert the @cl{insert-record} to a @cl{delete-record}, giving it a the
+length of the stored sequence.
+
+The method on @cl{flip-undo-record} specialized on @cl{delete-record}
+binds @cl{performing-undo} for the buffer to @cl{T}, deletes the range
+from the buffer, and calls @cl{change-class} to convert the
+@cl{delete-record} to an @cl{insert-record}, giving it the sequence at
+the stored offset in the buffer with the specified length.
+
+The method on @cl{flip-undo-record} specialized on @cl{compound-record}
+binds @cl{performing-undo} for the buffer to @cl{T}, recursively calls
+@cl{flip-undo-record} on each element of the list of undo records, and
+finally destructively reverses the list.
+
+@include class-drei-drei-undo-record.texi
+
+@include class-drei-simple-undo-record.texi
+
+@include class-drei-insert-record.texi
+
+@include class-drei-delete-record.texi
+
+@include class-drei-compound-record.texi
+
+@node Kill Ring Protocol
+@section Kill Ring Protocol
+
+During the process of text editing it may become necessary for regions
+of text to be manipulated non-sequentially.  The kill ring and its
+surrounding protocol offers both a temporary location for data to be
+stored, as well as methods for stored data to be accessed.
+
+Conceptually, the kill ring is a stack of bounded depth, so that when
+elements are pushed beyond that depth, the oldest element is removed.
+All newly added data is attached to a single point at the ``start of
+ring position'' or SORP.
+
+This protocol provides two methods which govern how data is to be
+attached to the SORP.  The first method moves the current SORP to a new
+position, on to which a new object is attached.  The second conserves
+the current position and replaces its contents with a sequence
+constructed of new and pre-existing SORP objects.  This latter method is
+refered to as a ``concatenating push''.
+
+For data retrievial the kill ring class provides a ``yank point'' which
+allows focus to be shifted from the SORP to other positions within the
+kill ring.  The yank point is limited to two types of motition, one
+being a rotation away from the SORP and the other being an immediate
+return or ``reset'' to the start position. When the kill ring is
+modified, for example by a push, the yank point will be reset to the
+start position.
+
+@menu
+* Kill Ring Protocol Specification::  
+* Kill Ring Implementation::    
+@end menu
+
+@node Kill Ring Protocol Specification
+@subsection Kill Ring Protocol Specification
+
+@include class-drei-kill-ring-kill-ring.texi
+
+@include fun-drei-kill-ring-kill-ring-max-size.texi
+
+@include fun-drei-kill-ring-kill-ring-length.texi
+
+@include fun-drei-kill-ring-kill-ring-standard-push.texi
+
+@include fun-drei-kill-ring-kill-ring-concatenating-push.texi
+
+@include fun-drei-kill-ring-kill-ring-reverse-concatenating-push.texi
+
+@include fun-drei-kill-ring-rotate-yank-position.texi
+
+@include fun-drei-kill-ring-reset-yank-position.texi
+
+@include fun-drei-kill-ring-kill-ring-yank.texi
+
+@node Kill Ring Implementation
+@subsection Kill Ring Implementation
+
+The kill ring structure is built mainly of two parts: the stack like
+ring portion, which is a cursorchain, and the yank point, which is a
+left-sticky-flexicursor.  To initialize a kill ring, the :max-size slot
+initarg is simply used to set the max size.  The remaining slots
+constisting of the cursorchain and the left-sticky-flexicursor are
+instantized upon creation of the kill ring.
+
+Stored onto the cursorchain are simple-vectors of objects, mainly
+characters from a Drei buffer.  In order to facilitate this, the kill
+ring implementation borrows heavily from the flexichain library of
+functions. The following functions lie outside the kill ring and
+flexichain protocols, but are pertinent to the kill ring implementation.
+
+@include fun-drei-kill-ring-kill-ring-chain.texi
+
+@include fun-drei-kill-ring-kill-ring-cursor.texi
+
+@node Defining Drei Commands
+@chapter Defining Drei Commands
+
+Drei commands are standard CLIM commands that are stored in standard
+CLIM command tables. Drei uses a number of distinct command tables, some
+of which are merely used to group commands by category, and some whose
+contents may only be applicable under specific circumstances. When the
+contents of a command table is applicable, that command table is said to
+be active. Some syntaxes may define specific command tables that will
+only be active for buffers using that syntax. Commands in such tables
+are called syntax-specific commands.
+
+@menu
+* Drei Command Tables::         
+* Numeric Argument In Drei::    
+* Examples Of Defining Drei Commands::  
+* Drei's Syntax Command Table Protocol::  
+@end menu
+
+@node Drei Command Tables
+@section Drei Command Tables
+
+Here is a list of the command tables that are always active, along with
+a note describing what they are used for:
+
+@deftp {Command Table} comment-table
+Commands for dealing with comments in, for example, source code. For
+syntaxes that do not have the concept of a comment, many of the commands
+of this table will not do anything.
+@end deftp
+@deftp {Command Table} deletion-table
+Commands that destructively modify buffer contents.
+@end deftp
+@deftp {Command Table} editing-table
+Commands that transform the buffer contents somehow (such as transposing
+two words).
+@end deftp
+@deftp {Command Table} fill-table
+Commands that fill (wrap) text.
+@end deftp
+@deftp {Command Table} case-table
+Commands that modify the case of characters.
+@end deftp
+@deftp {Command Table} indent-table
+Commands that indent text based on the current syntax.
+@end deftp
+@deftp {Command Table} marking-table
+Commands that deal with managing the mark or nondestructively copying
+buffer contents.
+@end deftp
+@deftp {Command Table} movement-table
+Commands that move point.
+@end deftp
+@deftp {Command Table} search-table
+Commands that can search the buffer.
+@end deftp
+@deftp {Command Table} info-table
+Commands that display information about the state of the buffer.
+@end deftp
+@deftp {Command Table} self-insert-table
+Commands that insert the gesture used to invoke them into the
+buffer. You probably won't need to add commands to this table.
+@end deftp
+@deftp {Command Table} editor-table
+A command table that inherits from the previously mentioned tables (plus
+some more). This command table is the ``basic'' table for accessing Drei
+commands, and is a good place to put your own user-defined commands if
+they do not fit in another table.
+@end deftp
+
+There are also two conditionally-active command tables:
+
+@deftp {Command Table} exclusive-gadget-table
+This command table is only active in the gadget version of Drei.
+@end deftp
+@deftp {Command Table} exclusive-input-editor-table
+This command table is only active when Drei is used as an input-editor.
+@end deftp
+
+When you define keybindings for your commands, you should put the
+keybindings in the same command table as the command itself.
+
+@node Numeric Argument In Drei
+@section Numeric Argument In Drei
+@cindex numeric argument
+
+The numeric argument state is currently not directly accessible from
+within commands. However, Drei uses ESA's numeric argument processing
+code, Drei commands can thus be provided with numeric arguments in the
+same way as ESA commands can. When using @cl{set-key} to setup
+keybindings, provide the value of @cl{*numeric-argument-marker*} as an
+argument to have the command processing code automatically insert the
+value of the numeric argument whenever the keybinding is invoked. You
+can also use @cl{*numeric-argument-p*} to have a boolean value, stating
+whether or not a numeric argument has been provided by the user,
+inserted. Note that you must write your commands to accept arguments
+before you can do this (@pxref{Examples Of Defining Drei Commands}).
+
+@node Examples Of Defining Drei Commands
+@section Examples Of Defining Drei Commands
+@cindex Drei command defining
+@cindex defining Drei commands
+
+A common text editing task is to repeat the word at point, but for some
+reason, Drei does not come with a command to do this, so we need to
+write our own. Fortunately, Drei is extensible software, and to that
+end, a @package{DREI-USER} package is provided that is intended for user
+customizations. We're going to create a standard CLIM command named
+@cl{com-repeat-word} in the command table @cl{editing-table}. The
+implementation consists of cloning the current point, move it a word
+backward, and insert into the buffer the sequence delimited by point and
+our moved mark. Our command takes no arguments.
+
+@lisp
+(define-command (com-repeat-word :name t
+                                 :command-table editing-table)
+    ()
+  (let ((mark (clone-mark (point)))
+    (backward-word mark (current-syntax 1)
+    (insert-sequence mark (region-to-sequence mark (point))))
+@end lisp
+
+For @cl{(point)} and @cl{(current-syntax)}, see @ref{Access Functions}.
+
+This command facilitates the single repeat of a word, but that's
+it. This is not very useful - instead, we would like a command that
+could repeat a word an arbitrary (user-supplied) number of times. The
+primary way for a CLIM command to ask for user-supplied values is to use
+command arguments. We define a new command that takes an integer
+argument specifying the number of times to repeat the word at point.
+
+@lisp
+(define-command (com-repeat-word :name t
+                                 :command-table editing-table)
+    ((count 'integer :prompt "Number of repeats"))
+  (let ((mark (clone-mark (point)))
+    (backward-word mark (current-syntax 1)
+    (let ((word (region-to-sequence mark (point)))
+      (dotimes (i count)
+        (insert-sequence mark word)))))
+@end lisp
+
+Great - our command is now pretty full-featured. But with an editing
+operation as common as this, we really want it to be quickly accessible
+via some intuitive keystroke. We choose @kbd{M-C-r}. Also, it'd be nice
+if, instead of interactively quering us for commands, the command would
+just use the value of the numeric argument as the number of times to
+repeat. There's no way to do this with a named command (ie. when you run
+the command with @kbd{M-x}), but it's quite easy to do in a
+keybinding. We use the ESA @cl{set-key} function:
+
+@lisp
+(set-key `(com-repeat-word ,*numeric-argument-marker*)
+         'editing-table
+         '((#\r :control :meta)))
+@end lisp
+
+Now, pressing @kbd{M-C-r} will result in the @cl{com-repeat-word}
+command being run with the first argument substituted for the value of
+the numeric argument. Since the numeric argument will be 1 if nothing
+else has been specified by the user, we are guaranteed that the first
+argument is always an integer, and we are guaranteed that the
+@var{count} argument will have a sensible default, even if the user does
+not explicitly provide a numeric argument.
+
+@node Drei's Syntax Command Table Protocol
+@section Drei's Syntax Command Table Protocol
+@cindex syntax command table
+
+In order to provide conditionally active command tables, Drei defines
+the @class{syntax-command-table} class. While this class is meant to
+facilitate the addition of commands to syntaxes when they are run in a
+specific context (for example, a large editor application adding a
+@command{Show Macroexpansion} command to Lisp syntax), their modus
+operandi is general enough to be used for all conditional activity of
+command tables. This is useful for making commands available that
+could not be generally implemented for all Drei instances ---
+returning to the @command{Show Macroexpansion} example, such a command
+can only be implemented if there is a sufficiently large place to show
+the expansion, and this might not be available for a generic Drei
+input-editor instance, but could be provided by an application
+designed for it.
+
+Syntax command tables work by conditionally inheriting from other
+command tables, so it is necessary to define one (or more) command
+tables for the commands you wish to make conditionally available.
+
+When providing a @var{:command-table} argument to
+@fmacro{define-syntax} that names a syntax command table, an instance
+of the syntax command table will be used for the syntax.
+
+@include class-drei-syntax-syntax-command-table.texi
+
+@include fun-drei-syntax-additional-command-tables.texi
+
+@include macro-drei-syntax-define-syntax-command-table.texi
+
+@node Concept Index
+@unnumbered Concept Index
+
+@printindex cp
+
+@node Variable Index
+@unnumbered Variable Index
+
+@printindex vr
+
+@node Function And Macro Index
+@unnumbered Function And Macro Index
+
+@printindex fn
+
+@bye

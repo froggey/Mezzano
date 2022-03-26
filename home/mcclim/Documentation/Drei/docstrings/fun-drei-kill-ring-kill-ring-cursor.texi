@@ -1,0 +1,6 @@
+@anchor{Generic-Function drei-kill-ring:kill-ring-cursor}
+@deffn {Generic Function} {drei-kill-ring:kill-ring-cursor} ring
+@findex drei-kill-ring:kill-ring-cursor
+Return the flexicursor associated with the
+kill ring.
+@end deffn

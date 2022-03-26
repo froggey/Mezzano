@@ -1,0 +1,246 @@
+This file contains the logs of the mail conversations between various
+copyright holders in "A guided tour of CLIM" published in ACM Lisp
+Pointers 1991. Its purpose is to document that we got permission for
+reusing the original authors' work.
+
+========================================================================
+From: Clemens Fruhwirth <clemens@endorphin.org>
+To: rao@inxight.com
+Subject: CLIM a guided tour
+X-Mailer: MH-E 7.84; nmh 1.1; XEmacs 21.5  (beta22)
+Date: Sun, 27 Nov 2005 18:27:28 +0100
+
+Hello!
+
+I hope I got the correct "Ramona Rao", that is, the one that has
+co-authored "A Guided Tour of CLIM". McCLIM is an effort to provide a
+free CLIM environment for recent CL implementations like SBCL, CMUCL,
+et al. The community hasn't come up with a useful and short
+documentation like your tour to introduce users to
+CLIM. Unfortunately, CLIM has changed and the examples included in the
+article don't run anymore.
+
+I would like to update this article to produce a tutorial for the McCLIM
+community. Given the age of the article I presume that the interest in
+commercial exploitation has also faded. Therefore, I would like to ask,
+if it's possible to obtain any TeX source for this article. If the
+source got lost, I could also extract the text and reformat it. Of
+course, I would need your permission for these actions. Also, I'm not
+sure if that's ok for ACM. Is any of that possible?
+
+Thanks in advance!
+
+P.S.: I found your article here http://lemonodor.com/archives/000765.html
+--
+Fruhwirth Clemens - http://clemens.endorphin.org
+for robots: sp4mtrap@endorphin.org
+
+From: Clemens Fruhwirth <clemens@endorphin.org>
+To: dennis.doughty@pantero.com
+Subject: A guided tour of CLIM - permission for 2005 update
+X-Mailer: MH-E 7.84; nmh 1.1; XEmacs 21.5  (beta22)
+Date: Thu, 08 Dec 2005 11:03:07 +0100
+
+Hello Mr. Doughty,
+
+Together with Ramana Rao and Bill York, you have authored the article "A
+guided tour of CLIM" for ACM in 1991. CLIM has changed much since 1991,
+especially with the release of the CLIM 2 specification.
+
+The CLIM community lacks a good and short introduction to CLIM like your
+article was. I would like to update the examples in your article and
+also rewrite parts of the article that doesn't apply to the new
+CLIM. Assuming your permission for this action, I intend to publish this
+update on my webpage to aid the CLIM community.
+
+Ramano Rao as well as Bill York give me permission for this update. ACM
+also acknowledged this step. Now, I would like to ask, if this is ok
+with you.
+
+Thank you,
+Clemens
+
+P.S. Here are the mails from Ramana Rao, ACM and Bill York:
+
+Subject: RE: CLIM a guided tour
+Date: Mon, 28 Nov 2005 12:47:05 -0800
+From: "Ramana Rao" <rao@inxight.com>
+To: "Clemens Fruhwirth" <clemens@endorphin.org>
+Cc: "Bill York" <york@comergent.com>
+
+Clemens,
+Unfortunately, I don't seem to be able to get my hands on the original
+tex source for that article.  I happily give you permission to adapt the
+text as supports the CLIM community.  I've really been out of touch and
+would be curious to hear any highlights of what's happening there.
+
+Meanwhile, Bill York may be able to put his hands on the tex source.
+
+Thanks,
+Ramana
+
+Subject: RE: CLIM a guided tour
+Date: Thu, 1 Dec 2005 14:31:21 -0600
+From: "Bill York" <york@comergent.com>
+To: "Clemens Fruhwirth" <clemens@endorphin.org>
+Cc: "Ramana Rao" <rao@inxight.com>
+
+I don't seem to have the source file. Good luck in your efforts.
+
+From: Deborah Cotton <cotton@hq.acm.org>
+To: 'Clemens Fruhwirth' <clemens@endorphin.org>
+Cc: permissions@acm.org
+Subject: RE: Update to http://portal.acm.org/citation.cfm?id=121996
+Date: Wed, 7 Dec 2005 14:56:15 -0500
+X-Mailer: Internet Mail Service (5.5.2657.72)
+
+Dear Mr. Fruhwirth,
+
+Thank you for your inquiry, and interest in ACM publications.
+
+Because the article in question appeared in a SIG newsletter, rather than a
+journal or conference proceedings, the authors retained copyright. In
+this case, ACM only requires acknowledgment of the original publication.
+
+You have received permission from two of the three authors, but you
+should also pursue the third author's permission, especially since you
+have revised the original work.
+
+Let me know if you have any further questions.
+
+Best regards,
+
+Deborah Cotton
+Copyright & Permissions
+ACM Publications
+212.869.7440 ext. 652
+212.869.0481 fax
+permissions@acm.org
+
+--
+Fruhwirth Clemens - http://clemens.endorphin.org
+for robots: sp4mtrap@endorphin.org
+
+From: Robert Strandh <strandh@labri.fr>
+Message-ID: <17326.56044.483289.241972@serveur5.labri.fr>
+Date: Sun, 25 Dec 2005 18:46:20 +0100
+To: clemens@endorphin.org
+Subject: forwarded message from Dennis Doughty
+
+--U9PbTyCujO
+Content-Type: text/plain; charset=us-ascii
+Content-Description: message body text
+Content-Transfer-Encoding: 7bit
+
+We got the permission!
+
+
+--U9PbTyCujO
+Content-Type: message/rfc822
+Content-Description: forwarded message
+Content-Transfer-Encoding: 7bit
+
+Return-Path: <doughty@alum.mit.edu>
+Received: from iona.labri.fr ([unix socket])
+	 by iona.labri.fr (Cyrus v2.2.12) with LMTPA;
+	 Sun, 25 Dec 2005 13:06:08 +0100
+X-Sieve: CMU Sieve 2.2
+Received: from localhost (guismo.drimm.u-bordeaux1.fr [147.210.36.243])
+	by iona.labri.fr (Postfix) with ESMTP id 59080101767
+	for <strandh@labri.fr>; Sun, 25 Dec 2005 13:06:08 +0100 (CET)
+Received: from iona.labri.fr ([147.210.8.143])
+ by localhost (guismo.drimm.u-bordeaux1.fr [147.210.36.243]) (amavisd-new, port 10024)
+ with LMTP id 30892-06-2 for <strandh@labri.fr>;
+ Sun, 25 Dec 2005 13:06:08 +0100 (CET)
+X-policyd-weight: using cached result; rate: -3.41
+X-Greylist: delayed 903 seconds by postgrey-1.23 at iona.labri.fr; Sun, 25 Dec 2005 13:06:07 CET
+Received: from s-utl01-dcpop.stsn.net (s-utl01-dcpop.stsn.net [72.255.0.201])
+	by iona.labri.fr (Postfix) with SMTP id DC7BC101765
+	for <strandh@labri.fr>; Sun, 25 Dec 2005 13:06:07 +0100 (CET)
+Received: from s-utl01-dcpop.stsn.net ([127.0.0.1])
+ by s-utl01-dcpop.stsn.net (SMSSMTP 4.1.2.20) with SMTP id M2005122506505622450
+ for <strandh@labri.fr>; Sun, 25 Dec 2005 06:50:56 -0500
+Received: from [10.57.103.119] ([10.57.103.119])
+	by s-utl01-dcpop.stsn.net
+	for strandh@labri.fr;
+	Sun, 25 Dec 2005 06:50:55 -0500
+Message-ID: <43AE87A9.8050908@alum.mit.edu>
+User-Agent: Mozilla Thunderbird 1.0.2 (Windows/20050317)
+X-Accept-Language: en-us, en
+MIME-Version: 1.0
+References: <AAFDB8BBFB0D1D47BC52CB46BA499B3E154E0E@hqexch1.cmgt.corp>
+In-Reply-To: <AAFDB8BBFB0D1D47BC52CB46BA499B3E154E0E@hqexch1.cmgt.corp>
+Content-Type: text/plain; charset=ISO-8859-1; format=flowed
+X-Virus-Scanned: amavisd-new at u-bordeaux1.fr
+From: Dennis Doughty <doughty@alum.mit.edu>
+To:  strandh@labri.fr
+Subject: Re: permission to update your CLIM article
+Date: Sun, 25 Dec 2005 06:51:05 -0500
+
+Hi Robert,
+
+Sorry for the delay in getting back to you.  I'm no longer
+at Pantero and it's only a coincidence that I ended up seeing
+this email.
+
+Absolutely you may have my permission to update the article.
+
+Dennis Doughty
+
+> From: *Robert Strandh* <strandh@labri.fr <mailto:strandh@labri.fr>>
+> Date: Dec 17, 2005 4:37 PM
+> Subject: permission to update your CLIM article
+> To: dennis.doughty@pantero.com <mailto:dennis.doughty@pantero.com>
+>
+> Dear Dennis Doughty,
+>
+> I am one of the original authors of McCLIM, the free implementation of
+> CLIM that we started writing in 2000 and which is now quite usable.
+> One of the things we lack at the moment to spread the use of CLIM is a
+> collection of simple examples on typical usage.  Your CLIM article has
+> some very good ones, but it was apparently written for CLIM 1, and the
+> examples do not necessarily run unmodified on a CLIM 2
+> implementation.
+>
+> Clemens Fruhwirth has suggested updating the examples of your article,
+> but for that, he needs the permission of all the authors.  He has
+> already obtained the permission from your co-authors, so we need a
+> permission from you as well in order to go ahead.  Clemens would
+> naturally accept a refusal on your part, and is willing to write a
+> similar article from scratch, updated for CLIM 2, but that would be
+> unnecessary work, should you agree to let him update yours.
+>
+> We therefore kindly ask for your permission to update the article, or
+> at least a clear message indicating that you do not give us such a
+> permission.  I am sure you are very busy like the rest of us, but I
+> would very much appreciate this effort on your part.
+>
+> Thanks in advance,
+> --
+> Robert Strandh
+>
+> ---------------------------------------------------------------------
+> Greenspun's Tenth Rule of Programming: any sufficiently complicated C
+> or Fortran program contains an ad hoc informally-specified bug-ridden
+> slow implementation of half of Common Lisp.
+> ---------------------------------------------------------------------
+>
+
+
+--U9PbTyCujO
+Content-Type: text/plain; charset=us-ascii
+Content-Description: .signature
+Content-Transfer-Encoding: 7bit
+
+
+--
+Robert Strandh
+
+---------------------------------------------------------------------
+Greenspun's Tenth Rule of Programming: any sufficiently complicated C
+or Fortran program contains an ad hoc informally-specified bug-ridden
+slow implementation of half of Common Lisp.
+---------------------------------------------------------------------
+
+--U9PbTyCujO--
+\

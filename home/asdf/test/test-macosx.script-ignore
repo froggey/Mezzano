@@ -1,0 +1,9 @@
+;;; -*- mode: common-lisp; -*-
+
+;;;---------------------------------------------------------------------------
+;;; Run this on a Mac OS X machine to make sure that the OS flags are correct.
+;;;---------------------------------------------------------------------------
+
+(assert (uiop:os-macosx-p))
+(assert (uiop:os-unix-p))
+

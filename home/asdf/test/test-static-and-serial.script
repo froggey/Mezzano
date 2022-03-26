@@ -1,0 +1,49 @@
+;;; -*- Lisp -*-
+#|
+make sure that serial t and static-files
+don't cause full rebuilds all the time...
+|#
+
+(in-package :asdf-test)
+
+(setf asdf::*asdf-session* (make-instance asdf::*asdf-session-class*))
+
+(defparameter s
+  '(def-test-system static-and-serial
+    :version "0.1"
+    :serial t
+    :components
+    ((:static-file "file2.lisp")
+     (:static-file "run-tests.sh")
+     (:file "file1"))))
+(eval s)
+(load-test-system 'static-and-serial)
+
+(defparameter file1.lisp (component-pathname (find-component 'static-and-serial "file1")))
+(defparameter file2.lisp (component-pathname (find-component 'static-and-serial "file2.lisp")))
+(defparameter run-tests.sh (component-pathname (find-component 'static-and-serial "run-tests.sh")))
+(defparameter file1.fasl (first (output-files 'compile-op '(static-and-serial "file1"))))
+(assert-pathname-equal file1.lisp (test-source "file1.lisp")) ;; differ on LispWorks. Sigh.
+(assert-pathname-equal file2.lisp (test-source "file2.lisp"))
+(assert-pathname-equal run-tests.sh (test-source "run-tests.sh"))
+(assert-pathname-equal file1.fasl (test-fasl "file1")) ;; differ on CCL. Sigh.
+(defparameter file1-date (get-file-stamp file1.fasl))
+(defparameter date1 (- file1-date 600))
+(defparameter date2 (- file1-date 300))
+(defparameter date3 (- file1-date 150))
+
+(assert file1-date)
+(assert (asymval :*file1* :test-package))
+(format t "file: ~S~%date: ~S~%" file1.fasl file1-date)
+
+;; date should stay same
+(clear-system 'static-and-serial)
+(delete-package :test-package)
+(eval s)
+(touch-file file2.lisp :timestamp date1)
+(touch-file run-tests.sh :timestamp date1)
+(touch-file file1.lisp :timestamp date2)
+(touch-file file1.fasl :timestamp date3)
+(DBG "load again" (oos 'load-op 'static-and-serial))
+(assert (asymval :*file1* :test-package))
+(assert-equal (get-file-stamp file1.fasl) date3)

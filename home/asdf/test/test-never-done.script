@@ -1,0 +1,23 @@
+;;; -*- mode: common-lisp; -*-
+
+(DBG "Verify that system loads correctly at first.")
+(load-system "test-operation-done-p")
+(assert (find-package :test-package))
+(assert (and (symbol-value (find-symbol* '*file1* :test-package))
+             (symbol-value (find-symbol* '*file2* :test-package))))
+(assert-equal (symbol-value (find-symbol* '*f2c* :test-package)) 1)
+
+(DBG "System successfully loaded: modifying defined variables")
+(setf (symbol-value (find-symbol* '*file1* :test-package)) nil)
+(setf (symbol-value (find-symbol* '*file2* :test-package)) nil)
+(setf (symbol-value (find-symbol* '*f2c* :test-package)) 0)
+(assert (not (or (symbol-value (find-symbol* '*file1* :test-package))
+                 (symbol-value (find-symbol* '*file2* :test-package)))))
+(assert-equal (symbol-value (find-symbol* '*f2c* :test-package)) 0)
+
+(DBG "Reloading system")
+(load-system "test-operation-done-p")
+(assert (and (symbol-value (find-symbol* '*file1* :test-package))
+             (symbol-value (find-symbol* '*file2* :test-package))))
+(assert-equal (symbol-value (find-symbol* '*f2c* :test-package)) 1)
+(DBG "Reloading system re-established values")

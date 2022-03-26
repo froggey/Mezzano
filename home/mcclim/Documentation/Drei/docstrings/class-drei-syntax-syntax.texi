@@ -1,0 +1,20 @@
+@anchor{Class drei-syntax:syntax}
+@deftp {Class} {drei-syntax:syntax}
+@tindex drei-syntax:syntax
+Class precedence list: @code{@w{syntax}, @w{name-mixin}, @w{observable-mixin}, @w{standard-object}, @w{slot-object}, @w{t}}
+
+Slots:
+@itemize
+@item @code{%updater-fns} --- initargs: @code{@w{:updater-fns}}
+
+A list of functions that are
+called whenever a syntax function needs up-to-date syntax
+information. @code{update-syntax} is never called directly by syntax
+commands. Each function should take two arguments, integer
+offsets into the buffer of the syntax delimiting the region that
+must have an up-to-date parse. These arguments should be passed
+on to a call to @code{update-syntax}.
+@end itemize
+
+The base class for all syntaxes.
+@end deftp

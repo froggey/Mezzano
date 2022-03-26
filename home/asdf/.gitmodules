@@ -1,0 +1,39 @@
+[submodule "ext/fare-utils"]
+	path = ext/fare-utils
+	url = https://gitlab.common-lisp.net/frideau/fare-utils.git
+[submodule "ext/fare-quasiquote"]
+	path = ext/fare-quasiquote
+	url = https://gitlab.common-lisp.net/frideau/fare-quasiquote.git
+[submodule "ext/fare-mop"]
+	path = ext/fare-mop
+	url = https://gitlab.common-lisp.net/frideau/fare-mop.git
+[submodule "ext/closer-closer-mop"]
+	path = ext/closer-closer-mop
+	url = https://github.com/pcostanza/closer-mop.git
+[submodule "ext/alexandria"]
+	path = ext/alexandria
+	url = https://gitlab.common-lisp.net/alexandria/alexandria.git
+[submodule "ext/optima"]
+	path = ext/optima
+	url = https://github.com/m2ym/optima.git
+[submodule "ext/named-readtables"]
+	path = ext/named-readtables
+	url = https://github.com/melisgl/named-readtables.git
+[submodule "ext/inferior-shell"]
+	path = ext/inferior-shell
+	url = https://gitlab.common-lisp.net/qitab/inferior-shell.git
+[submodule "ext/lisp-invocation"]
+	path = ext/lisp-invocation
+	url = https://gitlab.common-lisp.net/qitab/lisp-invocation.git
+[submodule "ext/cl-ppcre"]
+	path = ext/cl-ppcre
+	url = https://github.com/edicl/cl-ppcre
+[submodule "ext/asdf-encodings"]
+	path = ext/asdf-encodings
+	url = https://gitlab.common-lisp.net/asdf/asdf-encodings.git
+[submodule "ext/cl-scripting"]
+	path = ext/cl-scripting
+	url = https://github.com/fare/cl-scripting.git
+[submodule "ext/cl-launch"]
+	path = ext/cl-launch
+	url = https://gitlab.common-lisp.net/xcvb/cl-launch.git

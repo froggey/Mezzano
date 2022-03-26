@@ -1,0 +1,44 @@
+language: lisp
+
+env:
+  matrix:
+    - LISP=allegro
+    - LISP=ccl
+    - LISP=ccl32
+    - LISP=sbcl
+    - LISP=sbcl32
+    - LISP=abcl
+    - LISP=cmucl
+    - LISP=ecl
+
+matrix:
+  allow_failures:
+    - env: LISP=abcl
+    - env: LISP=cmucl
+    - env: LISP=ecl
+
+notifications:
+  email:
+    on_success: change
+    on_failure: always
+  irc:
+    channels:
+      - "chat.freenode.net#iolib"
+    on_success: change
+    on_failure: always
+    use_notice: true
+    skip_join: true
+
+install:
+  - curl -L https://github.com/sionescu/cl-travis/raw/master/install.sh | sh
+  - cl -e "(cl:in-package :cl-user)
+           (dolist (p '(:fiveam))
+             (ql:quickload p :verbose t))"
+
+script:
+  - cl -e "(cl:in-package :cl-user)
+           (prin1 (lisp-implementation-type)) (terpri) (prin1 (lisp-implementation-version)) (terpri)
+           (ql:quickload :bordeaux-threads/test :verbose t)
+           (uiop:quit (if (some (lambda (x) (typep x '5am::test-failure))
+                                (5am:run :bordeaux-threads))
+                          1 0))"

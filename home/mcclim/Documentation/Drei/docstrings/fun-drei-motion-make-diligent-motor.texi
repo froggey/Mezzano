@@ -1,0 +1,7 @@
+@anchor{Function drei-motion:make-diligent-motor}
+@deffn {Function} {drei-motion:make-diligent-motor} motor fiddler
+@findex drei-motion:make-diligent-motor
+Create and return a diligent motor with a default limit action
+of @code{beep-limit-action}. @code{motor} and @code{fiddler} will take turns
+being called until either @code{motor} succeeds or @code{fiddler} fails.
+@end deffn

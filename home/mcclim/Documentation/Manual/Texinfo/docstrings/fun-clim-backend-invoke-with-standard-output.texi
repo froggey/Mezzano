@@ -1,0 +1,5 @@
+@anchor{Generic-Function clim-backend:invoke-with-standard-output}
+@deffn {Generic Function} {@symbol{invoke-with-standard-output,clim-backend}} continuation destination
+Call @var{continuation} (with no arguments) with @cl{*standard-output*}
+rebound according to @var{destination}.
+@end deffn

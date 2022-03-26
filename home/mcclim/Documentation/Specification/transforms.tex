@@ -1,0 +1,432 @@
+% -*- Mode: LaTeX; Package: CLIM-USER -*-
+
+\chapter {Affine Transformations}
+\label {transforms}
+
+An \concept{affine transformation} is a mapping from one coordinate system onto
+another that preserves straight lines.  In other words, if you take a number of
+points that fall on a straight line and apply an affine transformation to their
+coordinates, the transformed coordinates will describe a straight line in the
+new coordinate system.  General affine transformations include all the sorts of
+transformations that CLIM uses, namely, translations, scaling, rotations, and
+reflections.
+
+
+\section {Transformations}
+
+\Defprotoclass {transformation}
+
+The protocol class of all transformations.  There are one or more subclasses of
+\cl{transformation} with implementation-dependent names that implement
+transformations.  The exact names of these classes is explicitly unspecified.
+\IfYouWantClass {a} {transformation} {transformation}
+
+All of the instantiable transformation classes provided by CLIM are immutable.
+
+\Defpredicate {transformationp} {object}
+
+Returns \term{true} if \arg{object} is a \term{transformation}, otherwise
+returns \term{false}.
+
+\Defconst {+identity-transformation+}
+
+An instance of a transformation that is guaranteed to be an identity
+transformation, that is, the transformation that ``does nothing''.
+
+
+\subsection {Transformation Conditions}
+
+\Deferror {transformation-error}
+
+The class that is the superclass of the following three conditions.  This class
+is a subclass of \cl{error}.
+
+\Deferror {transformation-underspecified}
+
+The error that is signalled when \cl{make-3-point-transformation} is given three
+collinear image points.  This condition will handle the \cl{:points} initarg,
+which is used to supply the points that are in error.
+
+\Deferror {reflection-underspecified}
+
+The error that is signalled when \cl{make-reflection-transformation} is given
+two coincident points.  This condition will handle the \cl{:points} initarg,
+which is used to supply the points that are in error.
+
+\Deferror {singular-transformation}
+
+The error that is signalled when \cl{invert-transformation} is called on a
+singular transformation, that is, a transformation that has no inverse.  This
+condition will handle the \cl{:transformation} initarg, which is used to supply
+the transformation that is singular.
+
+
+\section {Transformation Constructors}
+
+The following transformation constructors do not capture any of their inputs.
+The constructors all create objects that are subclasses of \cl{transformation}.
+
+\Defun {make-translation-transformation} {translation-x translation-y} 
+
+A translation is a transformation that preserves length, angle, and orientation
+of all geometric entities.
+
+\cl{make-translation-transformation} returns a transformation that translates
+all points by \arg{translation-x} in the $x$ direction and \arg{translation-y}
+in the $y$ direction.  \arg{translation-x} and \arg{translation-y} must be real
+numbers.
+
+
+\defun {make-rotation-transformation}  {angle \optional origin}
+\Defun {make-rotation-transformation*} {angle \optional origin-x origin-y}
+
+A rotation is a transformation that preserves length and angles of all geometric
+entities.  Rotations also preserve one point (the origin) and the distance of
+all entities from that point.
+
+\cl{make-rotation-transformation} returns a transformation that rotates all
+points by \arg{angle} (which is a real number indicating an angle in radians)
+around the point \arg{origin}.  If \arg{origin} is supplied it must be a point;
+if not supplied it defaults to $(0,0)$.  \arg{origin-x} and \arg{origin-y} must
+be real numbers, and default to $0$.
+
+\defun {make-scaling-transformation}  {scale-x scale-y \optional origin} 
+\Defun {make-scaling-transformation*} {scale-x scale-y \optional origin-x origin-y} 
+
+There is no single definition of a scaling transformation.  Transformations that
+preserve all angles and multiply all lengths by the same factor (preserving the
+``shape'' of all entities) are certainly scaling transformations.  However,
+scaling is also used to refer to transformations that scale distances in the $x$
+direction by one amount and distances in the $y$ direction by another amount.
+
+\cl{make-scaling-transformation} returns a transformation that multiplies the
+$x$-coordinate distance of every point from \arg{origin} by \arg{scale-x} and
+the $y$-coordinate distance of every point from \arg{origin} by \arg{scale-y}.
+\arg{scale-x} and \arg{scale-y} must be real numbers.  If \arg{origin} is
+supplied it must be a point; if not supplied it defaults to $(0,0)$.
+\arg{origin-x} and \arg{origin-y} must be real numbers, and default to $0$.
+
+
+\defun {make-reflection-transformation}  {point1 point2}
+\Defun {make-reflection-transformation*} {x1 y1 x2 y2}
+
+A reflection is a transformation that preserves lengths and magnitudes of
+angles, but changes the sign (or ``handedness'') of angles.  If you think of the
+drawing plane on a transparent sheet of paper, a reflection is a transformation
+that ``turns the paper over''.
+
+\cl{make-reflection-transformation} returns a transformation that reflects every
+point through the line passing through the \term{points} \arg{point1} and
+\arg{point2} (or through the positions $(x1,y1)$ and $(x2,y2)$ in the case of
+the spread version).
+
+
+\Defun {make-transformation} {mxx mxy myx myy tx ty}
+
+Returns a general transformation whose effect is:
+\begin{eqnarray*}
+  x^\prime =& m_{xx} x + m_{xy} y + t_x \\
+  y^\prime =& m_{yx} x + m_{yy} y + t_y
+\end{eqnarray*}
+where $x$ and $y$ are the coordinates of a point before the transformation and
+$x^\prime$ and $y^\prime$ are the coordinates of the corresponding point after.
+
+All of the arguments to \cl{make-transformation} must be real numbers.
+
+
+\Defun {make-3-point-transformation} {point-1 point-2 point-3 point-1-image point-2-image point-3-image}
+
+Returns a transformation that takes \arg{point-1} into
+\arg{point-1-image}, \arg{point-2} into \arg{point-2-image} and \arg{point-3}
+into \arg{point-3-image}.  Three non-collinear points and their images under the
+transformation are enough to specify any affine transformation.
+
+If \arg{point-1}, \arg{point-2} and \arg{point-3} are collinear, the
+\cl{transformation-underspecified} error will be signalled.  If
+\arg{point-1-image}, \arg{point-2-image} and \arg{point-3-image} are collinear,
+the resulting transformation will be singular (that is, will have no inverse)
+but this is not an error.
+
+
+\Defun {make-3-point-transformation*} {x1 y1 x2 y2 x3 y3 x1-image y1-image x2-image y2-image x3-image y3-image}
+
+Returns a transformation that takes the points at the positions
+(\arg{x1},\arg{y1}) into (\arg{x1-image},\arg{y1-image}), (\arg{x2},\arg{y2})
+into (\arg{x2-image},\arg{y2-image}) and (\arg{x3},\arg{y3}) into
+(\arg{x3-image},\arg{y3-image}).  Three non-collinear points and their images
+under the transformation are enough to specify any affine transformation.
+
+If the positions $(x1,y1)$, $(x2,y2)$ and $(x3,y3)$ are collinear, the
+\cl{transformation-underspecified} error will be signalled.  If
+(\arg{x1-image},\arg{y1-image}), (\arg{x2-image},\arg{y2-image}), and
+(\arg{x3-image},\arg{y3-image}) are collinear, the resulting transformation will
+be singular but this is not an error.
+
+This is the spread version of \cl{make-3-point-transformation}.
+
+
+\section {The Transformation Protocol}
+
+The following subsections describe the transformation protocol.  All classes
+that are subclasses of \cl{transformation} must implement methods for all of
+the generic functions in the following subsections.
+
+
+\subsection {Transformation Predicates}
+
+In all of the functions below, the argument named \arg{transformation} must be a
+transformation.
+
+\Defgeneric {transformation-equal} {transformation1 transformation2} 
+
+Returns \term{true} if the two \term{transformations} \arg{transformation1} and
+\arg{transformation2} have equivalent effects (that is, are mathematically
+equal), otherwise returns \term{false}.
+
+Implementations are encouraged to allow transformations that are not numerically
+equal due to floating-point roundoff errors to be \cl{transformation-equal}.  An
+appropriate level of ``fuzziness'' is \cl{single-float-epsilon}, or some small
+multiple of \cl{single-float-epsilon}.
+
+
+\Defgeneric {identity-transformation-p} {transformation} 
+
+Returns \term{true} if the \term{transformation} \arg{transformation} is equal
+(in the sense of \cl{transformation-equal}) to the identity transformation,
+otherwise returns \term{false}.
+
+\Defgeneric {invertible-transformation-p} {transformation} 
+
+Returns \term{true} if the \term{transformation} \arg{transformation} has an
+inverse, otherwise returns \term{false}.
+
+\Defgeneric {translation-transformation-p} {transformation}
+
+Returns \term{true} if the \term{transformation} \arg{transformation} is a pure
+translation, that is, a transformation such that there are two distance
+components $dx$ and $dy$ and every point $(x,y)$ is moved to $(x+dx,y+dy)$.
+Otherwise, \cl{translation-transformation-p} returns \term{false}.
+
+\Defgeneric {reflection-transformation-p} {transformation}
+
+Returns \term{true} if the \term{transformation} \arg{transformation} inverts
+the ``handedness'' of the coordinate system, otherwise returns \term{false}.
+Note that this is a very inclusive category---transformations are considered
+reflections even if they distort, scale, or skew the coordinate system, as long
+as they invert the handedness.
+
+\Defgeneric {rigid-transformation-p} {transformation}
+
+Returns \term{true} if the \term{transformation} \arg{transformation} transforms
+the coordinate system as a rigid object, that is, as a combination of
+translations, rotations, and pure reflections.  Otherwise, it returns
+\term{false}.
+
+Rigid transformations are the most general category of transformations that
+preserve magnitudes of all lengths and angles.
+
+\Defgeneric {even-scaling-transformation-p} {transformation}
+
+Returns \term{true} if the \term{transformation} \arg{transformation} multiplies
+all $x$ lengths and $y$ lengths by the same magnitude, otherwise returns
+\term{false}.  It does include pure reflections through vertical and horizontal
+lines.
+
+\Defgeneric {scaling-transformation-p} {transformation}
+
+Returns \term{true} if the \term{transformation} \arg{transformation} multiplies
+all $x$ lengths by one magnitude and all $y$ lengths by another magnitude,
+otherwise returns \term{false}.  This category includes even scalings as a
+subset.
+
+\Defgeneric {rectilinear-transformation-p} {transformation}
+
+Returns \term{true} if the \term{transformation} \arg{transformation} will
+always transform any axis-aligned rectangle into another axis-aligned rectangle,
+otherwise returns \term{false}.  This category includes scalings as a subset,
+and also includes 90 degree rotations.
+
+Rectilinear transformations are the most general category of transformations for
+which the bounding rectangle of a transformed object can be found by
+transforming the bounding rectangle of the original object.
+
+\issue {SWM} {Supply this figure.}
+
+\begin{figure}
+\centerline{To be supplied.}
+\caption{The predicates for analyzing the mathematical properties of a transformation.}  
+\end{figure}
+
+
+\subsection {Composition of Transformations}
+
+If we transform from one coordinate system to another, then from the second to a
+third coordinate system, we can regard the resulting transformation as a single
+transformation resulting from \concept{composing} the two component
+transformations.  It is an important and useful property of affine transformations
+that they are closed under composition.  Note that composition is not commutative;
+in general, the result of applying transformation $A$ and then applying
+transformation $B$ is not the same as applying $B$ first, then $A$.
+
+Any arbitrary transformation can be built up by composing a number of simpler
+transformations, but that composition is not unique.
+
+\Defgeneric {compose-transformations} {transformation1 transformation2}
+
+Returns a transformation that is the mathematical composition of its arguments.
+Composition is in right-to-left order, that is, the resulting transformation
+represents the effects of applying the \term{transformation}
+\arg{transformation2} followed by the \term{transformation}
+\arg{transformation1}.
+
+\Defgeneric {invert-transformation} {transformation}
+
+Returns a transformation that is the inverse of the \term{transformation}
+\arg{transformation}.  The result of composing a transformation with its inverse
+is equal to the identity transformation.
+
+If \arg{transformation} is singular, \cl{invert-transformation} will signal the
+\cl{singular-transformation} error, with a named restart that is invoked with a
+transformation and makes \cl{invert-transformation} return that transformation.
+This is to allow a drawing application, for example, to use a generalized
+inverse to transform a region through a singular transformation.
+
+Note that with finite-precision arithmetic there are several low-level
+conditions that might occur during the attempt to invert a singular or ``almost
+singular'' transformation.  (These include computation of a zero determinant,
+floating-point underflow during computation of the determinant, or
+floating-point overflow during subsequent multiplication.)
+\cl{invert-transformation} must signal the \cl{singular-transformation} error
+for all of these cases.
+
+\defun {compose-translation-with-transformation} {transformation dx dy}
+\defun {compose-scaling-with-transformation}     {transformation sx sy \optional origin}
+\Defun {compose-rotation-with-transformation}    {transformation angle \optional origin} 
+
+These functions create a new transformation by composing the
+\term{transformation} \arg{transformation} with a given translation, scaling, or
+rotation, respectively.  The order of composition is that the translation,
+scaling, or rotation ``transformation'' is first, followed by
+\arg{transformation}.
+
+\arg{dx} and \arg{dy} are as for \cl{make-translation-transformation}.
+\arg{sx}, \arg{sy}, and \arg{origin} are as for \cl{make-scaling-transformation}.
+\arg{angle} and \arg{origin} are as for \cl{make-rotation-transformation}.
+
+Note that these functions could be implemented by using the various constructors
+and \cl{compose-transformations}.  They are provided, because it is common to
+build up a transformation as a series of simple transformations.
+
+
+\defun {compose-transformation-with-translation} {transformation dx dy}
+\defun {compose-transformation-with-scaling}     {transformation sx sy \optional origin}
+\Defun {compose-transformation-with-rotation}    {transformation angle \optional origin} 
+
+These functions create a new transformation by composing a given translation,
+scaling, or rotation, respectively, with the \term{transformation}
+\arg{transformation}.  The order of composition is \arg{transformation} is
+first, followed by the translation, scaling, or rotation ``transformation''.
+
+\arg{dx} and \arg{dy} are as for \cl{make-translation-transformation}.
+\arg{sx}, \arg{sy}, and \arg{origin} are as for \cl{make-scaling-transformation}.
+\arg{angle} and \arg{origin} are as for \cl{make-rotation-transformation}.
+
+Note that these functions could be implemented by using the various constructors
+and \cl{compose-transformations}.  They are provided, because it is common to
+build up a transformation as a series of simple transformations.
+
+
+\subsection {Applying Transformations}
+
+Transforming a region applies a coordinate transformation to that region, thus
+moving its position on the drawing plane, rotating it, or scaling it.  Note that
+transforming a region does not side-effect the \arg{region} argument; it is free
+to either create a new region or return an existing (cached) region.
+
+These generic functions must be implemented for all classes of transformations.
+Furthermore, all subclasses of \cl{region} and \cl{design} must implement
+methods for \cl{transform-region} and \cl{untransform-region}.  That is, methods
+for the following generic functions will typically specialize both the
+\arg{transformation} and \term{region} arguments.
+
+Note that, if the extended region classes are not implemented, the following
+functions are not closed, that is, they may return results that are not CLIM
+regions.
+
+
+\Defgeneric {transform-region} {transformation region}
+
+Applies \arg{transformation} to the \term{region} \arg{region}, and returns the
+transformed region.
+
+\Defgeneric {untransform-region} {transformation region}
+
+This is exactly equivalent to \\
+\verb+(transform-region (invert-transformation+ \arg{transformation}\verb+)+
+\arg{region}\verb+)+ .
+
+CLIM provides a default method for \cl{untransform-region} on the
+\cl{transformation} protocol class that does exactly this.
+
+
+\Defgeneric {transform-position} {transformation x y}
+
+Applies the \term{transformation} \arg{transformation} to the point whose
+coordinates are the real numbers \arg{x} and \arg{y}, and returns two values,
+the transformed $x$ coordinate and the transformed $y$ coordinate.
+
+\cl{transform-position} is the spread version of \cl{transform-region} in the
+case where the region is a point.
+
+\Defgeneric {untransform-position} {transformation x y}
+
+This is exactly equivalent to \\
+\verb+(transform-position (invert-transformation+ \arg{transformation}\verb+)+
+\arg{x} \arg{y}\verb+)+ .
+
+CLIM provides a default method for \cl{untransform-position} on the
+\cl{transformation} protocol class that does exactly this.
+
+
+\Defgeneric {transform-distance} {transformation dx dy}
+
+Applies the \term{transformation} \arg{transformation} to the distance
+represented by the real numbers \arg{dx} and \arg{dy}, and returns two values,
+the transformed \arg{dx} and the transformed \arg{dy}.
+
+A distance represents the difference between two points.  It does {\sl not}
+transform like a point.
+
+\Defgeneric {untransform-distance} {transformation dx dy} 
+
+This is exactly equivalent to \\
+\verb+(transform-distance (invert-transformation+ \arg{transformation}\verb+)+
+\arg{dx} \arg{dy}\verb+)+ .
+
+CLIM provides a default method for \cl{untransform-distance} on the
+\cl{transformation} protocol class that does exactly this.
+
+
+\Defgeneric {transform-rectangle*} {transformation x1 y1 x2 y2}
+
+Applies the \term{transformation} \arg{transformation} to the rectangle
+specified by the four coordinate arguments, which are real numbers.  The
+arguments \arg{x1}, \arg{y1}, \arg{x2}, and \arg{y2} are canonicalized in the
+same way as for \cl{make-bounding-rectangle}.  Returns four values that specify
+the minimum and maximum points of the transformed rectangle in the order
+\arg{min-x}, \arg{min-y}, \arg{max-x}, and \arg{max-y}.
+
+It is an error is \arg{transformation} does not satisfy
+\cl{rectilinear-transformation-p}.
+
+\cl{transform-rectangle*} is the spread version of \cl{transform-region} in the
+case where the transformation is rectilinear and the region is a rectangle.
+
+\Defgeneric {untransform-rectangle*} {transformation x1 y1 x2 y2}
+
+This is exactly equivalent to \\
+\verb+(transform-rectangle* (invert-transformation+ \arg{transformation}\verb+)+
+\arg{x1} \arg{y1} \arg{x2} \arg{y2}\verb+)+ .
+
+CLIM provides a default method for \cl{untransform-rectangle*} on the
+\cl{transformation} protocol class that does exactly this.

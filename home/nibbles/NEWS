@@ -1,0 +1,46 @@
+hey emacs, show me an -*- mode: outline -*-
+
+* Version 0.13, released 2017-03-07
+
+** bug fixes
+
+Fixed problems reading elements into lists.
+
+Fixed DEFKNOWN issues on newer SBCL versions.  (Thanks to Kenan Bölükbaşı.)
+
+** new features
+
+Float accessors are now supported on ABCL.  (Thanks to Robert Brown.)
+
+* Version 0.12, released 2014-10-08
+
+** bug fixes
+
+Better support for Allegro CL modern mode.  (Thanks to Markus Flambard.)
+
+More correct code generation for x86-64 SBCL.
+
+** new features
+
+Float accessors are now MAYBE-INLINE on SBCL.  (Thanks to Jan Moringen.)
+
+* Version 0.11, released 2013-01-14
+
+** bug fixes
+
+IEEE-DOUBLE-REF/* now works correctly on CCL.
+
+IEEE-SINGLE-REF/* now works correctly on Allegro.  (Thanks to Richard
+Billington for the bug report.)
+
+** new features
+
+MAKE-OCTET-VECTOR and OCTET-VECTOR convenience functions have been
+added, along with the OCTET, OCTET-VECTOR, and SIMPLE-OCTET-VECTOR
+types.  (Thanks to Jan Moringen.)
+
+Stream readers and writers for floats have been added, analogous to the
+existing functions for integers.  These functionsn are only supported on
+implementations which support the array accessors (SBCL, CCL, CMUCL for
+double-floats; all those including Lispworks and Allegro for
+single-floats).

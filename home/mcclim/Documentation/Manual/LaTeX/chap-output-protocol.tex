@@ -1,0 +1,49 @@
+\chapter{Output Protocol Changes}
+
+\section{Extensions}
+
+\Defgeneric {clim-extensions:line-style-effective-thickness} {line-style medium\\}
+
+Returns the thickness in device units of a line,
+rendered on \textit{medium} with the style \textit{line-style}.
+
+
+\Defgeneric {clim-extensions:medium-miter-limit} {medium}
+
+If \textit{line-style-joint-shape} is \textit{:miter} and the angle
+between two consequent lines is less than the values return by
+\textit{clim-extensions:medium-miter-limit}, \textit{:bevel} is used instead.
+
+
+\Defgeneric {(setf output-record-parent)} {parent record}
+
+Set the parent of the output record \textit{record}
+to \textit{parent}.  The value of \textit{parent} may be an output
+record or \texttt{nil}.
+
+
+\Defun {map-over-output-records} {continuation record
+\\\optional (x-offset 0) (y-offset 0) \rest continuation-args}
+
+Maps over all of the children of the \textit{record}, calling
+\textit{continuation} on each one. \textit{function} is a function of
+one or more arguments. \textit{continuation} is also called with all
+of \textit{continuation-args} as "apply" arguments.
+
+
+\Defclass{standard-output-recording-stream}
+
+This class is mixed into some other stream class to add output
+recording facilities. It is not instantiable.
+
+\section{Clarifications}
+ \Defgeneric {replay-output-record} {(record stream \optional region
+  x-offset y-offset)\\}
+
+Displays the output captured by \textit{record} on the
+\textit{stream}, exactly as it was originally captured. The current
+user transformation, line style, text style, ink and clipping region
+of \textit{stream} are all ignored. Instead, these are gotten from the
+output record.
+
+Only those records that overlap \textit{region} are displayed.

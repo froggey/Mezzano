@@ -1,0 +1,29 @@
+language: lisp
+
+env:
+  matrix:
+    - LISP=abcl
+    - LISP=allegro
+    - LISP=sbcl
+    - LISP=sbcl32
+    - LISP=ccl
+    - LISP=ccl32
+    - LISP=clisp
+    - LISP=clisp32
+    - LISP=cmucl
+    - LISP=ecl
+
+matrix:
+  allow_failures:
+    - env: LISP=cmucl
+    - env: LISP=ecl
+
+install:
+  - curl -L https://github.com/luismbo/cl-travis/raw/master/install.sh | sh
+  - git clone --depth=1 git://github.com/trivial-features/trivial-features.git ~/lisp/trivial-features
+  - git clone https://gitlab.common-lisp.net/alexandria/alexandria.git ~/lisp/alexandria
+
+script:
+  - cl -e '(ql:quickload :babel-tests)
+           (unless (babel-tests:run)
+             (uiop:quit 1))'

@@ -1,0 +1,6 @@
+@anchor{Generic-Function drei-kill-ring:kill-ring-max-size}
+@deffn {Generic Function} {drei-kill-ring:kill-ring-max-size} kr
+@findex drei-kill-ring:kill-ring-max-size
+Returns the value of the kill ring's maximum
+size
+@end deffn

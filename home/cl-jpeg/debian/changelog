@@ -1,0 +1,23 @@
+cl-jpeg (1.033-1) unstable; urgency=low
+
+  * New upstream
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Mon,  6 Oct 2003 11:48:52 -0600
+
+cl-jpeg (1.032.2-1) unstable; urgency=low
+
+  * Fix for sbcl type warning
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Tue,  6 May 2003 11:53:04 -0600
+
+cl-jpeg (1.032.1-1) unstable; urgency=low
+
+  * Improve .asd file
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Tue,  6 May 2003 11:42:21 -0600
+
+cl-jpeg (1.032-1) unstable; urgency=low
+
+  * Initial Debian upload
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Fri, 21 Feb 2003 09:07:21 -0700

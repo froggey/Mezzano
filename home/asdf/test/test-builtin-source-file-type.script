@@ -1,0 +1,45 @@
+;;; -*- Lisp -*-
+
+(format t "~D~%" (asdf:asdf-version))
+
+(def-test-system test-builtin-source-file-type-1
+  :default-component-class cl-source-file.cl
+  :serial t
+  :components ((:cl-source-file "file1") ; for the package
+               (:file "test-tmp")))
+(load-system 'test-builtin-source-file-type-1 :verbose t)
+(assert (symbol-value (read-from-string "test-package::*test-tmp-cl*")))
+(assert-equal
+ (mapcar #'pathname-type
+         (mapcar #'asdf:component-pathname (asdf:module-components (asdf:find-system :test-source-file-type-1))))
+ '("lisp" "cl"))
+(delete-package :test-package)
+
+(def-test-system "test-builtin-source-file-type-2"
+  :default-component-class cl-source-file.cl
+  :serial t
+  :components ((:file "file1" :type "lisp") ; for package
+               (:file "test-tmp")))
+(load-system 'test-builtin-source-file-type-2 :verbose t)
+(assert (symbol-value (read-from-string "test-package::*test-tmp-cl*")))
+
+(def-test-system test-builtin-source-file-type-3
+  :default-component-class cl-source-file.lsp
+  :serial t
+  :components ((:cl-source-file "file1") ; for the package
+               (:file "test-tmp")))
+(load-system 'test-builtin-source-file-type-3 :verbose t)
+(assert (symbol-value (read-from-string "test-package::*test-tmp-cl*")))
+(assert-equal
+ (mapcar #'pathname-type
+         (mapcar #'asdf:component-pathname (asdf:module-components (asdf:find-system :test-source-file-type-1))))
+ '("lisp" "cl"))
+(delete-package :test-package)
+
+(def-test-system test-builtin-source-file-type-4
+  :default-component-class cl-source-file.lsp
+  :serial t
+  :components ((:file "file1" :type "lisp") ; for package
+               (:file "test-tmp")))
+(load-system 'test-builtin-source-file-type-4 :verbose t)
+(assert (symbol-value (read-from-string "test-package::*test-tmp-cl*")))

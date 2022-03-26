@@ -1,0 +1,170 @@
+;;; -*- Lisp -*-
+
+(setf asdf::*asdf-session* (make-instance asdf::*asdf-session-class*))
+(chdir *test-directory*)
+;;(setf *defaut-pathname-defaults* *test-directory*)
+
+(clear-system 'test-asdf/force)
+(assert (not (component-loaded-p 'test-asdf/force)))
+
+(defun force-plan (&rest forcing-options)
+  (asdf::make-plan nil 'load-op 'test-asdf/force
+                   :forcing (apply 'asdf::make-forcing :system 'test-asdf/force forcing-options)))
+
+(defvar *plan* nil)
+
+(defun component-out-of-date-p (component)
+  (not
+   (asdf::action-up-to-date-p
+    *plan*
+    (make-operation 'load-op)
+    (find-component component nil :registered t))))
+
+(defun plan-loads-p (component)
+  (member (asdf::make-action (make-operation 'load-op) (find-component () component :registered t))
+          (asdf::plan-actions *plan*) :test 'equal))
+
+(with-asdf-session (:override t :override-forcing t)
+  (load-system 'test-asdf/force))
+(assert (component-loaded-p 'test-asdf/force))
+(assert-equal (asymval :*file3* :test-package) t)
+(assert-equal (asymval :*file4* :test-package) t)
+(assert-equal (asymval :*times-loaded* :test-asdf-system) 1)
+(assert-equal (asymval :*file3-only-asd-loaded* :asdf-user) 1)
+
+(defparameter file1 (test-fasl "file1"))
+(defparameter file1-date (file-write-date file1))
+(defparameter date1 (- file1-date 600))
+(defparameter date2 (- file1-date 300))
+(assert file1)
+(assert file1-date)
+
+(reset-session-visited)
+(defparameter *plan* (force-plan :force t))
+(DBG "Check that :force t forces the current system but not its dependencies" *plan*)
+(assert (component-out-of-date-p '("test-asdf/force" "file4")))
+(assert (not (component-out-of-date-p '("file3-only" "file3"))))
+(assert (not (component-out-of-date-p '("test-asdf/force1" "file1"))))
+
+(reset-session-visited)
+(defparameter *plan* (force-plan :force :all))
+(DBG "Check that :force :all forces the current system and its dependencies" *plan*)
+(assert (asdf::plan-actions *plan*))
+(assert (component-out-of-date-p '("test-asdf/force" "file4")))
+(assert (component-out-of-date-p '("file3-only" "file3")))
+(assert (component-out-of-date-p '("test-asdf/force1" "file1")))
+
+(reset-session-visited)
+(defparameter *plan* (force-plan :force :all :force-not t))
+(DBG "Check that :force-not takes precedence over :force, with t means \"all but current system\"" *plan*)
+(assert (asdf::plan-actions *plan*))
+(assert (component-out-of-date-p '("test-asdf/force" "file4")))
+(assert (not (component-out-of-date-p '("file3-only" "file3"))))
+(assert (not (component-out-of-date-p '("test-asdf/force1" "file1"))))
+
+(reset-session-visited)
+(defparameter *plan* (force-plan :force-not :all))
+(DBG "Check that :force-not :all means \"all systems\"" *plan*)
+(assert (null (asdf::plan-actions *plan*)))
+
+(reset-session-visited)
+(defparameter *plan* (force-plan :force :all :force-not :all))
+(DBG "Check that :force-not :all takes precedence over :force" *plan*)
+(assert (null (asdf::plan-actions *plan*)))
+
+(reset-session-visited)
+(defparameter *plan* (force-plan :force :all :force-not '(:test-asdf/force)))
+(DBG "Check that :force-not with a list takes precedence over :force" *plan*)
+(assert (null (asdf::plan-actions *plan*)))
+
+(reset-session-visited)
+(defparameter *plan* (force-plan :force :all :force-not '(:test-asdf/force1)))
+(DBG "Check that :force-not with a list takes precedence over :force, 2" *plan*)
+(assert (asdf::plan-actions *plan*))
+(assert (component-out-of-date-p '("test-asdf/force" "file4")))
+;; transitively included via test-asdf/force1 test-asdf/only, which blocks the traversal
+(assert (not (plan-loads-p '("file3-only" "file3"))))
+(assert (component-out-of-date-p '("file3-only" "file3")))
+(assert (not (component-out-of-date-p '("test-asdf/force1" "file1"))))
+
+(reset-session-visited)
+(let* ((asdf::*immutable-systems* (list-to-hash-set '("test-asdf/force1")))
+       (*plan* (force-plan :force :all)))
+  (DBG "Check that immutable-systems will block forcing" *plan*)
+  (assert (asdf::plan-actions *plan*))
+  (assert (component-out-of-date-p '("test-asdf/force" "file4")))
+  ;; transitively included via force1 test-asdf/only, which blocks the traversal
+  (assert (not (plan-loads-p '("file3-only" "file3"))))
+  (assert (component-out-of-date-p '("file3-only" "file3")))
+  (assert (not (component-out-of-date-p '("test-asdf/force1" "file1")))))
+
+;; unforced, date should stay same
+(touch-file "test-asdf.asd" :timestamp date1)
+(touch-file "file1.lisp" :timestamp date1)
+(touch-file file1 :timestamp date2)
+(setf test-package::*file1* :modified)
+(DBG "Check the fake dates from touch-file")
+(assert-equal (get-file-stamp "test-asdf.asd") date1)
+(assert-equal (get-file-stamp "file1.lisp") date1)
+(assert-equal (get-file-stamp file1) date2)
+
+
+(DBG "Check that require-system won't reload")
+(reset-session-visited)
+(with-asdf-session (:override t :override-forcing t)
+  (require-system 'test-asdf/force1))
+(assert-equal (get-file-stamp file1) date2)
+(assert-equal test-package::*file1* :modified)
+
+;;; So far, only loaded things once
+(assert-equal test-asdf-system::*times-loaded* 1)
+
+(DBG "Check that load-system will reload")
+(reset-session-visited)
+(setf test-package::*file1* nil)
+(setf test-asdf-system::*times-loaded* 10)
+(assert (not test-package::*file1*))
+(with-asdf-session (:override t :override-forcing t)
+  (load-system 'test-asdf/force1))
+(assert test-package::*file1*)
+;;; This caused a second loading
+;; NB: Somehow this is only 1 when using asdf-tools??? WTF?
+;; running from asdf with test/ in paths vs running from test/ with no path prefix.
+;;(assert-equal (asymval :*times-loaded* :test-asdf-system) 11)
+;;TODO: understand what's going on above!
+
+
+;; forced, it should be later
+(DBG "Check that force reloading loads again")
+(setf test-asdf-system::*times-loaded* 20)
+(reset-session-visited)
+(setf test-package::*file3* :reset)
+(with-asdf-session (:override t :override-forcing t)
+  (load-system 'test-asdf/force :force :all))
+(assert-compare (>= (- (get-file-stamp file1) file1-date) 0))
+(assert-equal test-package::*file3* t)
+(DBG "Check that test-asdf.asd was loaded each time it was forced")
+(assert-equal test-asdf-system::*times-loaded* 21)
+(DBG "Check that file3-only.asd was loaded only twice, with the :force :all")
+(assert-equal asdf-user::*file3-only-asd-loaded* 2)
+
+
+(DBG "Check that require-system called with touched .asd won't reload the asdf.")
+(setf test-asdf-system::*times-loaded* 30)
+(setf test-package::*file3* :reset)
+(reset-session-visited)
+(with-asdf-session (:override t :override-forcing t)
+  (unset-asdf-cache-entry '(find-system "test-asdf"))
+  (unset-asdf-cache-entry '(find-system "test-asdf/force"))
+  (touch-file "test-asdf.asd" :timestamp (+ 10000 (get-file-stamp file1)))
+  (require-system 'test-asdf/force))
+(assert-equal test-asdf-system::*times-loaded* 30)
+(assert-equal test-package::*file3* :reset)
+
+(DBG "Check that require-system called with untouched .asd won't reload the asdf.")
+(reset-session-visited)
+(with-asdf-session (:override t :override-forcing t)
+  (require-system 'test-asdf/force))
+;; Somehow, it loads the system...
+(assert-equal test-asdf-system::*times-loaded* 30)
+(assert-equal test-package::*file3* :reset)

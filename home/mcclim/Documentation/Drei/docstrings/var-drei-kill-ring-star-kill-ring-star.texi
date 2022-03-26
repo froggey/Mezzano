@@ -1,0 +1,6 @@
+@anchor{Variable drei-kill-ring:*kill-ring*}
+@defvr {Variable} {drei-kill-ring:*kill-ring*}
+@vindex drei-kill-ring:*kill-ring*
+This special variable is bound to the kill ring of the running
+application or Drei instance whenever a command is executed.
+@end defvr

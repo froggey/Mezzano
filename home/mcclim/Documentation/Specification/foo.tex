@@ -1,0 +1,45 @@
+% -*- Mode: LaTeX -*-
+
+\documentstyle{report}          % tried to use [twoside] to no avail  --SWM
+\pagestyle{headings}
+
+\title{Part of \\
+       Common Lisp Interface Manager \\
+       Release 2.0 Specification}
+
+\author{Scott McKay ({\tentt SWM@Riverside.SCRC.Symbolics.COM}) \\
+        William York ({\tentt York@Fuji.ILA.COM}) \\ 
+        {\tenit with contributions by} \\
+        {\tenrm John Aspinall ({\tentt JGA@Riverside.SCRC.Symbolics.COM})} \\
+        {\tenrm Dennis Doughty ({\tentt Doughty@ILeaf.COM})} \\
+        {\tenrm Charles Hornig ({\tentt Hornig@Riverside.SCRC.Symbolics.COM})} \\
+        {\tenrm Richard Lamson ({\tentt RLamson\%UMAB.BitNet@MITVMA.MIT.EDU})} \\
+        {\tenrm David Linden ({\tentt D,#TD1PsT[Begin using 006 escapes](1 0 (NIL 0) (:FIX :ROMAN :NORMAL) "CPTFONT")Linden0@1CRL.DEC.COM0})} \\
+        {\tenrm David Moon ({\tentt Moon@Cambridge.Apple.COM})} \\
+        {\tenrm Ramana Rao ({\tentt rao@PARC.Xerox.COM})}}
+
+\date{\today}
+\markright{Part of CLIM 2.0 Specification}
+
+\input psfig+
+\include{spec-macros}
+
+%% Initialize it to \psfigtrue if your DVI to PostScript converter works
+\newif \ifpsfig \psfigfalse
+
+\addtolength{\oddsidemargin}{-.5in}
+\addtolength{\evensidemargin}{-.5in}
+\addtolength{\textwidth}{1in}
+\addtolength{\topmargin}{-.5in}
+\addtolength{\textheight}{1.0in}
+
+\begin{document}
+
+\parindent 0pc
+\parskip   1pc
+
+\input{frames.tex}
+\input{panes.tex}
+\input{gadgets.tex}
+
+\end{document}

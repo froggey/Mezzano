@@ -1,0 +1,23 @@
+@anchor{Generic-Function drei:display-drei-view-cursor}
+@deffn {Generic Function} {drei:display-drei-view-cursor} stream view cursor
+@findex drei:display-drei-view-cursor
+The purpose of this function is to display a
+visible indication of a cursor of a Drei view to some output
+surface. @code{stream} is the CLIM output stream that drawing should
+be performed on, @code{view} is the Drei view object that is being
+redisplayed, @code{cursor} is the cursor object to be displayed (a
+subclass of @code{drei-cursor}) and @code{syntax} is the syntax object of
+@code{view}. Methods on this generic function can draw whatever they
+want, but they should not assume that they are the only user of
+@code{stream}, unless the @code{stream} argument has been specialized to
+some application-specific pane class that can guarantee this. It
+is permitted to only specialise @code{stream} on @code{clim-stream-pane}
+and not @code{extended-output-stream}. It is recommended to use the
+function @code{offset-to-screen-position} to determine where to draw
+the visual representation for the cursor. It is also recommended
+to use the ink specified by @code{cursor} to perform the drawing, if
+applicable. This method will only be called by the Drei redisplay
+engine when the cursor is active and the buffer position it
+refers to is on display @code{-} therefore, @code{offset-to-screen-position}
+is *guaranteed* to not return NIL or @code{t}.
+@end deffn

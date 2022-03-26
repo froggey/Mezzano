@@ -1,0 +1,56 @@
+#+TITLE:    Inspector Clouseau README
+#+AUTHOR:   Jan Moringen
+#+EMAIL:    jmoringe@techfak.uni-bielefeld.de
+#+LANGUAGE: en
+
+#+OPTIONS: num:nil
+
+* Introduction
+
+  The ~clouseau~ system provides a CLIM-based graphical inspector ([[https://en.wikipedia.org/wiki/Inspector_Clouseau][get
+  it?]]) for Common Lisp objects. It can be used as a standalone
+  application or embedded into CLIM applications.
+
+* Quick Start
+
+  Start your Lisp system (the ~clouseau~ system should be portable,
+  but only SBCL and CCL have been tested) and load the system:
+
+  #+BEGIN_SRC lisp :exports both :results silent
+    (asdf:load-system "clouseau")
+  #+END_SRC
+
+  Then inspect an object:
+
+  #+BEGIN_SRC lisp :exports code
+    (clouseau:inspect
+     (make-array 4 :adjustable t
+                   :fill-pointer 3
+                   :initial-contents (list 1.5d0 #'numberp
+                                           (list (cons #\a "foo")
+                                                 (cons :bar #P"baz"))
+                                           (alexandria:alist-hash-table
+                                            (list (cons #C(1 2)
+                                                        (find-class 'class)))))))
+  #+END_SRC
+
+  A window containing the following should open (in the screenshot,
+  the array elements have been expanded by left-clicking them):
+
+  [[file:../../Documentation/Manual/Texinfo/figures/clouseau-startup-screenshot.png]]
+
+  + Left-click an object to expand or collapse it.
+
+  + Middle-click an object to make it the new root (as in the SLIME
+    inspector).
+
+  + Right-click an object to open a context menu containing other
+    commands applicable to the object.
+
+* Documentation
+
+  + For user and developer documentation see the Inspector chapter in
+    file:../../Documentation/Manual/Texinfo/.
+
+  + For design-related documentation that may be useful when working
+    on the inspector clouseau system itself, see [[file:DESIGN.org]].

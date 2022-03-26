@@ -1,0 +1,5 @@
+@anchor{Method drei-buffer:buffer ((drei-buffer-view drei-buffer-view))}
+@deffn {Method} {drei-buffer:buffer} (drei-buffer-view drei-buffer-view)
+The buffer that is observed by this
+buffer view.
+@end deffn

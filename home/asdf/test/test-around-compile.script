@@ -1,0 +1,24 @@
+;;; -*- Lisp -*-
+
+(defun call-in-base-2 (thunk)
+  (let ((*read-base* 2))
+    (funcall thunk)))
+
+(DBG "Testing around-compile with a function name")
+(def-test-system test-around-compile
+  :around-compile call-in-base-2
+  ;; :depends-on ((:version :asdf "2.017.18")) ; no :around-compile before that.
+  :components ((:file "test")))
+(load-system 'test-around-compile :force t)
+(assert-equal 3 (funcall 'add10 1)) ;; add10 must have been compiled in base 2
+
+(fmakunbound 'add10)
+
+(DBG "Testing around-compile with a lambda")
+(def-test-system test-around-compile-lambda
+  :around-compile (lambda (thunk)
+                    (let ((*read-base* 9))
+                      (funcall thunk)))
+  :components ((:file "test")))
+(load-system 'test-around-compile-lambda :force t)
+(assert-equal 10 (funcall 'add10 1)) ;; add10 must have been compiled in base 16

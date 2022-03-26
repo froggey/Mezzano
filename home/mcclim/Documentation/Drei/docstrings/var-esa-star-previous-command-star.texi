@@ -1,0 +1,6 @@
+@anchor{Variable esa:*previous-command*}
+@defvr {Variable} {esa:*previous-command*}
+@vindex esa:*previous-command*
+When a command is being executed, the command
+previously executed by the application.
+@end defvr

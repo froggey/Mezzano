@@ -1,0 +1,59 @@
+-*- mode: org -*-
+
+Issues of code quality:
+
+* MBR and MINIMUM-BOUND-OF no longer need the tree as an argument,
+  because we precompute rectangle data for a leaf entry.
+
+* There are numerous instances of minimization loops where there is no
+  good upper bound for the value, so that the initial value for
+  comparison must come from the first iteration of the loop.  This is
+  dealt with in a number of different ways throughout the code, none
+  of which is particularly elegant.
+
+* The test harness is reasonable at the moment; it could be improved,
+  and of course more tests should be added.
+
+* The CHECK-CONSISTENCY function should be used in the test suite.
+  However, a means needs to be developed to be able to say that the
+  X-tree, say, obeys all of the invariants of the R-tree except for
+  the maximum number of children of a node in certain circumstances.
+  This subtraction of invariants appears to be a poor fit with the
+  simple class hierarchy.
+
+* The visualiser is a reasonable barometer onto the tightness of the
+  protocol; the current verdict is "not terribly".  Aim to reduce
+  initmate knowledge of internals in the CLIM inspector in as much as
+  that's possible.
+
+Issues of performance:
+
+* MBR seems a little too low-level to be implemented as an (expensive,
+  at least in SBCL) generic function.  A simple profile on 2004-11-30
+  showed it to be the most time-expensive function in running the
+  tests on R-trees.  Maybe it should be replaced by an inline function
+  calling the leaf-node-entry accessor or the spatial-tree-node
+  SLOT-VALUE as appropriate.
+
+* REDUCE <set> :KEY #'MBR (or the equivalent) takes a surprisingly
+  long time.  The compiler's understanding of REDUCE could be
+  improved.
+
+Issues of generality:
+
+* The dynamic insertion algorithm for R+ trees is broken.  It would be
+  nice to fix it.
+
+* MORE TREES
+  ** TV-tree
+  ** kd-tree
+  ** kd-B-tree
+  ** hB-tree
+  ** LSD-tree
+  ** SS-tree
+  ** SR-tree
+
+Miscellaneous issues:
+
+* The visualiser should present and describe the object in a
+  leaf-node-entry, not just rectangles.

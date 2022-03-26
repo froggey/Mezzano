@@ -1,0 +1,7 @@
+@anchor{Generic-Function drei-kill-ring:kill-ring-reverse-concatenating-push}
+@deffn {Generic Function} {drei-kill-ring:kill-ring-reverse-concatenating-push} kr vector
+@findex drei-kill-ring:kill-ring-reverse-concatenating-push
+Concatenates the contents of vector onto the front
+of the current contents of the top of the kill ring. If the kill ring
+is empty a new entry is pushed.
+@end deffn

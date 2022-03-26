@@ -1,0 +1,13 @@
+Source: cl-jpeg
+Section: devel
+Priority: optional
+Maintainer: Kevin M. Rosenberg <kmr@debian.org>
+Build-Depends-Indep: debhelper (>= 4.0.0)
+Standards-Version: 3.6.1.0
+
+Package: cl-jpeg
+Architecture: all
+Depends: common-lisp-controller (>= 3.37)
+Description: A JPEG library for Common Lisp
+ Common Lisp JPEG Library implements JPEG lossy image
+ compression/decompression routines in ANSI Common Lisp.

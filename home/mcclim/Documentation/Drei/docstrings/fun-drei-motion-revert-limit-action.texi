@@ -1,0 +1,8 @@
+@anchor{Function drei-motion:revert-limit-action}
+@deffn {Function} {drei-motion:revert-limit-action} mark original-offset remaining unit syntax
+@findex drei-motion:revert-limit-action
+This limit action will try to restore the mark state from
+before the attempted action. Note that this will not restore any
+destructive actions that have been performed, it will only
+restore the position of @code{mark}.
+@end deffn

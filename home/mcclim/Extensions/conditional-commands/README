@@ -1,0 +1,141 @@
+--------------------------------------------------------------------------
+    Title: Conditional Commands (And Sheets) Extension
+  Created: 2005/11/22
+   Author: Max-Gerd Retzlaff <m.retzlaff@gmx.net>, http://bl0rg.net/~mgr
+--------------------------------------------------------------------------
+  (c) copyright 2005 by Max-Gerd Retzlaff
+
+
+This extensions tries to add simple and elegant methods to specify
+dependencies among commands and between commands and sheets of a
+(Mc)CLIM application.
+
+Imagine an audio player: The play commands should only be enabled if a
+audio file is loaded; the same is true for the push-buttons that
+trigger these commands and probably for a slider that might represent
+the current position in the audio file.
+
+It may also be nice if only the possible commands and gadgets (in
+general: sheets) will be enabled if you restart the GUI of such a
+programme (restart only the GUI not the whole programme).
+
+
+
+The extensions uses the term conditional command for commands that
+enable or disable commands and/or sheets, and the term conditional
+application frame for an application frame in whose context
+conditional commands are invoked.
+
+It is stored which commands and sheets got disabled during a run of a
+conditional application frame; when you exit the application frame and
+run the top level of a newly created instance of the application frame
+the previous state will be re-established. This implies that only one
+instance of a conditional application frame can be running at given
+time!
+
+
+
+You can define conditional command by using the macro
+DEFINE-CONDITIONAL-COMMAND, that is very similar to the CLIM macro
+DEFINE-COMMAND: The only change is that ENTITIY-ENABLEDNESS-CHANGE is
+inserted as the new second parameter.
+
+ENTITY-ENABLEDNESS-CHANGE has to be a list that matches the parameter
+list:
+
+   (application-frame &key enable-commands
+                           disable-commands
+                           enable-sheets
+                           disable-sheets
+                           evaluate-this)
+
+For example:
+
+(define-conditional-command (com-bar :name t :menu t
+                                     :command-table cruft-command-table)
+    (conditional-commands-example :enable-commands  (com-baz)
+                                  :disable-commands (com-bar)
+                                  :enable-sheets    (thud)
+                                  :disable-sheets   (grunt))
+    ()
+    (format t "~%bar called"))
+
+Note that the elements of the arguments to :ENABLE-COMMANDS and
+:DISABLE-COMMANDS can not only be names of commands but also names of
+command-tables; in the latter case all comamnds of the command table
+will be enabled (or disabled).
+
+With EVALUATE-THIS you can specify a form that will be evaluated when
+the "entity enabledness change" happens, for conditional commands this
+is immediately after the body of the command has been executed.
+
+
+
+Initially all conditional commands and all sheets that might be
+disabled by them are enabled. To specify which commands and sheets
+should initially be disabled when the top level of the application
+frame is run (CLIM:RUN-FRAME-TOP-LEVEL) there is another macro:
+DEFINE-CONDITIONAL-APPLICATION-FRAME. It is very similar to
+CLIM:DEFINE-APPLICATION-FRAME, only ENTITY-ENABLEDNESS-CHANGE is
+inserted as the new third parameter.
+
+In this case ENTITY-ENABLEDNESS-CHANGE has to be a list that matches
+the parameter list:
+
+   (&key enable-commands
+         disable-commands
+         enable-sheets
+         disable-sheets
+         evaluate-this)
+
+For example:
+
+(define-conditional-application-frame conditional-commands-example ()
+  (:disable-commands (com-bar com-baz)
+   :disable-sheets (thud grunt)
+   :evaluate-this (incf *incarnation-number*))
+  ()
+  (:command-table ...)
+  (:panes ...)
+  ...)
+
+This "entity enabledness change" happens in a :BEFORE method of
+CLIM:RUN-FRAME-TOP-LEVEL that dispatches on the just defined
+conditional application frame.
+
+
+
+It might be less confusing to define all "entity enabledness changes"
+in one place, therefore it is also possible to define an "entity
+enabledness change" separately, for example:
+
+(add-entity-enabledness-change 'com-baz 'conditional-commands-example
+                               :enable-commands  '(com-bar)
+                               :disable-commands '(com-baz)
+                               :enable-sheets   '(grunt)
+                               :disable-sheets   '(thud))
+
+The argument to ADD-ENTITY-ENABLEDNESS-CHANGE has to be a list that
+matches the parameter list:
+
+   (command application-frame &key enable-commands
+                                   disable-commands
+                                   enable-sheets
+                                   disable-sheets
+                                   evaluate-this)
+
+To define the "entity enabledness change" of a conditional application
+frame seperately the first argument to ADD-ENTITY-ENABLEDNESS-CHANGE
+has to be the string concatenation of the name of the conditional
+application frame and the string "-start".
+
+In these cases the second argument for DEFINE-CONDITIONAL-COMMAND and
+DEFINE-CONDITIONAL-APPLICATION-FRAME might be the empty list.
+(Note: You still have to use DEFINE-CONDITIONAL-COMMAND and
+DEFINE-CONDITIONAL-APPLICATION-FRAME and not CLIM:DEFINE-COMMAND and
+DEFINE-APPLICATION-FRAME.)
+
+
+
+(Be sure to have a look at the contents of the file
+conditional-commands-example.lisp for the full code of the example.)

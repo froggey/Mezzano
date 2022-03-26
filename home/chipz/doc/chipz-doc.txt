@@ -1,0 +1,286 @@
+(:author "Nathan Froyd"
+ :email "froydnj@gmail.com"
+ :package "Chipz"
+ :cl-package "CHIPZ"
+ :version #.(asdf:component-version (asdf:find-system :chipz))
+ :homepage "http://www.method-combination.net/lisp/chipz/"
+ :download "http://www.method-combination.net/lisp/files/chipz.tar.gz")
+
+(:h1 ${package})
+
+(:p ${package} " is a library for decompressing DEFLATE and BZIP2 data.
+DEFLATE data, defined in " (:url "http://www.ietf.org/rfc/rfc1951.txt"
+"RFC1951") ", forms the core of popular compression formats such as
+zlib (" (:url "http://www.ietf.org/rfc/rfc1950.txt" "RFC 1950") ") and
+gzip (" (:url "http://www.ietf.org/rfc/rfc1952.txt" "RFC 1952") ").  As
+such, " ${package} " also provides for decompressing data in those
+formats as well.  BZIP2 is the format used by the popular compression
+tool " (:url "http://www.bzip.org/" "bzip2") ".")
+
+(:p ${package} " is the reading complement to " (:url
+"http://www.xach.com/salza2/" "Salza") ".")
+
+(:h2 "Installation")
+
+(:p ${package} " can be downloaded at " (:url ${download} ${download})
+".  The latest version is " ${version} ".")
+
+(:p "It comes with an ASDF system definition, so " `(ASDF:OOS
+'ASDF:LOAD-OP :CHIPZ)` " should be all that you need to get started.")
+
+(:h2 "License")
+
+(:p ${package} " is released under a MIT-like license; you can do pretty
+much anything you want to with the code except claim that you wrote
+it.")
+
+(:h2 "Using the library")
+
+(:p "The main function of the library is " `decompress` ":")
+
+(:describe :generic-function (chipz:decompress output))
+
+(:p "Five distinct use cases are covered by this single function:")
+
+(:ul
+(:li "Decompressing from an octet vector to a fresh octet vector;")
+(:li "Decompressing from a stream to a fresh octet vector;")
+(:li "Decompressing from an octet vector to a user-specified octet vector;")
+(:li "Decompressing from an octet vector to a stream;")
+(:li "Decompressing from a stream to a stream;"))
+
+(:note ${package} " does not provide for decompressing data from a stream
+to a user-specified buffer, as the buffer management involved cannot be
+done automatically by the library--the application must be involved in
+this case.")
+
+(:h3 ((:a name "one-shot")) "One-shot decompression")
+
+(:p "The first and second use cases above are intended to be convenient
+\"one-shot\" decompression methods.  Therefore, although the description
+of the following methods attached to this generic function have an "
+`decompression-state` " parameter, as returned by " @make-dstate ",
+respectively, the usual way to use them will be to provide a "
+`format` " argument.  This " `format` " argument should be one of:")
+
+(:ul
+(:li `chipz:bzip2` " for decompressing data in the bzip2 format;")
+(:li `chipz:gzip` " for decompressing data in the gzip format;")
+(:li `chipz:zlib` " for decompressing data in the zlib format;")
+(:li `chipz:deflate` " for decompressing data in the deflate format."))
+
+(:p "The " `format` " argument can also be a keyword, such as "
+`:gzip` ", for backwards compatibility.  Using symbols in the " `CHIPZ`
+" package is preferred, however.")
+
+(:p "Most applications will use " `chipz:gzip` " or " `chipz:bzip2` ", a
+few applications will use " `chipz:zlib` ", and uses of "
+`chipz:deflate` " will probably be few and far between.")
+
+(:p "All the method signatures described below also accept a "
+`format` " argument in lieu of an " `decompression-state` " argument.")
+
+(:p "The signatures of the first two methods are as follows.")
+
+(:describe :method (chipz:decompress (null chipz:decompression-state vector) output))
+(:describe :method (chipz:decompress (null chipz:decompression-state stream) output))
+
+(:p "A simple function to retrieve the contents of a gzip-compressed
+file, then, might be:")
+
+(:pre
+"(defun gzip-contents (pathname)
+  (with-open-file (stream pathname :direction :input
+                                   :element-type '(unsigned-byte 8))
+    (chipz:decompress nil 'chipz:gzip stream)))")
+
+(:p "These one-shot methods also support a " `:buffer-size` " argument
+as a hint of the size of decompressed data.  The library uses this to
+pre-allocate the output buffer to the hinted size.  Therefore, if you
+know the size of the decompressed data or have a good estimate, fewer
+allocations will be done, leading to slightly better performance.  If "
+`:buffer-size` " is not provided or proves to be too small, the library
+will of course grow the output buffer as necessary.")
+
+(:h3 "Decompressing to a vector")
+
+(:p "An alternate way to deal with compressed data is to read in a
+buffer's worth of data, decompress the buffer, and then deal with any
+remaining input and the produced output, looping to read and process
+more data as appropriate.  This scheme is the third use case
+described above and is handled in zlib with the " (:tt "inflate") "
+function.  In " ${package} ", it is just another method of " `decompress`
+".")
+
+(:describe :method (chipz:decompress (vector chipz:decompression-state vector)  (values n-bytes-consumed n-bytes-produced)))
+
+(:p "This method decompresses the data from " 'input' " between "
+'input-start' " and " 'input-end' " and place the uncompressed data in "
+'output' ", limited by " 'output-start' " and " 'output-end' ".  Please
+note that it is possible to consume some or all of the input without
+producing any output and to produce some or all of the output without
+consuming any input.")
+
+(:p "As above, you can use a " `format` " argument instead of an "
+`decompression-state` ".  You will usually not want to do this unless
+you know exactly how large the decompressed data is going to be;
+otherwise, you will only decompress a portion of the data and any
+intermediate state required to decompress the remainder of the data will
+be thrown away.")
+
+(:h3 "Decompressing to a stream")
+
+(:p "Finally, " `decompress` " can also be used to write the
+decompressed data directly to a stream, enabling a poor man's gunzip
+function:")
+
+(:pre "(defun gunzip (gzip-filename output-filename)
+  (with-open-file (gzstream gzip-filename :direction :input
+                            :element-type '(unsigned-byte 8))
+    (with-open-file (stream output-filename :direction :output
+                            :element-type '(unsigned-byte 8)
+                            :if-exists :supersede)
+      (chipz:decompress stream 'chipz:gzip gzstream)
+      output-filename)))")
+
+(:p "The relevant methods in this case are:")
+
+(:describe :method (chipz:decompress (stream chipz:decompression-state vector) stream))
+(:describe :method (chipz:decompress (stream chipz:decompression-state stream) stream))
+
+(:p "Both return the output stream.")
+
+(:h3 "Creating " `decompression-state` " objects")
+
+(:p "The core data structure of " ${package} " is a "
+`decompression-state` ", which stores the internal state of an ongoing
+decompression process.  You create a " `decompression-state` " with "
+@make-dstate ".")
+
+(:describe :function (chipz:make-dstate dstate))
+
+(:p "Return an " `decompression-state` " object suitable for
+uncompressing data in " 'data-format' ".  " 'data-format' " should be:")
+
+(:ul
+(:li `chipz:bzip2` " for decompressing data in the bzip2 format;")
+(:li `chipz:gzip` " for decompressing data in the gzip format;")
+(:li `chipz:zlib` " for decompressing data in the zlib format;")
+(:li `chipz:deflate` " for decompressing data in the deflate format."))
+
+(:p "As with " @decompress ", you can use keywords instead, but doing so
+is deprecated.")
+
+(:p "Prior to adding bzip2 support, " ${package} " supported only
+deflate-based formats.  " @make-inflate-state " was the primary
+interface then; it is now deprecated, but kept around for backwards
+compatibility.")
+
+(:describe :function (chipz:make-inflate-state inflate-state))
+
+(:p @make-inflate-state " supports the same " 'data-format' " arguments
+as " @make-dstate " does, with the obvious exception of "
+'chipz:bzip2' ".  The " `inflate-state` " object returned is a "
+`decompression-state` ", so it can be passed to " @decompress " and "
+@finish-dstate ".")
+
+(:p "Once you are done with a " `decompression-state` " object, you must
+call " @finish-dstate " on it.  " @finish-dstate " checks that the
+given " 'state' " decompressed all the data in a given stream.  It does
+not dispose of any resources associated with " 'state' "; it is meant
+purely as an error-checking construct.  Therefore, it is inappropriate
+to call from, say, the cleanup forms of " (:tt "UNWIND-PROTECT") ".  The
+cleanup forms may be run when an error is thrown during decompression
+and of course the stream will only be partially decompressed at that
+point.")
+
+(:describe :function (chipz:finish-dstate t))
+
+(:p @finish-inflate-state " does the same thing, but only for "
+`inflate-state` ".  Its use, like that of " @make-inflate-state " is
+deprecated.")
+
+(:describe :function (chipz:finish-inflate-state t))
+
+(:h2 "Gray streams")
+
+(:p ${package} " includes support for creating Gray streams to wrap
+streams containing compressed data and read the uncompressed data from
+those streams.  SBCL, Allegro, Lispworks, CMUCL, and OpenMCL are
+supported at this time.")
+
+(:describe :function (chipz::make-decompressing-stream decompressing-stream))
+
+(:p "Return a stream that provides transparent decompression of the data
+from " 'stream' " in " 'format' ".  That is, " `read-byte` " and "
+`read-sequence` " will decompress the data read from " 'stream' " and
+return portions of the decompressed data as requested.  " 'format' " is
+as in the " ((:a href "#one-shot") "one-shot decompression
+methods") ".")
+
+(:h2 "Conditions")
+
+(:describe :condition chipz-error)
+
+(:p "All errors signaled by " ${package} " are of this type.")
+
+(:describe :condition invalid-format-error)
+
+(:p "This error is signaled when the " 'format' " argument to "
+@decompress " or " @make-dstate " is not one of the symbols specified
+for " @make-dstate ".  This error is also signaled in "
+@make-inflate-state " if the " 'format' " argument is not valid for that
+function.")
+
+(:describe :condition decompression-error)
+
+(:p "All errors signaled during decompression are of this type.")
+
+(:describe :condition invalid-checksum-error)
+
+(:p "The zlib, gzip, and bzip2 formats all contain checksums to verify
+the integrity of the uncompressed data; this error is signaled when the
+stored checksum is found to be inconsistent with the checksum computed
+by " ${package} ".  It indicates that the compressed data has probably
+been corrupted in some fashion (or there is an error in " ${package}
+").")
+
+(:describe :condition premature-end-of-stream)
+
+(:p "This error is signaled when " @finish-dstate " is
+called on an " `decompression-state` " that has not finished processing
+an entire decompressed data stream.")
+
+(:describe :condition inflate-error)
+
+(:p "All errors signaled while decompressing deflate-based formats are
+of this type.")
+
+(:describe :condition invalid-zlib-header-error)
+
+(:p "This error is signaled when an invalid zlib header is read.")
+
+(:describe :condition invalid-gzip-header-error)
+
+(:p "This error is signaled when an invalid gzip header is read.")
+
+(:describe :condition reserved-block-type-error)
+
+(:p "This error is signaled when a deflate block is read whose
+type is 3.  This type is reserved for future expansion and should
+not be found in the wild.")
+
+(:describe :condition invalid-stored-block-length-error)
+
+(:p "This error is signaled when the length of a deflate stored
+block is found to be invalid.")
+
+(:describe :condition bzip2-error)
+
+(:p "All errors signaled while decompressing bzip2-based formats are of
+this type.")
+
+(:describe :condition invalid-bzip2-data)
+
+(:p "This error is signaled when the compressed bzip2 data is found to
+be corrupt in some way that prevents further decompression.")

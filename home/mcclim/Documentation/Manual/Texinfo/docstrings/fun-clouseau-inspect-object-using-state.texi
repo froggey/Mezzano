@@ -1,0 +1,29 @@
+@anchor{Generic-Function clouseau:inspect-object-using-state}
+@deffn {Generic Function} {@symbol{inspect-object-using-state,clouseau}} object state style stream
+Present @var{object} to @var{stream} according to @var{state} and
+@var{style}.
+
+@var{state} stores information that is permanently associated with
+@var{object}.
+
+@var{style} on the other hand consists of transient information such as
+whether @var{object} should be presented in expanded or collapsed form.
+
+@var{stream} is the stream to which @var{object} should be presented.
+
+Example:
+
+@lisp
+(defmethod clouseau:inspect-object-using-state
+    ((object symbol)
+     (state  clouseau:inspected-object)
+     (style  (eql :expanded-body))
+     (stream t))
+  (clouseau:formatting-place
+      (object 'clouseau:reader-place 'symbol-name
+       present-place present-object)
+    (write-string "Symbol name" stream)
+    (present-place stream)
+    (present-object stream)))
+@end lisp
+@end deffn

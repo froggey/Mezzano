@@ -1,0 +1,95 @@
+@node Debugger
+@section Debugger
+@cindex Lisp Debugger
+@cindex CLIM Debugger
+@cindex Debugger
+
+The debugger is used for interactively inspecting stack frames when an
+unhandled condition is encountered. Given high enough @t{debug}
+settings, the debugger can inspect frame-local variables, evaluate code
+in particular stack frame and invoke available restarts.
+
+@menu
+* Debugger usage::
+* Keyboard shortcuts::
+* Debugger API::
+@end menu
+
+@node Debugger usage
+@subsection Debugger usage
+
+To get up and running quickly with Debugger:
+
+@enumerate
+@item
+With Quicklisp loaded, invoke in REPL:
+
+@cl{(ql:quickload 'clim-debugger)}
+
+@item
+Run simple test condition:
+
+@cl{(clim-debugger:with-debugger () (error "test"))}
+@end enumerate
+
+The debugger is inspired by SLIME's debugger and uses Swank to gain
+portability across implementations.  The application is still under
+development and some details may change in the future.
+
+Clicking frame with the mouse pointer toggles the display of its details
+and selects it.  Each locale value may be inspected by selection with
+mouse pointer.  The selected frame is distinguished from others with red
+color.  The @command{Eval in frame} command evaluates expression in the
+selected frame.
+
+@node Keyboard shortcuts
+@subsection Keyboard shortcuts
+
+Warning: these key accelerators may change in the future.
+
+@table @kbd
+@item M-p
+Mark previous frame active
+
+@item M-n
+Mark next frame active
+
+@item m
+Show more frames
+
+@item e
+Eval in active frame
+
+@item TAB
+Toggle active frame details
+
+@item [0-9]
+Invoke nth restart
+
+@item q
+Quit debugger
+@end table
+
+@node Debugger API
+@subsection Debugger API
+
+@deffn {function} {@symbol{debugger,clim-debugger}} condition me-or-my-encapsulation
+
+Starts debugger with @var{condition}.  @var{me-or-my-encapsulation}
+should be supplied by the Lisp implementation allowing to encapsulate or
+supply different debugger for recursive debugger calls.
+@end deffn
+
+@deffn {macro} {@symbol{with-debugger,clim-debugger}} options &body body
+
+Executes the code in @var{body} invoking the @clim debugger when an
+unhandled condition is signalled.  The macro binds @cl{*debugger-hook*}
+to @cl{#'debugger}.  Bindings are inherited by new threads.
+@var{options} are not used at the moment.
+@end deffn
+
+@deffn {function} {@symbol{install-debugger,clim-debugger}}
+
+Installs @t{clim-debugger} globally (no need to wrap body in
+@code{with-debugger}).
+@end deffn

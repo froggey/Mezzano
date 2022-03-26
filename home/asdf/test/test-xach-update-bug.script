@@ -1,0 +1,54 @@
+;;; -*- Lisp -*-
+
+(setf asdf/session:*asdf-session* nil) ;; disable cache between those two very different compilations.
+
+(defparameter foo :test-asdf-location-change)
+
+#+ecl (unless (version-satisfies (lisp-implementation-version) "16")
+        (leave-test "ECL only supports this test starting with 16.0.0" 0))
+
+(DBG "load foo. Should load from xach-foo-1/")
+(setf *central-registry* (list (subpathname *test-directory* "xach-foo-1/")))
+(defparameter foo1 (find-system foo))
+(assert-pathname-equal
+ (subpathname *test-directory* "xach-foo-1/test-asdf-location-change.asd")
+ (system-source-file foo1))
+(assert-equal (mapcar 'component-name (component-children foo1)) '("a"))
+(assert-pathname-equal
+ (subpathname *test-directory* "xach-foo-1/a.lisp")
+ (component-pathname (find-component foo1 "a")))
+(assert-equal nil (find-component foo1 "b"))
+(load-system foo)
+(defparameter loaded (find-symbol* :loaded :first-version))
+(assert-equal (symbol-value loaded) t)
+
+(DBG "load foo again. Should not do anything -- already loaded")
+(setf (symbol-value loaded) :test-that-we-dont-reload)
+(load-system foo)
+(assert-equal (symbol-value loaded) :test-that-we-dont-reload)
+(assert (not (find-package :second-version)))
+
+(DBG "Now, change registry so foo is found from xach-foo-2/")
+(setf *central-registry* (list (subpathname *test-directory* "xach-foo-2/")))
+(defparameter foo2 (find-system foo))
+(assert (eq foo1 foo2)) ;; the object should be the same
+(assert-equal (mapcar 'component-name (component-children foo2)) '("a" "b"))
+(assert-pathname-equal
+ (subpathname *test-directory* "xach-foo-2/test-asdf-location-change.asd")
+ (system-source-file foo2))
+(assert-pathname-equal
+ (subpathname *test-directory* "xach-foo-2/a.lisp")
+ (component-pathname (find-component foo2 "a")))
+(assert-pathname-equal
+ (subpathname *test-directory* "xach-foo-2/b.lisp")
+ (component-pathname (find-component foo2 "b")))
+(DBG "load foo yet again. It should see the pathname has changed and load it anew")
+;;; ECL bug: this fails if we use load-bundle-op instead of load-op as *load-system-operation*
+;;; in bundle.lisp. The test-asdf-location-change.fasb is linked and loaded, but that fails to
+;;; create the :second-version package; loading the same .fasb in another ecl works fine, and
+;;; defines (second-version:wtf). WTF? You can test this bug by uncommenting the
+;;; (setf asdf::*load-system-operation* 'load-bundle-op) line at the beginning of this file.
+;;; NB: works on MKCL.
+(load-system foo)
+(assert (symbol-value (find-symbol* :loaded :second-version)))
+(assert-equal 42 (symbol-call :second-version :wtf))

@@ -1,0 +1,6 @@
+@anchor{Generic-Function drei-kill-ring:kill-ring-chain}
+@deffn {Generic Function} {drei-kill-ring:kill-ring-chain} ring
+@findex drei-kill-ring:kill-ring-chain
+Return the cursorchain associated with the
+kill ring @code{ring}.
+@end deffn

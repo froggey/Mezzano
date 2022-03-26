@@ -1,0 +1,7 @@
+@anchor{Class drei-undo:undo-tree}
+@deftp {Class} {drei-undo:undo-tree}
+@tindex drei-undo:undo-tree
+Class precedence list: @code{@w{undo-tree}, @w{standard-object}, @w{slot-object}, @w{t}}
+
+The base class for all undo trees.
+@end deftp

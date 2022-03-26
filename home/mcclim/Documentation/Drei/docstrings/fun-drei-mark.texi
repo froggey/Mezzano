@@ -1,0 +1,6 @@
+@anchor{Function drei:mark}
+@deffn {Function} {drei:mark} &optional object
+@findex drei:mark
+Return the mark of the provided object. If no object is
+provided, the current view will be used.
+@end deffn

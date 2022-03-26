@@ -1,0 +1,250 @@
+% Use the full page
+%
+\oddsidemargin 18pt
+\evensidemargin 18pt
+\topmargin 0pt
+\textheight 595pt
+\textwidth 432pt
+
+% Topheading supplies left and right flushed headings for the
+%   lrheading command.
+%
+\def\topheadings#1#2{\def\@toplefthead{#1}\def\@toprighthead{#2}}
+
+% Page style: lrheadings
+%  put text suplied by the topheadings command in the left and
+%  right corners of the topheading.
+%
+\def\ps@lrheadings{%
+\def\@oddhead{\hbox{}\sl\@toplefthead\hfil\sl\@toprighthead}%
+\def\@evenhead{\sl\@toplefthead\hfil\sl\@toprighthead\hbox{}}%
+\def\@oddfoot{\hbox{}\hfil\rm\thepage\hfil}%
+\def\@evenfoot{\hbox{}\hfil\rm\thepage\hfil}}
+
+% Page style: footpagenumber
+%  put nothing in header and center the page number in the footer.
+%
+\def\ps@footpagenumber{%
+\def\@oddhead{}\def\@evenhead{}%
+\def\@oddfoot{\hbox{}\hfil\rm\thepage\hfil}%
+\def\@evenfoot{\hbox{}\hfil\rm\thepage\hfil}}
+
+% \skipline leaves a blank line realitive to the size of the current
+%   font.
+%
+\def\skipline{\vskip 2em}
+
+
+%
+% get the title page correct
+%
+
+% set these to do something
+\def\writtenby{Sundar Narasimhan}
+\def\contractno{Fill in appropriate ARPA/ONR contract no.}
+\def\AIMEMO #1#2#3{ %
+\begin{titlepage}
+\begin{center}
+MASSACHUSETTS INSTITUTE OF TECHNOLOGY\\
+ARTIFICIAL INTELLIGENCE LABORATORY
+\end{center}
+\vskip 1in
+\hbox to \hsize{A.I.Memo No. #1 \hfill \shortdate}
+\vskip 1in
+\begin{center}
+{\bf #2}
+\end{center}
+\vskip 0.5in
+\begin{center}
+\writtenby
+\end{center}
+\vskip 1in
+{\bf Abstract: } #3
+\hbox to \hsize{\hrulefill} % draw a line
+\contractno
+\end{titlepage}
+}
+
+%
+% Argument convention - same as before
+% 
+\def\AIWORKINGPAPER #1#2#3{ %
+\begin{titlepage}
+\begin{center}
+MASSACHUSETTS INSTITUTE OF TECHNOLOGY\\
+ARTIFICIAL INTELLIGENCE LABORATORY
+\end{center}
+\vskip 1in
+\hbox to \hsize{Working Paper No. #1 \hfill \shortdate}
+\vskip 1in
+\begin{center}
+{\bf #2}
+\end{center}
+\vskip 0.5in
+\begin{center}
+\writtenby
+\end{center}
+\vskip 1.5in
+{\bf Abstract: } #3
+\hbox to \hsize{\hrulefill} % draw a line
+A.I.Lab Working Papers are produced for internal circulation and may
+contain information that is, for example, too preliminary or too detailed
+for formal publication. It is not intended that they should be considered
+papers to which reference can be made in the literature.
+\end{titlepage}
+}
+
+% stuff to change the format of figures
+%
+% change parameters to position floats
+%
+\renewcommand{\topfraction}{.9}
+\renewcommand{\bottomfraction}{.9}
+\renewcommand{\textfraction}{.1}
+\renewcommand{\floatpagefraction}{.8}
+\setcounter{totalnumber}{10}
+\setcounter{topnumber}{10}
+\setcounter{bottomnumber}{10}
+
+%
+%   The new definition for chapterhead
+%
+%\def\@chapapp{\sf Section}
+\def\@makechapterhead#1{ \vspace*{10pt} { \parindent 0pt \raggedright
+\hfill \bf \hfill \thechapter. \ #1\par
+\nobreak \vskip 5pt \hrule
+\nobreak \vskip 40pt }}
+
+%
+%  new section commands
+%
+\def\section{\@startsection {section}{1}{\z@}{3.5ex plus 1ex minus
+    .2ex}{2.3ex plus .2ex}{\bf}}
+\def\subsection{\@startsection{subsection}{2}{\z@}{3.25ex plus 1ex minus
+   .2ex}{1.5ex plus .2ex}{\bf}}
+\def\subsubsection{\@startsection{subsubsection}{3}{\z@}{3.25ex plus 1ex minus
+   .2ex}{1.5ex plus .2ex}{\normalsize\bf}}
+\def\paragraph{\@startsection
+     {paragraph}{4}{\z@}{3.25ex plus 1ex minus .2ex}{-1em}{\normalsize\bf}}
+\def\subparagraph{\@startsection
+     {subparagraph}{4}{\parindent}{3.25ex plus 1ex minus
+     .2ex}{-1em}{\normalsize\bf}}
+
+%
+% The new quotation environment
+%
+% we use the peni font that looks rather nice.
+%\font\peni=peni10
+%\def\myquot#1{{\hbox{}
+%\hfill\parbox{3.5in}{\raggedright{\peni #1}}
+%	\\*[\parskip]}\par}
+
+
+%\def\quotauth#1{\hbox to \hsize{\hfill \small #1 \\} \par}
+
+% Date and time macros
+\newcount\hour \newcount\minute
+\hour=\the\time \minute=\the\time
+\divide\hour by 60 \multiply\hour by 60%
+\advance\minute by -\hour \divide\hour by 60%
+\def\daytime{\number\hour:\ifnum \minute<10 0\fi\number\minute}%
+\def\monthname {\ifcase\month \or
+	Jan\or Feb\or Mar\or Apr\or May\or Jun\or
+	Jul\or Aug\or Sep\or Oct\or Nov\or Dec\fi}%
+\def\date{\monthname~\number\day,~\number\year}%
+\def\datetime{\monthname~\number\day,~\number\year~[\daytime]}%
+\def\slashdate{\number\month/\number\day/\number\year}%
+\def\slashdatetime{\number\month/\number\day/\number\year~[\daytime]}%
+
+% the new list environments - works only for top level environments
+\newenvironment{alphenumerate}{\def\labelenumi{(\alph{enumi})}\begin{enumerate}}{\end{enumerate}}
+
+\newenvironment{romanenumerate}{\def\labelenumi{\roman{enumi}.}\begin{enumerate}}{\end{enumerate}}
+
+\newenvironment{Romanenumerate}{\def\labelenumi{\Roman{enumi}.}\begin{enumerate}}{\end{enumerate}}
+
+\newenvironment{Alphenumerate}{\def\labelenumi{(\Alph{enumi})}\begin{enumerate}}{\end{enumerate}}
+
+% Date and time macros
+\newcount\hour \newcount\minute
+\hour=\the\time \minute=\the\time
+\divide\hour by 60 \multiply\hour by 60%
+\advance\minute by -\hour \divide\hour by 60%
+\def\daytime{\number\hour:\ifnum \minute<10 0\fi\number\minute}%
+\def\monthname {\ifcase\month \or
+	Jan\or Feb\or Mar\or Apr\or May\or Jun\or
+	Jul\or Aug\or Sep\or Oct\or Nov\or Dec\fi}%
+\def\longmonthname {\ifcase\month \or
+	January\or February\or March\or April\or May\or June\or
+	July\or August\or September\or October\or November\or December\fi}%
+\def\date{\monthname~\number\day,~\number\year~[\daytime]}%
+\def\slashdate{\number\month/\number\day/\number\year}%
+\def\shortdate{\longmonthname,~\number\year}%
+
+% Math macros
+\def\v#1{\mbox{$\bf #1$}}
+\def\cross{\times}
+\def\jac_t{{\bf J}^{T}}
+\def\jac_inv{{\bf J}^{-1}}
+\def\jac{{\bf J}}
+
+% Float stuff
+%\def\@float#1{\@ifnextchar[{\@xfloat{#1}}{\edef\@tempa{\noexpand\@xfloat
+%    {#1}[\csname fps@#1\endcsname]}\@tempa}}
+%
+%\def\@xfloat#1[#2]{\ifhmode \@bsphack\@floatpenalty -\@Mii\else
+%   \@floatpenalty-\@Miii\fi\def\@captype{#1}\ifinner
+%      \@parmoderr\@floatpenalty\z@
+%    \else\@next\@currbox\@freelist{\@tempcnta\csname ftype@#1\endcsname
+%       \multiply\@tempcnta\@xxxii\advance\@tempcnta\sixt@@n
+%       \@tfor \@tempa :=#2\do
+%                        {\if\@tempa h\advance\@tempcnta \@ne\fi
+%                         \if\@tempa t\advance\@tempcnta \tw@\fi
+%                         \if\@tempa b\advance\@tempcnta 4\relax\fi
+%                         \if\@tempa p\advance\@tempcnta 8\relax\fi
+%         }\global\count\@currbox\@tempcnta}\@fltovf\fi
+%    \global\setbox\@currbox\vbox\bgroup
+%    \boxmaxdepth\z@
+%    \hsize\columnwidth \@parboxrestore}
+%
+%\def\end@float{\egroup
+%   \ifnum\@floatpenalty <\z@
+%     \@cons\@currlist\@currbox
+%     \ifdim \ht\@currbox >\textheight
+%        \ht\@currbox\textheight \fi
+%     \global\@outputdonefalse
+%     \ifnum\@floatpenalty < -\@Mii
+%        \penalty\@floatpenalty
+%        \if@outputdone\else\global\@outputdonetrue
+%           \vbox{}\penalty\@floatpenalty\fi
+%      \else \vadjust{\penalty \@floatpenalty}\@esphack\fi\fi}
+%
+%\def\@dblfloat#1{\if@twocolumn\else\@latexerr{Two-column float
+%on one-column page}\@ehd\fi
+%\@ifnextchar[{\@xdblfloat{#1}}{\@xdblfloat{#1}[tp]}}
+
+% line space commands (from dms.sty)
+\def\varspace#1{\def\baselinestretch{#1}\large\normalsize}
+\def\dspace{\def\baselinestretch{1.5}\large\normalsize}
+\def\mspace{\def\baselinestretch{1.25}\large\normalsize}
+\def\sspace{\def\baselinestretch{1.0}\large\normalsize}
+\def\tspace{\def\baselinestretch{.85}\large\normalsize}
+\let\double=\dspace
+\let\single=\sspace
+
+% Illustrate macros for latex - see GLR's working paper on the subject
+\newcommand{\psbox}[3]{%
+    \makebox[#1][l]{%
+	\parbox[b]{0.0in}{\vspace*{#2}}%
+	\special{psfile=#3}}}
+
+% 4.25in=306 ps points, 5.50 in = 396 ps points
+\newlength{\illheight}
+\newcommand{\illustratefile}[3]{%
+	\makebox[#1]{%
+	\setlength{\illheight}{#2}%
+	\raisebox{0.5\illheight}[\illheight][0.0in]{%
+	\special{psfile=#3 hoffset=-306 voffset=-396}}}}
+\endinput
+
+% arch-tag: "185f1ce2-313d-11d8-abb9-000c76244c24"

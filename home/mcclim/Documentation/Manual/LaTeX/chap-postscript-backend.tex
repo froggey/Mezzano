@@ -1,0 +1,16 @@
+\chapter{PostScript backend}
+
+\section{Postscript fonts}
+
+Font mapping is a cons, the car of which is the name of the font
+(FontName field in the AFM file), and the cdr is the size in points.
+Before establishing the mapping, an information about this font should
+be loaded with the function \texttt{load-afm-file}.
+
+\section{Additional functions}
+
+Package \texttt{clim-postscript} exports the following functions:
+
+\Defun {load-afm-file} {afm-filename}
+
+Loads a description of a font from the specified AFM file.

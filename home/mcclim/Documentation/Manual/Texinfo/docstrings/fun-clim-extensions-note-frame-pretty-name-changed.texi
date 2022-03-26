@@ -1,0 +1,7 @@
+@anchor{Generic-Function clim-extensions:note-frame-pretty-name-changed}
+@deffn {Generic Function} {@symbol{note-frame-pretty-name-changed,clim-extensions}} frame-manager frame new-name
+Notify client that the pretty name of @var{frame}, managed by @var{frame-manager},
+changed to @var{NEW-NAME}.
+@var{frame-manager} can be @t{NIL} if @var{frame} is not owned by
+a frame manager at the time of the change.
+@end deffn

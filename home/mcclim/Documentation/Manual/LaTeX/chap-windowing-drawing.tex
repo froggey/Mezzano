@@ -1,0 +1,21 @@
+\chapter{Windowing system drawing functions}
+
+A typical windowing system provides a hierarchy of rectangular areas
+called windows.  When a drawing functions is called to draw an object
+(such as a line or a circle) in a window of such a hierarchy, the
+arguments to the drawing function will include at least the window and a
+number of coordinates relative to (usually) the upper left corner of the
+window.
+
+To translate such a request to the actual altering of pixel values in
+the video memory, the windowing system must translate the coordinates
+given as argument to the drawing functions into coordinates relative to
+the upper left corner of the entire screen.  This is done by a
+composition of translation transformations applied to the initial
+coordinates.  These transformations correspond to the position of each
+window in the coordinate system of its parent.
+
+Thus a window in such a system is really just some values indicating its
+height, its width, and its position in the coordinate system of its
+parent, and of course information about background and foreground colors
+and such.

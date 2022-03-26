@@ -1,0 +1,444 @@
+\chapter{Sheet hierarchies}
+
+CLIM sheets are organized into a hierarchy.  Each sheet has a sheet
+transformation and a sheet region.  The sheet tranformation determines
+how coordinates in the sheet's own coordinate system get translated
+into coordinates in the coordinate system of its parent.  The sheet
+region determines the \gloss{potentially visible area} of the
+otherwise infinite drawing plane of the sheet.  The sheet region is
+given in the coordinate system of the sheet. 
+
+In McCLIM, every grafted sheet has a \gloss{native transformation}.
+The native transformation is used by drawing functions to translate
+sheet coordinates to \gloss{native coordinates}, so that drawing can
+occur on the (not necessarily immediate) mirror of the sheet.  It
+would therefore be enough for sheets that support the \gloss{output
+protocol} to have a native transformation.  However, it is easier to
+generalize it to all sheets, in order to simplify the programming of
+the computation of the native transformation.  Thus, in McCLIM, even
+sheets that are mute for output have a native transformation.
+
+In McCLIM, every grafted sheet also has a \gloss{native region}.  The
+native region is intersection the sheet region and the region of all
+of its ancestors, except that the native region is given in
+\gloss{native coordinates}, i.e. the coordinates obtained after the
+application of the \gloss{native transformation} of the sheet.
+
+\section{Computing the native transformation}
+
+CLIM maintains, for each sheet that supports output, a \gloss{native
+transformation}.  The native transformation is used by drawing
+functions to transform coordinates to \gloss{native coordinates},
+i.e., those required by the windowing system.  In this section, we
+examine how that computation is made.
+
+To get an idea of the complexity involved, let us imagine a hierarchy
+of three sheets: A, B, and C as shown in figure \ref{fignative}.  The
+name of each sheet is placed close to the origin of its own coordinate
+system.  The region of B is marked with rb and is some arbitrary
+shape.  The region of C is marked rc and has the shape of an ellipse.
+We do not need the region of A for our example.  In the example, A and
+C are mirrored, but B is not.  The origin of the mirror of A is marked
+with a lower-case a and the origin of C is marked with a lower-case
+c.  Mirrors are outlined with dotted rectangles. 
+
+\begin{figure}
+\begin{center}
+\inputfig{native.pdf_t}
+\end{center}
+\caption{\label{fignative} A sheet with a nontrivial transformation}
+\end{figure}
+
+In our example, the sheet transformations are nontrivial.  Notice that
+the x-axis in the coordinate system of C grows downward and that the
+y-axis in the coordinate system of B grows upward.  
+
+As defined in the specification, a transformation hffas six components:
+$m_{xx}$, $m_{xy}$, $m_{yx}$, $m_{yy}$, $t_x$, and $t_y$ such that 
+
+$$x' = m_{xx} x + m_{xy} y + t_x$$ and $$y' = m_{yx} x + m_{yy} y + t_y$$
+
+Let us first establish the sheet transformations of B and C in the
+example.  By transforming the point (0,0) of B to the coordinate
+system of A we get:
+
+$$45 = m_{xx} \cdot 0 + m_{xy} \cdot 0 + t_x$$
+$$5 = m_{yx} \cdot 0 + m_{yy} \cdot 0 + t_y$$
+
+so $t_x = 45$ and $t_y = 5$. For the point (0,10) we then get:
+
+$$40 = m_{xx} \cdot 0 + m_{xy} \cdot 10 + 45$$
+$$5 = m_{yx} \cdot 0 + m_{yy} \cdot 10 + 5$$
+
+which gives $m_{xy} = -0.5$ and $m_{yy} = 0$.  Finally, for the point
+(10,0) we get:
+
+$$45 = m_{xx} \cdot 10 - 0.5  \cdot 0 + 45$$
+$$15 = m_{yx} \cdot 10 + 0 \cdot 0 + 5$$
+
+which gives $m_{xx} = 0$ and $m_{yx} = 1$.
+
+Using the notation:
+
+\[ \left[ \begin{array}{ccc}
+m_{xx} & m_{xy} & t_x\\
+m_{yx} & m_{yy} & t_y 
+\end{array} \right] \]
+
+we get 
+
+\[ T_B = \left[ \begin{array}{ccc}
+0 & -0.5 & 45\\
+1 & 0 & 5 
+\end{array} \right] \]
+
+where $T_s$ means the sheet transformation of the sheet $s$. 
+
+Let us now attack the sheet transformation of C.  For the point (0,0)
+in the coordinate system of C we get (30,70) in the coordinate system
+of B, giving $t_x = 30$ and $t_y = 70$.  Transforming (0,10) gives
+(25,70) so that:
+
+$$25 = m_{xx} \cdot 0 + m_{xy} \cdot 10 + 30$$
+
+and 
+
+$$70 = m_{yx} \cdot 0 + m_{yy} \cdot 10 + 70$$
+
+Giving $m_{xy} = -0.5$ and $m_{yy} = 0$
+Finally, transforming (10,0) gives (30,60) so that
+
+$$30 = m_{xx} \cdot 10 + m_{xy} \cdot 0 + 30$$
+
+and
+
+$$60 = m_{yx} \cdot 10 + m_{yy} \cdot 0 + 70$$
+
+which gives $m_{xx} = 0$ and $m_{yx} = -1$
+
+Thus
+
+\[ T_C = \left[ \begin{array}{ccc}
+0 & -0.5 & 25\\
+-1 & 0 & 70 
+\end{array} \right] \]
+
+Let us now attack the native transformations (written $N_s$).  For
+that, we need to know the native transformation of A, i.e., $N_A$.
+Let us for the moment assume that the native transformation of A is a
+simple translation with $t_x = 0$ and $t_y = -10$.  This implies that
+the \emph{scale} of the coordinate system of A is directly in pixels,
+so that the mirror c is about 15 pixels tall and 10 pixels wide.
+
+Thus we have that 
+
+\[ N_A = \left[ \begin{array}{ccc}
+1 & 0 & 0\\
+0 & 1 & -10 
+\end{array} \right] \]
+
+To compute the native transformation of B, we observe that drawing on
+B must end up on the mirror a of A.  Let us first see whether we can
+figure it out manually the same way we did for the sheet
+transformations.  We get the system of equations:
+
+\[ \begin{array}{ccccccc}
+45 & = & m_{xx} \cdot 0 & + & m_{xy} \cdot 0 & + & t_x \\
+-5 & = & m_{yx} \cdot 0 & + & m_{yy} \cdot 0 & + & t_y \\
+40 & = & m_{xx} \cdot 0 & + & m_{xy} \cdot 10 & + & t_x \\
+-5 & = & m_{yx} \cdot 0 & + & m_{yy} \cdot 10 & + & t_y \\
+45 & = & m_{xx} \cdot 10 & + & m_{xy} \cdot 0 & + & t_x \\
+5 & = & m_{yx} \cdot 10 & + & m_{yy} \cdot 0 & + & t_y \\
+\end{array} \]
+
+which gives
+
+\[ N_B = \left[ \begin{array}{ccc}
+0 & -0.5 & 45\\
+1 & 0 & -5 
+\end{array} \right] \]
+
+Similarly, to compute $N_C$, we solve the system:
+
+\[ \begin{array}{ccccccc}
+10 & = & m_{xx} \cdot 0 & + & m_{xy} \cdot 0 & + & t_x \\
+25 & = & m_{yx} \cdot 0 & + & m_{yy} \cdot 0 & + & t_y \\
+10 & = & m_{xx} \cdot 0 & + & m_{xy} \cdot 10 & + & t_x \\
+20 & = & m_{yx} \cdot 0 & + & m_{yy} \cdot 10 & + & t_y \\
+15 & = & m_{xx} \cdot 10 & + & m_{xy} \cdot 0 & + & t_x \\
+25 & = & m_{yx} \cdot 10 & + & m_{yy} \cdot 0 & + & t_y \\
+\end{array} \]
+
+Which gives
+
+\[ N_C = \left[ \begin{array}{ccc}
+0.5 & 0 & 10\\
+0 & -0.5 & 25 
+\end{array} \right] \]
+
+Now, let us try to find a way to compute $N_B$ from $N_A$ and $T_B$.
+Drawing on B must end up on the mirror a of A, so it seems reasonable
+to think that you should first apply $T_B$ and then $N_A$ to the
+control points of the figure drawn.  But this is the composition of
+$N_A$ and $T_B$, written $N_A \circ T_B$.  The composition of two
+transformations $m' \circ m$ is computed as follows:
+
+\[ \left[ \begin{array}{ccc}
+{m'}_{xx} m_{xx} + {m'}_{xy} m_{yx} & {m'}_{xx} m_{xy} + {m'}_{xy}
+m_{yy} & {m'}_{xx} t_x + {m'}_{xy} t_y + {t'}_x\\
+{m'}_{yx} m_{xx} + {m'}_{yy} m_{yx} & {m'}_{yx} m_{xy} + {m'}_{yy}
+m_{yy} & {m'}_{yx} t_x + {m'}_{yy} t_y + {t'}_y
+\end{array} \right] \]
+
+Using that formula, we get
+
+\[ N_A \circ T_B = \left[ \begin{array}{ccc}
+1 \cdot 0 + 0 \cdot 1 & 1 \cdot -0.5 + 0
+\cdot 0 & 1 \cdot 45 + 0 \cdot 5 + 0\\
+0 \cdot 0 + 1 \cdot 1 & 0 \cdot -0.5 + 1
+\cdot 0 & 0 \cdot 45 + 1 \cdot 5 - 10
+\end{array} \right] \]
+
+which gives
+
+\[ N_A \circ T_B = \left[ \begin{array}{ccc}
+0 & -0.5 & 45\\
+1 & 0 & -5
+\end{array} \right] \]
+
+which corresponds exactly to our manual calculation of $N_B$ above. 
+
+Computing the native transformation of C is more complicated, since C
+is mirrored.  First, let us introduce the notion of a \gloss{mirror
+transformation}.  The mirror transformation is similar to the sheet
+transformation, in that it transforms coordinates of a mirror to
+coordinates of its parent mirror.  We use $M_x$ to denote the mirror
+transformation of the mirror of the sheet $x$.  The mirror
+transformation is obviously port specific.  With most windowing
+systems (and certainly with X) this transformation will be a simple
+translation. 
+
+Drawing on C should have the same effect as drawing on B with $T_C$
+applied to the control points, and that should have the same effect as
+drawing on the mirror of B with first $N_C$ and then $M_C$ applied 
+to the control points.  In other words $N_B \circ T_C = M_C \circ
+N_C$.  Applying the inverse of $M_C$ to both sides gives $M_C^{-1}
+\circ N_B \circ T_C = M_C^{-1} \circ M_C \circ N_C = N_C$ 
+
+We now have a way of computing $NC$, namely the inverse of the mirror
+transformation of C composed with the native transformation of B
+composed with the sheet transformation of C. 
+
+Now we have an algorithm for computing native transformations.  To
+simplify that algorithm, let us define the native transformation for a
+\gloss{mute} sheet as well (it will have the same definition as that
+for a non-mirrored sheet). 
+
+\begin{enumerate0}
+  
+\item The native transformation of the top level sheet is decided by
+  the frame manager.  It may be the \gloss{identity transformation} or
+  a transformation from millimeters to pixels, or whatever the frame
+  manager decides.
+  
+\item The native transformation of any mirrored sheet other than the
+  top level sheet is the composition of the inverse of its mirror
+  transformation, the native transformation of its parent, and its own
+  sheet transformation.
+  
+\item The native transformation of any sheet without a mirror is the
+  composition of the native transformation of its parent and its own
+  sheet transformation.
+\end{enumerate0}
+
+\section{Computing the native region}
+
+Given the definition above of native region, we must now find an
+algorithm for computing it.  
+
+For a sheet without a mirror, the native coordinate system is the same
+as that of its parent.  Thus, the native region of such a sheet is the
+sheet transformation of the sheet transformed by the native
+transformation of the sheet and then intersected with the native
+region of its parent. 
+
+For a mirrored sheet $S$, things are slightly more complicated,
+because the native coordinate system of such a sheet and of its parent
+are not the same.  They differ by an application of the \gloss{mirror
+transformation}.  The native region of its parent is expressed in the
+native coordinate system of its parent, whereas transforming the sheet
+region of $S$ by the sheet transformation $T_S$ of $S$ yields a region
+in the native coordinate system of $S$.  We need to intersect that
+region with the native region of its parent expressed in the native
+coordinate system of $S$.  We must therefore apply the inverse of the
+mirror transformation $M_S$ of $S$ to the native region of the parent
+of $S$ before intersecting the two.   We get the following algorithm,
+which assumes that the native transformation of $S$ has already been
+computed: 
+
+\begin{enumerate0}
+\item if $S$ is not mirrored, compute its native region as its sheet
+region transformed by its native transformation and then intersected
+with the native region of its parent.
+\item if $S$ is mirrored, compute its native region as its sheet
+region transformed by its native transformation and then intersected
+with the native region of its parent transformed by the inverse of the
+mirror transformation of $S$.
+\end{enumerate0}
+
+\section{Moving and resizing sheets and regions}
+\label{secmoving}
+
+In this section, we discuss moving and resizing.  In particular, we
+determine the sharing of responsibilities for moving and resizing
+sheets and regions between a sheet and its parent. 
+
+A common operation necessary in CLIM is to move a sheet or
+its region.  There are many variants of moving a sheet and its
+region:
+
+\begin{itemize0}
+\item The origin of the coordinate system of a sheet may be moved with
+respect to that of its parent.  The position of the \gloss{sheet
+region} then also changes in the coordinate system of the parent of
+the sheet;
+\item The region of a sheet may be moved with respect to the origin of
+the coordinate system of that sheet.  The position of the \gloss{sheet
+region} then also changes in the coordinate system of the parent of
+the sheet;
+\item The two previous operations can occur simultaneously with
+opposite moves.  This gives the effect of scrolling, i.e. the region
+of the sheet remains in the same place in the coordinate system of the
+parent of the sheet.
+\end{itemize0}
+
+Let us first examine the responsibilities of a \gloss{layout pane}.
+Such a pane is in charge of moving and resizing regions of its
+children.  Several questions must be answered:
+
+\begin{itemize0}
+\item When moving a region of a child, should the layout pane move
+the sheet transformation of its child, the sheet region of its child
+within the coordinate system of its child, or a combination of the
+two?
+\item When resizing a region of a child, how should the layout pane
+align the new region with respect to the old one (this would influence
+what part of the old region is still visible in the resized one)?
+\end{itemize0}
+
+To answer the first question, we simply observe that we would like the
+visible contents of the child to remain unchanged whenever its region
+is moved by the layout pane.  This behavior implies that the position
+of the region of the child in the coordinate system of that child
+remain unchanged.  Thus, when a layout pane must move the region of
+its child in its own coordinate system, it must do so by only moving
+the \gloss{sheet transformation} of the child.
+
+Conversely, if a sheet needs to move its region with respect to its
+own coordinate system, for instance to obtain the effect of scrolling,
+it must make sure that its region does not move in the coordinate
+system of its parent.  Every such move must therefore be compensated
+by a simultaneous opposite move of the \gloss{sheet transformation}.
+Moving only the position of the region without changing the sheet
+transformation would defeat the work of a potential \gloss{layout
+pane} parent. 
+
+To answer the second question, we imagine several different types of
+children.  An ordinary stream pane would probably like to align the
+lower-left corner of the old and the new region so that the first
+column of the last line of text is still visible.  A stream pane for
+arabic or hebrew would prefer to align the lower-right corner.  And a
+stream for an asian language written from top to bottom, right to
+left, would like to preserve the upper-left corner.  In other words,
+the layout pane cannot make this decision, as it depends on the exact
+type of the child.  The layout pane must therefore delegate this
+decision to the child.  
+
+\section{Scrolling}
+
+Scrolling generally means moving the origin of the coordinate system
+of a sheet with respect to the visible part of its region, thus making
+some different part of the drawing plane of the sheet visible. 
+
+There are two types of scrolling, conceptually completely different:
+
+\begin{itemize0}
+\item the scrolling of a pane not contained in (the viewport of) a
+scroller pane, 
+\item the scrolling of a pane contained in (the viewport of) a
+scroller pane. 
+\end{itemize0}
+
+In particular, we need to know how a stream pane should behave when a
+new line of text needs to be displayed, and that new line is outside
+the current region of the stream pane.
+
+When a pane is \emph{not} contained in a scroller pane, scrolling must
+preserve the size of its region and the position of its region in the
+coordinate system of its parent (see section \ref{secmoving}).  The
+normal scrolling action for a stream pane not contained in a scroller
+pane would therefore be to translate its region in the positive y
+direction by an amount that corresponds to the hight of a line, and to
+translate itself (i.e. to alter its sheet transformation) in the
+negative y direction by the same amount.
+
+When a pane \emph{is} contained in a scroller pane, the situation is
+completely different.  The viewport of the scroller pane does not
+behave like an ordinary layout pane (see section \ref{secmoving}) in
+that it does not have an opinion about the size and position of the
+region of its child.  The scroller pane \emph{itself} is a layout pane
+that controls the size and position of the region of the
+\gloss{viewport pane} which is one of its children (the others are the
+scroll bars), but the viewport pane does not control the size and
+position of the region of \emph{its} child.  Instead, the scroller
+pane simply alters the appearance of the scroll bars to reflect the
+size and position of region of the child of the viewport with respect
+to the size and position of the region of the viewport itself.
+
+A stream pane contained in a scroller pane should therefore behave
+differently from a stream pane not contained in a scroller pane in
+order for the scroller pane to serve any purpose.  But exactly how
+should it behave?  First, with respect to the size of its region, its
+normal scrolling action should probably make its region bigger (at
+least up to a certain point) so that its previous contents could be
+viewed by moving the scroll bars.  
+
+But what about the \emph{position} of the region?  This question is in
+fact two different questions:
+
+\begin{itemize0}
+\item How should the position of the region in the coordinate system of the
+stream pane be altered (if at all)?
+\item How should the position of the region in the coordinate system of the
+viewport pane be altered (if at all)?
+\end{itemize0}
+
+To answer the first question, the most reasonable thing to do when the
+region is made bigger would probably be to maintain the upper edge of
+the region and extend the region downwards (or rather, in the
+direction of the positive y axis).  When the region is not made bigger
+(perhaps because some limit has been set), the region should simply
+be translated in the direction of positive y axis. 
+
+The second question is harder, and the answer is ``it depends''.  Let
+us study the behavior of something similar, namely the X11 application
+\texttt{xterm}.  Whenever any output whatsoever is made in the window
+of an \texttt{xterm} with scroll bars, the line where the output takes
+place is put on display.  To see that, start an \texttt{xterm} with
+scroll bars; make sure the scroll bar is smaller than the size of the
+window; scroll up; then type a character.  To obtain this behavior for
+a CLIM stream pane, any output to the stream pane should align the
+bottom of the stream pane region with the bottom of the viewport
+region.  But this must be done by moving only the sheet transformation
+of the stream pane.  
+
+Another possibility is, of course, would be to always maintain the
+position of the bottom of the region of the stream pane with respect
+to the bottom of the region of the viewport pane.  That way, special
+action would only need to be taken by the stream pane as a result of
+the desire to scroll, and not as a result of \emph{any} output.  New
+lines of output might not become immediately visible if the scroll bar
+is not in its bottom position.  To obtain this effect, the stream pane
+could simply translate its sheet transformation in the negative y
+direction to compensate for the increased size.  This solution is
+probably the simplest one. 

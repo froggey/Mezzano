@@ -1,0 +1,293 @@
+% -*- Mode: LaTeX; Package: CLIM-USER -*-
+
+\chapter {Text Styles}
+\label {text-styles}
+
+When specifying a particular ``appearance'' for rendered characters, there is a
+tension between portability and access to specific font for a display device.
+CLIM provides a portable mechanism for describing the desired \concept{text
+style} in abstract terms.  Each CLIM ``port'' defines a mapping between these
+abstract style specifications and particular device-specific fonts.  In this
+way, an application programmer can specify the desired text style in abstract
+terms secure in the knowledge that an appropriate device font will be selected
+at run time by CLIM.  However, some programmers may require direct access to
+particular device fonts.  The text style mechanism supports specifying device
+fonts by name, allowing the programmer to sacrifice portability for control.
+
+
+\section {Text Styles}
+
+Text style objects have components for family, face, and size.  Not all of these
+attributes need be supplied for a given text style object.  Text styles can be
+merged in much the same way as pathnames are merged; unspecified components in
+the style object (that is, components that have \cl{nil} in them) may be filled
+in by the components of a ``default'' style object.  A text style object is
+called \concept{fully specified} if none of its components is \cl{nil}, and the
+size component is not a relative size (that is, is neither \cl{:smaller} nor
+\cl{:larger}).
+
+\Defprotoclass {text-style}
+
+The protocol class for text styles.
+\IfYouWantClass {a} {text style} {text-style}
+
+\Defpredicate {text-style-p} {object}
+
+Returns \term{true} if \arg{object} is a \term{text style}, otherwise returns
+\term{false}.
+
+\Defclass {standard-text-style}
+
+An instantiable class that implements text styles.  It is a subclass of
+\cl{text-style}.  This is the class that \cl{make-text-style} instantiates.
+\Immutable
+
+The interface to text styles is as follows:
+
+\Defun {make-text-style} {family face size}
+
+Returns an object of class \cl{standard-text-style} with a family of
+\arg{family}, a face of \arg{face}, and a size of \arg{size}.
+
+\arg{family} is one of \cl{:fix}, \cl{:serif}, \cl{:sans-serif}, or \cl{nil}.
+
+\arg{face} is one of \cl{:roman}, \cl{:bold}, \cl{:italic}, \cl{(:bold :italic)},
+or \cl{nil}.
+
+\arg{size} is a real number representing the size in printer's points, one of
+the logical sizes (\cl{:normal}, \cl{:tiny}, \cl{:very-small}, \cl{:small},
+\cl{:large}, \cl{:very-large}, \cl{:huge}), a relative size (\cl{:smaller} or
+\cl{:larger}), or \cl{nil}.
+
+Implementations are permitted to extend legal values for \arg{family},
+\arg{face}, and \arg{size}.
+
+\issue {York, SWM} {Need to describe what family, face, size mean in terms of
+visual appearance.  This should also be reconciled with the ISO description of
+the attributes of a ``text style'', including such things as underlining,
+subscripts, superscripts, etc.}
+
+\Defconst {*default-text-style*}
+
+The default text style used on a CLIM medium if no text style is explicitly
+specified for the medium when it it created.  This must be a fully merged text
+style.
+
+\Defconst {*undefined-text-style*}
+
+The text style that is used as a fallback if no mapping exists for some other
+text style when some text is about to be rendered on a display device (via
+\cl{write-string} and \cl{draw-string*}, for example).  This text style should be fully
+merged, and it must have a mapping for all display devices.
+
+
+\subsection {Text Style Protocol and Text Style Suboptions}
+
+The following generic functions comprise the text style protocol.  All
+subclasses of \cl{text-style} must implement methods for each of these generic
+functions.
+
+Each of the suboptions described below has a corresponding reader accessor that
+can be used to extract a particular component from a text style.
+
+\Defgeneric {text-style-components} {text-style}
+
+Returns the components of the \term{text style} \arg{text-style} as three
+values, the family, face, and size.
+
+\defoption {:text-family}
+\Defgeneric {text-style-family} {text-style}
+
+Specifies the family of the \term{text style} \arg{text-style}.
+
+\defoption {:text-face}
+\Defgeneric {text-style-face} {text-style}
+
+Specifies the face of the \term{text style} \arg{text-style}.
+
+\defoption {:text-size}
+\Defgeneric {text-style-size} {text-style}
+
+Specifies the size of the \term{text style} \arg{text-style}.
+
+
+\Defun {parse-text-style} {style-spec}  
+
+Returns a text style object.  \arg{style-spec} may be a \cl{text-style} object
+or a device font, in which case it is returned as is, or it may be a list of the
+family, face, and size (that is, a ``style spec''), in which case it is
+``parsed'' and a \cl{text-style} object is returned.  This function is for
+efficiency, since a number of common functions that take a style object as an
+argument can also take a style spec, in particular \cl{draw-text}.
+
+
+\Defgeneric {merge-text-styles} {style1 style2}
+
+Merges the \term{text styles} \arg{style1} with \arg{style2}, that is, returns a
+new text style that is the same as \arg{style1}, except that unspecified
+components in \arg{style1} are filled in from \arg{style2}.  For convenience,
+the two arguments may be also be style specs.
+
+When merging the sizes of two text styles, if the size from \arg{style1} is a
+relative size, the resulting size is either the next smaller or next larger size
+than is specified by \arg{style2}.  The ordering of sizes, from smallest to
+largest, is \cl{:tiny}, \cl{:very-small}, \cl{:small}, \cl{:normal},
+\cl{:large}, \cl{:very-large}, and \cl{:huge}.
+
+\issue {SWM} {Need to describe face-merging properly.  For example, merging a
+bold face with an italic one can result in a bold-italic face.}
+
+
+\defgeneric {text-style-ascent}  {text-style medium} 
+\defgeneric {text-style-descent} {text-style medium}
+\defgeneric {text-style-height}  {text-style medium}
+\Defgeneric {text-style-width}   {text-style medium}
+
+Returns the ascent, descent, height, and width (respectively) of the font
+corresponding to the \term{text style} \arg{text-style} as it would be rendered
+on the \term{medium} \arg{medium}.  \arg{text-style} must be a fully specified
+text style.
+
+The ascent of a font is the distance between the top of the tallest character in
+that font and the font's baseline.  The descent of a font is the distance
+between the baseline and the bottom of the lowest descending character (usually
+``g'', ``p'', ``q'', or ``y'').  The height of a font is the sum of the ascent
+and the descent of the font.  The width of a font is the width of some
+representative character in the font.
+
+The methods for these generic functions will typically specialize both the
+\arg{text-style} and \arg{medium} arguments.  Implementations should also
+provide ``trampolines'' for these generic functions on output sheets; the
+trampolines will simply call the method for the medium.
+
+
+\Defgeneric {text-style-fixed-width-p} {text-style medium}
+
+Returns \term{true} if the \term{text styles} \arg{text-style} will map to a
+fixed-width font on the \term{medium} \arg{medium}, otherwise returns
+\term{false}.  \arg{text-style} must be a fully specified text style.
+
+The methods for this generic function will typically specialize both the
+\arg{text-style} and \arg{medium} arguments.  Implementations should also
+provide a ``trampoline'' for this generic function for output sheets; the
+trampoline will simply call the method for the medium.
+
+
+\issue {SWM} {Discuss baselines?  Kerning?}
+
+
+\Defgeneric {text-size} {medium string \key text-style (start \cl{0}) end} 
+
+Computes the ``cursor motion'' in device units that would take place if
+\arg{string} (which may be either a string or a character) were output to the
+\term{medium} \arg{medium} starting at the position $(0,0)$.  Five values are
+returned:  the total width of the string in device units, the total height of
+the string in device units, the final $x$ cursor position (which is the same as
+the width if there are no \verb+#\Newline+ characters in the string), the final
+$y$ cursor position (which is 0 if the string has no \verb+#\Newline+ characters
+in it, and is incremented by the line height of \arg{medium} for each
+\verb+#\Newline+ character in the string), and the string's baseline.
+
+\arg{text-style} specifies what text style is to be used when doing the output,
+and defaults to \cl{medium-merged-text-style} of the medium.  \arg{text-style}
+must be a fully specified text style.  \arg{start} and \arg{end} may be used to
+specify a substring of \arg{string}.
+
+If a programmer needs to account for kerning or the ascent or descent of the
+text style, he should measure the size of the bounding rectangle of the text
+rendered on \arg{medium}.
+
+All mediums and output sheets must implement a method for this generic function.
+
+
+\section {Text Style Binding Forms}
+
+\Defmacro {with-text-style} {(medium text-style) \body body}
+
+Binds the current text style of the \term{medium} designated by \arg{medium} to
+correspond to the new text style.  \arg{text-style} may either a text style
+object or a style spec (that is, a list of the a family, a face code, and a
+size).  \arg{body} is executed with the new text style in effect.
+
+The \arg{medium} argument is not evaluated and must be a symbol that is bound
+to a sheet or medium.  If \arg{medium} is \cl{t}, \cl{*standard-output*} is
+used.  \arg{body} may have zero or more declarations as its first forms.
+
+\cl{with-text-style} must be implemented by expanding into a call to
+\cl{invoke-with-text-style}, supplying a function that executes \arg{body} as
+the \arg{continuation} argument to \cl{invoke-with-text-style}.
+
+\Defgeneric {invoke-with-text-style} {medium continuation text-style}
+
+Binds the current text style of the \term{medium} \arg{medium} to correspond to
+the new text style, and calls the function \arg{continuation} with the new text
+style in effect.  \arg{text-style} may either be a text style object or a style
+spec (that is, a list of the a family, a face code, and a size).  \arg{continuation}
+is a function of one argument, the medium; it has dynamic extent.
+
+\arg{medium} can be a medium, a sheet that supports the sheet output protocol,
+or a stream that outputs to such a sheet.  All classes that obey the medium
+protocol must implement a method for \cl{invoke-with-text-style}.
+
+
+\defmacro {with-text-family} {(medium family) \body body}
+\defmacro {with-text-face}   {(medium face) \body body}
+\Defmacro {with-text-size}   {(medium size) \body body}
+
+Binds the current text style of the \term{medium} designated by \arg{medium} to
+correspond to a new text style consisting of the current text style with the new
+family, face, or size (respectively) merged in.  \arg{face}, \arg{family}, and
+\arg{size} are as for \cl{make-text-style}.  \arg{body} is executed with the new
+text style in effect.
+
+The \arg{medium} argument is not evaluated, and must be a symbol that is bound
+to a sheet or medium.  If \arg{medium} is \cl{t}, \cl{*standard-output*} is
+used.  \arg{body} may have zero or more declarations as its first forms.
+
+These macros are ``convenience'' forms of \cl{with-text-style} that must expand
+into calls to \cl{invoke-with-text-style}.
+
+
+\section {Controlling Text Style Mappings}
+
+Text styles are mapped to fonts using the \cl{text-style-mapping} function,
+which takes a port, a character set, and a text style, and returns a font
+object.  All ports must implement methods for the following generic functions,
+for all classes of text style.
+
+The objects used to represent a font mapping are unspecified and are likely to
+vary from port to port.  For instance, a mapping might be some sort of font
+object on one type of port, or might simply be the name of a font on another.
+
+\issue {SWM} {We still need to describe what a device font is.  Ditto, character
+sets.}
+
+Part of initializing a port is to define the mappings between text styles and
+font names for the port's host window system.
+
+\Defgeneric {text-style-mapping} {port text-style \optional character-set}
+
+Returns the font mapping that will be used when rendering characters in the
+character set \arg{character-set} in the \term{text style} \arg{text-style} on
+any medium on the \term{port} \arg{port}.  If there is no mapping associated
+with \arg{character-set} and \arg{text-style} on \arg{port}, then some other
+object will be returned that corresponds to the ``unmapped'' text style.
+
+\arg{character-set} defaults to the standard character set.
+
+\Defgeneric {(setf text-style-mapping)} {mapping port text-style \optional character-set} 
+
+Sets the text style mapping for \arg{port}, \arg{character-set}, and
+\arg{text-style} to \arg{mapping}.  \arg{port}, \arg{character-set}, and
+\arg{text-style} are as for \cl{text-style-mapping}.  \arg{mapping} is either a
+font name or a list of the form \cl{(:style \arg{family} \arg{face}
+\arg{size})}; in the latter case, the given style is translated at runtime into
+the font represented by the specified style.
+
+\arg{character-set} defaults to the standard character set.
+
+\Defun {make-device-font-text-style} {display-device device-font-name}
+
+Returns a text style object that will be mapped directly to the specified device
+font when text is output to a to the display device with this style.  Device
+font styles do not merge with any other kind of style.

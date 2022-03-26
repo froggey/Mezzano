@@ -1,0 +1,7 @@
+@anchor{Class drei-buffer:standard-buffer}
+@deftp {Class} {drei-buffer:standard-buffer}
+@tindex drei-buffer:standard-buffer
+Class precedence list: @code{@w{standard-buffer}, @w{buffer}, @w{standard-object}, @w{slot-object}, @w{t}}
+
+The standard instantiable class for buffers.
+@end deftp

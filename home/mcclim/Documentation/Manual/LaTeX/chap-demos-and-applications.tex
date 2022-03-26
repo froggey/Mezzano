@@ -1,0 +1,194 @@
+\chapter{CLIM demos and applications}
+
+\section{Running the demos}
+
+The McCLIM source distribution comes with a number of demos and
+applications.  They are intended to showcase specific CLIM features,
+demonstrate programming techniques or provide useful tools.
+
+These demos and applications are available in the \texttt{Examples}
+and \texttt{Apps} subdirectories of the source tree's root directory.
+Instructions for compiling, loading and running some of the demos are
+included in the file \texttt{INSTALL} with the McCLIM installation
+instructions for your Common Lisp implementation.
+
+Below is a complete list of the McCLIM demos and applications, sorted in
+alphabetical order.  Each entry provides a short description of what the
+program does, with instructions for compiling and running it if not
+mentioned in the general installation instructions.
+
+Demos are meant to be run after loading the \texttt{clim-examples}
+system from the frame created with \texttt{(clim-demo:demodemo)}.
+
+The easiest way to try this is to use \emph{Quicklisp} library
+manager. Assuming that this is already setup, trying out the demos is
+straightforward:
+
+\begin{verbatim}
+(ql:quickload 'clim-examples)
+(clim-demo:demodemo)
+\end{verbatim}
+
+
+Alternatively, for the more courageous (which requires separately
+downloading dependencies and setting a local repository),
+\texttt{asdf} also works well starting from the McCLIM source code
+directory.
+
+\begin{verbatim}
+(asdf:load-system 'clim-examples)
+(clim-demo:demodemo)
+\end{verbatim}
+
+Available demos and tests are defined in the following files:
+
+\begin{itemize}
+\item Examples/demodemo.lisp
+
+  Demonstrates different pane types and other tests.
+
+\item Examples/clim-fig.lisp
+
+  Simple paint program.
+
+\item Examples/calculator.lisp
+
+  Simple desk calculator.
+
+\item Examples/method-browser.lisp
+
+  Example of how to write a CLIM application with a ``normal'' GUI,
+  where ``normal'' is a completely event driven app built using
+  gadgets and not using the command-oriented framework.
+
+\item Examples/address-book.lisp
+
+  Simple address book.
+
+\item Examples/puzzle.lisp
+
+  Simple puzzle game.
+
+\item Examples/colorslider.lisp
+
+  Interactive color editor.
+
+\item Examples/town-example.lisp
+
+  ``Large Cities of Germany'' application example by Max-Gerd Retzlaff.
+
+\item Examples/logic-cube.lisp
+
+  Software-rendered 3d logic cube game. Shows how the transformations
+  work and how to implement custom handle-repaint methods.
+
+\item Examples/menutest.lisp
+
+  Displays a window with a simple menu bar.
+
+\item Examples/gadget-test.lisp
+
+  Displays a window with various gadgets.
+
+\item Examples/dragndrop.lisp
+
+  Example of ``Drag and Drop'' functionality.
+
+\item Examples/dragndrop-translator.lisp
+
+  Another example of ``Drag and Drop'' functionality (with colors!).
+
+\item Examples/draggable-graph.lisp
+
+  Demo of draggable graph nodes.
+
+\item Examples/image-viewer.lisp
+
+  A simple program for displaying images of formats known to McCLIM.
+
+\item Examples/font-selection.lisp
+
+  A font selection dialog.
+
+\item Examples/tabdemo.lisp
+
+  A tab layout demo (McCLIM extension).
+
+\item Examples/postscript-test.lisp
+
+  Displays text and graphics to a PostScript file.  Run it with:
+
+\begin{verbatim}
+(clim-demo::postscript-test)
+\end{verbatim}
+
+  The resulting file \texttt{ps-test.ps} is generated in the current
+  directory and can be displayed by a PostScript viewer such as
+  \texttt{gv} on Unix-like systems.
+
+\item Examples/presentation-test.lisp
+
+  Displays an interactive window in which you type numbers that are
+  successively added.  When a number is expected as input, you can
+  either type it at the keyboard, or click on a previously entered
+  number. Labeled ``Summation''.
+
+\item Examples/sliderdemo.lisp
+
+  Apparently a calculator demo (see above). Labeled ``Slider demo''.
+
+\item Examples/stream-test.lisp
+
+  Interactive command processor that echoes its input in
+  \texttt{*trace-output*}.
+
+\end{itemize}
+
+The following programs are currently \textbf{known not to work}:
+\begin{itemize}
+\item
+ \texttt{Examples/gadget-test-kr.lisp}
+\item
+ \texttt{Examples/traffic-lights.lisp}
+\end{itemize}
+
+\section{Applications}
+
+\begin{itemize}
+\item Apps/Listener
+
+  CLIM-enabled Lisp listener. System name is
+  \texttt{clim-listener}. See instructions in
+  \texttt{Apps/Listener/README} for more information.
+
+\item Apps/Inspector
+
+  CLIM-enabled Lisp inspector. System name is \texttt{clouseau}. See
+  instructions in \texttt{Apps/Inspector/INSTALL} for more
+  information..
+
+\item Apps/Debugger
+
+  Common Lisp debugger implemented in McCLIM. It uses the portable
+  debugger interface developed for the Slime project. Application has
+  some quirks and requires work. System name is
+  \texttt{clim-debugger}.
+
+\item Apps/Functional-Geometry
+
+  Peter Henderson idea, see http://www.ecs.soton.ac.uk/~ph/funcgeo.pdf
+  and http://www.ecs.soton.ac.uk/~ph/papers/funcgeo2.pdf implemented
+  in Lisp by Frank Buss. CLIM Listener interface by Rainer
+  Joswig. System name is \texttt{functional-geometry}.
+
+\begin{verbatim}
+(functional-geometry:run-functional-geometry)
+(clim-plot *fishes*) ; from a listener
+\end{verbatim}
+
+\item Apps/Scigraph
+
+  Scigraph Scientific Graphing Package. See the compilation and
+  execution instructions in \texttt{Apps/Scigraph/README}.
+\end{itemize}
+

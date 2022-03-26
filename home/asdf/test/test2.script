@@ -1,0 +1,31 @@
+;;; -*- Lisp -*-
+
+;; We don't use load-system, because it can be load-fasl-op on ECL,
+;; and these systems define manual dependencies on compile-op.
+
+(DBG "test2: loading test2b1")
+(operate 'load-op 'test2b1)
+
+(DBG "test2: file3 and file4 were compiled")
+(assert (and (probe-file (test-fasl "file3.lisp"))
+             (probe-file (test-fasl "file4.lisp"))))
+
+(DBG "test2: loading test2b2 should fail")
+
+(handler-case
+    (operate 'load-op 'test2b2)
+  (asdf:missing-dependency (c)
+    (format t "load failed as expected: - ~%~A~%" c))
+  (:no-error (c)
+    (declare (ignore c))
+    (error "should have failed, oops")))
+
+(DBG "test2: loading test2b3 should fail")
+
+(handler-case
+    (operate 'load-op 'test2b3)
+  (asdf:missing-dependency (c)
+    (format t "load failed as expected: - ~%~A~%" c))
+  (:no-error (c)
+    (declare (ignore c))
+    (error "should have failed, oops")))

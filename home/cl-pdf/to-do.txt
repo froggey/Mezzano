@@ -1,0 +1,15 @@
+
+If you have some time and want to contribute, here are some things needed by cl-pdf.
+This list is not exhaustive
+
+Charts improvements:
+       more chart types
+       more options (3D ?)
+       correct sizing model
+
+Higher level graphical functions.
+
+Syntax converters (SVG, VML, ?)
+
+Make compression work with ACL Windows (currently I can't get the
+  character-encoding to be compatible for that platform combo).

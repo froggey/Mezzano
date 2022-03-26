@@ -1,0 +1,9 @@
+@anchor{Class clim-extensions:font-face}
+@deftp {Class} {@symbol{font-face,clim-extensions}}
+Class precedence list: @code{@w{font-face}, @w{standard-object}, @w{slot-object}, @w{t}}
+
+The protocol class for font faces  Each backend
+defines a subclass of font-face and implements its accessors.  Font
+face instances are never created by user code.  Use font-family-all-faces
+to list all faces of a font family.
+@end deftp

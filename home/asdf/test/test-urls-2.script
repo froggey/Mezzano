@@ -1,0 +1,37 @@
+;;; -*- Lisp -*-
+
+#+scl
+(require :http-library)
+
+(progn
+ (setf asdf:*central-registry* '("http://www.scieneer.com/files/"))
+ ;; Compare the source files with local versions before loading them.
+ #+(and (or abcl scl) trust-the-net)
+ (flet ((compare (url local)
+	  (with-open-file (stream1 url :element-type 'character
+				   :external-format :utf-8)
+	    (with-open-file (stream2 local :element-type 'character
+				     :external-format :utf-8)
+	      (loop
+		 (let ((ch1 (read-char stream1 nil nil))
+		       (ch2 (read-char stream2 nil nil)))
+		   (unless (eql ch1 ch2)
+		     (error "Unexpected source content."))
+		   (unless (and ch1 ch2)
+		     (return))))))))
+   (let ((url (system-definition-pathname "test-urls-2")))
+     (compare url "test-urls-2.asd"))
+   (let* ((system (asdf:find-system "test-urls-2"))
+	  (url (component-pathname
+		(find-component system "test"))))
+     (compare url "test.lisp"))
+
+   (load-system 'test-urls-2)
+
+   ;; Test that it compiled
+   (let* ((path (component-pathname
+                 (find-component "test-urls-2" "test")))
+          (test (test-fasl path))
+          (test-date (file-write-date test)))
+   (format t "~&test-urls-2 1: ~S ~S~%" test test-date)
+   (assert test-date))))

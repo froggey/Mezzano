@@ -1,0 +1,44 @@
+Today we release ASDF 3.3. The most substantial change is to the build planning process, which has been reformed by François-René Rideau so that DEFSYSTEM-DEPENDS-ON now behaves correctly.  There are a number of other improvements, and we are indebted to Daniel Kochmanski, Rommel Martinez, and Chun Tian for contributions.  Thanks again to Anton Vodonosov and Dave Cooper for support in testing, and new thanks to Martti Halminen, Jens K. Loewe, and Jason Miller.
+
+I would like to dedicate this ASDF release to the late Elias Pipping.  On a technical level, Elias made great improvements in some of the most challenging ASDF internals, notably the RUN-PROGRAM component of UIOP, a place where implementations are not constrained by the language specification, diverge radically from each other, and are poorly documented.  On a personal level, Elias was very supportive to me as ASDF maintainer, and while I was going through an illness.  He did all these things despite being gravely ill with the cancer that eventually killed him.  He will be greatly missed, Z'chrono L'vracha.
+
+We urge implementations that are currently bundling previous versions of ASDF to adopt 3.3.0 at their earliest convenience. The improvements offered in this release will substantially improved the reliability and predictability of ASDF use. Details on bugfixes can be found at https://launchpad.net/asdf and in the discussions in merged branches of https://gitlab.common-lisp.net/asdf/asdf
+
+Here is the changelog entry for 3.3:
+
+cl-asdf (2:3.3.0-1) unstable; urgency=low
+
+  New milestone:
+  * Build-plan: Extensively revised the build plan process so that
+    :DEFSYSTEM-DEPENDS-ON would work correctly, even when depended on systems
+    change (which didn't work before). See our ELS demonstration about it:
+    "Delivering Common Lisp Applications with ASDF 3.3"
+    < https://github.com/fare/asdf2017 >
+  * Internals: to support the above, many ASDF internals have changed.
+    ASDF now has the notion of multiple build phases to a common build session
+    (which generalizes the previous build cache). ASDF considers loading a .asd
+    file as an operation DEFINE-OP, and tracks as dependencies files mentioned
+    during in :LOAD-FILE-FORM statements, etc. Some code has moved to new
+    files or among old files, and between packages. Actions are now
+    uniformly represented as a CONS of an OPERATION and a COMPONENT, where
+    in some cases previously only the class of the operation was
+    preserved. Forcing is constrained to be uniform across all phases of a
+    top level ASDF operation invocation. Fixed the protocol for
+    resetting systems being (re)defined, allowing subclasses to define
+    default slot values. Remove *LOAD-SYSTEM-OPERATION*, as the current
+    maintainer of ECL, for which it was originally designed, decided
+    that it could never be made to work properly, after all.
+  * ASDF&UIOP: Tweak dependencies between ASDF and UIOP. To avoid DEFINE-OP
+    circularity, asdf.asd with no longer causes uiop.asd to be loaded.
+    A standalone UIOP won't be loaded at all unless it's strictly more recent
+    than ASDF.
+  * Tests: tests for new capabilities and bugs. Test backtraces can be disabled.
+  * Documentation: a number of improvements and clarifications.
+  * Feature: a new feature :asdf3.3
+  * ECL: restored the deprecated function MAKE-BUILD, removed in 3.2.0,
+    in a way that works on top of supported APIs (we still recommend you migrate
+    to these supported APIs). Also stop using the deprecated COMPUTE-INIT-NAME.
+  * Deprecation: starting to emit STYLE-WARNINGs for deprecated
+    functions.  Will gradually escalate to true WARNINGs and then ERRORs.
+
+  -- Robert P. Goldman <rpgoldman@sift.net>  Sun, 20 August 2017 21:00:00 -0500

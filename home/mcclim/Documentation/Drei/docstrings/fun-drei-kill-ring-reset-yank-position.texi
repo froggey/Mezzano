@@ -1,0 +1,6 @@
+@anchor{Generic-Function drei-kill-ring:reset-yank-position}
+@deffn {Generic Function} {drei-kill-ring:reset-yank-position} kr
+@findex drei-kill-ring:reset-yank-position
+Moves the current yank point back to the start
+of of kill ring position
+@end deffn

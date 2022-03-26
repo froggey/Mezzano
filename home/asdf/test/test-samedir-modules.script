@@ -1,0 +1,16 @@
+;;; -*- Lisp -*-
+
+
+
+(DBG "loading test-samedir-modules")
+(asdf:operate 'asdf:load-op 'test-samedir-modules)
+(defparameter file1 (test-fasl "file1"))
+(defparameter file2 (test-fasl "file2"))
+(defparameter file1-date (file-write-date file1))
+
+(DBG "test that it compiled" file1 file1-date)
+(assert file1-date)
+(assert (file-write-date file2))
+
+(DBG "and loaded")
+(assert (symbol-value (find-symbol (symbol-name :*file1*) :test-package)))

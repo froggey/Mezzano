@@ -1,0 +1,161 @@
+;;; -*- Lisp -*-
+
+(format! t "~%Using ASDF ~A~%" (asdf-version))
+(assert (version< "3.0" (asdf-version))) ;; check that we have a recent enough ASDF
+(setf *asdf-session* nil)
+
+(defparameter *ticks* 0)
+(defun tick () (incf *ticks*))
+
+(DBG "Let's define some methods on input-files, to later check what an upgrade does to them.")
+(with-asdf-session (:override t)
+  (def-test-system "fooey")
+  (def-test-system "foo")
+  (defmethod input-files :after ((o load-op) (c system))
+    (DBG :input-files-after-1 o c
+         (tick)))
+  (assert-equal *ticks* 0)
+  (input-files 'load-op "foo")
+  (assert-equal *ticks* 1)
+  (input-files 'load-op "foo")
+  (assert-equal *ticks* 1) ;; It was cached.
+  (assert (find-system "fooey" nil)))
+
+
+(DBG "Try load ASDF with an empty configuration")
+(initialize-source-registry
+ '(:source-registry :ignore-inherited-configuration))
+(load-system :asdf)
+;; We haven't found it, and got the fallback
+(assert-equal nil (system-source-file (find-system :asdf)))
+
+
+(DBG "Bogus attempt at loading an old ASDF: should issue a warning and ignore")
+(clear-system "asdf")
+;; Bogus sysdef finding function, for the sake of testing no-load-old-version.
+(defun sysdef-bogus-test-search (system)
+  (declare (ignore system))
+  (subpathname *test-directory* "always-error.lisp"))
+(let ((*system-definition-search-functions* '(sysdef-bogus-test-search))
+      (state "Didn't catch warning"))
+  (handler-bind
+      ((simple-warning
+         #'(lambda (c)
+             (when (search "ASDF will ignore this configured system rather than downgrade itself."
+                           (simple-condition-format-control c))
+               (setf state "Caught warning")))))
+    (clear-system "asdf")
+    (upgrade-asdf))
+  (assert-equal state "Caught warning"))
+
+
+(DBG "2nd bogus attempt at loading same old ASDF: should ignore without a warning")
+(let ((*system-definition-search-functions* '(sysdef-bogus-test-search)))
+  (handler-bind
+      ((simple-warning
+         #'(lambda (c)
+             (error "Should not have issued warning, but did issue:~%  ~A" c))))
+    (clear-system "asdf")
+    (upgrade-asdf)))
+(assert-equal nil (system-source-file (find-system :asdf)))
+
+
+(DBG "Load ASDF with proper configuration: should find asdf.asd from the source above")
+(initialize-source-registry
+ `(:source-registry
+   (:directory ,*asdf-directory*)
+   (:directory ,*uiop-directory*)
+   :ignore-inherited-configuration))
+(clear-system "asdf")
+(with-asdf-session (:override t)
+  (with-expected-failure (#+xcl t)    ;; expected-failure: XCL has trouble with the ASDF upgrade
+    (load-system :asdf)
+    (assert-pathname-equal (subpathname *asdf-directory* "asdf.asd")
+                           (system-source-file (find-system :asdf))))
+  (DBG "Loading from the same version shouldn't have reset methods")
+  (setf *ticks* 2)
+  (input-files 'load-op "foo")
+  (assert-equal *ticks* 3))
+
+
+(DBG "Loading from an ancient version WILL reset methods")
+(assert (find-system "fooey" nil))
+(defparameter *current-version* (asdf-version))
+(setf asdf::*asdf-version* "2.0" asdf/upgrade::*previous-asdf-versions* '("2.0"))
+(assert (asdf/upgrade::upgrading-p))
+(clear-system "asdf")
+(reset-session)
+(with-expected-failure (#+xcl t)
+  ;; expected-failure: XCL has trouble with the ASDF upgrade
+  (load-system :asdf)
+  (assert-equal (asdf-version) *current-version*)
+  (assert-pathname-equal (subpathname *asdf-directory* "asdf.asd")
+                         (system-source-file (find-system :asdf))))
+
+
+(DBG "Upgrading from an old-enough version should have redefined away the input-files method!")
+(setf *ticks* 4)
+(input-files 'load-op "asdf")
+(assert-equal *ticks* 4)
+;; It also cleared away previously defined systems
+(assert (not (find-system "fooey" nil)))
+
+
+(DBG "Actually upgrade, from a different but forward-compatible version")
+;; The data-punting upgrade will mess up component identity, so clear the cache
+(reset-session)
+(setf asdf::*asdf-version* asdf/upgrade::*oldest-forward-compatible-asdf-version*)
+(clear-system "asdf")
+(def-test-system "fooey")
+(setf *ticks* 10)
+(defmethod input-files :after ((o load-op) (c system))
+  (DBG :input-files-after-2 o c
+       (tick)))
+(input-files 'load-op "uiop")
+(assert-equal *ticks* 12)
+(with-expected-failure (#+xcl t)
+  ;; expected-failure: XCL has trouble with the ASDF upgrade
+  (load-system :asdf))
+;; Upgrading from a recent-enough version, the input-files method was preserved!
+;; But we need to clear the cache for it not to be short-circuited.
+(reset-session)
+(assert (find-system "fooey" nil))
+(setf *ticks* 20)
+(eval '(input-files 'load-op "uiop"))
+(assert-equal *ticks* 21)
+
+
+(DBG "Checking that the bootstrap script and asdf.asd are in synch")
+(defun bootstrap-lisp-files (file line-prefix)
+  (with-input-file (input (subpathname *asdf-directory* file))
+    (loop :for line = (read-line input)
+      :when (string-prefix-p line-prefix line)
+      :return (subseq line (length line-prefix))
+      :finally (error "Didn't find ~a in ~a" line-prefix file))))
+(defun system-lisp-files (system)
+  (loop :for f :in (input-files 'concatenate-source-op system)
+    :collect (unix-namestring (enough-pathname f *asdf-directory*))))
+
+(DBG "Testing that the Makefile and ASDF agree on the order of UIOP files")
+(loop
+  :with errors = ()
+  :for (file prefix-fmt value-fmt backslash) :in
+  '(("Makefile" "~A := " "~{~A~^ ~}")
+    ("make-asdf.sh" "~A=" "\"~{~A~^ ~}\"")
+    ("make-asdf.bat" "set ~A=" "~{~A~^ + ~}" t)) :do
+  (format t "~%Expecting to find in ~A the following lines:~%" file)
+  (loop
+    :for (system variable-name) :in
+    '((:uiop "driver_lisp")
+      (:asdf/defsystem "defsystem_lisp"))
+    :for files = (system-lisp-files system)
+    :for prefix = (format nil prefix-fmt variable-name)
+    :for expected0 = (format nil value-fmt files)
+    :for expected = (if backslash (substitute #\\ #\/ expected0) expected0)
+    :for found = (bootstrap-lisp-files file prefix)
+    :do (format t "~A~A~%" prefix expected)
+    :unless (equal expected found)
+    :do (push (format nil "In ~A expected:~%~A~A~%~%but found:~%~A~A~%~%~%"
+                      file prefix expected prefix found)
+              errors))
+  :finally (when errors (error (reduce/strcat (reverse errors)))))

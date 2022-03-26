@@ -1,0 +1,112 @@
+% -*- Mode: LaTeX; Package: CLIM-USER -*-
+
+\chapter {Overview of CLIM}
+\label {clim-overview}
+
+The Common Lisp Interface Manager (CLIM) is a powerful Lisp-based programming
+interface that provides a layered set of portable facilities for constructing
+user interfaces.  These include basic windowing, input, output, and graphics
+services; stream-oriented input and output extended with facilities such as
+output recording, presentations, and context sensitive input; high level
+``formatted output'' facilities; application building facilities; command
+processing; and a compositional toolkit similar to those found in the X world
+that supports look and feel independence.
+
+CLIM provides an API (applications programmer interface) to user interface
+facilities for the Lisp application programmer.  CLIM does not compete with the
+window system or toolkits of the host machine (such as Motif or OpenLook), but
+rather uses their services (to the extent that it makes sense) to integrate Lisp
+applications into the host's window environment.  For example, CLIM ``windows''
+are mapped onto one or more host windows, and input and output operations
+performed on the CLIM window are ultimately carried out by the host window
+system.  CLIM will support a large number of host environments including Genera,
+Motif, OpenLook, the Macintosh, CLOE-386/486, and the Next machine.
+
+The programmer using CLIM is insulated from most of the complexities of
+portability, since the Lisp-based application need only deal with CLIM objects
+and functions regardless of their operating platform (that is, the combination
+of Lisp system, host computer, and host window environment).  CLIM abstracts out
+many of the concepts common to all window environments.  The programmer is
+encouraged to think in terms of these abstractions, rather than in the specific
+capabilities of a particular host system.  For example, using CLIM, the
+programmer can specify the appearance of output in high-level terms and those
+high-level descriptions are turned into the appropriate appearance for the given
+host.  Thus, the application has the same fundamental interface across multiple
+environments, although the details will differ from system to system.
+
+Another important goal in the design and organization of CLIM is to provide a
+spectrum of user interface building options, all the way from detailed,
+low-level specification of ``what goes where'', to high-level user interface
+specification where the programmer leaves all of the details up to CLIM.  This
+allows CLIM to balance the ease of use on one hand, and versatility on the
+other.  By using high level facilities, a programmer can build portable user
+interfaces quickly, whereas by recombining lower level facilities he can build
+his own programming and user interfaces according to his specific needs or
+requirements.  For example, CLIM supports the development of applications
+independent of look and feel, as well as the portable development of toolkit
+libraries that define and implement a particular look and feel.
+
+In addition, CLIM's layered design allows application programs to exclude
+facilities that they do not use, or reimplement or extend any part of the
+substrate.  To these ends, CLIM is specified and implemented in a layered,
+modular fashion based on protocols.  Each facility documented in this
+specification has several layers of interface, and each facility is
+independently specified and has a documented external interface.
+
+The facilities provided by CLIM include:
+
+\begin{description}
+
+\item [Geometry]  CLIM provides provides geometric objects like point,
+rectangle, and transformations and functions for manipulating them.
+
+\item [Graphics]  CLIM provides a rich set of drawing functions,
+including ones for drawing complex geometric shapes, a wide variety of drawing
+options (such as line thickness), a sophisticated inking model, and color.
+CLIM provides full affine transforms, so that a drawing may be arbitrarily
+translated, rotated, and scaled (to the extent that the underlying window
+system supports the rendering of such objects).
+
+\item [Windowing] CLIM provides a portable layer for implementing \term{sheet}
+classes (types of window-like objects) that are suited to support particular
+high level facilities or interfaces.  The windowing module of CLIM defines a
+uniform interface for creating and managing hierarchies of these objects
+regardless of their sheet class.  This layer also provides event management.
+
+\item [Output Recording]  CLIM provides a facility for capturing all output
+done to a window.  This facility provides the support for arbitrarily scrollable
+windows.  In addition, this facility serves as the root for a variety of
+interesting high-level tools.
+
+\item [Formatted Output] CLIM provides a set of macros and functions that enable
+programs to produce neatly formatted tabular and graphical displays with very
+little effort.
+
+\item [Context Sensitive Input] The \term{presentation type} facility of CLIM
+provides the ability to associate semantics with output, such that objects may
+be retrieved later by selecting their displayed representation with the pointer.
+This \term{sensitivity} comes along automatically and is integrated with the
+Common Lisp type system.  A mechanism for type coercion is also included,
+providing the basis for powerful user interfaces.
+
+\item [Application Building] CLIM provides a set of tools for organizing an
+application's top-level user interface and command processing loops centered on
+objects called frames.  CLIM provides functionality for laying out frames under
+arbitrary constraints, managing command menus and/or menu bars, and associating
+user interface gestures with application commands.  Using these tools,
+application writers can easily and quickly construct user interfaces that can
+grow flexibly from prototype to delivery.
+
+\item [Adaptive Toolkit] CLIM provides a uniform interface to the standard
+compositional toolkits available in many environments.  CLIM defines abstract
+panes that are analogous to the gadgets or widgets of a toolkit like Motif or
+OpenLook.  CLIM fosters look and feel independence by specifying the interface
+of these abstract panes in terms of their function and not in terms of the
+details of their appearance or operation.  If an application uses these
+interfaces, its user interface will adapt to use whatever toolkit is available
+in the host environment.  By using this facility, application programmers can
+easily construct applications that will automatically conform to a variety of
+user interface standards.  In addition, a portable Lisp-based implementation of
+the abstract panes is provided.
+
+\end{description}

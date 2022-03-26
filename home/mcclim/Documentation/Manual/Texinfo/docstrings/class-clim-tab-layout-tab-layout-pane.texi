@@ -1,0 +1,9 @@
+@anchor{Class clim-tab-layout:tab-layout-pane}
+@deftp {Class} {@symbol{tab-layout-pane,clim-tab-layout}}
+Class precedence list: @code{@w{tab-layout-pane}, @w{tab-layout}, @w{sheet-multiple-child-mixin}, @w{basic-pane}, @w{sheet-parent-mixin}, @w{pane}, @w{standard-repainting-mixin}, @w{standard-sheet-input-mixin}, @w{sheet-transformation-mixin}, @w{basic-sheet}, @w{sheet}, @w{bounding-rectangle}, @w{standard-object}, @w{slot-object}, @w{t}}
+
+A pure-lisp implementation of the tab-layout, this is
+the generic implementation chosen by the CLX frame manager automatically.
+Users should create panes for type @code{tab-layout}, not @code{tab-layout-pane}, so
+that the frame manager can customize the implementation.
+@end deftp

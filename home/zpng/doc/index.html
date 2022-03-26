@@ -1,0 +1,629 @@
+<html>
+<head>
+<title>ZPNG - Create PNG files from Common Lisp</title>
+<style type="text/css">
+  a, a:visited { text-decoration: none }
+  a[href]:hover { text-decoration: underline }
+  pre { background: #DDD; padding: 0.25em }
+  p.download { color: red }
+  .transparent { background-image: url(background.gif) }
+  tt.code { background: #DDD }
+</style>
+</head>
+
+<body>
+
+<h2>ZPNG - Create PNG files from Common Lisp</h2>
+
+<blockquote class='abstract'>
+<h3>Abstract</h3>
+
+<p>ZPNG is a Common Lisp library for creating PNG files. It
+uses <a href='http://www.xach.com/lisp/salza2/'>Salza2</a> for
+compression.  
+
+The latest version is 1.2.2, released on March 12th, 2015.
+
+<p class='download'>Download shortcut:
+
+<p><a href='http://www.xach.com/lisp/zpng.tgz'>http://www.xach.com/lisp/zpng.tgz</a>
+
+</blockquote>
+
+<h3>Contents</h3>
+
+<ol>
+<li> <a href='#sect-overview'>Overview and Limitations</a>
+<li> <a href='#sect-examples'>Examples</a>
+<li> <a href='#sect-dictionary'>Dictionary</a>
+
+<ul>
+
+<li>Common Functions
+
+<ul>
+<li> <a href='#samples-per-pixel'><tt>samples-per-pixel</tt></a>
+<li> <a href='#width'><tt>width</tt></a>
+<li> <a href='#height'><tt>height</tt></a>
+<li> <a href='#rowstride'><tt>rowstride</tt></a>
+<li> <a href='#color-type'><tt>color-type</tt></a>
+</ul>
+
+
+<li> In-memory PNGs
+
+<ul>
+<li> <a href='#png'><tt>png</tt></a>
+<li> <a href='#image-data'><tt>image-data</tt></a>
+<li> <a href='#data-array'><tt>data-array</tt></a>
+<li> <a href='#copy-png'><tt>copy-png</tt></a>
+<li> <a href='#png='><tt>png=</tt></a>
+<li> <a href='#write-png'><tt>write-png</tt></a>
+<li> <a href='#write-png-stream'><tt>write-png-stream</tt></a>
+</ul>
+
+<li> Streamed, row-at-a-time PNGs
+
+<ul>
+<li> <a href='#streamed-png'><tt>streamed-png</tt></a>
+<li> <a href='#row-data'><tt>row-data</tt></a>
+<li> <a href='#start-png'><tt>start-png</tt></a>
+<li> <a href='#write-row'><tt>write-row</tt></a>
+<li> <a href='#rows-written'><tt>rows-written</tt></a>
+<li> <a href='#rows-left'><tt>rows-left</tt></a>
+<li> <a href='#finish-png'><tt>finish-png</tt></a>
+</ul>
+
+<li> Streamed, pixel-at-a-time PNGs
+
+<ul>
+<li> <a href='#pixel-streamed-png'><tt>pixel-streamed-png</tt></a>
+<li> <a href='#write-pixel'><tt>write-pixel</tt></a>
+<li> <a href='#pixels-left-in-row'><tt>pixels-left-in-row</tt></a>
+</ul>
+
+
+<li> Errors
+
+<ul>
+<li> <a href='#zpng-error'><tt>zpng-error</tt></a>
+<li> <a href='#invalid-size'><tt>invalid-size</tt></a>
+<li> <a href='#invalid-size-width'><tt>invalid-size-width</tt></a>
+<li> <a href='#invalid-size-height'><tt>invalid-size-height</tt></a>
+<li> <a href='#invalid-row-length'><tt>invalid-row-length</tt></a>
+<li> <a href='#insufficient-rows'><tt>insufficient-rows</tt></a>
+<li> <a href='#incomplete-row'><tt>incomplete-row</tt></a>
+<li> <a href='#too-many-rows'><tt>too-many-rows</tt></a>
+<li> <a href='#color-type-mismatch'><tt>color-type-mismatch</tt></a>
+</ul>
+
+</ul>
+
+<li> <a href='#sect-references'>References</a>
+<li> <a href='#sect-acknowledgements'>Acknowledgements</a>
+<li> <a href='#sect-feedback'>Feedback</a>
+</ol>
+
+<a name='sect-overview'><h3>Overview and Limitations</h3></a>
+
+<p>ZPNG provides three interfaces creating PNG files. The first is through a 
+<a href='#png'><tt>PNG</tt></a> object, which holds all image sample
+data and which may be written out to a file all at once. The second is
+through a <a href='#streamed-png'><tt>STREAMED-PNG</tt></a> object,
+which writes a single output row of the image at a time. By working
+with only a single row at a time, images that are too big to fit in
+memory may still be written out incrementally as a PNG file.  The third
+is through a <a href='#pixel-streamed-png'><tt>PIXEL-STREAMED-PNG</tt></a>
+object which allows you to write a single pixel at a time.  It still
+buffers a whole row at a time, but it manages all of the buffer
+handling for you.
+
+<p>The PNG file format has many options, and ZPNG supports only a
+subset of them.
+
+<ul>
+<li> does not load PNG files
+<li> supports only 8 bits per sample
+<li> does not support filtering
+<li> does not support indexed color
+</ul>
+
+
+<a name='sect-examples'><h3>Examples</h3></a>
+
+
+<pre><div style='float: right' class='transparent'><img src='mandelbrot.png'
+></div>(defun draw-mandelbrot (file)
+  (let* ((png (make-instance '<a href='#png'>png</a>
+                             :color-type :grayscale-alpha
+                             :width 200
+                             :height 200))
+         (image (<a href='#data-array'>data-array</a> png))
+         (max 255))
+    (dotimes (y 200 (<a href='#write-png'>write-png</a> png file))
+      (dotimes (x 200)
+        (let ((c (complex (- (/ x 100.0) 1.5) (- (/ y 100.0) 1.0)))
+              (z (complex 0.0 0.0))
+              (iteration 0))
+          (loop
+           (setf z (+ (* z z) c))
+           (incf iteration)
+           (cond ((< 4 (abs z))
+                  (setf (aref image y x 1) iteration)
+                  (return))
+                 ((= iteration max)
+                  (setf (aref image y x 1) 255)
+                  (return)))))))))
+</pre>
+
+<pre><div style='float: right' class='transparent'><img src='rgb.png'
+></div>(defun draw-rgb (file)
+  (let ((png (make-instance '<a
+                              href='#pixel-streamed-png'>pixel-streamed-png</a>
+                             :color-type :truecolor-alpha
+                             :width 200
+                             :height 200)))
+    (with-open-file (stream file
+			    :direction :output
+			    :if-exists :supersede
+			    :if-does-not-exist :create
+			    :element-type '(unsigned-byte 8))
+      (<a href='#start-png'>start-png</a> png stream)
+      (loop for a from 38 to 255 by 31
+	do (loop for b from 10 to 255 by 10
+	     do (loop for g from 38 to 255 by 31
+		  do (loop for r from 10 to 255 by 10
+			do (<a href='#write-pixel'
+			       >write-pixel</a> (list r g b a) png)))))
+      (<a href='#finish-png'>finish-png</a> png))))
+</pre>
+
+<a name='sect-dictionary'><h3>Dictionary</h3></a>
+
+<p>The following symbols are exported from the ZPNG package.
+
+
+
+<p><a name='samples-per-pixel'>[Function]</a><br>
+<b>samples-per-pixel</b> <i>png</i> => <i>samples</i>
+
+<blockquote>
+Returns the number of octet samples that make up a single pixel. 
+
+<p><table cellpadding=0 cellspacing=5>
+<tr>
+  <th>Image Color Type</th> 
+  <th>Samples per Pixel</th>
+</tr>
+<tr>
+ <td>Grayscale</td><td align=center>1</td>
+</tr>
+<tr>
+ <td>Truecolor</td><td align=center>3</td>
+</tr> 
+<tr>
+ <td>Grayscale with Alpha</td><td align=center>2</td>
+</tr>
+<tr>
+ <td>Truecolor with Alpha</td><td align=center>4</td>
+</tr>
+</table>
+
+</blockquote>
+
+
+<p><a name='width'><a name='height'>[Functions]</a></a><br>
+<b>width</b> <i>png</i> => <i>width</i><br>
+<b>height</b> <i>png</i> => <i>height</i>
+
+<blockquote>
+Returns the width or height of <i>png</i>.
+</blockquote>
+
+<p><a name='rowstride'>[Function]</a><br>
+<b>rowstride</b> <i>png</i> => <i>rowstride</i>
+
+<blockquote>
+Returns the number of samples in a single row of <i>png</i>. It is
+equivalent
+to <tt class=code>(*&nbsp;(<a href='#width'>width</a>&nbsp;png)&nbsp;(<a href='#samples-per-pixel'>samples-per-pixel</a>&nbsp;png))</tt>.
+</blockquote>
+
+<p><a name='color-type'>[Function]</a><br>
+<b>color-type</b> <i>png</i> => <i>color-type</i>
+
+<blockquote>
+Returns the color type of <i>png</i>, one of
+of <tt>:grayscale</tt>, <tt>:truecolor</tt>,
+<tt>:grayscale-alpha</tt>, or <tt>:truecolor-alpha</tt>.
+</blockquote>
+
+
+<p><a name='png'>[Class]</a><br>
+<b>png</b>
+
+<blockquote>
+Instances of this class may be created directly. Supported initargs:
+
+<ul>
+
+<li> <tt>:width</tt> - required, the width of the image
+
+<li> <tt>:height</tt> - required, the height of the image
+
+<li> <tt>:color-type</tt> - optional, the color type of the image, one
+of <tt>:grayscale</tt>, <tt>:truecolor</tt> (the
+  default), <tt>:grayscale-alpha</tt>, or <tt>:truecolor-alpha</tt>
+
+<li> <tt>:image-data</tt> - optional, the sample data of the image. If
+specified, this must be an octet vector with a length of 
+<i>width</i>&nbsp;&times;&nbsp;<i>height</i>&nbsp;&times;&nbsp;<i>samples-per-pixel</i>. If
+not specified, an image data vector of the appropriate size will be
+created automatically.
+
+</ul>
+
+</blockquote>
+
+
+<p><a name='image-data'>[Function]</a><br>
+<b>image-data</b> <i>png</i> => <i>octet-vector</i>
+
+<blockquote>
+Returns the image data of <i>png</i>. Samples are laid out from left
+to right, top to bottom, so the first samples of data affect the
+upper-left of the image and the final samples affect the lower-right.
+
+<p><table cellpadding=0 cellspacing=5>
+<tr>
+  <th>Image Color Type</th> 
+  <th>Pixel Sample Layout</th>
+</tr>
+<tr>
+ <td>Grayscale</td><td>S|S|S...</td>
+</tr>
+<tr>
+ <td>Truecolor</td><td>RGB|RGB|RGB...</td>
+</tr> 
+<tr>
+ <td>Grayscale with Alpha</td><td>SA|SA|SA...</td>
+</tr>
+<tr>
+ <td>Truecolor with Alpha</td><td>RGBA|RGBA|RGBA...</td>
+</tr>
+</table>
+
+<p>Layout of the samples into pixels is done according to the image's
+color type and is fully documented in
+the <a href="http://www.w3.org/TR/PNG/">Portable Network Graphics
+Specification.
+</blockquote>
+
+
+<p><a name='data-array'>[Function]</a><br>
+<b>data-array</b> <i>png</i> => <i>data-array</i>
+
+<blockquote>
+Returns a multidimensional array representing the pixels
+of <i>png</i>. The dimensions correspond to the height, width, and
+pixel components, respectively. For example, to access the red
+component at &lt;53,100&gt; of a truecolor PNG, you could use this:
+
+<pre>
+(aref (data-array png) 100 53 0)
+</pre>
+
+<p>Note the reversed order of the coordinate arguments; this is a
+consequence of Common Lisp's row-major ordering of elements in a
+multidimensional array and PNG's specified sample layout.
+
+</blockquote>
+
+
+<p><a name='copy-png'>[Function]</a><br>
+<b>copy-png</b> <i>png</i> => <i>png-copy</i>
+
+<blockquote>
+Create a copy of <i>png</i>.
+</blockquote>
+
+
+<p><a name='png='>[Function]</a><br>
+<b>png=</b> <i>png1</i> <i>png2</i> => <i>boolean</i>
+
+<blockquote>
+Returns true if png1 and png2 are equal. Equality is defined as having
+the same dimensions, color type, and image data.
+</blockquote>
+
+
+<p><a name='write-png'>[Function]</a><br>
+<b>write-png</b> <i>png</i> <i>file</i> 
+<tt>&amp;key</tt> (<i>if-exists</i> <tt>:supersede</tt>)  => pathname
+
+<blockquote>
+Writes <i>png</i> to <i>file</i> and returns the truename
+of <i>file</i>. <i>if-exists</i> is passed to the
+underlying <tt>CL:OPEN</tt> call for opening the output file.
+</blockquote>
+
+
+<p><a name='write-png-stream'>[Function]</a><br>
+<b>write-png-stream</b> <i>png</i> <i>stream</i> => |
+
+<blockquote>
+Writes <i>png</i> to <i>stream</i>, which should be an output stream
+that can accept octets.
+</blockquote>
+
+
+<p><a name='streamed-png'>[Class]</a><br>
+<b>streamed-png</b>
+
+<blockquote>
+Instances of this class may be created directly. Supports all the
+initargs of the <a href='#png'><tt>PNG</tt></a> class
+except <tt>:IMAGE-DATA</tt>.
+
+<p>In contrast to <tt>PNG</TT> instances, <tt>STREAMED-PNG</tt>
+instances do not keep all the image data in one large vector. Instead,
+instances are used to write out the image data of a PNG file one row
+at a time. The protocol for incrementally writing out via
+a <tt>STREAMED-PNG</tt> involves these generic functions:
+
+<ul>
+<li> <a href='#row-data'><tt>ROW-DATA</tt></a>
+<li> <a href='#start-png'><tt>START-PNG</tt></a>
+<li> <a href='#write-row'><tt>WRITE-ROW</tt></a>
+<li> <a href='#rows-written'><tt>ROWS-WRITTEN</tt></a>
+<li> <a href='#rows-left'><tt>ROWS-LEFT</tt></a>
+<li> <a href='#finish-png'><tt>FINISH-PNG</tt></a>
+</ul>
+
+</blockquote>
+
+
+<p><a name='row-data'>[Function]</a><br>
+<b>row-data</b> <i>streamed-png</i> => <i>octet-vector</i>
+
+<blockquote>
+Returns a vector suitable for passing
+to <a href='#write-row'><tt>WRITE-ROW</tt></a>
+for <i>streamed-png</i>; it has the appropriate number of entries for
+the image width and color type of the png. The initial contents are
+all zeroes. For a given streamed png, each call to <tt>row-data</tt>
+will return the <i>same</i> vector, not a fresh one.
+</blockquote>
+
+
+<p><a name='start-png'>[Function]</a><br>
+<b>start-png</b> <i>png</i> <i>stream</i> => <i>png</i>
+
+<blockquote>
+Writes PNG file header data to <i>stream</i>, which must be an output
+stream that supports writing <tt>(unsigned-byte&nbsp;8)</tt> data. The
+header data is taken from <i>png</i>, which must be
+a <a href='#streamed-png'><tt>STREAMED-PNG</tt></a> instance.
+</blockquote>
+
+
+<p><a name='write-row'>[Function]</a><br>
+<b>write-row</b> <i>row</i> <i>png</i> 
+<tt>&key</tt> (<i>start</i> 0) <i>end</i> => |
+
+<blockquote>
+Writes <i>row</i> to the output stream of <i>png</i>. <i>row</i> must
+be an
+<tt>(unsigned-byte&nbsp;8)</tt> vector with the appropriate number of
+entries for <i>png</i>. <i>start</i> defaults to 0 and <i>end</i>
+defaults to <i>start</i>
++ <a href='#rowstride'><tt>ROWSTRIDE</tt></a>.
+
+The difference between <i>end</i> and <i>start</i> should be equal to
+<tt class=code>(<a href='#rowstride'>rowstride</a>&nbsp;png</i>)</tt>. <i>png</i>
+must be a <a href='#streamed-png'><tt>STREAMED-PNG</tt></a> instance.
+
+<p>If the row length, as defined by <i>start</i> and <i>end</i>, is
+not the right size, an error of
+type <a href='#invalid-row-length'><tt>INVALID-ROW-LENGTH</tt></a> is
+signaled.
+
+<p>If writing <i>row</i> would exceed the number of rows in the image
+(as defined by <a href='#height'><tt>HEIGHT</tt></a>), an error of
+type <a href='#too-many-rows'><tt>TOO-MANY-ROWS</tt></a> is signaled.
+
+
+</blockquote>
+
+
+<p><a name='rows-written'>[Function]</a><br>
+<b>rows-written</b> <i>streamed-png</i> => <i>count</i>
+
+<blockquote>
+Returns the number of rows written to <i>streamed-png</i> so far.
+</blockquote>
+
+
+<p><a name='rows-left'>[Function]</a><br>
+<b>rows-left</b> <i>streamed-png</i> => <i>count</i>
+
+<blockquote>
+Returns the number of rows left to write
+to <i>streamed-png</i>. Equivalent to 
+<tt class=code>(- (<a href='#height'>height</a> png) 
+       (<a href='#rows-written'>rows-written</a> png))</tt>.
+
+</blockquote>
+
+
+<p><a name='finish-png'>[Function]</a><br>
+<b>finish-png</b> <i>streamed-png</i> => |
+
+<blockquote>
+Concludes writing PNG file data to the output stream
+of <i>streamed-png</i>. The internal state of streamed-png is reset in
+such a way that it can be re-used to write another PNG file, with the
+same dimensions and color type parameters, using
+another <a href='#start-png'><tt>START-PNG</tt></a>/<a href='#write-row'><tt>WRITE-ROW</tt></a>/<a href='#finish-png'><tt>FINISH-PNG</tt></a>
+sequence.
+
+<p>This function must be called only after
+exactly <a href='#height'><tt>HEIGHT</tt></a> rows have been written
+to <i>streamed-png</i>
+via <a href='#write-row'><tt>WRITE-ROW</tt></a>. If too few rows have
+been written to <i>streamed-png</i>, an error of
+type <a href='#insufficient-rows'><tt>INSUFFICIENT-ROWS</tt></a> is
+signaled.
+</blockquote>
+
+
+<p><a name='pixel-streamed-png'>[Class]</a><br>
+<b>pixel-streamed-png</b>
+
+<blockquote>
+Instances of this class may be created directly. Supports all the
+initargs of the <a href='#streamed-png'><tt>STREAMED-PNG</tt></a> class.
+
+<p>The <tt>PIXEL-STREAMED-PNG</tt> class extends the <tt>STREAMED-PNG</TT>
+class.  Rather than preparing a row of pixels and caling the
+<a href='#write-row'><tt>WRITE-ROW</tt></a> method, with
+<tt>PIXEL-STREAMED-PNG</tt> instances, you write a single pixel
+at a time with the <tt>WRITE-PIXEL</tt> method. The protocol for incrementally writing out via
+a <tt>PIXEL-STREAMED-PNG</tt> involves these generic functions:
+
+<ul>
+<li> <a href='#start-png'><tt>START-PNG</tt></a>
+<li> <a href='#write-pixel'><tt>WRITE-PIXEL</tt></a>
+<li> <a href='#rows-written'><tt>ROWS-WRITTEN</tt></a>
+<li> <a href='#rows-left'><tt>ROWS-LEFT</tt></a>
+<li> <a href='#pixels-left-in-row'><tt>PIXELS-LEFT-IN-ROW</tt></a>
+<li> <a href='#finish-png'><tt>FINISH-PNG</tt></a>
+</ul>
+
+</blockquote>
+
+
+<p><a name='write-pixel'>[Function]</a><br>
+<b>write-pixel</b> <i>pixel-samples</i> <i>pixel-streamed-png</i>
+
+<blockquote>
+Writes the samples for a single pixel from the sequence
+<i>pixel-samples</i> to the next available spot in
+the <a href='#row-data'><tt>ROW-DATA</tt></a> buffer.  When the buffer
+is full, this method invokes the
+<a href='#write-row'><tt>WRITE-ROW</tt></a> method.  The length of the
+<tt>PIXEL-SAMPLES</tt> sequence must be equal to the <a
+href='#samples-per-pixel'><tt>SAMPLES-PER-PIXEL</tt></a>.
+ </blockquote>
+
+<p><a name='pixels-left-in-row'>[Function]</a><br>
+<b>pixels-left-in-row</b> <i>pixel-streamed-png</i>
+
+<blockquote>
+Returns the number of pixels left to write to complete the current row
+of pixels.
+</blockquote>
+
+
+<p><a name='zpng-error'>[Condition]</a><br>
+<b>zpng-error</b>
+
+<blockquote>
+All errors signaled by ZPNG are a subtype of <tt>ZPNG-ERROR</tt>,
+which is a subtype of <tt>CL:ERROR</tt>.
+</blockquote>
+
+
+<p><a name='invalid-size'>[Condition]</a><br>
+<b>invalid-size</b>
+
+<blockquote>
+A condition of this type is signaled when a PNG with invalid size is
+created. Valid PNGs have positive width and height.
+</blockquote>
+
+
+<p><a name='invalid-size-width'>[Accessors]</a><br>
+<b>invalid-size-width</b> <i>condition</i> => <i>width</i><br>
+<b>invalid-size-height</b> <i>condition</i> => <i>height</i>
+
+<blockquote>
+These accessors provide the invalid size used for a PNG.
+</blockquote>
+
+
+<p><a name='invalid-row-length'>[Condition]</a><br>
+<b>invalid-row-length</b>
+
+<blockquote>
+A condition of this type is signaled when a row with an incorrect size
+is passed to <a href='#write-row'><tt>WRITE-ROW</tt></a>.
+</blockquote>
+
+
+<p><a name='insufficient-rows'>[Condition]</a><br>
+<b>insufficient-rows</b>
+
+<blockquote>
+A condition of this type is signaled
+from <a href='#finish-png'><tt>FINISH-PNG</tt></a> when it is called
+before enough rows have been written
+via <a href='#write-row'><tt>WRITE-ROW</tt></a>.
+</blockquote>
+
+
+<p><a name='incomplete-row'>[Condition]</a><br>
+<b>incomplete-row</b>
+
+<blockquote>
+A condition of this type is signaled from <a
+href='#finish-png'><tt>FINISH-PNG</tt></a> when it is called on a <a
+href='#pixel-streamed-png'><tt>PIXEL-STREAMED-PNG</tt></a> before the
+current row of pixels has been completed.
+</blockquote>
+
+<p><a name='too-many-rows'>[Condition]</a><br>
+<b>too-many-rows</b>
+
+<blockquote>
+A condition of this type is signaled
+from <a href='#write-row'><tt>WRITE-ROW</tt></a> if it is called more
+times than is necessary for the given PNG.
+</blockquote>
+
+<p><a name='color-type-mismatch'>[Condition]</a><br>
+<b>color-type-mismatch</b>
+
+<blockquote>
+A condition of this type is signaled from <a
+href='#write-pixel'><tt>WRITE-PIXEL</tt></a> if the number of samples
+in the pixel is not the expected <a
+href='#samples-per-pixel'><tt>SAMPLES-PER-PIXEL</tt></a> for the given
+PNG.
+</blockquote>
+
+
+<a name='sect-references'><h3>References</h3></a>
+
+<ul>
+
+<li> W3C, <a href="http://www.w3.org/TR/PNG/">Portable Network
+Graphics Specification, Second Edition</a>
+
+<li>
+Wikipedia, <a href='http://en.wikipedia.org/wiki/Mandelbrot_set'>Mandelbrot
+set</a>
+
+</ul>
+
+
+<a name='sect-acknowledgements'><h3>Acknowledgements</h3></a>
+
+<p>Thanks to Patrick Stein for implementing pixel-at-a-time streamed
+  output.
+  
+
+<a name='sect-feedback'><h3>Feedback</h3></a>
+
+<p>Please direct any questions, comments, bug reports, or other
+feedback to <a href='mailto:xach@xach.com'>Zach Beane</a>.

@@ -1,0 +1,21 @@
+.header {
+    background-color: #F2F2F2;
+    font-size: small;
+    padding: 0.2em 1em;
+}
+
+.menu * {
+    border-style: none;
+}
+
+.menu td {
+    padding: 0.5em 0em;
+}
+
+.menu td:last-child {
+    width: 60%;
+}
+
+.menu th {
+    background-color: inherit;
+}

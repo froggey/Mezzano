@@ -1,0 +1,7 @@
+@anchor{Class drei-syntax:parse-tree}
+@deftp {Class} {drei-syntax:parse-tree}
+@tindex drei-syntax:parse-tree
+Class precedence list: @code{@w{parse-tree}, @w{standard-object}, @w{slot-object}, @w{t}}
+
+The base class for all parse trees.
+@end deftp

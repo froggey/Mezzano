@@ -1,0 +1,12 @@
+@anchor{Class drei-syntax:syntax-command-table}
+@deftp {Class} {drei-syntax:syntax-command-table}
+@tindex drei-syntax:syntax-command-table
+Class precedence list: @code{@w{syntax-command-table}, @w{standard-command-table}, @w{command-table}, @w{standard-object}, @w{slot-object}, @w{t}}
+
+A syntax command table provides facilities for
+having frame-specific commands that do not show up when the
+syntax is used in other applications than the one it is supposed
+to. For example, the Return From Definition command should be
+available when Lisp syntax is used in Climacs (or another
+editor), but not anywhere else.
+@end deftp

@@ -1,0 +1,6 @@
+@anchor{Generic-Function drei-buffer:insert-buffer-sequence}
+@deffn {Generic Function} {drei-buffer:insert-buffer-sequence} buffer offset sequence
+@findex drei-buffer:insert-buffer-sequence
+Like calling insert-buffer-object on each of
+the objects in the sequence.
+@end deffn

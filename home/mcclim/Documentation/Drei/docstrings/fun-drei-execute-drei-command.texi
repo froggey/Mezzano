@@ -1,0 +1,9 @@
+@anchor{Generic-Function drei:execute-drei-command}
+@deffn {Generic Function} {drei:execute-drei-command} drei-instance command
+@findex drei:execute-drei-command
+Execute @code{command} for @code{drei}. This is the
+standard function for executing Drei commands @code{-} it will take care
+of reporting to the user if a condition is signalled, updating
+the syntax, setting the @code{previous-command} of @code{drei} and
+recording the operations performed by @code{command} for undo.
+@end deffn

@@ -1,0 +1,16 @@
+@anchor{Class drei:point-mark-view}
+@deftp {Class} {drei:point-mark-view}
+@tindex drei:point-mark-view
+Class precedence list: @code{@w{point-mark-view}, @w{drei-buffer-view}, @w{drei-view}, @w{tabify-mixin}, @w{subscriptable-name-mixin}, @w{name-mixin}, @w{standard-object}, @w{slot-object}, @w{t}}
+
+Slots:
+@itemize
+@item @code{%goal-column} 
+
+The column that point will be
+attempted to be positioned in when moving by line.
+@end itemize
+
+A view class containing a point and a mark
+into its buffer.
+@end deftp

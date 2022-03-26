@@ -1,0 +1,512 @@
+% -*- Mode: LaTeX; Package: CLIM-USER -*-
+
+\chapter {Drawing in Color}
+\label {color}
+
+This chapter describes the \cl{:ink} drawing option and the simpler values that
+can be supplied for that option, such as colors.  More complex values that have
+a regular or irregular pattern in the ink are described in Chapter~\ref{designs}.
+
+\Issue {SWM} {We need to add a thing called a ``palette'', which is simply an
+abstract color map.  Palettes are primarily used as a resource for the limited
+number of colors on most hosts.  Do we need to be able to used them to more
+directly control color maps, to do ``color map animation'', for example?}
+
+\issue {SWM} {We need to add a thing called a ``raster ink'', which includes
+things like plane masks, pixel values, etc.  Be clear that this is platform and
+device dependent.}
+
+
+%% Use \tt instead of \cl, such the hairy \cl macro will blow chow
+\section {The {\tt :ink} Drawing Option}
+
+The \cl{:ink} drawing option, used with the drawing functions described in
+Chapter~\ref{graphics}, can take as its value:
+\begin{itemize}
+\item a color,
+
+\item an opacity or the constant \cl{+transparent-ink+},
+
+\item the constant \cl{+foreground-ink+},
+
+\item the constant \cl{+background-ink+},
+
+\item a flipping ink, or
+
+\item other values described in Chapter~\ref{designs}
+\end{itemize}
+
+More exactly, an ink can be any member of the class \cl{design}.  For now you
+may think of a design as a possibly translucent color.  More general designs are
+described in Chapter~\ref{designs}.
+
+The drawing functions work by selecting a region of the drawing plane and
+painting it with color.  The region to be painted is the intersection of the
+shape specified by the drawing function and the \cl{:clipping-region} drawing
+option, which is then transformed by the \cl{:transformation} drawing option.
+The \cl{:ink} drawing option is a design that specifies a new arrangement of
+colors (and opacities) in this region of the medium's drawing plane.  Any
+viewports or dataports attached to this drawing plane are updated accordingly.
+The \cl{:ink} drawing option is never affected by the \cl{:transformation}
+drawing option nor by the medium's transformation; this ensures that stipple
+patterns on adjacent sheets join seamlessly.
+
+\issue {DCPL} {The description of how the clipping region and transformations
+contribute isn't good enough.  It is true if there are no other transformations
+and clipping regions present, and both are specified in the current drawing
+operation.  But it doesn't say what happens if things are nested.  I'm not sure
+it needs to.  Rather, I think it should just say that the region is clipped
+by the current clipping region in effect, then transformed by the current
+transform in effect, and that the rules for these are discussed in the drawing
+options section.}
+
+Drawing consists conceptually of the following sequence of operations, performed
+in parallel at every point in the drawing plane.  Of course, the actual
+implementation does not involve an infinite (or large parallel) computation.
+
+\begin{enumerate}
+\item The design specifies a color and an opacity at the point.  These can
+depend on the drawing plane's current color and opacity, on the medium's
+foreground color, and on the medium's background color.
+
+\item The color blending function is applied to the design's color and opacity
+and the drawing plane's color and opacity, returning a new color and opacity for
+the point.
+
+\item The drawing plane's color and opacity at that point are set to the new
+color and opacity.
+\end{enumerate}
+
+\section {Basic Designs}
+
+\Defprotoclass {design}
+
+A design is an object that represents a way of arranging colors and opacities in
+the drawing plane.  The \cl{design} class is the protocol class for designs.
+\IfYouWantClass {a} {design} {design}
+
+The fundamental operation of the CLIM graphic drawing model
+is to draw a design onto a drawing plane, thus drawing is always controlled by
+designs.  The designs discussed in this chapter do the same thing at each point
+in the drawing plane.  Chapter~\ref{designs} discusses more general designs and
+reveals that regions are also designs.
+
+A design can be characterized in several different ways:
+
+All designs are either \concept{bounded} or \concept{unbounded}.  Bounded
+designs are transparent everywhere beyond a certain distance from a certain
+point.  Drawing a bounded design has no effect on the drawing plane outside that
+distance.  Unbounded designs have points of non-zero opacity arbitrarily far
+from the origin.  Drawing an unbounded design affects the entire drawing plane.
+
+All designs are either \concept{uniform} or \concept{non-uniform}.  Uniform
+designs have the same color and opacity at every point in the drawing plane.
+Uniform designs are always unbounded, unless they are completely transparent.
+
+All designs are either \concept{solid} or \concept{translucent}.  At each point
+a solid design is either completely opaque or completely transparent.  A solid
+design can be opaque at some points and transparent at others.  In translucent
+designs, at least one point has an opacity that is intermediate between
+completely opaque and transparent.
+
+All designs are either \concept{colorless} or \concept{colored}.  Drawing a
+colorless design uses a default color specified by the medium's foreground
+design.  This is done by drawing with \cl{(compose-in} \cl{+foreground-ink+}
+the-colorless-design\cl{)}.  See Chapter~\ref{designs} for the details of
+\cl{compose-in}.
+
+\Defpredicate {designp} {object}
+
+Returns \term{true} if \arg{object} is a \term{design}, otherwise returns
+\term{false}.
+
+
+\section {Color}
+
+\Defprotoclass {color}
+
+A member of the class \cl{color} is a completely opaque design that represents
+the intuitive definition of color: white, black, red, pale yellow, and so forth.
+The visual appearance of a single point is completely described by its color.
+Drawing a color sets the color of every point in the drawing plane to that
+color, and sets the opacity to 1.  The \cl{color} class is the protocol class
+for a color, and is a subclass of \cl{design}.
+\IfYouWantClass {a} {color} {color}
+
+All of the standard instantiable color classes provided by CLIM are immutable.
+
+A color can be specified by three real numbers between 0 and 1 (inclusive),
+giving the amounts of red, green, and blue.  Three 0's mean black; three 1's
+mean white.  The intensity-hue-saturation color model is also supported, but the
+red-green-blue color model is the primary model we will use in the
+specification.
+
+\Defpredicate {colorp} {object}
+
+Returns \term{true} if \arg{object} is a \term{color}, otherwise returns
+\term{false}.
+
+
+The following functions create colors.  These functions produce objects that
+have equivalent effects; the only difference is in how the color components are
+specified.  The resulting objects are indistinguishable when drawn.  Whether
+these functions use the specified values exactly or approximate them because of
+limited color resolution is unspecified.  Whether these functions create a new
+object or return an existing object with equivalent color component values is
+unspecified.
+
+
+\Defun {make-rgb-color} {red green blue}
+
+Returns a member of class \cl{color}.  The \arg{red}, \arg{green}, and
+\arg{blue} arguments are real numbers between 0 and 1 (inclusive) that specify
+the values of the corresponding color components.
+
+
+\Defun {make-ihs-color} {intensity hue saturation}
+
+Returns a member of class \cl{color}.  The \arg{intensity} argument is a real
+number between 0 and $\sqrt{3}$ (inclusive).  The \arg{hue} and \arg{saturation}
+arguments are real numbers between 0 and 1 (inclusive).
+
+
+\Defun {make-gray-color} {luminance}
+
+Returns a member of class \cl{color}.  \arg{luminance} is a real number between
+0 and 1 (inclusive).  On a black-on-white display device, 0 means black, 1 means
+white, and the values in between are shades of gray.  On a white-on-black
+display device, 0 means white, 1 means black, and the values in between are
+shades of gray.
+
+\issue {PM} {Why does the caller need to know the type of display?}
+
+
+The following two functions comprise the color protocol.  Both of them return
+the components of a color.  All subclasses of \cl{color} must implement methods
+for these generic functions.
+
+\Defgeneric {color-rgb} {color}
+
+Returns three values, the \arg{red}, \arg{green}, and \arg{blue} components of
+the \term{color} \arg{color}. The values are real numbers between 0 and 1
+(inclusive).
+
+\Defgeneric {color-ihs} {color}
+
+Returns three values, the \arg{intensity}, \arg{hue}, and \arg{saturation}
+components of the \term{color} \arg{color}.  The first value is a real number
+between 0 andn $\sqrt{3}$ (inclusive).  The second and third values are real
+numbers between 0 and 1 (inclusive).
+
+
+\subsection {Standard Color Names and Constants}
+
+Table~\ref{color-names} lists the commonly provided color names that can be
+looked up with \cl{find-named-color}.  Application programs can define other
+colors; these are provided because they are commonly used in the X Windows
+community, not because there is anything special about these particular colors.
+This table is a subset of the color listed in the file
+\cl{/X11/R4/mit/rgb/rgb.txt}, from the X11 R4 distribution.
+
+\begin{table}
+\hrule
+\vspace{1pc}
+\cl{
+\begin{tabular}{lllll}
+alice-blue & antique-white & aquamarine \\
+azure & beige & bisque \\
+black & blanched-almond & blue \\
+blue-violet & brown & burlywood \\
+cadet-blue & chartreuse & chocolate \\
+coral & cornflower-blue & cornsilk \\
+cyan & dark-goldenrod & dark-green \\
+dark-khaki & dark-olive-green & dark-orange \\
+dark-orchid & dark-salmon & dark-sea-green \\
+dark-slate-blue & dark-slate-gray & dark-turquoise \\
+dark-violet & deep-pink & deep-sky-blue \\
+dim-gray & dodger-blue & firebrick \\
+floral-white & forest-green & gainsboro \\
+ghost-white & gold & goldenrod \\
+gray & green & green-yellow \\
+honeydew & hot-pink & indian-red \\
+ivory & khaki & lavender \\
+lavender-blush & lawn-green & lemon-chiffon \\
+light-blue & light-coral & light-cyan \\
+light-goldenrod & light-goldenrod-yellow & light-gray \\
+light-pink & light-salmon & light-sea-green \\
+light-sky-blue & light-slate-blue & light-slate-gray \\
+light-steel-blue & light-yellow & lime-green \\
+linen & magenta & maroon \\
+medium-aquamarine & medium-blue & medium-orchid \\
+medium-purple & medium-sea-green & medium-slate-blue \\
+medium-spring-green & medium-turquoise & medium-violet-red \\
+midnight-blue & mint-cream & misty-rose \\
+moccasin & navajo-white & navy-blue \\
+old-lace & olive-drab & orange \\
+orange-red & orchid & pale-goldenrod \\
+pale-green & pale-turquoise & pale-violet-red \\
+papaya-whip & peach-puff & peru \\
+pink & plum & powder-blue \\
+purple & red & rosy-brown \\
+royal-blue & saddle-brown & salmon \\
+sandy-brown & sea-green & seashell \\
+sienna & sky-blue & slate-blue \\
+slate-gray & snow & spring-green \\
+steel-blue & tan & thistle \\
+tomato & turquoise & violet \\
+violet-red & wheat & white \\
+white-smoke & yellow & yellow-green \\
+\end{tabular}}
+\caption{\label{color-names} Standard color names.}
+\vspace{1pc}
+\hrule
+\end{table}
+
+In addition, the following color constants are provided.
+
+\defconst {+red+}
+\defconst {+green+}
+\defconst {+blue+}
+\defconst {+cyan+}
+\defconst {+magenta+}
+\defconst {+yellow+}
+\defconst {+black+}
+\Defconst {+white+}
+
+Constants corresponding to the usual definitions of red, green, blue, cyan,
+magenta, yellow, black, and white.
+
+
+\subsection {Contrasting Colors}
+
+\Defun {make-contrasting-inks} {n \optional k}
+
+If \arg{k} is not supplied, this returns a vector of \arg{n} designs with
+recognizably different appearance.  Elements of the vector are guaranteed to be
+acceptable values for the \cl{:ink} argument to the drawing functions, and will
+not include \cl{+foreground-ink+}, \cl{+background-ink+}, or \cl{nil}.  Their
+class is otherwise unspecified.  The vector is a fresh object that may be
+modified.
+
+If \arg{k} is supplied, it must be an integer between 0 and $\arg{n}-1$
+(inclusive), in which case \cl{make-contrasting-inks} returns the \arg{k}'th
+design rather than returning a vector of designs.
+
+If the implementation does not have \arg{n} different contrasting inks,
+\cl{make-contrasting-inks} signals an error.  This will not happen unless
+\arg{n} is greater than eight.
+
+The rendering of the design may be a color or a stippled pattern, depending on
+whether the output medium supports color.
+
+\Defgeneric {contrasting-inks-limit} {port}
+
+Returns the number of contrasting colors (or stipple patterns if \arg{port} is
+monochrome or grayscale) that can be rendered on any medium on the \term{port}
+\arg{port}.  Implementations are encouraged to make this as large as possible,
+but it must be at least 8.  All classes that obey the medium protocol must
+implement a method for this generic function.
+
+
+\section {Opacity}
+
+\Defprotoclass {opacity}
+
+A member of the class \cl{opacity} is a completely colorless design that is
+typically used as the second argument to \cl{compose-in} to adjust the opacity
+of another design.  See Chapter~\ref{designs} for the details of
+\cl{compose-in}.  The \cl{opacity} class is the protocol class for an opacity,
+and is a subclass of \cl{design}.
+\IfYouWantClass {an} {opacity} {opacity}
+
+All of the standard instantiable opacity classes provided by CLIM are immutable.
+
+Opacity controls how graphical output covers previous output.  Opacity can vary
+from totally opaque to totally transparent.  Intermediate opacity values result
+in color blending so that the earlier picture shows through what is drawn on top
+of it.
+
+An opacity may be specified by a real number between 0 and 1 (inclusive).  0 is
+completely transparent, 1 is completely opaque, fractions are translucent.  The
+opacity of a design is the degree to which it hides the previous contents of the
+drawing plane when it is drawn.
+
+The fully transparent and fully opaque opacity levels (that is, opacities 0 and
+1) must always be supported, but a valid CLIM implementation might only support
+a handful of opacity levels in between (including none).  A valid CLIM
+implementation might implement color blending and unsaturated colors by
+stippling, although it is preferred, when possible, for a viewport to display a
+uniform color as a uniform color rather than as a perceptible stipple.
+
+\Defpredicate {opacityp} {object}
+
+Returns \term{true} if \arg{object} is an \term{opacity}, otherwise returns
+\term{false}.
+
+
+The following function returns an opacity:
+
+\Defun {make-opacity} {value}
+
+Returns a member of class \cl{opacity} whose opacity is \arg{value}, which is a
+real number in the range from 0 to 1 (inclusive), where 0 is fully transparent
+and 1 is fully opaque.
+
+\Defconst {+transparent-ink+}
+
+An fully transparent ink, that is, an opacity whose value is 0.  This is
+typically used as the ``background'' ink in a call to \cl{make-pattern}.
+
+
+The following function returns the sole component of an opacity.  This is the
+only function in the opacity protocol.  All subclasses of \cl{opacity} must
+implement methods for this generic function.
+
+\Defgeneric {opacity-value} {opacity}
+
+Returns the opacity value of the \term{opacity} \arg{opacity}, which is a real
+number in the range from 0 to 1 (inclusive).
+
+
+\section {Color Blending}
+
+Drawing a design that is not completely opaque at all points allows the previous
+contents of the drawing plane to show through.  The simplest case is drawing a
+solid design:  where the design is opaque, it replaces the previous contents of
+the drawing plane; where the design is transparent, it leaves the drawing plane
+unchanged.  In the more general case of drawing a translucent design, the
+resulting color is a blend of the design's color and the previous color of the
+drawing plane.  For purposes of color blending, the drawn design is called the
+foreground and the drawing plane is called the background.
+
+The function \cl{compose-over} performs a similar operation: it combines two
+designs to produce a design, rather than combining a design and the contents of
+the drawing plane to produce the new contents of the drawing plane.  For
+purposes of color blending, the first argument to \cl{compose-over} is called
+the foreground and the second argument is called the background.  See
+Chapter~\ref{designs} for the details of \cl{compose-over}.
+
+Color blending is defined by an ideal function
+${\cal F}\colon (r_1,g_1,b_1,o_1,r_2,g_2,b_2,o_2)\rightarrow (r_3,g_3,b_3,o_3)$
+that operates on the color and opacity at a single point.
+$(r_1,g_1,b_1,o_1)$ are the foreground color and opacity.
+$(r_2,g_2,b_2,o_2)$ are the background color and opacity.
+$(r_3,g_3,b_3,o_3)$ are the resulting color and opacity.  The color
+blending function ${\cal F}$ is conceptually applied at every point in the
+drawing plane.
+
+${\cal F}$ performs linear interpolation on all four components:
+\[ \begin{array}{rcrcl}
+o_3 & = &        o_1 & + & (1 - o_1) * o_2 \\
+r_3 & = & (r_1 * o_1 & + & (1 - o_1) * o_2 * r_2) / o_3 \\
+g_3 & = & (g_1 * o_1 & + & (1 - o_1) * o_2 * g_2) / o_3 \\
+b_3 & = & (b_1 * o_1 & + & (1 - o_1) * o_2 * b_2) / o_3
+\end{array} \]
+Note that if $o_3$ is zero, these equations would divide zero by zero.
+In that case $r_3$, $g_3$, and $b_3$ are defined to be zero.
+
+CLIM requires that ${\cal F}$ be implemented exactly if $o_1$ is zero or one or
+if $o_2$ is zero.  If $o_1$ is zero, the result is the background.  If $o_1$ is
+one or $o_2$ is zero, the result is the foreground.  For fractional opacity
+values, an implementation can deviate from the ideal color blending function
+either because the implementation has limited opacity resolution or because the
+implementation can compute a different color blending function much more
+quickly.
+
+If a medium's background design is not completely opaque at all points, the
+consequences are unspecified.  Consequently, a drawing plane is always opaque
+and drawing can use simplified color blending that assumes $o_2 = 1$ and
+$o_3 = 1$.  However, \cl{compose-over} must handle a non-opaque background
+correctly. 
+
+Note that these $(r,g,b,o)$ quadruples of real numbers between 0 and 1 are
+mathematical and an implementation need not store information in this form.
+Most implementations are expected to use a different representation.
+
+
+\section {Indirect Inks}
+
+Drawing with an \concept{indirect ink} is the same as drawing another design
+named directly.  For example, \cl{+foreground-ink+} is a design that draws the
+medium's foreground design and is the default value of the \cl{:ink} drawing
+option.  Indirect inks exist for the benefit of output recording.  For example,
+one can draw with \cl{+foreground-ink+}, change to a different
+\cl{medium-foreground}, and replay the output record; the replayed output will
+come out in the new color.
+
+You can change the foreground or background design of a medium at any time.
+This changes the contents of the medium's drawing plane.  The effect is as if
+everything on the drawing plane is erased, the background design is drawn onto
+the drawing plane, and then everything that was ever drawn (provided it was
+saved in the output history) is drawn over again, using the medium's new
+foreground and background.
+
+If an infinite recursion is created using an indirect ink, an error is
+signalled when the recursion is created, when the design is used for drawing,
+or both.
+
+Two indirect inks are defined, but no advertised way is provided to create more
+of them.
+
+\Defconst {+foreground-ink+}
+
+An indirect ink that uses the medium's foreground design.
+
+\Defconst {+background-ink+}
+
+An indirect ink that uses the medium's background design.
+
+
+\section {Flipping Ink}
+
+\Defun {make-flipping-ink} {design1 design2}
+
+Returns a design that interchanges occurrences of the two \term{designs}
+\arg{design1} and \arg{design2}.  Drawing the resulting design over a background
+(either by drawing or with \cl{compose-over}) is defined to change the color in
+the background that would have been drawn by \arg{design1} at that point into
+the color that would have been drawn by \arg{design2} at that point, and vice
+versa.  The effect on any color other than the colors determined by those two
+designs is unspecified; however, drawing the same figure twice using the same
+flipping ink is guaranteed to be an ``identity'' operation.  If either
+\arg{design1} or \arg{design2} is not solid, the consequences are unspecified.
+The purpose of flipping is to allow the use of ``XOR hacks'' for temporary
+changes to the display.
+
+The opacity of a flipping ink is zero at points where the opacity of either
+\arg{design1} or \arg{design2} is zero.  Otherwise the opacity of a flipping ink
+is 1.  If \arg{design1} or \arg{design2} is translucent, the consequences are
+unspecified.  If \cl{compose-in} or \cl{compose-out} is used to make a flipping
+ink translucent, the consequences are unspecified.
+
+If \arg{design1} and \arg{design2} are equivalent, the result can be
+\cl{+nowhere+}.
+
+In Release 2, \cl{make-flipping-ink} might require \arg{design1} and
+\arg{design2} to be colors.
+
+
+\Defconst {+flipping-ink+}
+
+A flipping ink that flips \cl{+foreground-ink+} and \cl{+background-ink+}.
+
+
+\section {Examples of Simple Drawing Effects}
+
+\paragraph {Drawing in the foreground color.}
+
+Use the default, or specify \cl{:ink +foreground-ink+}.
+
+\paragraph {Erasing.}
+
+Specify \cl{:ink +background-ink+}.
+
+\paragraph {Drawing in color.}
+
+Specify \cl{:ink +green+}, \cl{:ink (make-rgb-color 0.6 0.0 0.4)}, and so forth.
+
+\paragraph {Drawing an opaque gray.}
+
+Specify \cl{:ink (make-gray-color 0.25)} to draw in a shade of gray independent
+of the window's foreground color.  On a non-color, non-grayscale display this
+will generally turn into a stipple.

@@ -1,0 +1,4 @@
+@anchor{Generic-Function clim:clear-output-record}
+@deffn {Generic Function} {@symbol{clear-output-record,clim}} record
+Sets the parent of all children of RECORD to NIL.
+@end deffn

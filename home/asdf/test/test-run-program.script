@@ -1,0 +1,290 @@
+;; -*- Lisp -*-
+(declaim (optimize (debug 3) (safety #-gcl 3 #+gcl 0)))
+
+;; On Windows, normalize away CRLF into jut the unixy LF.
+(defun dewindowize (x)
+  ;; Some buggy implementations output extra space on Windows;
+  ;; Implementations that rely on shell redirection on Windows also do, as a limitation.
+  (string-trim " " (remove (code-char 13) x)))
+
+;;#+(and clisp os-windows) (ext:without-package-lock () (trace ext:run-shell-command))
+(os-cond
+ ((os-unix-p)
+  (DBG "Testing echo ok 1 via run-program as a list")
+  (assert-equal "ok 1"
+                (run-program '("echo" "ok" "1") :output '(:string :stripped t))))
+ ((os-windows-p)
+  (DBG "Testing ipconfig /all via run-progam as a string")
+  ;; Interestingly, "ipconfig /all" fails on the msys2 bash, but not on the cygwin bash.
+  (nest
+   #+ecl (errors parameter-error) ;; FIXME: known breakage
+   (run-program "ipconfig /all"))
+  (DBG "Testing ipconfig /all via run-progam as a list")
+  (run-program '("ipconfig" "/all"))))
+
+(DBG "Testing echo ok 1 via run-program as a string")
+#-(and ecl os-windows)
+(assert-equal "ok 1"
+              (dewindowize (run-program "echo ok 1" :output '(:string :stripped t))))
+#+(and ecl os-windows)
+(errors parameter-error
+  (dewindowize (run-program "echo ok 1" :output '(:string :stripped t))))
+
+;;; test asdf run-shell-command function
+#-(and ecl os-windows)
+(progn
+(setf *verbose-out* nil)
+(DBG "Testing true via run-shell-command")
+(assert-equal 0 (run-shell-command "exit 0"))
+(DBG "Testing false via run-shell-command")
+(assert-equal 1 (run-shell-command "exit 1"))
+(DBG "Testing bad shell command via run-shell-command")
+(unless (< 0 (run-shell-command "./bad-shell-command"))
+  (error "Failed to capture exit status indicating shell command failure.")))
+#+(and ecl os-windows)
+(errors not-implemented-error
+  (eql 0  (run-shell-command "exit 0")))
+
+(chdir *test-directory*)
+
+#+os-unix
+(progn
+  (DBG "Testing good shell command in current directory via run-shell-command")
+  (assert-equal 0 (run-shell-command "./good-shell-command")))
+
+(DBG "Testing exit status with :output :interactive")
+;; This test checks for a problem there was in allegro -- :output :interactive
+;; would try to open T as a stream for INPUT.
+#-(and ecl os-windows)
+(loop
+   :for (program . exit-code) :in
+   #+os-unix '(("true" . 0) ("false" . 1))
+   #+os-windows '(("cmd /c exit 0" . 0) ("cmd /c exit 1" . 1))
+   :do (loop
+          :for force-shell :in '(t nil)
+          :do (assert-equal `(nil nil ,exit-code)
+                            (multiple-value-list
+                             (run-program program
+                                          :ignore-error-status t
+                                          :force-shell force-shell
+                                          :output :interactive)))))
+#+(and ecl os-windows)
+(DBG "Test skipped on ECL + Windows")
+
+#-(and ecl os-windows)
+(assert-equal
+ '("foo" "bar baz" 42)
+ (multiple-value-bind (o e c)
+     (run-program #+os-unix "cat ; echo bar  baz >&2 ; exit 42"
+                  #+os-windows "findstr \"^\" & echo bar baz >&2 & exit 42"
+                  ;; On some versions of windows, findstr hangs indefinitely
+                  ;; when passed input without a trailing newline
+                  :input '("foo" :terpri t)
+                  :output '(:string :stripped t) :error-output '(:string :stripped t)
+                  :ignore-error-status t)
+   (DBG "aaa" o e c)
+   (list (dewindowize o) (dewindowize e) c)))
+#-(and ecl os-windows)
+(assert-equal
+ '(("foo" "bar" "baz" "quux") nil 0)
+ (multiple-value-bind (o e c)
+     (run-program #+os-unix "echo foo ; echo bar >&2 ; echo baz ; echo quux >& 2"
+                       #+os-windows "echo foo & echo bar >&2 & echo baz & echo quux >& 2"
+                       :output :lines :error-output :output)
+   (list (mapcar 'dewindowize o) e c)))
+
+#-(and ecl os-windows)
+(let ((ok1 (format nil "; $ echo ok 1~%ok 1")))
+  (DBG "Testing awkward legacy output capture via run-shell-command")
+  (assert-equal
+   (dewindowize
+    (stripln
+     (with-output-to-string (s)
+       (let ((*verbose-out* s))
+         (run-shell-command "echo ~A 1" "ok")))))
+   ok1)
+  (assert-equal
+   (dewindowize
+    (stripln
+     (with-output-to-string (s)
+       (let ((*verbose-out* t)
+             (*standard-output* s))
+         (let ((status (run-shell-command "echo ok ~D" 1)))
+           (unless (zerop status)
+             (error "Didn't get good exit status.")))))))
+   ok1))
+
+#-(and ecl os-windows)
+(assert-equal '(:ok 1) (run-program "echo :ok  1" :output :forms))
+#-(and ecl os-windows)
+(assert-equal "ok" (dewindowize (stripln
+                                 (with-output-to-string (*standard-output*)
+                                   (run-program "echo ok" :output t :error-output :output)))))
+
+;; We add a newline to the end of a string and return it.
+;; We do it in this specific manner so that under unix, windows and macos,
+;; format will choose the correct type of newline delimiters
+(defun nl (str)
+  (format nil "~A~%" str))
+
+
+;; Convert the input format to a string stream, read it into a string,
+;; and see if they match.
+(defun slurp-stream-string/check (input-string &key (test #'string=))
+  (let ((input-string (format nil input-string)))
+    (with-open-stream (s (make-string-input-stream input-string))
+      (is (funcall test input-string (slurp-stream-string s))))))
+
+;; Call with a bunch of strings to call the above function upon.
+(defun slurp-stream-string/checks (&rest input-string-list)
+  (dolist (input-string input-string-list)
+    (funcall #'slurp-stream-string/check input-string)))
+
+;; Check to see if the input-string ins converted correctly to the
+;; output-form
+(defun slurp-stream-lines/check (input-string output-form &key (test #'equal))
+  (let ((input-string (format nil input-string)))
+    (with-open-stream (s (make-string-input-stream input-string))
+      (is (funcall test output-form (slurp-stream-lines s))))))
+
+;; Check to see if the individual input/output lists passed into this
+;; function are correct.
+(defun slurp-stream-lines/checks (&rest control-forms)
+  (dolist (form control-forms)
+    (destructuring-bind (input-string output-form) form
+      (funcall #'slurp-stream-lines/check input-string output-form))))
+
+(deftest test/slurp-stream-string ()
+  ;; Check to make sure the string is exactly what it is when read
+  ;; back through a stream. This is a format specifier so we can
+  ;; portably test newline processing.
+  (slurp-stream-string/checks
+   ""
+   " "
+   "~%"
+   "~%~%"
+   "~%~%~%"
+   "one~%two~%three~%~%four"
+   "one two three four"
+   "one two~%three four")
+
+  ;; Check some boundary cases on the types passed.
+  (signals error (slurp-stream-string nil))
+  (signals error (slurp-stream-string 42))
+  (signals error (slurp-stream-string "not valid"))
+  t)
+
+(deftest test/slurp-stream-lines ()
+  (slurp-stream-lines/checks
+   ;; input-string first, then expected output-form after its parsing
+   '("" nil)
+   '(" " (" "))
+   '("~%" (""))
+   '("~%~%" ("" ""))
+   '("~%~%~%" ("" "" ""))
+   '("foo" ("foo"))
+   '("~%foo" ("" "foo"))
+   '("~%foo~%" ("" "foo")) ; consumes last newline!
+   '("one~%two~%~%three" ("one" "two" "" "three"))
+   '("one~%two~%~%three~%" ("one" "two" "" "three"))
+   '("one two three four" ("one two three four"))
+   '("one two~%three four~%" ("one two" "three four")))
+
+  ;; Check some boundary cases on the types passed.
+  ;; NOTE: NIL is ok since it means read from stdin!
+  (signals error (slurp-stream-lines 42))
+  (signals error (slurp-stream-lines "not valid"))
+  t)
+
+(defun common-test/run-program ()
+  (DBG "Can we echo a simple string?")
+  (assert-equal '("abcde") (run-program '("echo" "abcde") :output :lines))
+  (assert-equal (nl "fghij") (run-program '("echo" "fghij") :output :string))
+
+  (DBG "Are spaces handled properly?")
+  (assert-equal '("Hello World") (run-program '("echo" "Hello World") :output :lines))
+  (assert-equal (nl "Hello World") (run-program '("echo" "Hello World") :output :string))
+  (assert-equal (nl "Hello World") (run-program "echo Hello World" :output :string))
+
+  (DBG "Test that run-program fails properly with an empty program string")
+  #+(or clozure (and allegro os-unix) cmucl (and lispworks os-unix) sbcl scl)
+  (signals error (run-program '("") :output :lines))
+
+  (DBG "An empty string itself is ok since it is passed to the shell.")
+  (assert-equal "" (run-program "" :output :string))
+
+  (DBG "Test that run-program fails properly with a nil program list")
+  #+(or clozure (and allegro os-unix) cmucl sbcl scl)
+  (signals error (run-program nil :output :lines))
+
+  (DBG "Test that run-program fails properly when the executable doesn't exist.")
+  (signals error (run-program '("does-not-exist") :output :lines))
+  (signals error (run-program "does-not-exist" :output :lines))
+
+  (assert-equal '(nil nil 0) (multiple-value-list (run-program "echo ok" :output nil)))
+  (assert-equal '(nil nil 0) (multiple-value-list (run-program '("echo" "ok") :output nil)))
+  t)
+
+
+(defun unix-only-test/run-program ()
+
+  (DBG "Checking that spaces between arguments are collapsed by shell when and only when unquoted")
+  (assert-equal '("ok 1") (run-program "echo ok  1" :output :lines))
+  (assert-equal '("ok  1") (run-program '("echo" "ok  1") :output :lines))
+  (assert-equal "ok  1" (run-program '("echo" "ok  1") :output '(:string :stripped t)))
+
+  (DBG "Checking behavior on program success or failure")
+  (assert-equal '(nil nil 0) (multiple-value-list (run-program "true")))
+  (signals subprocess-error (run-program "false"))
+  (assert-equal '(nil nil 1) (multiple-value-list (run-program "false" :ignore-error-status t)))
+
+  (DBG "Tests with test-file")
+  (let ((tf (native-namestring (test-source "test-file"))))
+
+    ;; a basic smoke test
+    (assert-equal '("Single")
+                  (run-program `("grep" "Single" ,tf) :output :lines))
+
+    ;; Make sure space is handled correctly
+    (assert-equal '("double entry")
+                  (run-program `("grep" "double entry" ,tf) :output :lines))
+
+    ;; Make sure space is handled correctly
+    (assert-equal '("triple word entry")
+                  (run-program `("grep" "triple word entry" ,tf) :output :lines))
+
+    ;; Testing special characters
+    (loop :for char :across "+-_.,%@:/\\!&*(){}"
+      :for str = (string char) :do
+        (assert-equal (list (format nil "escape ~A" str))
+                      (run-program
+                       `("grep" ,(format nil "[~A]" str) ,tf)
+                       :output :lines)))
+
+    ;; Test that run-program signals an error
+    ;; with an executable that doesn't return 0
+    (signals subprocess-error (run-program '("false") :output :lines))
+
+    ;; Test that we can suppress the error on run-program
+    (is (null (run-program '("false")
+                            :output :lines :ignore-error-status t))))
+  t)
+
+(defun windows-only-test/run-program ()
+  (DBG "WINDOWS-ONLY-TEST/RUN-PROGRAM")
+  ;; a basic smoke test
+  (assert-equal "ok" (dewindowize (run-program '("cmd" "/c" "echo" "ok") :output :line)))
+  #-(and ecl os-windows)
+  (assert-equal "ok 1" (dewindowize (run-program "echo ok 1" :output :line)))
+  ;; clozure: beware http://trac.clozure.com/ccl/ticket/1118
+
+  t)
+
+(deftest test/run-program ()
+  #+os-unix (common-test/run-program)
+  #+os-unix (unix-only-test/run-program)
+  #+os-windows (windows-only-test/run-program)
+  (terpri)
+  t)
+
+(test/run-program)

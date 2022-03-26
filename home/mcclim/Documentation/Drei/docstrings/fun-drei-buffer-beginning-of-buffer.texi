@@ -1,0 +1,7 @@
+@anchor{Generic-Function drei-buffer:beginning-of-buffer}
+@deffn {Generic Function} {drei-buffer:beginning-of-buffer} mark
+@findex drei-buffer:beginning-of-buffer
+Move the mark to the beginning of the buffer.
+This is equivalent to (setf (offset mark) 0), but returns
+mark.
+@end deffn

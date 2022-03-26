@@ -1,0 +1,15 @@
+@anchor{Macro drei-syntax:define-syntax-command-table}
+@deffn {Macro} {drei-syntax:define-syntax-command-table} name &rest args &key &allow-other-keys
+@findex drei-syntax:define-syntax-command-table
+Define a syntax command table class with the provided name, as
+well as defining a CLIM command table of the same name. @code{args}
+will be passed on to @code{make-command-table}. An :around method on
+@code{command-table-inherit-from} for the defined class will also be
+defined. This method will make sure that when an instance of the
+syntax command table is asked for its inherited command tables,
+it will return those of the defined CLIM command table, as well
+as those provided by methods on
+@code{additional-command-tables}. Command tables provided through
+@code{additional-command-tables} will take precence over those
+specified in the usual way with :inherit-from.
+@end deffn

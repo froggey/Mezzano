@@ -1,0 +1,123 @@
+@c ===================================================================
+@c Abbreviations
+@c ===================================================================
+
+@macro clim{}
+CLIM
+@end macro
+@macro mcclim{}
+McCLIM
+@end macro
+
+@c ===================================================================
+@c Semantic markup and references
+@c ===================================================================
+
+@macro setf{NAME}
+(setf \NAME\)
+@end macro
+
+@iftex
+@macro symbol{NAME,PACKAGE}
+\NAME\ @smallertt [\PACKAGE\]
+@end macro
+@end iftex
+@ifnottex
+@macro symbol{NAME,PACKAGE}
+\NAME\ [\PACKAGE\]
+@end macro
+@end ifnottex
+
+@macro func{NAME}
+@b{\NAME\}
+@end macro
+@macro funref{NAME}
+@ref{Function \NAME\,@b{\NAME\}}
+@end macro
+@ifhtml
+@macro codefunref{NAME}
+@funref{\NAME\}
+@end macro
+@end ifhtml
+@ifnothtml
+@macro codefunref{NAME}
+\NAME\
+@end macro
+@end ifnothtml
+
+@macro fmacro{NAME}
+@b{\NAME\}
+@end macro
+@macro macroref{NAME}
+@ref{Macro \NAME\,@b{\NAME\}}
+@end macro
+@ifhtml
+@macro codemacroref{NAME}
+@macroref{\NAME\}
+@end macro
+@end ifhtml
+@ifnothtml
+@macro codemacroref{NAME}
+\NAME\
+@end macro
+@end ifnothtml
+
+@macro genfun{FUN}
+@b{\FUN\}
+@end macro
+@macro genfunref{NAME}
+@ref{Generic-Function \NAME\,@b{\NAME\}}
+@end macro
+@ifhtml
+@macro codegenfunref{NAME}
+@genfunref{\NAME\}
+@end macro
+@end ifhtml
+@ifnothtml
+@macro codegenfunref{NAME}
+\NAME\
+@end macro
+@end ifnothtml
+
+@alias class = code
+@alias package = code
+@alias gadget = code
+@alias pane = code
+@alias methcomp = t
+@alias slot = code
+@alias longref = t
+@alias cl = code
+@alias initarg = code
+
+@c ===================================================================
+@c Glossary entries
+@c ===================================================================
+
+@macro glossentry{ENTRY}
+@anchor{\ENTRY\}
+@noindent @b{\ENTRY\}
+@cindex \ENTRY\
+@end macro
+
+@iftex
+@alias gloss = i
+@macro glossref{LABEL,CONCEPT}
+@i{\LABEL\}
+@end macro
+@end iftex
+
+@ifnottex
+@alias gloss = i
+@macro glossref{LABEL,CONCEPT}
+@i{@ref{\CONCEPT\,\LABEL\,\LABEL\}}
+@end macro
+@end ifnottex
+
+@c ===================================================================
+@c Annotations
+@c ===================================================================
+
+@macro issue{AUTHOR,COMMENT}
+@noindent
+@b{Issue:} @i{\COMMENT\ --- \AUTHOR\}
+@end macro

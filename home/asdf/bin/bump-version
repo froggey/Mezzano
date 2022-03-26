@@ -1,0 +1,102 @@
+#! /usr/bin/env perl
+
+use FindBin;
+use Getopt::Long;
+our $old;
+our $new;
+our $usage = 0;
+
+&GetOptions("help"=>\$usage,
+            "usage"=>\$usage);
+
+if ($usage) {
+  print "$0 [old-version] [new-version]\n";
+  print "\tIf only one argument, treat it as the new version argument.\n";
+  print "\tIf two arguments treat the first as old version number and second as new.\n";
+  print "\n\tBumps the version numbers in all the relevant files.\n";
+  exit 0;
+}
+
+our $asdf_dir = $FindBin::RealBin . "/../";
+our $file = $asdf_dir . "version.lisp-expr";
+
+our @transform_ref =
+  (
+   [ "version.lisp-expr", "\"", "\"" ],
+   [ "uiop/version.lisp", "(defparameter *uiop-version* \"", "\")" ],
+   [ "asdf.asd", "  :version \"", "\" ;; to be automatically updated by make bump-version" ],
+   [ "header.lisp", "This is ASDF ", ": Another System Definition Facility." ],
+   [ "upgrade.lisp", "(asdf-version \"", "\")" ],
+   [ "doc/asdf.texinfo", "Manual for Version ", "" ], );
+
+if ($#ARGV == 1) {
+  $old = $ARGV[0];
+  $new = $ARGV[1];
+} elsif ($#ARGV == 0) {
+  $new = $ARGV[0];
+  $old = read_asdf_version();
+} else {
+  $old = read_asdf_version();
+  $new = bump_asdf_version($old);
+}
+
+print STDERR "Bumping from $old to $new\n";
+transform_files();
+
+sub read_asdf_version {
+  open(FILE, $file);
+  my $str = <FILE>;
+  chomp $str;
+  print STDERR "Read version string $str from $file\n";
+  close FILE;
+  $str =~ s/"//g;
+  return $str;
+}
+
+sub bump_asdf_version {
+  my $oldver = shift;
+  my @fields = split/\./, $oldver;
+  $fields[$#fields]++;
+  return join('.', @fields);
+}
+
+
+sub transform_files {
+  foreach my $entryptr (@transform_ref) {
+    my @entry = @{$entryptr};
+    my $file = $entry[0];
+    print STDERR "Modifying file $file\n";
+    print STDERR "Prefix is $entry[1], suffix is $entry[2]\n";
+    my $regex = "(" . quotemeta($entry[1]) . ")" . "((\\d+\\.)+\\d+)" . "(" . quotemeta($entry[2]) .")";
+    my $filename = $asdf_dir . $file;
+    my $data = read_text($filename);
+    my $count = ($data =~ s/$regex/$1$new$4/g);
+    if ($count == 0) {
+      die "Unable to replace $regex with $1$new$4";
+    }
+    # print STDERR "Writing $data to $filename\n";
+    write_text($filename, $data);
+
+  }
+}
+
+# can't reliably find File::Slurper, or File::Slurp, so do it
+# old school.
+sub read_text ($) {
+  my $fn = shift;
+  local $/ = undef;
+  open READFILE, $fn or die "Couldn't open file: $fn";
+  binmode READFILE;
+  my $string = <READFILE>;
+  close READFILE;
+  return $string;
+}
+
+sub write_text ($$) {
+  my $fn = shift;
+  my $data = shift;
+  open WRITEFILE, "> $fn" or die "Couldn't open $fn for writing.";
+  print WRITEFILE $data;
+  close WRITEFILE;
+  return 1;
+}

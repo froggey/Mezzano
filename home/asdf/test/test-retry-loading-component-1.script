@@ -1,0 +1,26 @@
+;;; -*- Lisp -*-
+
+;; NB: this test does some evil side-effects in the test source directory itself. UGH!
+
+;;; test asdf:try-recompiling restart
+
+(defvar *caught-error* nil)
+(delete-file-if-exists (test-source "try-reloading-dependency.asd"))
+(with-asdf-session (:override t)
+(handler-bind
+    ((error #'(lambda (c)
+                (format t "~&Caught error ~s" c)
+                (assert (not *caught-error*) ()
+                        "The missing system component error is not fixed by the handler, as expected.")
+                (setf *caught-error* t)
+                ;; Evil side-effect: create a .asd file from .hidden file.
+                (concatenate-files (list (test-source "try-reloading-dependency.hidden"))
+                                   (test-source "try-reloading-dependency.asd"))
+                (DBG "trlc1 5")
+                (multiple-value-bind (name mode) (find-symbol* :retry :asdf)
+                  (assert (eq mode :external) () "Mode of ~s was not external" name)
+                  (let ((restart (find-restart name c)))
+                    (assert restart)
+                    (when restart (invoke-restart restart)))))))
+  (load-system 'try-reloading-1))
+(assert *caught-error*))

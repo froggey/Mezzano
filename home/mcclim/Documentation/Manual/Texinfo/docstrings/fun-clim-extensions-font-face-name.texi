@@ -1,0 +1,6 @@
+@anchor{Generic-Function clim-extensions:font-face-name}
+@deffn {Generic Function} {@symbol{font-face-name,clim-extensions}} font-face
+Return the font face's name.  This name is meant for user display,
+and does not, at the time of this writing, necessarily the same string
+used as the text style face for this port.
+@end deffn

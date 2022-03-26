@@ -1,0 +1,381 @@
+\chapter{Inspector}
+
+The inspector, called ``Clouseau'', is used for interactively inspecting
+objects. It lets you look inside objects, inspect slots, disassemble and
+trace functions, view keys and values in hash tables, and quite a few
+other things as well. It can be extended to aid in debugging of specific
+programs, similar to the way the Lisp printer can be extended with
+\texttt{print-object}.
+
+\section{Usage}
+
+\subsection{Quick Start}
+
+To get up and running quickly with Clouseau:
+
+\begin{itemize}
+\item Load Clouseau like this: \texttt{asdf:load-system :clouseau}
+\item
+  Inspect an object with \texttt{(clouseau:inspector
+    \textit{object})}. If you use a multithreaded Lisp implementation,
+  you can also include the \texttt{:new-process} keyword argument. If it
+  is \texttt{t}, then Clouseau is started in a seperate process. This
+  should be relatively safe; it is even possible to have an inspector
+  inspecting another running inspector.
+\end{itemize}
+
+\subsection{The Basics}
+
+Once you inspect something, you will see a full representation of the
+object you are inspecting and short representations of objects contained
+within it. This short representation may be something like
+\texttt{\#<STANDARD-CLASS SALAD-MIXIN>} or something as short as ``$\cdots$''.
+To see these objects inspected more fully, left-click on them and they
+will be expanded. To shrink expanded objects, left-click on them again
+and they will go back to a brief form.
+
+That's really all you need to know to get started. The best way to learn
+how to use Clouseau is to start inspecting your own objects.
+
+\subsection{Handling of Specific Data Types}
+
+Clouseau can handle numerous data types in different ways. Here are some
+handy features you might miss if you don't know to look for them:
+
+\subsubsection{Standard Objects}
+
+Standard objects have their slots shown, and by left-clicking on the
+name of a slot you can change the slot's value. You can see various slot
+attributes by middle clicking on a slot name.
+
+\subsubsection{Structures}
+
+Structures are inspected the same way as standard objects.
+
+\subsubsection{Generic Functions}
+
+You can remove methods from generic functions with the \texttt{Remove Method}
+command.
+
+\subsubsection{Functions}
+
+You can disassemble functions with the \texttt{Toggle Disassembly}
+command. If the disassembly is already shown, this command hides it.
+
+\subsubsection{Symbols}
+
+If a symbol is fbound, you can use the \texttt{Trace} and \texttt{Untrace}
+commands to trace and untrace the function bound to it.
+
+\subsubsection{Lists and Conses}
+
+Lists and conses can be displayed in either the classic format (such as
+\texttt{(1 3 (4 . 6) "Hello" 42)}) or a more graphical cons-cell diagram
+format. The default is the classic format, but this can be toggled with
+the \texttt{Toggle Show List Cells} command.
+
+The new cons cell diagram format is shown in \refFig{fig-cell-diagram}.
+
+\begin{figure}
+\begin{center}
+\inputfig{fig-inspect-as-cells.pdf_t}
+\end{center}
+\caption{\label{fig-cell-diagram}
+List shown as cons cells.}
+\end{figure}
+
+\section{Extending Clouseau}
+
+Sometimes Clouseau's built-in inspection abilities aren't enough, and
+you want to be able to extend it to inspect one of your own classes in a
+special way. Clouseau supports this, and it's fairly simple and
+straightforward.
+
+Suppose that you're writing a statistics program and you want to
+specialize the inspector for your application. When you're looking at a
+sample of some characteristic of a population, you want to be able to
+inspect it and see some statistics about it, like the average. This is
+easy to do.
+
+We define a class for a statistical sample. We're keeping this very
+basic, so it'll just contain a list of numbers:
+
+\begin{verbatim}
+(in-package :clim-user)
+(use-package :clouseau)
+
+(defclass sample ()
+  ((data :initarg :data
+         :accessor data
+         :type list :initform '()))
+  (:documentation "A statistical sample"))
+
+(defgeneric sample-size (sample)
+  (:documentation "Return the size of a statistical sample"))
+
+(defmethod sample-size ((sample sample))
+  (length (data sample)))
+\end{verbatim}
+
+The \texttt{print-object} function we define will print samples
+unreadably, just showing their sample size. For example, a sample with
+nine numbers will print as \texttt{\#<SAMPLE n=9>} We create such a sample
+and call it \texttt{*my-sample*}.
+
+\begin{verbatim}
+(defmethod print-object ((object sample) stream)
+  (print-unreadable-object (object stream :type t)
+    (format stream "n=~D" (sample-size object))))
+
+(defparameter *my-sample*
+  (make-instance 'sample
+                 :data '(12.8 3.7 14.9 15.2 13.66
+                         8.97 9.81 7.0 23.092)))
+\end{verbatim}
+
+We need some basic statistics functions. First, we'll do sum:
+
+\begin{verbatim}
+(defgeneric sum (sample)
+  (:documentation "The sum of all numbers in a statistical
+sample"))
+
+(defmethod sum ((sample sample))
+  (reduce #'+ (data sample)))
+\end{verbatim}
+
+Next, we want to be able to compute the mean. This is just the standard
+average that everyone learns: add up all the numbers and divide by how
+many of them there are. It's written $\overline {x}$.
+
+\begin{verbatim}
+(defgeneric mean (sample)
+  (:documentation "The mean of the numbers in a statistical
+sample"))
+
+(defmethod mean ((sample sample))
+  (/ (sum sample)
+     (sample-size sample)))
+\end{verbatim}
+
+Finally, to be really fancy, we'll throw in a function to compute the
+standard deviation. You don't need to understand this, but the standard
+deviation is a measurement of how spread out or bunched together the
+numbers in the sample are. It's called $s$, and it's computed like
+this: $s = \sqrt{{1 \over N-1} \sum_{i=1}^N (x_i - \overline {x})^2}$.
+
+\begin{verbatim}
+(defgeneric standard-deviation (sample)
+  (:documentation "Find the standard deviation of the numbers
+in a sample. This measures how spread out they are."))
+
+(defmethod standard-deviation ((sample sample))
+  (let ((mean (mean sample)))
+    (sqrt (/ (loop for x in (data sample)
+                   sum (expt (- x mean) 2))
+             (1- (sample-size sample))))))
+\end{verbatim}
+
+This is all very nice, but when we inspect \texttt{*my-sample*} all we see
+is a distinctly inconvenient display of the class, its superclass, and
+its single slot, which we actually need to \emph{click on} to see. In
+other words, there's a lot of potential being missed here. How do we
+take advantage of it?
+
+We can define our own inspection functions. To do this, we have two
+methods that we can define. To change how sample objects are inspected
+compactly, before they are clicked on, we can define an
+\texttt{inspect-object-briefly} method for our \texttt{sample} class. To
+change the full, detailed inspection of samples, we define
+\texttt{inspect-object} for the class. Both of these methods take two
+arguments: the object to inspect and a CLIM output stream. They are
+expected to print a representation of the object to the stream.
+
+Because we defined \texttt{print-object} for the \texttt{sample} class to
+be as informative as we want the simple representation to be, we don't
+need to define a special \texttt{inspect-object-briefly} method. We
+should, however, define \texttt{inspect-object}.
+
+\begin{verbatim}
+(defmethod inspect-object ((object sample) pane)
+  (inspector-table (object pane)
+      ;; This is the header
+      (format pane "SAMPLE n=~D" (sample-size object))
+    ;; Now the body
+    (inspector-table-row (pane)
+      (princ "mean" pane)
+      (princ (mean object) pane))
+    (inspector-table-row (pane)
+      (princ "std. dev." pane)
+      (princ (standard-deviation object) pane))))
+\end{verbatim}
+
+Here, we introduce two new macros. \texttt{inspector-table} sets up a box
+in which we can display our representation of the sample. It handles
+quite a bit of CLIM work for us. When possible, you should use it
+instead of making your own, since using the standard facilities helps
+ensure consistency.
+
+The second macro, \texttt{inspector-table-row}, creates a row with the
+output of one form bolded on the left and the output of the other on
+the right. This gives us some reasonably nice-looking output as shown
+in \refFig{fig-inspect-object-1}.
+
+\begin{figure}
+\begin{center}
+\inputfig{fig-inspect-object-1.pdf_t}
+\end{center}
+\caption{\label{fig-inspect-object-1}
+Output as a table.}
+\end{figure}
+
+But what we really want is something more closely adapted to our
+needs. It would be nice if we could just have a table of things like
+$ \overline {x} = 12.125776 $ and have them come out formatted
+nicely. Before we attempt mathematical symbols, let's focus on getting
+the basic layout right. For this, we can use CLIM's table formatting.
+
+\begin{verbatim}
+(defmethod inspect-object ((object sample) pane)
+  (inspector-table (object pane)
+      ;; This is the header
+      (format pane "SAMPLE n=~D" (sample-size object))
+    ;; Now the body
+    (inspector-table-row (pane)
+      (princ "mean" pane)
+      (princ (mean object) pane))
+    (inspector-table-row (pane)
+      (princ "std. dev." pane)
+      (princ (standard-deviation object) pane))))
+\end{verbatim}
+
+In this version, we define a local function \texttt{x=y} which outputs a row
+showing something in the form ``label = value''. If you look closely,
+you'll notice that we print the label with \texttt{princ} but we print the
+value with \texttt{inspect-object}. This makes the value inspectable, as
+it should be.
+
+Then, in the \texttt{inspector-table} body, we insert a couple of
+calls to \texttt{x=y} and we're done.  The new output is shown in in
+\refFig{fig-inspect-object-2}
+
+\begin{figure}
+\begin{center}
+\inputfig{fig-inspect-object-2.pdf_t}
+\end{center}
+\caption{\label{fig-inspect-object-2}
+Output as equations.}
+\end{figure}
+
+Finally, for our amusement and further practice, we'll try to get some
+mathematical symbols---in this case we'll just need $\overline
+{x}$. We can get this by printing an italic $x$ and drawing a line
+over it:
+
+\begin{verbatim}
+(defun xbar (stream)
+  "Draw an x with a bar over it"
+  (with-room-for-graphics (stream)
+    (with-text-face (stream :italic)
+      (princ #\x stream)
+      (draw-line* stream 0 0
+                  (text-style-width *default-text-style*
+                                    stream) 0))))
+
+(defmethod inspect-object ((object sample) pane)
+  (flet ((x=y (x y)
+           (formatting-row (pane)
+             (formatting-cell (pane :align-x :right)
+               ;; Call functions, print everything else in italic
+               (if (functionp x)
+                   (funcall x pane)
+                   (with-text-face (pane :italic)
+                     (princ x pane))))
+             (formatting-cell (pane) (princ "=" pane))
+             (formatting-cell (pane)
+               (inspect-object y pane)))))
+    (inspector-table (object pane)
+        ;; This is the header
+        (format pane "SAMPLE n=~D" (sample-size object))
+      ;; Now the body
+      (x=y #'xbar (mean object))
+      (x=y #\S (standard-deviation object)))))
+\end{verbatim}
+
+Finally, to illustrate the proper use of
+\texttt{inspect-object-briefly}, suppose that we want the ``n=9'' (or
+whatever the sample size $n$ equals) part to have an itlicised
+$n$. We can fix this easily:
+
+\begin{verbatim}
+(defmethod inspect-object-briefly ((object sample) pane)
+  (with-output-as-presentation (pane object 'sample)
+    (with-text-family (pane :fix)
+      (print-unreadable-object (object pane :type t)
+        (with-text-family (pane :serif)
+          (with-text-face (pane :italic)
+            (princ "n" pane)))
+        (format pane "=~D" (sample-size object))))))
+\end{verbatim}
+
+Notice that the body of \texttt{inspect-object-briefly} just prints a
+representation to a stream, like \texttt{inspect-object} but shorter.
+It should wrap its output in \texttt{with-output-as-presentation}.
+\texttt{inspect-object} does this too, but it's hidden in the
+\texttt{inspector-table} macro.
+
+Our final version is shown in \refFig{fig-inspect-object-3}.
+
+\begin{figure}
+\begin{center}
+\inputfig{fig-inspect-object-3.pdf_t}
+\end{center}
+\caption{\label{fig-inspect-object-3}
+Output with nicer variable names.}
+\end{figure}
+
+For more examples of how to extend the inspector, you can look at
+\texttt{inspector.lisp}.
+
+\section{API}
+
+The following symbols are exported from the \texttt{clouseau} package:
+
+\Defun {inspector} {object \key new-process}
+
+Inspect \texttt{object}. If \texttt{new-process} is \texttt{t},
+Clouseau will be run in a new process.
+
+\Defgeneric {inspect-object} {object pane}
+
+Display inspected representation of \texttt{object} to the extended output
+stream \texttt{pane}. This requires that \texttt{*application-frame*} be bound
+to an inspector application frame, so it isn't safe to use in other
+applications.
+
+\Defgeneric {inspect-object-briefly} {object pane}
+
+A brief version of \texttt{inspect-object}. The output should be short,
+and should try to fit on one line.
+
+\Defgeneric {define-inspector-command} {name args \rest body}
+
+This is just an inspector-specific version of
+\texttt{define-command}. If you want to define an inspector command for
+some reason, use this.
+
+\Defmacro {inspector-table} {(object pane) header \body body}
+
+Present \texttt{object} in tabular form on \texttt{pane}, with \texttt{header}
+evaluated to print a label in a box at the top. \texttt{body} should output
+the rows of the table, possibly using \texttt{inspector-table-row}.
+
+\Defmacro {inspector-table-row} {(pane) left right}
+
+Output a table row with two items, produced by evaluating \texttt{left} and
+\texttt{right}, on \texttt{pane}. This should be used only within
+\texttt{inspector-table}.
+
+When possible, you should try to use this and \texttt{inspector-table}
+for consistency, and because they handle quite a bit of effort for
+you.

@@ -1,0 +1,30 @@
+;;; -*- Lisp -*-
+
+
+
+;;;---------------------------------------------------------------------------
+;;; Check to see if a weakly-depended-on system, which is present in the
+;;; directory, actually gets loaded.
+;;;---------------------------------------------------------------------------
+
+(def-test-system test-weakly-depends-on-present
+  :weakly-depends-on (file3-only)
+  :components ((:file "file1")))
+
+(DBG "Loading" (operate 'load-op 'test-weakly-depends-on-present))
+
+(DBG "The weakly-depended-on system, file3-only, should be loaded...")
+(defparameter *file3* (test-fasl "file3"))
+(defparameter *file3-date* (file-write-date *file3*))
+
+(DBG "test1 1" *file3* *file3-date*)
+(assert *file3-date*)
+(assert (symbol-value (find-symbol (symbol-name :*file3*) :test-package)))
+
+(DBG "The depending system (test-weakly-depends-on-present) loads successfully. [2011/12/14:rpg]")
+(defparameter *file1* (test-fasl "file1"))
+(defparameter *file1-date* (file-write-date *file1*))
+
+(DBG "test1 2" *file1* *file1-date*)
+(assert *file1-date*)
+(assert (symbol-value (find-symbol (symbol-name :*file1*) :test-package)))

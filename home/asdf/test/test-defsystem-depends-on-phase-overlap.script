@@ -1,0 +1,66 @@
+;;-*- Lisp -*-
+
+(in-package :asdf-test)
+
+(setf *central-registry* (list (subpathname *test-directory* "defsystem-depends-on/")))
+
+(defvar *od* 0)
+(defvar *dd* 0)
+(defvar *id* 0)
+(defvar *ms* 0)
+(defvar *cod* 0)
+(defvar *cdd* 0)
+(defun reset-vars (&optional (x 0))
+  (setf *od* x *dd* x *id* x *ms* x *cod* x *cdd* x))
+(assert-equal (list *od* *dd* *id* *ms* *cod* *cdd*) '(0 0 0 0 0 0))
+
+(DBG "Finding main-system doesn't load defsystem-dependency")
+(reset-vars)
+(find-system "main-system")
+(assert-equal (list *od* *dd* *id* *ms* *cod* *cdd*) '(0 0 0 0 0 0))
+
+(DBG "Finding intermediate-dependency does load defsystem-dependency")
+(reset-vars)
+(find-system "intermediate-dependency")
+(assert-equal (list *od* *dd* *id* *ms*) '(1 1 0 0))
+
+(DBG "Loading main-system doesn't reload defsystem-dependency or overlapping-dependency")
+(reset-vars)
+(load-system "main-system")
+(assert-equal (list *od* *dd* *id* *ms* *cod* *cdd*) '(0 0 1 1 0 0))
+
+(DBG "Loading main-system a second time doesn't reload anything")
+(reset-vars)
+(load-system "main-system")
+(assert-equal (list *od* *dd* *id* *ms* *cod* *cdd*) '(0 0 0 0 0 0))
+
+(DBG "Loading main-system in a different session loads but doesn't recompile")
+(reset-vars)
+(asdf::clear-registered-systems)
+(load-system "main-system")
+(assert-equal (list *od* *dd* *id* *ms* *cod* *cdd*) '(1 1 1 1 0 0))
+
+(DBG :foo
+     (component-sideway-dependencies (find-system "intermediate-dependency"))
+     (asdf::direct-dependencies 'prepare-op "intermediate-dependency")
+     (asdf::direct-dependencies 'load-op "intermediate-dependency")
+     (asdf::direct-dependencies 'compile-op "intermediate-dependency"))
+
+(DBG "Forcing overlapping-dependency causes a complete reload, but overlapping-dependency is only loaded once")
+(reset-vars)
+(with-asdf-session (:override t)
+  (load-system "main-system" :force '("overlapping-dependency")))
+(assert-equal (list *od* *dd* *id* *ms*) '(1 1 1 1))
+
+(DBG "actions marked as needed at one level should still be planned if needed at a higher level")
+(reset-vars)
+(setf (find-class 'asdf::my-cl-source-file) nil)
+(asdf::clear-registered-systems)
+(assert-equal *dd* 0)
+(with-asdf-session (:override t)
+  ;; get this (and asdf) out of the way, for simpler traces when tracing what matters.
+  (load-system "overlapping-dependency")
+  ;; This is what causes an issue without phase escalation:
+  (test-system "defsystem-dependency"))
+(assert-equal *dd* 10)
+

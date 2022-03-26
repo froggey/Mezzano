@@ -1,0 +1,7 @@
+@anchor{Generic-Function drei-buffer:insert-sequence}
+@deffn {Generic Function} {drei-buffer:insert-sequence} mark sequence
+@findex drei-buffer:insert-sequence
+Insert the objects in the sequence at the
+mark. This function simply calls insert-buffer-sequence with the
+buffer and the position of the mark.
+@end deffn

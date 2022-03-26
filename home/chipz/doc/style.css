@@ -1,0 +1,77 @@
+body {
+  margin: 1em 5% 1em 5%;
+}
+
+p {
+  margin-top: 0.5em;
+  margin-bottom: 0.5em;
+}
+
+pre {
+  padding: 0;
+  margin: 0;
+}
+
+h1, h2 {
+  border-bottom: 2px solid #449977;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: sans-serif;
+  line-height: 1.3;
+}
+
+a:link {
+  color: #449977;
+}
+
+a:visited {
+  color: purple;
+}
+
+a {
+  text-decoration: none;
+  padding: 1px 2px;
+}
+
+a:hover {
+  text-decoration: none;
+  padding: 1px;
+  border: 1px solid #000000;
+}
+
+.lisp-symbol {
+  margin-right: 10%;
+  margin-top: 1.5em;
+  margin-bottom: 1.5em;
+  border: 1px solid #449977;
+  background: #eeeeee;
+  padding: 0.5em;
+}
+
+.note {
+  margin-right: 10%;
+  margin-top: 1.5em;
+  margin-bottom: 1.5em;
+}
+
+td.content {
+  padding: 0;
+}
+
+td.title {
+  font-family: sans-serif;
+  font-size: 1.1em;
+  font-weight: bold;
+  text-align: left;
+  vertical-align: top;
+  text-decoration: underline;
+  padding-right: 0.5em;
+  margin-top: 0.0em;
+  margin-bottom: 0.5em;
+}
+
+.note td.content {
+  padding-left: 0.5em;
+  border-left: 2px solid #449977;
+}

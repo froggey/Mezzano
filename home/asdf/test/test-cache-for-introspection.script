@@ -1,0 +1,75 @@
+;;; -*- Lisp -*-
+
+;;;---------------------------------------------------------------------------
+;;; Test to see that we are correctly caching information about system
+;;; definitions
+;;;---------------------------------------------------------------------------
+(def-test-system test-weakly-depends-on
+  :weakly-depends-on (file3-only)
+  :components ((:file "file1")))
+
+(def-test-system test-no-weakly-depends-on
+  :components ((:file "file1")))
+
+(def-test-system :versioned-system-3
+  :defsystem-depends-on ((:version :test-asdf/2 "2.1"))
+  :pathname #.*test-directory*
+  :version "1.2")
+
+(def-test-system :versioned-system-4
+  :defsystem-depends-on ((:version test-asdf/2 "2.1"))
+  :pathname #.*test-directory*
+  :version "1.2")
+
+(def-test-system :test-concatenate-source
+  :depends-on (:file3-only)
+  :components
+  ((:file "file2" :depends-on ("foo"))
+   (:module "foo" :pathname ""
+    :components ((:file "file1")
+                 (:file "file4" :if-feature (:not :common-lisp))))))
+
+(def-test-system :test-structured-depends
+  :depends-on ((:version test-asdf/2 "2.1") :file3-only (:feature :foo (:require "blort")))
+  :components
+  ((:file "file2" :depends-on ("foo"))
+   (:module "foo" :pathname ""
+    :components ((:file "file1")
+                 (:file "file4" :if-feature (:not :common-lisp))))))
+
+
+
+
+
+(DBG "The weakly-depends-on information is properly cached")
+(assert (equal '("file3-only") (system-weakly-depends-on (find-system "test-weakly-depends-on"))))
+(assert (null (system-weakly-depends-on (find-system "test-no-weakly-depends-on"))))
+
+(DBG "The depends-on information is properly cached")
+(assert (null (system-depends-on (find-system "test-no-weakly-depends-on"))))
+(assert (equalp '("file3-only") (system-depends-on (find-system "test-concatenate-source"))))
+
+(DBG "The defsystem-depends-on information is properly cached")
+(assert (null (system-defsystem-depends-on (find-system "test-no-weakly-depends-on"))))
+(assert (equalp '((:version "test-asdf/2" "2.1")) (system-defsystem-depends-on (find-system :versioned-system-3))))
+(assert (equalp '((:version "test-asdf/2" "2.1")) (system-defsystem-depends-on (find-system :versioned-system-4))))
+
+(DBG "Test structured dependencies")
+(assert (equalp
+          '((:version "test-asdf/2" "2.1") "file3-only" (:feature :foo (:require "blort")))
+          (system-depends-on (find-system :test-structured-depends))))
+
+(DBG "Test removal of non-orthogonal feature syntax.")
+(assert (typep
+         (catch 'error
+          (handler-bind ((system-definition-error
+                           #'(lambda (e) 
+                               (throw 'error e))))
+            (def-test-system :test-structured-depends-with-obsolete-feature-syntax
+              :depends-on ((:version test-asdf/2 "2.1") :file3-only (feature :foo (:require "blort")))
+              :components
+              ((:file "file2" :depends-on ("foo"))
+               (:module "foo" :pathname ""
+                :components ((:file "file1")
+                             (:file "file4" :if-feature (:not :common-lisp))))))))
+         'system-definition-error))

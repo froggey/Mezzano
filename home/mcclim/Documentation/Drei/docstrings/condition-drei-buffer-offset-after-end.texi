@@ -1,0 +1,8 @@
+@anchor{Condition drei-buffer:offset-after-end}
+@deftp {Condition} {drei-buffer:offset-after-end}
+@tindex drei-buffer:offset-after-end
+Class precedence list: @code{@w{offset-after-end}, @w{no-such-offset}, @w{error}, @w{serious-condition}, @w{condition}, @w{slot-object}, @w{t}}
+
+This condition is signaled whenever an attempt is
+made to access buffer contents that is after the end of the buffer.
+@end deftp

@@ -1,0 +1,131 @@
+@clim{} is a large layered software system that allows the user to
+customize it at each level.  The most simple ways of using @clim{} is to
+directly use its top layer, which contains application frames, panes,
+and gadgets, very similar to those of traditional windowing system
+toolkits such as GTK, Tk, and Motif.
+
+But there is much more to using @clim{}.  In @clim{}, the upper layer with
+panes and gadgets is written on top of a basic layer containing more
+basic functionality in the form of sheets.  Objects in the upper layer
+are typically instances of classes derived from those of the lower
+layer.  Thus, nothing prevents a user from adding new gadgets and panes
+by writing code that uses the sheet layer.
+
+Finally, since @clim{} is written in Common Lisp, essentially all parts of
+it can be modified, replaced, or extended.
+
+For that reason, a user's manual for @clim{} must contain not only a
+description of the protocols of the upper layer, but also of all
+protocols, classes, functions, macros, etc. that are part of the
+specification.
+
+@menu
+* Standards::
+* How CLIM Is Different::
+@end menu
+
+@node Standards
+@section Standards
+
+This manual documents @mcclim{} @value{MCCLIMVERSION} which is a mostly
+complete implementation of the @clim{} 2.0 specification and its revision
+2.2. To our knowledge version 2.2 of the @clim{} specification is only
+documented in the ``CLIM 2 User's Guide'' by Franz. While that document
+is not a formal specification, it does contain many cleanups and is
+often clearer than the official specification; on the other hand, the
+original specification is a useful reference. This manual will note
+where @mcclim{} has followed the 2.2 API.
+@cindex specification
+
+Also, some protocols mentioned in the 2.0 specification, such as parts
+of the incremental redisplay protocol, are clearly internal to @clim{} and
+not well described.  It will be noted here when they are partially
+implemented in @mcclim{} or not implemented at all.
+
+@node How CLIM Is Different
+@section How CLIM Is Different
+
+Many new users of @clim{} have a hard time trying to understand how it
+works and how to use it.  A large part of the problem is that many such
+users are used to more traditional GUI toolkits, and they try to fit
+@clim{} into their mental model of how GUI toolkits should work.
+
+But @clim{} is much more than just a GUI toolkit, as suggested by its name,
+it is an @emph{interface manager}, i.e. it is a complete mediator
+between application ``business logic'' and the way the user interacts
+with objects of the application.  In fact, @clim{} doesn't have to be used
+with graphics output at all, as it contains a large collection of
+functionality to manage text.
+@cindex interface manager
+
+Traditional GUI toolkits have an @emph{event loop}.
+@cindex event loop
+Events are delivered to GUI elements called @emph{gadgets} (or
+@emph{widgets}), and the programmer attaches @emph{event handlers} to
+those gadgets in order to invoke the functionality of the application
+logic.  While this way of structuring code is sometimes presented as a
+virtue (``Event-driven programming''), it has an unfortunate side
+effect, namely that event handlers are executed in a null context, so
+that it becomes hard to even remember two consecutive events.  The
+effect of event-driven programming is that applications written that way
+have very rudimentary interaction policies.
+
+At the lowest level, @clim{} also has an event loop, but most application
+programmers never have any reason to program at that level with @clim{}.
+Instead, @clim{} has a @emph{command loop}
+@cindex command loop
+at a much higher level than the event loop.  At each iteration of the
+command loop:
+
+@enumerate
+@item
+A command is acquired.  You might satisfy this demand by clicking on a
+menu item, by typing the name of a command, by hitting some kind of
+keystroke, by pressing a button, or by pressing some visible object with
+a command associated with it;
+
+@item
+Arguments that are required by the command are acquired.  Each argument
+is often associated with a @emph{presentation type}, and visible objects
+of the right presentation type can be clicked on to satisfy this demand.
+You can also type a textual representation of the argument, using
+completion, or you can use a context menu;
+
+@item
+The command is called on the arguments, usually resulting in some
+significant modification of the data structure representing your
+application logic;
+
+@item
+A @emph{display routine} is called to update the views of the
+application logic.  The display routine may use features such as
+incremental redisplay.
+@end enumerate
+
+Instead of attaching event handlers to gadgets, writing a @clim{}
+application therefore consists of:
+
+@itemize
+@item
+writing @clim{} commands that modify the application data structures
+independently of how those commands are invoked, and which may take
+application objects as arguments;
+
+@item
+writing display routines that turn the application data structures (and
+possibly some "view" object) into a collection of visible
+representations (having presentation types) of application objects;
+
+@item
+writing completion routines that allow you to type in application
+objects (of a certain presentation type) using completions;
+
+@item
+independently deciding how commands are to be invoked (menus, buttons,
+presentations, textual commands, etc).
+@end itemize
+
+By using @clim{} as a mediator of command invocation and argument
+acquisition, you can obtain some very modular code.  Application logic
+is completely separate from interaction policies, and the two can evolve
+separately and independently.

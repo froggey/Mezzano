@@ -1,0 +1,274 @@
+% -*- Mode: LaTeX; Package: CLIM-USER -*-
+
+\chapter {Graph Formatting}
+\label {graph-formatting}
+
+CLIM provides a mechanism for arranging arbitrary output in a graph.  The
+following code produces the graph shown in Figure~\ref{graph-example}.
+
+\begin{verbatim}
+(defun graph-test (stream &optional (orientation :horizontal)) 
+  (fresh-line stream)
+  (macrolet ((make-node (&key name children)
+               `(list* ,name ,children)))
+    (flet ((node-name (node)
+             (car node))
+           (node-children (node)
+             (cdr node)))
+      (let* ((2a (make-node :name "2A"))
+             (2b (make-node :name "2B"))
+             (2c (make-node :name "2C"))
+             (1a (make-node :name "1A" :children (list 2a 2b)))
+             (1b (make-node :name "1B" :children (list 2b 2c)))
+             (root (make-node :name "0" :children (list 1a 1b))))
+        (format-graph-from-roots
+          (list root)
+          #'(lambda (node s)
+              (write-string (node-name node) s))
+          #'node-children
+          :orientation orientation
+          :stream stream)))))
+\end{verbatim}
+
+\begin{figure}
+\centerline{\includegraphics{graph-example}}
+\caption{\label{graph-example} Example of graph formatting.}
+\end{figure}
+
+
+\section {Graph Formatting Functions}
+
+\Defun {format-graph-from-roots} {root-objects object-printer inferior-producer
+                                  \key stream
+                                       orientation cutoff-depth
+                                       merge-duplicates duplicate-key duplicate-test
+                                       generation-separation within-generation-separation
+                                       center-nodes
+                                       arc-drawer arc-drawing-options
+                                       graph-type (move-cursor \cl{t})}
+
+Draws a graph whose roots are specified by the sequence \arg{root-objects}.  The
+nodes of the graph are displayed by calling the function \arg{object-printer},
+which takes two arguments, the node to display and a stream.
+\arg{inferior-producer} is a function of one argument that is called on each
+node to produce a sequence of inferiors (or \cl{nil} if there are none).  Both
+\arg{object-printer} and \arg{inferior-producer} have dynamic extent.
+
+The output from graph formatting takes place in a normalized +$y$-downward
+coordinate system.  The graph is placed so that the upper left corner of its
+bounding rectangle is at the current text cursor position of \arg{stream}.  If
+the boolean \arg{move-cursor} is \term{true} (the default), then the text cursor
+will be moved so that it immediately follows the lower right corner of the
+graph.
+
+The returned value is the output record corresponding to the graph.
+
+\arg{stream} is an output recording stream to which output will be done.  It
+defaults to \cl{*standard-output*}.
+
+\arg{orientation} may be either \cl{:horizontal} (the default) or
+\cl{:vertical}.  It specifies which way the graph is oriented.  CLIM
+implementations are permitted to extend the values of \arg{orientation}, for
+example, adding \cl{:right} or \cl{:left} to distinguish between left-to-right
+or right-to-left layouts.
+
+\arg{cutoff-depth} specifies the maximum depth of the graph.  It defaults to
+\cl{nil}, meaning that there is no cutoff depth.  Otherwise it must be an
+integer, meaning that no nodes deeper than \arg{cutoff-depth} will be formatted
+or displayed.
+
+If the boolean \arg{merge-duplicates} is \term{true}, then duplicate objects in
+the graph will share the same node in the display of the graph.  That is, when
+\arg{merge-duplicates} is \term{true}, the resulting graph will be a tree.  If
+\arg{merge-duplicates} is \term{false} (the default), then duplicate objects
+will be displayed in separate nodes.  \arg{duplicate-key} is a function of one
+argument that is used to extract the node object component used for duplicate
+comparison; the default is \cl{identity}.  \arg{duplicate-test} is a function of
+two arguments that is used to compare two objects to see if they are duplicates;
+the default is \cl{eql}.  \arg{duplicate-key} and \arg{duplicate-test} have
+dynamic extent.
+
+\arg{generation-separation} is the amount of space to leave between successive
+generations of the graph; the default should be chosen so that the resulting
+graph is visually pleasing.  \arg{within-generation-separation} is the amount of
+space to leave between nodes in the same generation of the graph; the default
+should be chosen so that the resulting graph is visually pleasing.
+\arg{generation-separation} and \arg{within-generation-separation} are specified
+in the same way as the \arg{inter-row-spacing} argument to
+\cl{formatting-table}.
+
+When \arg{center-nodes} is \term{true}, each node of the graph is centered with
+respect to the widest node in the same generation.  The default is \term{false}.
+
+\arg{arc-drawer} is a function of seven positional and some unspecified keyword
+arguments that is responsible for drawing the arcs from one node to another; it
+has dynamic extent.  The positional arguments are the stream, the ``from''
+node's object, the ``to'' node's object, the ``from'' $x$ and $y$ position, and
+the ``to'' $x$ and $y$ position.  The keyword arguments gotten from
+\arg{arc-drawing-options} are typically line drawing options, such as for
+\cl{draw-line*}.  If \arg{arc-drawer} is unsupplied, the default behavior is to
+draw a thin line from the ``from'' node to the ``to'' node using
+\cl{draw-line*}.
+
+\arg{graph-type} is a keyword that specifies the type of graph to draw.  All
+CLIM implementations must support graphs of type \cl{:tree},
+\cl{:directed-graph} (and its synonym \cl{:digraph}), and
+\cl{:directed-acyclic-graph} (and its synonym \cl{:dag}).  \arg{graph-type}
+defaults to \cl{:digraph} when \arg{merge-duplicates} is \term{true}, otherwise
+it defaults to \cl{:tree}.  Typically, different graph types will use different
+output record classes and layout engines to lay out the graph.  However, it is
+permissible for all of the required graph types to use exactly the same graph
+layout engine.
+
+
+\section {The Graph Formatting Protocols}
+
+Graph formatting is implemented on top of the basic output recording protocol,
+using \cl{with-new-output-record} to specify the appropriate type of output
+record.  For example, \cl{format-graph-from-roots} first collects all the output
+that belongs in the graph into a collection of graph node output records by
+calling \cl{generate-graph-nodes}.  All of the graph node output records are
+descendents of a single graph output record.  During this phase,
+\cl{stream-drawing-p} is bound to \cl{nil} and \cl{stream-recording-p} is bound
+to \cl{t}.  When all the output has been generated, the graph layout code
+(\cl{layout-graph-nodes} and \cl{layout-graph-edges}) is called to compute the
+graph layout.  Finally, the graph output record is positioned on the stream at
+the current text cursor position and then displayed by calling \cl{replay} on
+the graph output record.
+
+
+\Defprotoclass {graph-output-record}
+
+The protocol class that represents a graph; a subclass of \cl{output-record}.
+\IfYouWantClass {a} {graph output record} {graph-output-record}
+
+\Defpredicate {graph-output-record-p} {object}
+
+Returns \term{true} if \arg{object} is a \term{graph output record}, otherwise
+returns \term{false}.
+
+\Defclass {standard-graph-output-record}
+
+The instantiable class of output record that represents a graph.  Its children
+will be a sequence of graph nodes.  This is a subclass of \cl{graph-output-record}.
+
+\definitarg {:orientation}
+\definitarg {:center-nodes}
+\definitarg {:cutoff-depth}
+\definitarg {:merge-duplicates}
+\definitarg {:generation-separation}
+\definitarg {:within-generation-separation}
+\Definitarg {:hash-table}
+
+All the \cl{graph-output-record} classes must handle these seven initargs, which are used to
+specify, respectively, the orientation, node centering, cutoff depth, merge
+duplicates, generation and within-generation spacing, and the node hash table of
+a graph output record.
+
+
+\Defmacro {define-graph-type} {graph-type class}
+
+Defines a new graph type named by the symbol \arg{graph-type} that is
+implemented by the class \arg{class}.  \arg{class} must be a subclass of
+\cl{graph-output-record}.  Neither of the arguments is evaluated.
+
+All CLIM implementations must support graphs of type \cl{:tree},
+\cl{:directed-graph} (and its synonym \cl{:digraph}), and
+\cl{:directed-acyclic-graph} (and its synonym \cl{:dag}).
+
+
+\Defgeneric {graph-root-nodes} {graph-record}
+
+Returns a sequence of the graph node output records corresponding to the root
+objects for the graph output record \arg{graph-record}.
+
+\Defgeneric {(setf graph-root-nodes)} {roots graph-record}
+
+Sets the root nodes of \arg{graph-record} to \arg{roots}.
+
+
+\Defgeneric {generate-graph-nodes} {graph-record stream
+                                    root-objects object-printer inferior-producer 
+                                    \key duplicate-key duplicate-test}
+
+This function is responsible for generating all of the graph node output records
+of the graph.  \arg{graph-record} is the graph output record, and \arg{stream}
+is the output stream.  The graph node output records are generated by calling
+the object printer on the root objects, then (recursively) calling the inferior
+producer on the root objects and calling the object printer on all inferiors.
+After all of the graph node output records have been generated, the value of
+\cl{graph-root-nodes} of \arg{graph-record} must be set to be a sequence of the
+those graph node output records that correspond to the root objects.
+
+\arg{root-objects}, \arg{object-printer}, \arg{inferior-producer},
+\arg{duplicate-key}, and \arg{duplicate-test} are as for
+\cl{format-graph-from-roots}.
+
+\Defgeneric {layout-graph-nodes} {graph-record stream arc-drawer arc-drawing-options} 
+
+This function is responsible for laying out the nodes in the graph contained in
+the output record \arg{graph-record}.  It is called after the graph output has
+been collected, but before the graph record has been displayed.  The method on
+\cl{standard-graph-output-record} implements the usual graph layout constraint
+solver.  \arg{stream} is the stream on which the graph is displayed.
+
+\Defgeneric {layout-graph-edges} {graph-record stream arc-drawer arc-drawing-options}
+
+This function is responsible for laying out the edges in the graph.  It is
+called after the graph nodes have been layed out, but before the graph record
+has been displayed.  The method on \cl{standard-graph-output-record} simply
+causes thin lines to be drawn from each node to all of its children.
+\arg{graph-record} and \arg{stream} are as for \cl{layout-graph-nodes}.
+
+
+\Defprotoclass {graph-node-output-record}
+
+The protocol class that represents a node in graph; a subclass of
+\cl{output-record}.
+\IfYouWantClass {a} {graph node output record} {graph-node-output-record}
+
+\Defpredicate {graph-node-output-record-p} {object}
+
+Returns \term{true} if \arg{object} is a \term{graph node output record},
+otherwise returns \term{false}.
+
+\Defclass {standard-graph-node-output-record}
+
+The instantiable class of output record that represents a graph node.  Its
+parent will be a graph output record.  This is a subclass of
+\cl{graph-node-output-record}.
+
+\Defgeneric {graph-node-parents} {graph-node-record}
+
+Returns a sequence of the graph node output records whose objects are
+``parents'' of the object corresponding to the graph node output record
+\arg{graph-node-record}.  Note that this is not the same as
+\cl{output-record-parent}, since \cl{graph-node-parents} can return output
+records that are not the parent records of \arg{graph-node-record}.
+
+\Defgeneric {(setf graph-node-parents)} {parents graph-node-record}
+
+Sets the parents of \arg{graph-node-record} to be \arg{parents}.  \arg{parents}
+must be a list of graph node records.
+
+\Defgeneric {graph-node-children} {graph-node-record}
+
+Returns a sequence of the graph node output records whose objects are
+``children'' of the object corresponding to the graph node output record
+\arg{graph-node-record}.  Note that this is not the same as
+\cl{output-record-children}, since \cl{graph-node-children} can return output
+records that are not child records of \arg{graph-node-record}.
+
+\Defgeneric {(setf graph-node-children)} {children graph-node-record}
+
+Sets the children of \arg{graph-node-record} to be \arg{children}.
+\arg{children} must be a list of graph node records.
+
+\Defgeneric {graph-node-object} {graph-node-record}
+
+Returns the object that corresponds to the graph node output record
+\arg{graph-node-record}.  It is permissible for this function to work correctly
+only while inside of the call to \cl{format-graph-from-roots}.  It is unspecified
+what result will be returned outside of \cl{format-graph-from-roots}.  This
+restriction is permitted so that CLIM is not required to capture application
+objects that might have dynamic extent.

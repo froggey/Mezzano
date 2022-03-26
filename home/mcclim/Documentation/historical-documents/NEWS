@@ -1,0 +1,161 @@
+* Changes in mcclim-0.9.7 relative to 0.9.6:
+
+
+* Changes in mcclim-0.9.6 relative to 0.9.5:
+** Bug fix: ESA's help commands are better at finding bindings and
+   describing them
+** Bug fix: Some missing methods and functions have been implemented
+   for the Null backend, allowing headless operation for many
+   applications.
+** Specification compliance: READ-BITMAP-FILE and
+   MAKE-PATTERN-FROM-BITMAP-FILE from CLIM 2.2. Includes new example
+   program, IMAGE-VIEWER.
+** Drei improvements
+*** New redisplay engine that is faster and has more features.
+*** Support for "views" concept.
+*** Support for modes a la Emacs "mini-modes".
+*** Bug fix: Input prompting now works for directly recursive calls to
+    ACCEPT.
+*** Improvement: Goal-columns for line movement.
+*** Improvement: More Emacs-like expression movement for Lisp syntax.
+** Bug fix: label panes no longer have a restrictive maximum width.
+** Bug fix: ellipses with a zero radius no longer cause errors.
+** Bug fix: bezier drawing in CLIM-FIG less likely to cause errors.
+** Bug fix: restored somewhat working undo in CLIM-FIG.
+** Specification compliance: The :inherit-menu keyword argument to
+   DEFINE-COMMAND-TABLE and MAKE-COMMAND-TABLE is now implemented with
+   CLIM 2.2 semantics. The :keystrokes value is not handled yet.
+** Specification compliance: :PRINTER functions for MENU-CHOOSE are
+   now called with the menu item, not the display object.
+** Improvement: Faster drawing and AA text rendering. AA text requires
+   a fix to the Xrender support of CLX, available in Christophe Rhodes's
+   current CLX distribution from darcs.
+** Improvement: Look up arbitrary truetype fonts by name via fontconfig.
+** New extension: mcclim-truetype: provides a 100% lisp path for 
+   AA fonts with CLX using cl-vectors and zpb-ttf, as an alternative
+   to mcclim-freetype.
+** Bug fix: correct computation of bounding rectangle after
+   clear-output-record and recompute-extent-for-new-child.
+
+* Changes in mcclim-0.9.5 relative to 0.9.4:
+** Installation: the systems clim-listener, clim-examples,
+   and clouseau can now be loaded without loading the system mcclim
+   first. Users with existing McCLIM installations should use the 
+   provided script:
+   		./symlink-asd-files.sh /path/to/asdf-central-registry/
+** New extension: tab-layout. This extension allows keeping a stack of panes 
+   whose foreground pane is controlled by a tab bar. This layout can be 
+   customized in backends and frame managers. For examples, see the
+   gtkairo backend and the pixie frame manager.
+** New extension function: SHEET-RGB-IMAGE: makes a screenshot of a sheet 
+   in the CLX backend. (Supported on truecolor visuals only for now.)
+** New experimental extension: tree-with-cross-edges are an extension to
+   the graph formatter.
+** New experimental backend: clim-graphic-forms: native widgets on Windows. 
+   This backend is still very experimental (it doesn't run demos yet).
+** New inspector feature: The inspector now displays more useful information
+   about hash tables and generic functions.
+** Specification compliance: Various layout panes no longer quite as
+   aggressive at eating the space requirements of their children.
+** Specification compliance: There is now a rudimentary implementation of 
+   NOTIFY-USER
+** Usability: Text editors and text input panes now use click-to-focus.
+** Improvement: the ACCEPTING-VALUES command table was renamed to 
+   ACCEPT-VALUES (as this is the name that the other clim-2 implementation 
+   uses)
+** Improvement: the CLX backend should no longer cause focus stealing
+   when an application has text-editor panes.  This change comes with
+   a rudimentary click-to-focus-keyboard widget policy.
+** Improvement: define-application-frame now allows a :default-initargs
+   option. (This is not exactly a "specification compliance" fix, as 
+   d-a-frame is not defined to accept this option.).
+** Improvement: menu-choose menus now look a little prettier.
+** Improvement: added more styles for bordered-output: :rounded, :ellipse
+** Improvement: Toggle button values now default to NIL.
+** Improvement: Frame layouts are now inherited from the frame's 
+   superclass.
+** Improvement: The Lisp Syntax is much improved: now recognizes 
+   delimiter characters, and more types of Lambda lists.
+** Bug fix: Bezier designs should now draw in the right place in all 
+   backends.
+** Bug fix: Text in Drei no longer "walks" to the left.
+** Bug fix: Drei now has better support for delimiter gestures.
+** Bug fix: Partial commands now work better when invoked from the menu.
+
+
+* Changes in mcclim-0.9.4 relative to 0.9.3:
+** cleanup: removed the obsolete system.lisp file.
+** backend improvements: Gtkairo
+*** Double buffering is now supported (fixes disappearing widgets on Windows).
+*** X errors no longer terminate the lisp process.
+*** Some bugfixes, including CMUCL support and better key event handling.
+*** Native implementation of context menus, list panes, label panes, and
+    option panes.
+*** Draw text using Pango.  (Bug fix: Fixed-width font supported on Windows
+    now.  Multiple lines of output in TEXT-SIZE supported now.
+    TEXT-STYLE-FIXED-WIDTH-P works correctly now.)
+** Improvement: Added new editor substrate ("Drei").
+** Improvement: Improved the pathname presentation methods considerably.
+** specification compliance: DELETE-GESTURE-NAME function now implemented.
+** specification compliance: PRESENTATION-TYPE-SPECIFIER-P presentaion
+   function now implemented.
+** specification compliance: DISPLAY-COMMAND-TABLE-MENU function now
+   implemented.
+** specification compliance: DISPLAY-COMMAND-MENU function now
+   implemented.
+** specification compliance: POINTER-PLACE-RUBBER-BAND-LINE* function
+   now implemented.
+** specification compliance: POINTER-INPUT-RECTANGLE* function now
+   implemented.
+** specification compliance: POINTER-INPUT-RECTANGLE function now
+   implemented.
+** Improvement: Added font listing support, see section "Fonts and Extended
+   Text Styles" in the manual.
+** Improvement: Added support for bezier splines (Robert Strandh).
+   To be documented.
+** better PRESENTATION-SUBTYPEP (more likely to give the right answer
+   on some-of and all-of presentation types)
+** Improvement: M-n/M-p gestures for navigating presentation histories.
+
+* Changes in mcclim-0.9.3 "All Souls' Day" relative to 0.9.2:
+** backend improvement: The Null backend now registers itself in the
+   server search path
+** improvement: with-output-as-gadget now sets the correct cursor
+   position when incremental redisplay is active.
+** specification compliance: INVOKE-WITH-NEW-OUTPUT-RECORD's argument
+   list now is the same as the one in the Franz CLIM user guide.
+** improvement: The text field cursor is now a solid block again.
+** backend improvement: the PostScript backend now outputs correct EPS
+** improvement: Graph nodes can now be dragged
+** improvement: Possibilities when reading from
+   COMPLETE-FROM-GENERATOR are now sorted alphabetically.
+** new experimental backend: gtkairo (loads on SBCL, CMUCL and SCL):
+   Uses GTK+ for gadgets and cairo for rendering graphics.
+** Bug fix: incremental-redisplay does no longer leak memory
+** improvement: incremental-redisplay is now a little faster
+** Bug fix: Invisible text cursors no longer leave a dangling space
+   behind the text output record
+** improvement: commands whose names are shadowed in child command
+   tables are now suggested in preference to their parents.
+** Bug fix: (setf stream-cursor-position) and output record replay on
+   encapsulating streams work now.
+** Bug fix: Invoking command menu items in frames with no interactor
+   works now.
+** Bug fix: DESTROY-PORT removes the port even if an error occurs
+   while closing the port
+** Bug fix: make-process now sets the process name on SBCL
+** specification compliance: MENU-CHOOSE now supports almost all
+   features demanded in the CLIM 2.0 specification.
+** improvement: new and improved ACCEPT presentation method for
+   expressions on interactive streams.
+** specification compliance: LOOKUP-KEYSTROKE-ITEM no longer accepts
+   the :errorp argument.
+** Bug fix: incremental redisplay no longer breaks on output records
+   that had no children.
+** Bug fix: arrow head sizes are now transformed along with the line thickness.
+** improvement: resizing a viewport's child will now move the viewport's focus.
+** improvement: loading mcclim.asd no longer shows a code deletion note on SBCL.
+** new demo: logic-cube
+** compatibility: Add support for post-1.0 openmcl, and for Allegro
+   Common Lisp 8.0 (ansi mode).
+** new example application showing use of CLIM views.

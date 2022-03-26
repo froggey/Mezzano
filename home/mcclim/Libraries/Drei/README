@@ -1,0 +1,7 @@
+Drei - an acronym for /Drei Replaces EINE's Inheritor/ - is one of the
+editor substrates provided by McCLIM. Drei is activated by default.
+
+System provides lisp syntax analysis facilities. One of them depends
+on the 'SWANK', which is a system's dependency. If you want to build
+the system without 'SWANK', push ':CLIM-WITHOUT-SWANK' to the
+'*FEATURES*' before loading the system.

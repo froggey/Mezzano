@@ -1,0 +1,1034 @@
+% -*- Mode: LaTeX; Package: CLIM-USER -*-
+
+\chapter {Panes}
+\label {panes}
+
+\section {Overview of Panes}
+
+CLIM panes are similar to the gadgets or widgets of other toolkits.  They can be
+used by application programmers to compose the top-level user interface of their
+applications, as well as auxiliary components such as menus and dialogs.  The
+application programmer provides an abstract specification of the pane hierarchy,
+which CLIM uses in conjunction with user preferences and other factors to select
+a specific ``look and feel'' for the application.  In many environments a CLIM
+application can use the facilities of the host window system toolkit via a set
+of \concept{adaptive panes}, allowing a portable CLIM application to take on the
+look and feel of a native application user interface.
+
+Panes are rectangular objects that are implemented as special sheet classes.  An
+application will typically construct a tree of panes that divide up the screen
+space allocated to the application frame.  The various CLIM pane types can be
+characterized by whether they have children panes or not: panes that can have
+other panes as children are called \concept{composite panes}, and those that
+don't are called \concept{leaf panes}.  Composite panes are used to provide a
+mechanism for spatially organizing (``laying out'') other panes.  Leaf panes
+implement gadgets that have some appearance and react to user input by invoking
+application code.  Another kind of leaf pane provides an area of the
+application's screen real estate that can be used by the application to present
+application specific information.  CLIM provides a number of these
+\concept{application pane} types that allow the application to use CLIM's
+graphics and extended stream facilities.
+
+\concept{Abstract panes} are panes that are defined only in terms of their
+programmer interface, or behavior.  The protocol for an abstract pane (that is,
+the specified set of initargs, accessors, and callbacks) is designed to specify
+the pane in terms of its overall purpose, rather then in terms of its specific
+appearance or particular interactive details.  The purpose of this abstract
+definition is to allow multiple implementations of the abstract pane, each
+defining its own specific look and feel.  CLIM can then select the appropriate
+pane implementation based on factors outside the control of the application,
+such as user preferences or the look and feel of the host operating environment.
+A subset of the abstract panes, the \term{adaptive panes}, have been defined to
+integrate well across all CLIM operating platforms.
+
+CLIM provides a general mechanism for automatically selecting the particular
+implementation of an abstract pane selected by an application based on the
+current frame manager.  The application programmer can override the selection
+mechanism by using the name of a specific pane implementation in place of the
+abstract pane name when specifying the application frame's layout.  By
+convention, the name of the basic, portable implementation of an abstract pane
+class can be determined by adding the suffix ``\cl{-pane}'' to the name of the
+abstract pane class.
+
+
+\section {Basic Pane Construction}
+
+Applications typically define the hierarchy of panes used in their frames using
+the \cl{:pane} or \cl{:panes} options of \cl{define-application-frame}.  These
+options generate the body of methods on functions that are invoked when the
+frame is being adopted into a particular frame manager, so the frame manager can
+select the specific implementations of the abstract panes.
+
+There are two basic interfaces to constructing a pane: \cl{make-pane} of an
+abstract pane class name, or \cl{make-instance} of a ``concrete'' pane class.
+The former approach is generally preferable, since it results in more portable
+code.  However, in some cases the programmer may wish to instantiate panes of a
+specific class (such as an \cl{hbox-pane} or a \cl{vbox-pane}).  In this case,
+using \cl{make-instance} directly circumvents the abstract pane selection
+mechanism.  However, the \cl{make-instance} approach requires the application
+programmer to know the name of the specific pane implementation class that is
+desired, and so is inherently less portable.  By convention, all of the concrete
+pane class names, including those of the implementations of abstract pane
+protocol specifications, end in ``\cl{-pane}''.
+
+Using \cl{make-pane} instead of \cl{make-instance} invokes the ``look and feel''
+realization process to select and construct a pane.  Normally this process is
+implemented by the frame manager, but it is possible for other ``realizers'' to
+implement this process.  \cl{make-pane} is typically invoked using an abstract
+pane class name, which by convention is a symbol in the CLIM package that
+doesn't include the ``\cl{-pane}'' suffix.  (This naming convention
+distinguishes the names of the abstract pane protocols from the names of classes
+that implement them.)  Programmers, however, are allowed to pass any pane class
+name to \cl{make-pane}, in which case the frame manager will generally
+instantiate that specific class.
+
+\Defprotoclass {pane}
+
+The protocol class that corresponds to a pane, a subclass of \cl{sheet}.  A pane
+is a special kind of sheet that implements the pane protocols, including the
+layout protocols.
+\IfYouWantClass {a} {pane} {pane}
+
+All of the subclasses of \cl{pane} are mutable.
+
+\Defpredicate {panep} {object}
+
+Returns \term{true} if \arg{object} is a \term{pane}, otherwise returns
+\term{false}.
+
+\Defclass {basic-pane}
+
+The basic class on which all CLIM panes are built, a subclass of \cl{pane}.
+\AbstractClass
+
+
+\Defun {make-pane} {abstract-class-name \rest initargs}
+
+Selects a class that implements the behavior of the abstract pane
+\arg{abstract-class-name} and constructs a pane of that class.  \cl{make-pane}
+must be used either within the scope of a call to
+\cl{with-look-and-feel-realization}, or within the \cl{:pane} or \cl{:panes}
+options of a \cl{define-application-frame} (which implicitly invokes
+\cl{with-look-and-feel-realization}).
+
+It is permitted for this function to have lexical scope, and be defined only
+within the body of \cl{with-look-and-feel-realization}.
+
+
+\Defgeneric {make-pane-1} {realizer frame abstract-class-name \rest initargs}
+
+The generic function that is invoked by a call to \cl{make-pane}.  The object
+that realizes the pane, \arg{realizer}, is established by
+\cl{with-look-and-feel-realization}.  Usually, \arg{realizer} is a frame
+manager, but it could be another object that implements the pane realization
+protocol.  \arg{frame} is the frame for which the pane will be created, and
+\arg{abstract-class-name} is the type of pane to create.
+
+\Defmacro {with-look-and-feel-realization} {(realizer frame) \body forms}
+
+Establishes a dynamic context that installs \arg{realizer} as the object
+responsible for realizing panes.  All calls to \cl{make-pane} within the context
+of \cl{with-look-and-feel-realization} result in \cl{make-pane-1} being invoked
+on \arg{realizer}.  This macro can be nested dynamically; inner uses shadow
+outer uses.  \arg{body} may have zero or more declarations as its first forms.
+
+Typically \arg{realizer} is a frame manager, but in some cases \arg{realizer}
+may be some other object.  For example, within the implementation of pane that
+is uses its own subpanes to achieve its functionality, this form might be used
+with \arg{realizer} being the pane itself.
+
+
+\subsection {Pane Initialization Options \label{pane-init}}
+
+The following options must be accepted by all pane classes.
+
+\defoption {:foreground}
+\Defoption {:background}
+
+These options specify the default foreground and background inks for a pane.
+These will normally default from window manager resources.  If there are no such
+resources, the defaults are black and white, respectively.
+
+Client code should be cautious about passing values for these two options, since
+the window manager's look and feel or the user's preferences should usually
+determine these values.
+
+\Defoption {:text-style}
+
+This option specifies the default text style that should be used for any sort of
+pane that supports text output.  Panes that do not support text output ignore
+this option.
+
+Client code should be cautious about passing values for this option, since the
+window manager's look and feel or the user's preferences should usually
+determine this value.
+
+\Defoption {:name}
+
+This option specifies the name of the pane.  It defaults to \cl{nil}.
+
+
+\subsection {Pane Properties}
+
+\Defgeneric {pane-frame} {pane}
+
+Returns the frame that ``owns'' the pane.  \cl{pane-frame} can be invoked on any
+pane in a frame's pane hierarchy, but it can only be invoked on ``active''
+panes, that is, those panes that are currently adopted into the frame's pane
+hierarchy.
+
+\Defgeneric {pane-name} {pane}
+
+Returns the name of the pane.
+
+\defgeneric {pane-foreground} {pane}
+\defgeneric {pane-background} {pane}
+\Defgeneric {pane-text-style} {pane}
+
+Return the default foreground and background inks and the default text style,
+respectively, for the pane \arg{pane}.  These will be used as the default value
+for \cl{medium-foreground} and \cl{medium-background} when a medium is grafted
+to the pane.
+
+
+\section {Composite and Layout Panes}
+
+This section describes the various composite and layout panes provided by CLIM,
+and the protocol that the layout panes obey.
+
+The layout panes describe in this section are all composite panes that are
+responsible for positioning their children according to various layout rules.
+Layout panes can be selected in the same way as other panes using \cl{make-pane}
+or \cl{make-instance}.  For convenience and readability of application pane
+layouts, many of these panes also provide a macro that expands into a
+\cl{make-pane} form, passing a list of the panes created in the body of the
+macro as the \cl{:contents} argument (described below).  For example, you can
+express a layout of a vertical column of two label panes either as:
+
+\begin{verbatim}
+(make-instance 'vbox-pane
+  :contents (list (make-instance 'label-pane :text "One")
+                  (make-instance 'label-pane :text "Two")))
+\end{verbatim}
+
+or as:
+
+\begin{verbatim}
+(vertically ()
+  (make-instance 'label-pane :text "One")
+  (make-instance 'label-pane :text "Two"))
+\end{verbatim}
+
+
+\subsection {Layout Pane Options}
+
+\Defoption {:contents}
+
+All of the layout pane classes accept the \cl{:contents} options, which is used
+to specify the child panes to be laid out.
+
+\defoption {:width}
+\defoption {:max-width}
+\defoption {:min-width}
+\defoption {:height}
+\defoption {:max-height}
+\Defoption {:min-height}
+
+These options control the space requirement parameters for laying out the pane.
+The \cl{:width} and \cl{:height} options specify the preferred horizontal and
+vertical sizes.  The \cl{:max-width} and \cl{:max-height} options specify the
+maximum amount of space that may be consumed by the pane, and give CLIM's pane
+layout engine permission to grow the pane beyond the preferred size.  The
+\cl{:min-width} and \cl{:min-height} options specify the minimum amount of space
+that may be consumed by the pane, and give CLIM's pane layout engine permission
+to shrink the pane below the preferred size.
+
+If either of the \cl{:max-width} or \cl{:min-width} options is not supplied, it
+defaults to the value of the \cl{:width} option.  If either of the
+\cl{:max-height} or \cl{:min-height} options is not supplied, it defaults to the
+value of the \cl{:height} option.
+
+\cl{:max-width}, \cl{:min-width}, \cl{:max-height}, and \cl{:min-height} can
+also be specified as a relative size by supplying a list of the form
+\cl{(\arg{number} :relative)}.  In this case, the number indicates the number
+of device units that the pane is willing to stretch or shrink.
+
+The values of these options are specified in the same way as the \cl{:x-spacing}
+and \cl{:y-spacing} options to \cl{formatting-table}.  (Note that
+\cl{:character} and \cl{:line} may only be used on those panes that display
+text, such as a \cl{clim-stream-pane} or a \cl{label-pane}.)
+
+\Defconst {+fill+}
+
+This constant can be used as a value to any of the relative size options.  It
+indicates that pane's willingness to adjust an arbitrary amount in the specified
+direction.
+
+\defoption {:align-x}
+\Defoption {:align-y}
+
+The \cl{:align-x} option is one of \cl{:right}, \cl{:center}, or \cl{:left}.
+The \cl{:align-y} option is one of \cl{:top}, \cl{:center}, or \cl{:bottom}.
+These are used to specify how child panes are aligned within the parent pane.
+These have the same semantics as for \cl{formatting-cell}.
+
+\defoption {:x-spacing}
+\defoption {:y-spacing}
+\Defoption {:spacing}
+
+These spacing options apply to \cl{hbox-pane}, \cl{vbox-pane}, \cl{table-pane},
+and \cl{grid-pane}, and indicate the amount of horizontal and vertical spacing
+(respectively) to leave between the items in boxes or rows and columns in table.
+The values of these options are specified in the same way as the \cl{:x-spacing}
+and \cl{:y-spacing} options to \cl{formatting-table}.  \cl{:spacing} specifies
+both the $x$ and $y$ spacing simultaneously.
+
+
+\subsection {Layout Pane Classes}
+
+\deflpane {hbox-pane}
+\Defmacro {horizontally} {(\rest options \key spacing \allow) \body contents}
+
+The \cl{hbox-pane} class lays out all of its child panes horizontally, from left
+to right.  The child panes are separated by the amount of space specified by
+\arg{spacing}.
+
+The \cl{horizontally} macro serves as a convenient interface for creating an
+\cl{hbox-pane}.
+
+\arg{contents} is one or more forms that are the child panes.  Each form in
+\arg{contents} is of the form:
+
+\begin{itemize}
+\item A pane.  The pane is inserted at this point and its space requirements are
+used to compute the size.
+
+\item A number.  The specified number of device units should be allocated at
+this point.
+
+\item The symbol \cl{+fill+}.  This means that an arbitrary amount of space can
+be absorbed at this point in the layout.
+
+\item A list whose first element is a number and whose second element evaluates
+to a pane.  If the number is less than 1, then it means that that percentage of
+excess space or deficit should be allocated to the pane.  If the number is
+greater than or equal to 1, then that many device units are allocated to the
+pane.  For example:
+
+\begin{verbatim}
+(horizontally ()
+  (1/3 (make-pane 'label-button-pane))
+  (2/3 (make-pane 'label-button-pane)))
+\end{verbatim}
+
+would create a horizontal stack of two button panes.  The first button takes
+one-third of the space, then second takes two-thirds of the space.
+\end{itemize}
+
+
+\deflpane {vbox-pane}
+\Defmacro {vertically} {(\rest options \key spacing \allow) \body contents} 
+
+The \cl{vbox-pane} class lays out all of its child panes vertically, from top to
+bottom.  The child panes are separated by the amount of space specified by
+\arg{spacing}.
+
+The \cl{vertically} macro serves as a convenient interface for creating an
+\cl{vbox-pane}.
+
+\arg{contents} is as for \cl{horizontally}.
+
+
+\deflpane {hrack-pane}
+\Deflpane {vrack-pane}
+
+Similar to the \cl{hbox-pane} and \cl{vbox-pane} classes, except that these
+ensure that all children are the same size in the minor dimension.  In other
+words, these panes are used to create stacks of same-sized items, such as menu
+items.
+
+An \cl{hrack-pane} is created when the \cl{:equalize-height} option to
+\cl{horizontally} is \term{true}.  A \cl{vrack-pane} is created when the
+\cl{:equalize-width} option to \cl{vertically} is \term{true}.
+
+
+\deflpane {table-pane}
+\Defmacro {tabling} {(\rest options) \body contents}
+
+This pane lays out its child panes in a two-dimensional table arrangement.  Each
+of the table is specified by an extra level of list in \arg{contents}.  For example,
+
+\begin{verbatim}
+(tabling ()
+  (list
+    (make-pane 'label :text "Red")
+    (make-pane 'label :text "Green")
+    (make-pane 'label :text "Blue"))
+  (list
+    (make-pane 'label :text "Intensity")
+    (make-pane 'label :text "Hue")
+    (make-pane 'label :text "Saturation")))
+\end{verbatim}
+
+
+\Deflpane {grid-pane}
+
+A \cl{grid-pane} is like a \cl{table-pane}, except that each cell is the same
+size in each of the two dimensions.
+
+
+\deflpane {spacing-pane}
+\Defmacro {spacing} {(\rest options \key thickness \allow) \body contents} 
+
+This pane reserves some margin space of thickness \arg{thickness} around a
+single child pane.  The space requirement keys that are passed in indicate the
+requirements for the surrounding space, not including the requirements of the
+child.
+
+
+\deflpane {outlined-pane}
+\Defmacro {outlining} {(\rest options \key thickness \allow) \body contents} 
+
+This layout pane puts a outline of thickness \arg{thickness} around its contents.
+
+The \cl{:background} option can be used to control the ink used to draw the
+background.
+
+
+\deflpane {restraining-pane}
+\Defmacro {restraining} {(\rest options) \body contents}
+
+Wraps the contents with a pane that prevents changes to the space requirements
+for contents from causing relayout of panes outside of the restraining context.
+In other words, it prevents the size constraints of the child from propagating
+up beyond this point.
+
+
+\Deflpane {bboard-pane}
+
+A pane that allows its children to be any size and lays them out wherever they
+want to be (for example, a desktop manager).
+
+
+\defspane {label-pane}
+\Defmacro {labelling} {(\rest options \key label label-alignment \allow)
+                       \body contents}
+
+Creates a pane that consists of the specified label \arg{label}, which is a
+string.  \arg{label-alignment} may be either \cl{:bottom} or \cl{:top}, which
+specifies whether the label should appear at the top or the bottom of the
+labelled pane.  The default for \arg{label-alignment} is left unspecified.
+
+
+\subsection {Scroller Pane Classes}
+
+CLIM defines the following additional pane classes, each having at least one
+implementation.
+
+\defspane {scroller-pane}
+\Defmacro {scrolling} {(\rest options) \body contents}
+
+Creates a composite pane that allows the single child specified by
+\arg{contents} to be scrolled.  \arg{options} may include a \cl{:scroll-bar}
+option.  The value of this option may be \cl{t} (the default), which indicates
+that both horizontal and vertical scroll bars should be created; \cl{:vertical},
+which indicates that only a vertical scroll bar should be created; or
+\cl{:horizontal}, which indicates that only a horizontal scroll bar should be
+created.
+
+The pane created by the \cl{scrolling} will include a \cl{scroller-pane} that
+has as children the scroll bars and a \concept{viewport}.  The viewport of a
+pane is the area of the window's drawing plane that is currently visible to the
+user.  The viewport has as its child the specified contents.
+
+\Defgeneric {pane-viewport} {pane}
+
+If the pane \arg{pane} is part of a scroller pane, this returns the viewport
+pane for \arg{pane}.  Otherwise it returns \cl{nil}.
+
+\Defgeneric {pane-viewport-region} {pane}
+
+If the pane \arg{pane} is part of a scroller pane, this returns the region of
+the pane's viewport.  Otherwise it returns \cl{nil}.
+
+\Defgeneric {pane-scroller} {pane}
+
+If the pane \arg{pane} is part of a scroller pane, this returns the scroller
+pane itself.  Otherwise it returns \cl{nil}.
+
+\Defgeneric {scroll-extent} {pane x y}
+
+If the pane \arg{pane} is part of a scroller pane, this scrolls the pane in its
+viewport so that the position $(x,y)$ of \arg{pane} is at the upper-left corner
+of the viewport.  Otherwise, it does nothing.
+
+\arg{x} and \arg{y} are coordinates.
+
+
+\subsection {The Layout Protocol\label{layout-protocol}}
+
+The layout protocol is triggered by \cl{layout-frame}, which is called when a
+frame is adopted by a frame manager.
+
+CLIM uses a two pass algorithm to lay out a pane hierarchy.  In the first pass
+(called called \concept{space composition}), the top-level pane is asked how
+much space it requires.  This may in turn lead to same the question being asked
+recursively of all the panes in the hierarchy, with the answers being composed
+to produce the top-level pane's answer.  Each pane answers the query by
+returning a \concept{space requirement} (or \cl{space-requirement}) object,
+which specifies the pane's desired width and height as well as its willingness
+to shrink or grow along its width and height.
+
+In the second pass (called \concept{space allocation}), the frame manager
+attempts to obtain the required amount of space from the host window system.
+The top-level pane is allocated the space that is actually available.  Each
+pane, in turn, allocates space recursively to each of its descendants in the
+hierarchy according to the pane's rules of composition.
+
+\issue {ILA} {It isn't alway possible to allocate the required space.  What is
+the protocol for handling these space allocation failures?  Some kind of error
+should be signalled when the constraints can't be satisfied, which can be
+handled by the application.  Otherwise the panes will fall where they may.  The
+\cl{define-application-frame} macro should provide an option that allows
+programmers to conveniently specify a condition handler.}
+
+For many types of panes, the application programmer can indicate the space
+requirements of the pane at creation time by using the space requirement options
+(described above), as well as by calling the \cl{change-space-requirements}
+function (described below).  For example, application panes are used to display
+application-specific information, so the application can determine how much
+space should normally be given to them.
+
+Other pane types automatically calculate how much space they need based on the
+information they need to display.  For example, label panes automatically
+calculate their space requirement based on the text they need to display.
+
+A composite pane calculates its space requirement based on the requirements of
+its children and its own particular rule for arranging them.  For example, a
+pane that arranges its children in a vertical stack would return as its desired
+height the sum of the heights of its children.  Note however that a composite is
+not required by the layout protocol to respect the space requests of its
+children; in fact, composite panes aren't even required to ask their children.
+
+Space requirements are expressed for each of the two dimensions as a preferred
+size, a mininum size below which the pane cannot be shrunk, and a maxium size
+above which the pane cannot be grown.  (The minimum and maximum sizes can also
+be specified as relative amounts.)  All sizes are specified as a real number
+indicating the number of device units (such as pixels).
+
+
+\Defclass {space-requirement}
+
+The protocol class of all space requirement objects.  There are one or more
+subclasses of \cl{space-requirement} with implementation-dependent names that
+implement space requirements.  The exact names of these classes is explicitly
+unspecified.  
+\IfYouWantClass {a} {space requirement} {space-requirement}
+
+All of the instantiable space requirement classes provided by CLIM are
+immutable.
+
+
+\Defun {make-space-requirement} {\key (width \cl{0}) (max-width \cl{0}) (min-width \cl{0})
+                                      (height \cl{0}) (max-height \cl{0}) (min-height \cl{0})}
+
+Constructs a space requirement object with the given characteristics, \cl{:width},
+\cl{:height}, and so on.
+
+\defgeneric {space-requirement-width}             {space-req}
+\defgeneric {space-requirement-min-width}         {space-req}
+\defgeneric {space-requirement-max-width}         {space-req}
+\defgeneric {space-requirement-height}            {space-req}
+\defgeneric {space-requirement-min-height}        {space-req}
+\Defgeneric {space-requirement-max-height}        {space-req}
+
+These functions read the components of the space requirement \arg{space-req}.
+
+\Defgeneric {space-requirement-components} {space-req}
+
+Returns the components of the space requirement \arg{space-req} as six values,
+the width, minimum width, maximum width, height, minimum height, and maximum
+height.
+
+\Defun {space-requirement-combine} {function sr1 sr2}
+
+Returns a new space requirement each of whose components is the result of
+applying the function \arg{function} to each the components of the two space
+requirements \arg{sr1} and \arg{sr2}.
+
+\arg{function} is a function of two arguments, both of which are real numbers.
+It has dynamic extent.
+
+\Defun {space-requirement+} {sr1 sr2}
+
+Returns a new space whose components are the sum of each of the components of
+\arg{sr1} and \arg{sr2}.  This could be implemented as follows:
+
+\begin{verbatim}
+(defun space-requirement+ (sr1 sr2)
+  (space-requirement-combine #'+ sr1 sr2))
+\end{verbatim}
+
+\Defun {space-requirement+*} {space-req \key width min-width max-width
+                                             height min-height max-height}
+                             
+Returns a new space requirement whose components are the sum of each of the
+components of \arg{space-req} added to the appropriate keyword argument (for
+example, the width component of \arg{space-req} is added to \arg{width}).
+
+This is intended to be a more efficient, ``spread'' version of
+\cl{space-requirement+}.
+
+
+\Defgeneric {compose-space} {pane \key width height} 
+
+During the space composition pass, a composite pane will typically ask each of
+its children how much space it requires by calling \cl{compose-space}.  They
+answer by returning \cl{space-requirement} objects.  The composite will then
+form its own space requirement by composing the space requirements of its
+children according to its own rules for laying out its children.
+
+The value returned by \cl{compose-space} is a space requirement object that
+represents how much space the pane \arg{pane} requires.
+
+\arg{width} and \arg{height} are real numbers that the \cl{compose-space} method
+for a pane may use as ``recommended'' values for the width and height of the
+pane.  These are used to drive top-down layout.
+
+\Defgeneric {allocate-space} {pane width height}
+
+During the space allocation pass, a composite pane will arrange its children
+within the available space and allocate space to them according to their space
+requirements and its own composition rules by calling \cl{allocate-space} on
+each of the child panes.  \arg{width} and \arg{height} are the width and height
+of \arg{pane} in device units.
+
+
+\Defgeneric {change-space-requirements} {pane \key resize-frame \rest space-req-keys} 
+
+This function can be invoked to indicate that the space requirements for
+\arg{pane} have changed.  Any of the options that applied to the pane at
+creation time can be passed into this function as well.
+
+\arg{resize-frame} determines whether the frame should be resized to accommodate
+the new space requirement of the hierarchy.  If \arg{resize-frame} is
+\term{true}, then \cl{layout-frame} will be invoked on the frame.  If
+\arg{resize-frame} is \term{false}, then the frame may or may not get resized
+depending on the pane hierarchy and the \cl{:resize-frame} option that was
+supplied to \cl{define-application-frame}.
+
+\Defgeneric {note-space-requirements-changed} {sheet pane}
+
+This function is invoked whenever \arg{pane}'s space requirements have changed.
+\arg{sheet} must be the parent of \arg{pane}.  Invoking this function
+essentially means that \arg{compose-space} will be reinvoked on \arg{pane}, then
+it will reply with a space requirement that is not equal to the reply that was
+given on the last call to \arg{compose-space}.
+
+This function is automatically invoked by \cl{change-space-requirements} in the
+cases that \cl{layout-frame} isn't invoked.  In the case that \cl{layout-frame}
+is invoked, it isn't necessary to call \cl{note-space-requirements-changed}
+since a complete re-layout of the frame will be executed.
+
+\Defmacro {changing-space-requirements} {(\key resize-frame layout) \body body}
+
+This macro supports batching the invocation of the layout protocol by calls
+to \cl{change-space-requirements}.  Within the body, all calls to
+\cl{change-space-requirements} change the internal structures of the pane and
+are recorded.  When the body is exited, the layout protocol is invoked
+appropriately.  \arg{body} may have zero or more declarations as its first
+forms.
+
+
+\section {CLIM Stream Panes\label{clim-panes}}
+
+In addition to the various layout panes and gadgets, an application usually
+needs some space to display application-specific output and receive
+application-specific input from the user.  For example, a paint program needs a
+``canvas'' pane on which to display the picture and handle the ``mouse
+strokes''.  An application frame can use the basic CLIM input and output
+services in an application-specific way through use of a \concept{CLIM stream
+pane}.
+
+This section describes the basic CLIM stream pane types.  Programmers are
+free to customize pane behavior by defining subclasses of these pane classes
+writing methods to change the repaint or event-handling behavior.
+
+
+\subsection {CLIM Stream Pane Options\label{clim-pane-options}}
+
+CLIM application frames accept the \cl{:foreground}, \cl{:background},
+\cl{:text-style}, and layout pane options.  The space requirement options
+(\cl{:width}, \cl{:height}, and so forth) can also take a size specification of
+\cl{:compute}, which causes CLIM to run the display function for the pane, and
+make the pane large enough to hold the output of the display function.
+
+In addition to the above, CLIM stream panes accept the following options:
+
+\Defoption {:display-function}
+
+This is used to specify a function to be called in order to display the contents
+of a CLIM stream pane.  CLIM's default top level function,
+\cl{default-frame-top-level}, function will invoke the pane's display function
+at the appropriate time (see the \cl{:display-time} option).  The value of this
+option is either the name of a function to invoke, or a cons whose car is the
+name of a function and whose cdr is additional arguments to the function.  The
+function will be invoked on the frame, the pane, and the additional function
+arguments, if any.  The default for this option is \cl{nil}.
+
+\Defoption {:display-time}
+
+This is used to indicate to CLIM when the pane's display function should be run.
+If it is \cl{:command-loop}, CLIM will clear the pane and run the display
+function after each time a frame command is executed.  If it is \cl{t}, the pane
+will be displayed once and not again until \cl{(setf~pane-needs-redisplay)} is
+called on the pane.  If it is \cl{nil}, CLIM will never run the display function
+until it is explicitly requested, either via \cl{pane-needs-redisplay} or
+\cl{redisplay-frame-pane}.  The default for this option varies depending on the
+type of the pane.
+
+\Defoption {:incremental-redisplay}
+
+When \term{true}, the redisplay function will initially be executed inside of an
+invocation to \cl{updating-output} and the resulting output record will be
+saved.  Subsequent calls to \cl{redisplay-frame-pane} will simply use
+\cl{redisplay} to redisplay the pane.  The default for this option is \cl{nil}.
+
+\defoption {:text-margin}
+\Defoption {:vertical-spacing}
+
+These options specify the default text margin (that is, how much space is left
+around the inside edge of the pane) and vertical spacing (that is, how much space
+is between each text line) for the pane.  The default for \cl{:text-margin} is
+the width of the window, and the default for \cl{:vertical-spacing} is 2.
+
+
+\defoption {:end-of-line-action}
+\Defoption {:end-of-page-action}
+
+These options specify the end-of-line and end-of-page actions to be used for the
+pane.  The default for these options are \cl{:wrap} and \cl{:scroll},
+respectively.
+
+\Defoption {:output-record}
+
+This option names the output record class to be used for the output history of
+the pane.  The default is \cl{standard-tree-output-history}.
+
+\defoption {:draw}
+\Defoption {:record}
+
+These options specify whether the pane should initially allow drawing and output
+recording.  The default for both options is \cl{t}.
+
+
+\subsection {CLIM Stream Pane Classes}
+
+\Defspane {clim-stream-pane}
+
+This class implements a pane that supports the CLIM graphics, extended input and
+output, and output recording protocols.  Most CLIM stream panes will be
+subclasses of this class.
+
+\Defspane {interactor-pane}
+
+The pane class that is used to implement ``interactor'' panes.  The default
+method for \cl{frame-standard-input} will return the first pane of this type.
+
+For \cl{interactor-pane}, the default for \cl{:display-time} is \cl{nil} and the
+default for \cl{:scroll-bars} is \cl{:vertical}.
+
+\Defspane {application-pane}
+
+The pane class that is used to implement ``application'' panes.  The default
+method for \cl{frame-standard-output} will return the first pane of this type.
+
+For \cl{application-pane}, the default for \cl{:display-time} is
+\cl{:command-loop} and the default for \cl{:scroll-bars} is \cl{t}.
+
+\Defspane {command-menu-pane}
+
+The pane class that is used to implement command menu panes that are not menu
+bars.  The default display function for panes of this type is
+\cl{display-command-menu}.
+
+For \cl{command-menu-pane}, the default for \cl{:display-time} is
+\cl{:command-loop}, the default for \cl{:incremental-redisplay} is \cl{t}, and
+the default for \cl{:scroll-bars} is \cl{t}.
+
+\Defspane {title-pane}
+
+The pane class that is used to implement a title pane.  The default display
+function for panes of this type is \cl{display-title}.
+
+For \cl{title-pane}, the default for \cl{:display-time} is \cl{t} and the
+default for \cl{:scroll-bars} is \cl{nil}.
+
+\Defspane {pointer-documentation-pane}
+
+The pane class that is used to implement the pointer documentation pane.
+
+For \cl{pointer-documentation-pane}, the default for \cl{:display-time} is
+\cl{nil} and the default for \cl{:scroll-bars} is \cl{nil}.
+
+
+\subsection {Making CLIM Stream Panes}
+
+Most CLIM stream panes will contain more information than can be displayed
+in the allocated space, so scroll bars are nearly always desirable.  CLIM
+therefore provides a convenient form for creating composite panes that include
+the CLIM stream pane, scroll bars, labels, and so forth.
+
+\Defun {make-clim-stream-pane} {\rest options 
+                                \key type label label-alignment scroll-bars borders
+                                     display-after-commands \allow} 
+
+Creates a pane of type \arg{type}, which defaults to \cl{clim-stream-pane}.
+
+If \arg{label} is supplied, it is a string used to label the pane.
+\arg{label-alignment} is as for the \cl{labelling} macro.
+
+\arg{scroll-bars} may be \cl{t} to indicate that both vertical and horizontal
+scroll bars should be included, \cl{:vertical} (the default) to indicate that
+vertical scroll bars should be included, or \cl{:horizontal} to indicate that
+horizontal scroll bars should be included.
+
+If \arg{borders} is \term{true}, the default, a border is drawn around the pane.
+
+\arg{display-after-commands} is used to initialize the \cl{:display-time}
+property of the pane.  It may be \cl{t} (for \cl{:display-time :command-loop}),
+\cl{:no-clear} (for \cl{:display-time :no-clear}), or \cl{nil} (for
+\cl{:display-time nil}).
+
+The other options may include all of the valid CLIM stream pane options.
+
+\Defun {make-clim-interactor-pane} {\rest options}
+
+Like \cl{make-clim-stream-pane}, except that the type is forced to be
+\cl{interactor-pane}.
+
+\Defun {make-clim-application-pane} {\rest options}
+
+Like \cl{make-clim-stream-pane}, except that the type is forced to be
+\cl{application-pane}.
+
+
+\subsection {CLIM Stream Pane Functions}
+
+The following functions can be called on any pane that is a subclass of
+\cl{clim-stream-pane}.  (Such a pane is often simply referred to as a
+\concept{window}.)  These are provided purely as a convenience for programmers.
+
+\Defgeneric {window-clear} {window}
+
+Clears the entire drawing plane by filling it with the background design of the
+CLIM stream pane \arg{window}.  If \arg{window} has an output history, that is
+cleared as well.  The text cursor position of \arg{window}, if there is one, is
+reset to the upper left corner.
+
+\Defgeneric {window-refresh} {window}
+
+Clears the visible part of the drawing plane of the CLIM stream pane
+\arg{window}, and then if the window stream is an output recording stream, the
+output records in the visible part of the window are replayed.
+
+\Defgeneric {window-viewport} {window}
+
+Returns the viewport region of the CLIM stream pane \arg{window}.  If the window
+is not scrollable, and hence has no viewport, this will region \cl{sheet-region}
+of \arg{window}.
+
+The returned region will generally be a \cl{standard-bounding-rectangle}.
+
+\Defgeneric {window-erase-viewport} {window}
+
+Clears the visible part of the drawing plane of the CLIM stream pane
+\arg{window} by filling it with the background design.
+
+\Defgeneric {window-viewport-position} {window}
+
+Returns two values, the $x$ and $y$ position of the top-left corner of the CLIM
+stream pane \arg{window}'s viewport.  If the window is not scrollable, this will
+return the two values 0 and 0.
+
+\Defgeneric {(setf* window-viewport-position)} {x y window}
+
+Sets the position of the CLIM stream pane \arg{window}'s viewport to \arg{x} and
+\arg{y}.  If the window is not scrollable, this will do nothing.
+
+For CLIM implementations that do not support \cl{setf*}, the ``setter'' function
+for this is \cl{window-set-viewport-position}.
+
+
+\subsection {Creating a Standalone CLIM Window}
+
+The following function can be used to create a standalone window that obeys
+CLIM's extended input and output stream and output recording protocols.
+
+\Defun {open-window-stream} {\key port left top right bottom width height
+                                  foreground background text-style
+                                  (vertical-spacing \cl{2})
+                                  end-of-line-action end-of-page-action
+                                  output-record (draw \cl{t}) (record \cl{t})
+                                  (initial-cursor-visibility \cl{:off})
+                                  text-margin save-under input-buffer
+                                  (scroll-bars \cl{:vertical}) borders label}
+
+Creates and returns a sheet that can be used as a standalone window that obeys
+CLIM's extended input and output stream and output recording protocols.
+
+The window will be created on the port \arg{port} at the position specified by
+\arg{left} and \arg{top}, which default to 0.  \arg{right}, \arg{bottom},
+\arg{width}, and \arg{height} default in such a way that the default width will
+be 100 and the default height will be 100.
+
+\arg{foreground}, \arg{background}, and \arg{text-style} are used to specify the
+window's default foreground and background inks, and text style.
+\arg{vertical-spacing}, \arg{text-margin}, \arg{end-of-line-action},
+\arg{end-of-page-action}, \arg{output-record}, \arg{draw}, and \arg{record} are
+described in Section~\ref{clim-pane-options}.
+
+\arg{scroll-bars} specifies whether scroll bars should be included in the
+resulting window.  It may be one of \arg{nil}, \cl{:vertical} (the default),
+\cl{:horizontal}, or \cl{:both}.
+ 
+\arg{borders} is a booleans that specifies whether or not the resulting window
+should have a border drawn around it.  The default is \cl{t}.  \arg{label} is
+either \cl{nil} or a string to use as a label for the window.
+
+\arg{initial-cursor-visibility} is used to specify whether the window should
+have a text cursor.  \cl{:off} (the default) means to make the cursor visible if
+the window is waiting for input.  \cl{:on} means to make the cursor visible
+immediately.  \cl{nil} means the cursor will not be visible at all.
+
+When \arg{save-under} is \term{true}, the result window will be given a ``bit
+save array''.  The default is \cl{nil}.
+
+If \cl{input-buffer} is supplied, it is an input buffer or event queue to use
+for the resulting window.  Programmers will generally supply this when they want
+the new window to share its input buffer with an existing application.  The
+default is to create a new input buffer.
+
+
+\section {Defining New Pane Types}
+
+This section describes how to define new pane classes.  The first section shows
+a new kind of leaf pane (an odd kind of push-button).  The second section shows
+a new composite pane that draws a dashed border around its contents.
+
+\subsection {Defining a New Leaf Pane}
+
+To define a gadget pane implementation, first define the appearance and layout
+behavior of the gadget, then define the callbacks, then define the specific user
+interactions that trigger the callbacks.
+
+For example, to define an odd new kind of button that displays itself as a
+circle, and activates whenever the mouse is moved over it, proceed as follows:
+
+\begin{verbatim}
+;; A new kind of button.
+(defclass sample-button-pane
+          (action-gadget
+           space-requirement-mixin
+           leaf-pane)
+    ())
+
+;; An arbitrary size parameter.
+(defparameter *sample-button-radius* 10)
+
+;; Define the sheet's repaint method to draw the button.
+(defmethod handle-repaint ((button sample-button-pane) region)
+  (with-sheet-medium (medium button)
+    (let ((radius *sample-button-radius*)
+          (half (round  *sample-button-radius* 2)))
+      ;; Larger circle with small one in the center
+      (draw-circle* medium radius radius radius
+                    :filled nil)
+      (draw-circle* medium radius radius half
+                    :filled t)))
+
+;; Define the pane's compose-space method to always request the
+;; fixed size of the pane.
+(defmethod compose-space ((pane sample-button-pane) &key width height)
+  (declare (ignore width height))
+  (make-space-requirement :width  (* 2 *sample-button-radius*)
+                          :height (* 2 *sample-button-radius*)))
+\end{verbatim}
+
+The above code is enough to allow you to instantiate the button pane in an
+application frame.  It will fit in with the space composition protocol of, for
+example, an \cl{hbox-pane}.  It will display itself as two nested circles.
+
+The next step is to define the callbacks supported by this gadget, and the user
+interaction that triggers them.
+
+\begin{verbatim}
+;; This default method is defined so that the callback can be invoked
+;; on an arbitrary client without error.
+(defmethod activate-callback
+           ((button sample-button-pane) client id)
+  (declare (ignore client id value)))
+
+;; This event processing method defines the rather odd interaction
+;; style of this button, to wit, it triggers the activate callback
+;; whenever the mouse moves into it.
+(defmethod handle-event ((pane sample-button-pane) (event pointer-enter-event))
+  (activate-callback pane (gadget-client pane) (gadget-id pane)))
+\end{verbatim}
+
+
+\subsection {Defining a New Composite Pane} 
+
+To define a new layout pane implementation, the programmer must define how the
+much space the pane takes, where its children go, and what the pane looks like.
+
+For example, to define a new kind of border pane that draws a dashed border
+around its child pane, proceed as follows:
+
+\begin{verbatim}
+;; The new layout pane class.
+(defclass dashed-border-pane (layout-pane)
+    ((thickness :initform 1 :initarg :thickness))
+  (:default-initargs :background +black+))
+
+;; The specified contents are the sole child of the pane.
+(defmethod initialize-instance :after ((pane dashed-border-pane) &key contents)
+  (sheet-adopt-child pane contents))
+
+;; The composite pane takes up all of the space of the child, plus
+;; the space required for the border.
+(defmethod compose-space ((pane dashed-border-pane) &key width height)
+  (let ((thickness (slot-value pane 'thickness))
+        (child (sheet-child pane)))
+    (space-requirement+
+      (compose-space child :width width :height height)
+      (make-space-requirement 
+        :width (* 2 thickness)
+        :height (* 2 thickness)))))
+
+;; The child pane is positioned just inside the borders.
+(defmethod allocate-space ((pane dashed-border-pane) width height)
+  (let ((thickness (slot-value pane 'thickness)))
+    (move-and-resize-sheet
+      (sheet-child pane)
+      thickness thickness
+      (- width (* 2 thickness)) (- height (* 2 thickness)))))
+  
+(defmethod handle-repaint ((pane dashed-border-pane) region)
+  (declare (ignore region))                     ;not worth checking
+  (with-sheet-medium (medium pane)
+    (with-bounding-rectangle* (left top right bottom) (sheet-region pane)
+      (let ((thickness (slot-value pane 'thickness)))
+        (decf right (ceiling thickness 2))
+        (decf bottom (ceiling thickness 2))
+        (draw-rectangle* medium left top right bottom
+                         :line-thickness thickness :filled nil
+                         :ink (pane-background pane))))))
+
+(defmacro dashed-border ((&rest options &key thickness &allow-other-keys)
+                         &body contents)
+  (declare (ignore thickness))
+  `(make-pane 'dashed-border-pane
+     :contents ,@contents
+     ,@options))
+\end{verbatim}

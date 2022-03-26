@@ -1,0 +1,262 @@
+#+TITLE:    New Inspector Design
+#+AUTHOR:   Jan Moringen
+#+EMAIL:    jmoringe@techfak.uni-bielefeld.de
+#+LANGUAGE: en
+
+#+OPTIONS: num:nil
+
+* Introduction
+
+  This document briefly outlines the architecture underpinning the of
+  the inspector application.
+
+* Requirements
+
+  Design decision have been made based on the following requirements:
+
+  1. ~eql~ objects appearing in different "places" should be treated
+     as non-identical. For example, the ~integer~ object ~10~
+     appearing at indices 0 and 1 of an array should be treated as two
+     separate objects in the sense that, for example, expanding one
+     should not expand the other.
+
+     The previous inspector architecture associated all state
+     information with objects themselves, making this behavior
+     impossible to implement.
+
+  2. Circular structure should not pose a problem. Circular structure
+     should be explorable in a step-wise fashion. A command to expand
+     one object should never lead to an attempt to display an infinite
+     number of objects.
+
+     The previous inspector architecture mitigated potential problems
+     with circular structure to some degree by placing objects being
+     displayed onto a stack during a depth-first traversal and
+     checking for already displayed objects with ~eql~ but could still
+     go into an infinite loop under some circumstances.
+
+  3. Places in which objects reside should be modeled explicitly and,
+     to some extend, indicated to the user. The distinction between an
+     object and the place it resides in can be important for a number
+     of reasons:
+
+     + Changes and immutable objects: incrementing a variable bound to
+       a number is a common operation which would not be expressible
+       in a model consisting only of values since numbers are
+       immutable. In contrast, incrementing a place such as a slot in
+       an instance or a cell in an array is fine, even if the value of
+       the place is an immutable object.
+
+     + Some places can be unbound and can be made unbound. A model
+       consisting only of values has no way of expressing properties
+       of the place in which a value resides.
+
+     The previous inspector architecture generally only represented
+     objects, making it impossible for a command applied to an object
+     to, for example, retrieve an array containing the object and
+     modify the array.
+
+  4. Each inspected object should have an associated state that
+     persists across redisplays and can store information specific to
+     the object class (E.g. instance slots can be displayed as a flat
+     list or organized by superclass from which the slot has been
+     inherited). This mechanism should be extensible.
+
+     The previous inspector architecture associated pre-defined pieces
+     of state such as the expansion status or style in which cons
+     trees should be displayed with objects. This mechanism was not
+     extensible.
+
+  5. It should be possible to define commands which are only
+     applicable to specific object classes.
+
+     The previous inspector architecture did not generally use
+     specific presentation types and therefore could not control the
+     applicability of commands very well.
+
+* Design
+
+** Concepts
+
+   According to the above [[*Requirements][requirements]], the following concepts are
+   central to the new architecture:
+
+   + place :: Semantically similar to the Common Lisp term, but
+              first-class. A place can have a value or may be
+              unbound. Some kinds of places allow changing the value
+              and/or making the place unbound.
+
+   + object state :: Information associated with an inspected object and
+                     the place the object resides in. If the same
+                     (~eql~) object resides in multiple places, each
+                     place-object pair has its own object state.
+
+                     Object state classes are generally subclasses of
+                     ~inspected-object~. Object states instances are
+                     ~present~ ed with their class as the presentation
+                     type. Specialized subclasses for particular pairs
+                     of place class and object class allow defining
+                     commands only applicable to those objects. The
+                     object state is also one parameter on which
+                     ~inspected-object-using-state~ methods are
+                     specialized.
+
+   + object style :: A component of the object state that governs the
+                     fashion in which a given object is
+                     displayed. More concretely, the object style is
+                     one of the parameters on which
+                     ~inspected-object-using-state~ methods are
+                     specialized to present objects in different ways
+                     (collapsed, expanded, as list, as graph, etc.).
+
+** Architecture
+
+*** Static View
+
+    The central object is the inspector state which associates a tree
+    of places and objects (yes, a tree, even if the objects form a
+    circular structure) with object states.
+
+*** Dynamic View
+
+**** Redisplay
+
+     During redisplay the above tree is traversed starting at a
+     special root place. A place $p$ is displayed by ~(inspect-place
+     p)~ as follows
+
+     1. If not ~(valuep p)~, display an unbound marker and return
+        otherwise goto 2.
+
+     2. Obtain the value $v$ by calling ~(value p)~
+
+     3. Call ~(inspect-object v stream)~
+
+        1. Obtain the /object state/ $s$ (and style $y$) associated
+           with the pair $(p v)$ by calling ~(ensure-state v p …)~
+
+           1. If $p$ has a cached state $s^*$ for $(p v)$ and
+              ~(state-applicable-p s* v p)~ returns true, return that
+              state
+
+           2. Otherwise call ~(make-object-state v p)~ which by default
+              calls ~(object-state-class v p)~ to create a new state
+              $s^+$
+
+           3. Store $s^+$ in $p$'s cache under the key $(p v)$
+
+        2. Call ~(inspect-object-using-state v s y stream)~ which
+           displays $v$ using the additional information stored in $s$
+           and $y$, creating a presentation with underlying object
+           $s$.
+
+           Places contained in $v$ are displayed by recursive calls
+           (depending on the expansion status encoded in $y$):
+
+           1. ~(ensure-child …)~ obtains or creates child places
+
+           2. The place itself is presented with presentation type
+              ~place~ (and textually represented as a enumeration or
+              association symbol such as →, ⁃ and • with mutability
+              indicated by color).
+
+           3. ~(inspect-places …)~ recurs into child places
+
+**** Commands
+
+     There are two kinds of commands
+
+     1. Commands which operate on presentations the underlying objects
+        of which are /object states/.
+
+        + Since /object states/ can be instances of specialized classes
+          (controlled by ~object-state-class~ and ~make-object-state~),
+          commands that are only applicable to certain kinds of inspected
+          objects can be defined easily (For example, the "change class"
+          command is only defined on standard instances).
+
+     2. Commands which operate on ~place~ presentations
+
+        + Since places are first-class entities and separate from
+          values, commands can manipulate places, even if the
+          contained values are immutable.
+
+        + Since places can be instances of specialized classes,
+          commands that are only applicable to certain kinds of places
+          can be defined. (For example, a slot in an instance can be
+          made unbound while a cell in the middle of an array
+          cannot). The place class to use for a given place is either
+          passed as an argument of ~formatting-place~ or just passed
+          to ~make-instance~ when creating place instances "manually".
+
+** Protocols
+
+*** Place protocol
+
+    + ~supportsp place operation~ /generic function/
+
+    + ~accepts-value-p place value~ /generic function/
+
+    + ~valuep place~ /generic function/
+
+    + ~value place~ /generic function/
+
+    + ~(setf value) new-value place~ /generic function/
+
+    + ~remove-value place~ /generic function/
+
+*** Object state protocol
+
+    + ~place state~ /generic function/
+
+      Return the place with which /state/ is associated.
+
+    + ~object state~ /generic function/
+
+      Return the object with which /state/ is associated.
+
+    + ~state-applicable-p state object place~ /generic function/
+
+      Return true if /state/ is suitable for /object/ in /place/.
+
+    + ~object-state-class object place~ /generic function/
+
+      Return the name of a state class suitable for /object/ in /place/.
+
+    + ~make-object-state object place~ /generic function/
+
+      Return a state instance suitable for /object/ in /place/.
+
+*** Object inspection protocol
+
+    + ~inspect-place place stream~ /generic function/
+
+    + ~inspect-object object stream~ /generic function/
+
+    + ~inspect-object-using-state object state style stream~ /generic function/
+
+*** Inspector state protocol
+
+    This protocol manages the root place stored directly in the main
+    inspector state object.
+
+    The /run-hook-p/ keyword parameter of writers controls whether the
+    "change hook" of the inspector state should be executed,
+    potentially causing a pane displaying the inspector state to
+    redisplay itself. The following values are accepted:
+
+    + ~:if-changed~ :: Run the hook unless the new root object is the
+                       same as the current one.
+
+    + any other true value :: Run the hook unconditionally.
+
+    + false :: Do not run the hook.
+
+    Protocol generic functions:
+
+    + ~root-place inspector-state &key run-hook-p~ /generic function/
+
+    + ~(setf root-place) new-value inspector-state &key run-hook-p~ /generic function/
+
+      Replace the tree of objects currently being inspected with a new
+      tree that has /new-value/ at its root.

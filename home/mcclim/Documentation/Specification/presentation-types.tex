@@ -1,0 +1,2315 @@
+% -*- Mode: LaTeX; Package: CLIM-USER -*-
+
+\chapter {Presentation Types}
+\label {presentation-types}
+
+\section {Overview of Presentation Types}
+
+The core around which the CLIM application user interface model is built is the
+concept of the application-defined user interface data type.  Each application
+has its own set of semantically significant user interface entities; a CAD
+program for designing circuits has its various kinds of components (gates,
+resistors, and so on), while a database manager has its relations and field
+types.  These entities have to be displayed to the user (possibly in more than
+one displayed representation) and the user has to be able to interact with and
+specify the entities via pointer gestures and keyboard input.  Frequently each
+user interface entity has a corresponding Lisp data type (such as an
+application-specific structure or CLOS class definition), but this is not always
+the case.  The data representation for an interaction entity may be a primitive
+Lisp data type.  In fact, it is possible for several different user interface
+entities to use the same Lisp data type for their internal representation, for
+example, building floor numbers and employee vacation day totals could both be
+represented internally as integers.
+
+CLIM provides a framework for defining the appearance and behavior of these user
+interface entities via the \concept{presentation type} mechanism.  A
+presentation type can be thought of as a CLOS class that has some additional
+functionality pertaining to its roles in the user interface of an application.
+By defining a presentation type the application programmer defines all of the
+user interface components of the entity:
+
+\begin{itemize}
+\item Its displayed representation, textual or graphical
+
+\item Textual representation, for user input via the keyboard
+
+\item Pointer sensitivity, for user input via the pointer
+\end{itemize}
+
+In other words, by defining a presentation type, the application programmer
+describes in one place all the information about an object necessary to display
+it to the user and interact with the user for object input.
+
+The set of presentation types forms a type lattice, an extension of the Common
+Lisp CLOS type lattice.  When a new presentation type is defined as a subtype of
+another presentation type it inherits all the attributes of the supertype except
+those explicitly overridden in the definition.
+
+\issue {SWM} {Describe what a presentation type is more exactly.  What is a
+parameterized presentation type?  Why do we want them?  Why are they in a
+lattice?  How do they relate to CL types and CLOS classes?  What exactly gets
+inherited?}
+
+
+\section {Presentations}
+
+A \concept{presentation} is a special kind of output record that remembers not
+only output, but the object associated with the output and the semantic type
+associated with that object.
+
+\issue {SWM} {Describe exactly what a presentation is.  What does it mean for
+presentations to be nested?}
+
+\Defprotoclass {presentation}
+
+The protocol class that corresponds to a presentation.
+\IfYouWantClass {a} {presentation} {presentation}
+
+\Defpredicate {presentationp} {object}
+
+Returns \term{true} if \arg{object} is a \term{presentation}, otherwise returns
+\term{false}.
+
+\Defclass {standard-presentation}
+
+The instantiable output record class that represents presentations.
+\cl{present} normally creates output records of this class.
+\Mutable
+
+\definitarg {:object}
+\definitarg {:type}
+\definitarg {:view}
+\definitarg {:single-box}
+\Definitarg {:modifier}
+
+All presentation classes must handle these five initargs, which are used to
+specify, respectively, the object, type, view, single-box, and modifier
+components of a presentation.
+
+
+\subsection {The Presentation Protocol}
+
+The following functions comprise the presentation protocol.  All classes that
+inherit from \cl{presentation} must implement methods for these generic
+functions.
+
+\Defgeneric {presentation-object} {presentation}
+
+Returns the object associated with the \term{presentation} \arg{presentation}.
+
+\Defgeneric {(setf presentation-object)} {object presentation}
+
+Changes the object associated with the \term{presentation} \arg{presentation} to
+\arg{object}.
+
+\Defgeneric {presentation-type} {presentation}
+
+Returns the presentation type associated with the \term{presentation}
+\arg{presentation}.
+
+\Defgeneric {(setf presentation-type)} {type presentation}
+
+Changes the object associated with the \term{presentation} \arg{presentation} to
+\arg{object}.
+
+\Defgeneric {presentation-single-box} {presentation}
+
+Returns the ``single box'' attribute of the \term{presentation}
+\arg{presentation}, which controls how the presentation is highlighted and when
+it is sensitive.  This will be one of four values:
+
+\begin{itemize} 
+\item \cl{nil} (the default)---if the pointer is pointing at a visible piece of
+the output that was drawn as part of the presentation, then it is considered to
+be pointing at the presentation.  The presentation is highlighted by
+highlighting each visible part of the output that was drawn as part of the
+presentation.
+
+\item \cl{t}---if the pointer is inside the bounding rectangle of the
+presentation, it is considered to be pointing at the presentation.  The
+presentation is highlighted by drawing a thin border around the bounding
+rectangle.
+
+\item \cl{:position}---like \cl{t} for determining whether the pointer is
+pointing at the presentation, but like \cl{nil} for highlighting.
+
+\item \cl{:highlighting}---like \cl{nil} for determining whether the pointer is
+pointing at the presentation, but like \cl{t} for highlighting.
+\end{itemize}
+
+\Defgeneric {(setf presentation-single-box)} {single-box presentation}
+
+Changes the ``single box'' attribute of the \term{presentation}
+\arg{presentation} to \arg{single-box}.
+
+\Defgeneric {presentation-modifier} {presentation}
+
+Returns the ``modifier'' associated with the \term{presentation}
+\arg{presentation}.  The modifier is some sort of object that describes how the
+presentation object might be modified.  For example, it might be a function of
+one argument (the new value) that can be called in order to store a new value
+for \arg{object} after a user somehow ``edits'' the presentation.
+
+
+\section {Presentation Types}
+
+The type associated with a presentation is specified with a
+\concept{presentation type specifier}, an object matching one of the following
+three patterns: \\
+\begin{tabular}{l}
+  \arg{name} \\
+  \cl{(\arg{name} \arg{parameters...})} \\
+  \cl{((\arg{name} \arg{parameters...}) \arg{options...})}
+\end{tabular}
+
+Note that \arg{name} can be either a symbol that names a presentation type or a
+CLOS class object (but not a \cl{built-in-class} object), in order to support
+anonymous CLOS classes.
+
+The \arg{parameters} ``parameterize'' the type, just as in a Common Lisp type
+specifier.  The function \cl{presentation-typep} uses the parameters to check
+object membership in a type.  Adding parameters to a presentation type specifier
+produces a subtype, which contains some, but not necessarily all, of the objects
+that are members of the unparameterized type.  Thus the parameters can turn off
+the sensitivity of some presentations that would otherwise be sensitive.
+
+% We decided to ignore the fact that this use of ``parameters'' conflicts with
+% Common Lisp terminology for functions, which would call them ``arguments''.
+
+The \arg{options} are alternating keywords and values that affect the use or
+appearance of the presentation, but not its semantic meaning.  The \arg{options}
+have no effect on presentation sensitivity.  (A programmer could choose to make
+a tester in a translator examine options, but this is not standard practice.)
+The standard option \cl{:description} is accepted by all types; if it is a
+non-\cl{nil} value, then the value must be a string that describes the type and
+overrides the description supplied by the type's definition.
+
+Every presentation type is associated with a CLOS class.  If \arg{name} is a
+class object or the name of a class, and that class is not a
+\cl{built-in-class}, that class is the associated class.  Otherwise,
+\cl{define-presentation-type} defines a class with metaclass
+\cl{presentation-type-class} and superclasses determined by the presentation
+type definition.  This class is not named \arg{name}, since that could interfere
+with built-in Common Lisp types such as \cl{and}, \cl{member}, and \cl{integer}.
+\cl{class-name} of this class returns a list \cl{(presentation-type \arg{name})}.
+\cl{presentation-type-class} is a subclass of \cl{standard-class}.
+
+Implementations are permitted to require programmers to evaluate the
+\cl{defclass} form first in the case when the same name is used in both a
+\cl{defclass} and a \cl{define-presentation-type}.
+
+Every CLOS class (except for built-in classes) is a presentation type, as is its
+name.  If it has not been defined with \cl{define-presentation-type}, it allows
+no parameters and no options.
+
+\concept{Presentation type inheritance} is used both to inherit methods (``what
+parser should be used for this type?''), and to establish the semantics for the
+type (``what objects are sensitive in this input context?'').  Inheritance of
+methods is the same as in CLOS and thus depends only on the type name, not on
+the parameters and options.
+
+During presentation method combination, presentation type inheritance arranges
+to translate the parameters of a subtype into a new set of parameters for its
+supertype, and translates the options of the subtype into a new set of options
+for the supertype.
+
+
+\subsection {Defining Presentation Types}
+
+\Defmacro {define-presentation-type} {name parameters
+                                      \key options inherit-from description history
+                                           parameters-are-types} 
+
+Defines a presentation type whose name is the symbol or class \arg{name} and
+whose parameters are specified by the lambda-list \arg{parameters}.  These
+parameters are visible within \arg{inherit-from} and within the methods created
+with \cl{define-presentation-method}.  For example, the parameters are used by
+\cl{presentation-typep} and \cl{presentation-subtypep} methods to refine their
+tests for type inclusion.
+
+\arg{options} is a list of option specifiers.  It defaults to \cl{nil}.  An
+option specifier is either a symbol or a list (\arg{symbol} \optional
+\arg{default} \arg{supplied-p} \arg{presentation-type} \arg{accept-options}),
+where \arg{symbol}, \arg{default}, and \arg{supplied-p} are as in a normal
+lambda-list.  If \arg{presentation-type} and \arg{accept-options} are present,
+they specify how to accept a new value for this option from the user.
+\arg{symbol} can also be specified in the (\arg{keyword} \arg{variable}) form
+allowed for Common Lisp lambda lists.  \arg{symbol} is a variable that is
+visible within \arg{inherit-from} and within most of the methods created with
+\cl{define-presentation-method}.  The keyword corresponding to \arg{symbol} can
+be used as an option in the third form of a presentation type specifier.  An
+option specifier for the standard option \cl{:description} is automatically
+added to \arg{options} if an option with that keyword is not present, however it
+does not produce a visible variable binding.
+
+Unsupplied optional or keyword parameters default to \cl{*} (as in \cl{deftype})
+if no default is specified in \arg{parameters}.  Unsupplied options default to
+\cl{nil} if no default is specified in \arg{options}.
+
+\arg{inherit-from} is a form that evaluates to a presentation type specifier for
+another type from which the new type inherits.  \arg{inherit-from} can access
+the parameter variables bound by the \arg{parameters} lambda list and the option
+variables specified by \arg{options}.  If \arg{name} is or names a CLOS class
+(other than a \cl{built-in-class}), then \arg{inherit-from} must specify the
+class's direct superclasses (using \cl{and} to specify multiple inheritance).
+It is useful to do this when you want to parameterize previously defined CLOS
+classes.
+
+If \arg{inherit-from} is unsupplied, it defaults as follows:  If \arg{name} is
+or names a CLOS class, then the type inherits from the presentation type
+corresponding to the direct superclasses of that CLOS class (using \cl{and} to
+specify multiple inheritance).  Otherwise, the type named by \arg{name} inherits
+from \cl{standard-object}.
+
+\arg{description} is a string or \cl{nil}.  This should be the term for an
+instance for the type being defined.  If it is \cl{nil} or unsupplied, a
+description is automatically generated; it will be a ``prettied up'' version of
+the type name, for example, \cl{small-integer} would become \cl{"small
+integer"}.  You can also write a \cl{describe-presentation-type} presentation
+method.  \arg{description} is implemented by the default
+\cl{describe-presentation-type} method, so \arg{description} only works in
+presentation types where that default method is not shadowed.
+
+\arg{history} can be \cl{t} (the default), which means this type has its own
+history of previous inputs, \cl{nil}, which means this type keeps no history,
+or the name of another presentation type, whose history is shared by this
+type.  More complex histories can be specified by writing a
+\cl{presentation-type-history} presentation method.
+
+\issue {SWM} {What is a presentation type history?  Should they be exposed?}
+
+If the boolean \arg{parameters-are-types} is \term{true}, this means that the
+parameters to the presentation type are themselves presentation types.  If they
+are not presentation types, \arg{parameters-are-types} should be supplied as
+\term{false}.  Types such as \cl{and}, \cl{or}, and \cl{sequence} will specify
+this as \term{true}.
+
+Every presentation type must define or inherit presentation methods for
+\cl{accept} and \cl{present} if the type is going to be used for input and
+output.  For presentation types that are only going to be used for input via the
+pointer, the \cl{accept} need not be defined.
+
+If a presentation type has \arg{parameters}, it must define presentation methods
+for \cl{presentation-typep} and \cl{presentation-subtypep} that handle the
+parameters, or inherit appropriate presentation methods.  In many cases it
+should also define presentation methods for \cl{describe-presentation-type} and
+\cl{presentation-type-specifier-p}.
+
+There are certain restrictions on the \arg{inherit-from} form, to allow it to be
+analyzed at compile time.  The form must be a simple substitution of parameters
+and options into positions in a fixed framework.  It cannot involve conditionals
+or computations that depend on valid values for the parameters or options; for
+example, it cannot require parameter values to be numbers.  It cannot depend on
+the dynamic or lexical environment.  The form will be evaluated at compile time
+with uninterned symbols used as dummy values for the parameters and options.  In
+the type specifier produced by evaluating the form, the type name must be a
+constant that names a type, the type parameters cannot derive from options of
+the type being defined, and the type options cannot derive from parameters of
+the type being defined.  All presentation types mentioned must be already
+defined.  \cl{and} can be used for multiple inheritance, but \cl{or}, \cl{not},
+and \cl{satisfies} cannot be used.
+
+None of the arguments, except \arg{inherit-from}, is evaluated.
+
+
+\subsection {Presentation Type Abbreviations}
+
+\Defmacro {define-presentation-type-abbreviation} {name parameters equivalent-type 
+                                                   \key options}
+
+\arg{name}, \arg{parameters}, and \arg{options} are as in
+\cl{define-presentation-type}.  This defines a presentation type that is an
+\concept{abbreviation} for the presentation type \arg{equivalent-type}.
+Presentation type abbreviations can only be used in places where this
+specification explicitly permits them.  In such places, \arg{equivalent-type}
+and \term{abbreviation} are exactly equivalent and can be used interchangeably.
+
+\arg{name} must be a symbol and must not be the name of a CLOS class.
+
+The \arg{equivalent-type} form might be evaluated at compile time if
+presentation type abbreviations are expanded by compiler optimizers.  Unlike
+\arg{inherit-from}, \arg{equivalent-type} can perform arbitrary computations and
+is not called with dummy parameter and option values.  The type specifier
+produced by evaluating \arg{equivalent-type} can be a real presentation type or
+another abbreviation.  If the type specifier doesn't include the standard option
+\cl{:description}, the option is automatically copied from the abbreviation to
+its expansion.
+
+Note that you cannot define any presentation methods on a presentation type
+abbreviation.  If you need methods, use \cl{define-presentation-type} instead.
+
+\cl{define-presentation-type-abbreviation} is used to name a commonly used
+cliche.  For example, a presentation type to read an octal integer might be
+defined as
+\begin{verbatim}
+(define-presentation-type-abbreviation octal-integer (&optional low high) 
+    `((integer ,low ,high) :base 8 :description "octal integer"))
+\end{verbatim}
+
+None of the arguments, except \arg{equivalent-type}, are evaluated.
+
+
+\Defun {expand-presentation-type-abbreviation-1} {type \optional env}
+
+If the \term{presentation type specifier} \arg{type} is a presentation type
+abbreviation, or is an \cl{and}, \cl{or}, \cl{sequence}, or
+\cl{sequence-enumerated} that contains a presentation type abbreviation, then
+this expands the type abbreviation once, and returns two values, the expansion
+and \cl{t}.  If \arg{type} is not a presentation type abbreviation, then the
+values \arg{type} and \cl{nil} are returned.
+
+\arg{env} is a macro-expansion environment, as for \cl{macroexpand}.
+
+\Defun {expand-presentation-type-abbreviation} {type \optional env}
+
+\cl{expand-presentation-type-abbreviation} is like
+\cl{expand-presentation-type-abbreviation-1}, except that \arg{type} is
+repeatedly expanded until all presentation type abbreviations have been removed.
+
+
+\subsection {Presentation Methods}
+
+Presentation methods inherit and combine in the same way as ordinary CLOS
+methods.  The reason presentation methods are not exactly the same as ordinary
+CLOS methods revolves around the \arg{type} argument.  The parameter specializer
+for \arg{type} is handled in a special way, and presentation method inheritance
+``massages'' the type parameters and options seen by each method.  For example,
+consider three types \cl{int}, \cl{rrat}, and \cl{num} defined as follows:
+
+\issue {SWM} {How are massaged arguments passed along?  Right now, we pass along
+those parameters of the same name, and no others.}
+
+\begin{verbatim}
+(define-presentation-type int (low high)
+  :inherit-from `(rrat ,high ,low))
+
+(define-presentation-method presentation-typep :around (object (type int))
+  (and (call-next-method)
+       (integerp object)
+       (<= low object high)))
+
+(define-presentation-type rrat (high low)
+  :inherit-from `num)
+
+(define-presentation-method presentation-typep :around (object (type rrat))
+  (and (call-next-method)
+       (rationalp object)
+       (<= low object high)))
+
+(define-presentation-type num ())
+
+(define-presentation-method presentation-typep (object (type num))
+  (numberp object))
+\end{verbatim}
+
+If the user were to evaluate the form \cl{(presentation-typep X '(int 1 5))},
+then the type parameters will be \cl{(1 5)} in the \cl{presentation-typep}
+method for \cl{int}, \cl{(5 1)} in the method for \cl{rrat}, and \cl{nil} in the
+method for \cl{num}.  The value for \arg{type} will be or \cl{((int 1 5))} in
+each of the methods.
+
+
+\Defmacro {define-presentation-generic-function} {generic-function-name 
+                                                  presentation-function-name
+                                                  lambda-list \rest options}
+
+Defines a generic function that will be used for presentation methods.
+\arg{generic-function-name} is a symbol that names the generic function that
+will be used internally by CLIM for the individual methods,
+\arg{presentation-function-name} is a symbol that names the function that
+programmers will call to invoke the method, and \arg{lambda-list} and
+\arg{options} are as for \cl{defgeneric}.
+
+There are some ``special'' arguments in \arg{lambda-list} that are known about
+by the presentation type system.  The first argument in \arg{lambda-list} must
+be either \cl{type-key} or \cl{type-class}; this argument is used by CLIM to
+implement method dispatching.  The second argument may be \cl{parameters},
+meaning that, when the method is invoked, the type parameters will be passed to
+it.  The third argument may be \cl{options}, meaning that, when the method is
+invoked, the type options will be passed to it.  Finally, an argument named
+\cl{type} must be included in \arg{lambda-list}; when the method is called,
+\arg{type} argument will be bound to the presentation type specifier.
+
+For example, the \cl{accept} presentation generic function might be defined as
+follows:
+\begin{verbatim}
+(define-presentation-generic-function present-method present
+  (type-key parameters options object type stream view
+   &key acceptably for-context-type))
+\end{verbatim}
+
+None of the arguments are evaluated.
+
+
+\Defmacro {define-presentation-method} {name qualifiers* specialized-lambda-list \body body}
+
+Defines a presentation method for the function named \arg{name} on the
+presentation type named in \arg{specialized-lambda-list}.
+\arg{specialized-lambda-list} is a CLOS specialized lambda list for the method,
+and its contents varies depending on what \arg{name} is.  \arg{qualifiers*} is
+zero or more of the usual CLOS method qualifier symbols.
+\cl{define-presentation-method} must support at least \cl{standard} method
+combination (and therefore the \cl{:before}, \cl{:after}, and \cl{:around}
+method qualifiers).  Some CLIM implementations may support other method
+combination types, but this is not required.
+
+\arg{body} defines the body of the method.  \arg{body} may have zero or more
+declarations as its first forms.
+
+All presentation methods have an argument named \arg{type} that must be
+specialized with the name of a presentation type.  The value of \arg{type} is a
+presentation type specifier, which can be for a subtype that inherited the
+method.
+
+All presentation methods except \cl{presentation-subtypep} have lexical access
+to the parameters from the presentation type specifier.  Presentation methods
+for the functions \cl{accept}, \cl{present}, \cl{describe-presentation-type},
+\cl{presentation-type-specifier-p}, and \cl{accept-present-default} also have
+lexical access to the options from the presentation type specifier.
+
+
+\Defmacro {define-default-presentation-method} {name qualifiers* specialized-lambda-list
+                                                \body body}
+
+Like \cl{define-presentation-method}, except that it is used to define a default
+method that will be used only if there are no more specific methods.
+
+\Defmacro {funcall-presentation-generic-function} {presentation-function-name \rest arguments}
+
+Calls the presentation generic function named by \arg{presentation-function-name}
+on the arguments \arg{arguments}.  \arg{arguments} must match the arguments
+specified by the \cl{define-presentation-generic-function} that was used to define
+the presentation generic function, excluding the \cl{type-key}, \cl{type-class},
+\cl{parameters}, and \cl{options} arguments, which are filled in by CLIM.
+
+\cl{funcall-presentation-generic-function} is analogous to \cl{funcall}.
+
+The \arg{presentation-function-name} argument is not evaluated.
+
+For example, to call the \cl{present} presentation generic function, one might
+use the following:
+\begin{verbatim}
+(funcall-presentation-generic-function present
+  object presentation-type stream view)
+\end{verbatim}
+
+
+\Defmacro {apply-presentation-generic-function} {presentation-function-name \rest arguments}
+
+Like \cl{funcall-presentation-generic-function}, except that
+\cl{apply-presentation-generic-function} is analogous to \cl{apply}.
+
+The \arg{presentation-function-name} argument is not evaluated.
+
+
+Here is a list of all of the standard presentation methods and their specialized
+lambda lists.  For the meaning of the arguments to each presentation method,
+refer to the description of the function that calls that method.
+
+For all of the presentation methods, the \arg{type} will always be specialized.
+For those methods that take a \arg{view} argument, implementors and programmers
+may specialize it as well.  The other arguments are not typically specialized.
+
+\def\Defpresmeth #1 #2 {\Dodocf {#1} {#2} {Presentation~Method}}
+
+\Defpresmeth {present} {object type stream view \key acceptably for-context-type} 
+
+The \cl{present} presentation method is responsible for displaying the
+representation of \arg{object} having \term{presentation type} \arg{type} for a
+particular \term{view} \arg{view}.  The method's caller takes care of creating
+the presentation, the method simply displays the content of the presentation.
+
+The \cl{present} method can specialize on the \arg{view} argument in order to
+define more than one view of the data.  For example, a spreadsheet program might
+define a presentation type for revenue, which can be displayed either as a
+number or a bar of a certain length in a bar graph.  Typically, at least one
+canonical view should be defined for a presentation type, for example, the
+\cl{present} method for the \cl{textual-view} view must be defined if the
+programmer wants to allow objects of that type to be displayed textually.
+
+{\bf Implementation note:} the actual argument list to the \cl{present} method is
+\\
+\arg{(type-key parameters options object type stream view \key acceptably for-context-type)}
+\\
+\arg{type-key} is the object that is used to cause the appropriate methods to be
+selected (an instance of the class that corresponds to the presentation type
+\arg{type}.).
+\arg{parameters} and \arg{options} are the parameters and
+options for the type on which the current method is specialized.  
+% except in the slow, non-metaobject-protocol-based implementation where
+% \arg{parameters} and \arg{options} are just decoded from \arg{type}
+% and code inserted in the method body develops the parameters and
+% options for the type on which the current method is specialized.  
+The other arguments are gotten from the arguments of the same name in \cl{present}.
+
+
+{\bf Implementation note:} the actual generic function of the \cl{present}
+method is an internal generic function, not the function whose name is
+\cl{present}.  Similar internal generic functions are used for all presentation
+methods.
+
+
+\Defpresmeth {accept} {type stream view \key default default-type}
+
+The \cl{accept} method is responsible for ``parsing'' the representation of the
+\term{presentation type} \arg{type} for a particular \term{view} \arg{view}.
+The \cl{accept} method must return a single value, the object that was
+``parsed'', or two values, the object and its type (a presentation type
+specifier).  The method's caller takes care of establishing the input context,
+defaulting, prompting, and input editing.
+
+The \cl{accept} method can specialize on the \arg{view} argument in order to
+define more than one input view for the data.  The \cl{accept} method for the
+\cl{textual-view} view must be defined if the programmer wants to allow objects
+of that type to entered via the keyboard.
+
+Note that \cl{accept} presentation methods can call \cl{accept} recursively.  In
+this case, the programmer should be careful to specify \cl{nil} for \cl{:prompt}
+and \cl{:display-default} unless recursive prompting is really desired.
+
+{\bf Implementation note:} the actual argument list to the \cl{accept} method is
+\\
+\arg{(type-key parameters options type stream view \key default default-type)}
+
+
+\Defpresmeth {describe-presentation-type} {type stream plural-count}
+
+The \cl{describe-presentation-type} method is responsible for textually
+describing the \term{presentation type} \arg{type}.  \arg{stream} is a stream,
+and will not be \cl{nil} as it can be for the \cl{describe-presentation-type}
+function.
+
+{\bf Implementation note:} the actual argument list to the 
+\cl{describe-presentation-type} method is
+\\
+\arg{(type-key parameters options type stream plural-count)} 
+
+
+\Defpresmeth {presentation-type-specifier-p} {type}
+
+The \cl{presentation-type-specifier-p} method is responsible for checking the
+validity of the parameters and options for the \term{presentation type}
+\arg{type}.  The default method returns \cl{t}.
+
+{\bf Implementation note:} the actual argument list to the
+\cl{presentation-type-specifier-p} method is
+\\
+\arg{(type-key parameters options type)}
+
+
+\Defpresmeth {presentation-typep} {object type}
+
+The \cl{presentation-typep} method is called when the \cl{presentation-typep}
+function requires type-specific knowledge.  If the type name in the
+\term{presentation type} \arg{type} is a CLOS class or names a CLOS class, the
+method is called only if \arg{object} is a member of the class and \arg{type}
+contains parameters, and the method simply tests whether \arg{object} is a
+member of the subtype specified by the parameters.  For non-class types, the
+method is always called.
+
+{\bf Implementation note:} the actual argument list to the \cl{presentation-typep}
+method is
+\\
+\arg{(type-key parameters object type)}
+
+
+\Defpresmeth {presentation-subtypep} {type putative-supertype}
+
+\cl{presentation-subtypep} walks the type lattice (using
+\cl{map-over-presentation-supertypes}) to determine whethe or not the
+\term{presentation type} \arg{type} is a subtype of the\term{presentation type}
+\arg{putative-supertype}, without looking at the type parameters.  When a
+supertype of \arg{type} has been found whose name is the same as the name of
+\arg{putative-supertype}, then the \cl{subtypep} method for that type is called
+in order to resolve the question by looking at the type parameters (that is, if
+the \cl{subtypep} method is called, \arg{type} and \arg{putative-supertype} are
+guaranteed to be the same type, differing only in their parameters).  If
+\arg{putative-supertype} is never found during the type walk, then
+\cl{presentation-subtypep} will never call the \cl{presentation-subtypep}
+presentation method for \arg{putative-supertype}.
+
+Unlike all other presentation methods, \cl{presentation-subtypep} receives a
+\arg{type} argument that has been translated to the presentation type for which
+the method is specialized; \arg{type} is never a subtype.  The method is only
+called if \arg{putative-supertype} has parameters and the two presentation type
+specifiers do not have equal parameters.  The method must return the two values
+that \cl{presentation-subtypep} returns.
+
+Since \cl{presentation-subtypep} takes two type arguments, the parameters are
+not lexically available as variables in the body of a presentation method.
+
+{\bf Implementation note:} the actual argument list to the
+\cl{presentation-subtypep} method is
+\\
+\arg{(type-key type putative-supertype)}
+
+
+\Defpresmeth {map-over-presentation-type-supertypes} {function type}
+
+This method is called in order to apply \arg{function} to the superclasses of
+the \term{presentation type} \arg{type}.
+
+{\bf Implementation note:} the actual argument list to the
+\cl{map-over-presentation-type-supertypes} method is
+\\
+\arg{(type-class function type)}
+
+
+\Defpresmeth {accept-present-default} {type stream view default default-supplied-p
+                                       present-p query-identifier}
+
+The \cl{accept-present-default} method is called when \cl{accept} turns into
+\cl{present} inside of \cl{accepting-values}.  The default method calls
+\cl{present} or \cl{describe-presentation-type} depending on whether
+\arg{default-supplied-p} is \term{true} or \term{false}, respectively.
+
+The boolean \arg{default-supplied-p} will be \term{true} only in the case when
+the \cl{:default} option was explicitly supplied in the call to \cl{accept} that
+invoked \cl{accept-present-default}.
+
+{\bf Implementation note:} the actual argument list to the
+\cl{accept-present-default} method is
+\\
+\arg{(type-key parameters options type stream view default default-supplied-p present-p query-identifier)}
+
+
+\Defpresmeth {presentation-type-history} {type}
+
+This method is responsible for returning a history object for the
+\term{presentation type} \arg{type}.
+
+{\bf Implementation note:} the actual argument list to the
+\cl{presentation-type-history} method is
+\\
+\arg{(type-key parameters type)}
+
+
+\Defpresmeth {presentation-default-preprocessor} {default type \key default-type}
+
+This method is responsible for taking the object \arg{default}, and coercing it
+to match the \term{presentation type} \arg{type} (which is the type being
+accepted) and \arg{default-type} (which is the presentation type of
+\arg{default}).  This is useful when you want to change the default gotten from
+the presentation type's history so that it conforms to parameters or options in
+\arg{type} and \arg{default-type}.)  The method must return two values, the new
+object to be used as the default, and a new presentation type, which should be
+at least as specific as \arg{type}.
+
+{\bf Implementation note:} the actual argument list to the
+\cl{presentation-default-preprocessor} method is
+\\
+\arg{(type-key parameters default type \key default-type)}
+
+
+\Defpresmeth {presentation-refined-position-test} {type record x y}
+
+This method used to definitively answer hit detection queries for a
+presentation, that is, determining that the point $(x,y)$ is contained within
+the output record \arg{record}.  Its contract is exactly the same as for
+\cl{output-record-refined-position-test}, except that it is intended to
+specialize on the presentation type \arg{type}.
+
+{\bf Implementation note:} the actual argument list to the
+\cl{presentation-refined-position-test} method is
+\\
+\arg{(type-key parameters options type record x y)}
+
+
+\Defpresmeth {highlight-presentation} {type record stream state}
+
+This method is responsible for drawing a highlighting box around the
+\term{presentation} \arg{record} on the \term{output recording stream}
+\arg{stream}.  \arg{state} will be either \cl{:highlight} or \cl{:unhighlight}.
+
+{\bf Implementation note:} the actual argument list to the
+\cl{highlight-presentation} method is
+\\
+\arg{(type-key parameters options type record stream state)}
+
+
+
+\subsection {Presentation Type Functions}
+
+\Defun {describe-presentation-type} {type \optional stream plural-count}
+
+Describes the \term{presentation type specifier} \arg{type} on the \term{stream}
+\arg{stream}, which defaults to \cl{*standard-output*}.  If \arg{stream} is
+\cl{nil}, a string containing the description is returned.  \arg{plural-count}
+is either \cl{nil} (meaning that the description should be the singular form of
+the name), \cl{t} (meaning that the description should the plural form of the
+name), or an integer greater than zero (the number of items to be described).
+The default is \cl{1}.
+
+\arg{type} can be a presentation type abbreviation.
+
+
+\Defun {presentation-type-parameters} {type-name \optional env}
+
+Returns a lambda-list, the parameters specified when the presentation type or
+presentation type abbreviation whose name is \arg{type-name} was defined.
+\arg{type-name} is a symbol or a class.  \arg{env} is a macro-expansion
+environment, as in \cl{find-class}.
+
+
+\Defun {presentation-type-options} {type-name \optional env}
+
+Returns the list of options specified when the presentation type or presentation
+type abbreviation whose name is \arg{type-name} was defined.  This does not
+include the standard options unless the presentation-type definition mentioned
+them explicitly.  \arg{type-name} is a symbol or a class.  \arg{env} is a
+macro-expansion environment, as in \cl{find-class}.
+
+
+\Defmacro {with-presentation-type-decoded} {(name-var \optional parameters-var options-var) 
+                                            type
+                                            \body body}
+
+The specified variables are bound to the components of the presentation type
+specifier produced by evaluating \arg{type}, the forms in \arg{body} are
+executed, and the values of the last form are returned.  \arg{name-var}, if
+non-\cl{nil}, is bound to the presentation type name.  \arg{parameters-var}, if
+non-\cl{nil}, is bound to a list of the parameters.  \arg{options-var}, if
+non-\cl{nil}, is bound to a list of the options.  When supplied, \arg{name-var},
+\arg{parameters-var}, and \arg{options-var} must be symbols.
+
+The \arg{name-var}, \arg{parameters-var}, and \arg{options-var} arguments are
+not evaluated.  \arg{body} may have zero or more declarations as its first
+forms. 
+
+\Defun {presentation-type-name} {type}
+
+Returns the presentation type name of the presentation type specifier \arg{type}.
+This function is provided as a convenience.  It could be implemented with the
+following code:
+
+\begin{verbatim}
+(defun presentation-type-name (type)
+  (with-presentation-type-decoded (name) type
+    name))
+\end{verbatim}
+
+\Defmacro {with-presentation-type-parameters} {(type-name type) \body body}
+
+Variables with the same name as each parameter in the definition of the
+presentation type are bound to the parameter values in \arg{type}, if present,
+or else to the defaults specified in the definition of the presentation type.
+The forms in \arg{body} are executed in the scope of these variables and the
+values of the last form are returned.
+
+The value of the form \arg{type} must be a presentation type specifier whose
+name is \arg{type-name}.  The \arg{type-name} and \arg{type} arguments are not
+evaluated.  \arg{body} may have zero or more declarations as its first forms.
+
+\Defmacro {with-presentation-type-options} {(type-name type) \body body}
+
+Variables with the same name as each option in the definition of the
+presentation type are bound to the option values in \arg{type}, if present, or
+else to the defaults specified in the definition of the presentation type.  The
+forms in \arg{body} are executed in the scope of these variables and the values
+of the last form are returned.
+
+The value of the form \arg{type} must be a presentation type specifier whose
+name is \arg{type-name}.  The \arg{type-name} and \arg{type} arguments are not
+evaluated.  \arg{body} may have zero or more declarations as its first forms.
+
+
+\Defun {presentation-type-specifier-p} {object}
+
+Returns \term{true} if \arg{object} is a valid \term{presentation type
+specifier}, otherwise returns \term{false}.
+
+
+\Defun {presentation-typep} {object type}
+
+Returns \term{true} if \arg{object} is of the presentation type specified by the
+\term{presentation type specifier} \arg{type}, otherwise returns \term{false}.
+
+\arg{type} may not be a presentation type abbreviation.
+
+This is analogous to the Common Lisp \cl{typep} function.
+
+
+\Defun {presentation-type-of} {object}
+
+Returns a presentation type of which \arg{object} is a member.
+\cl{presentation-type-of} returns the most specific presentation type that can
+be conveniently computed and is likely to be useful to the programmer.  This is
+often the class name of the class of the object.
+
+If \cl{presentation-type-of} cannot determine the presentation type of the
+object, it may return either \cl{expression} or \cl{t}.
+
+This is analogous to the Common Lisp \cl{typep} function.
+
+
+\Defun {presentation-subtypep} {type putative-supertype}
+
+Answers the question ``is the type specified by the \term{presentation type
+specifier} \arg{type} a subtype of the type specified by the \term{presentation
+type specifier} \arg{putative-supertype}?''.  \cl{presentation-subtypep} returns
+two values, \arg{subtypep} and \arg{known-p}.  When \arg{known-p} is
+\term{true}, \arg{subtypep} can be either \term{true} (meaning that \arg{type}
+is definitely a subtype of \arg{putative-supertype}) or \term{false} (meaning
+that \arg{type} is definitely not a subtype of \arg{putative-supertype}).  When
+\arg{known-p} is \term{false}, then \arg{subtypep} must also be \term{false};
+this means that the answer cannot reliably be determined.
+
+\arg{type} may not be a presentation type abbreviation.
+
+This is analogous to the Common Lisp \cl{subtypep} function.
+
+
+\Defun {map-over-presentation-type-supertypes} {function type}
+
+Calls the function \arg{function} on the \term{presentation type specifier}
+\arg{type} and each of its supertypes.  \arg{function} is called with two
+arguments, the name of a type and a presentation type specifier for that type
+with the parameters and options filled in.  \arg{function} has dynamic extent;
+its two arguments are permitted to have dynamic extent.  The traversal of the
+type lattice is done in the order specified by the CLOS class precedence rules,
+and visits each type in the lattice exactly once.
+
+
+\Defun {presentation-type-direct-supertypes} {type}
+
+Returns a sequence consisting of the names of all of the presentation types that
+are direct supertypes of the \term{presentation type specifier} \arg{type}, or
+\cl{nil} if \arg{type} has no supertypes.  The consequences of modifying the
+returned sequence are unspecified.
+
+
+\Defun {find-presentation-type-class} {name \optional (errorp \cl{t}) environment}
+
+Returns the class corresponding to the presentation type named \arg{name}, which
+must be a symbol or a class object.  \arg{errorp} and \arg{environment} are as
+for \cl{find-class}.
+
+
+\Defun {class-presentation-type-name} {class \optional environment}
+
+Returns the presentation type name corresponding to the class \arg{class}.  This
+is essentially the inverse of \cl{find-presentation-type-class}.
+\arg{environment} is as for \cl{find-class}.
+
+
+\Defun {default-describe-presentation-type} {description stream plural-count}
+
+Performs the default actions for \cl{describe-presentation-type}, notably
+pluralization and prepending an indefinite article if appropriate.
+\arg{description} is a string or a symbol, typically the \cl{:description}
+presentation type option or the \cl{:description} option to
+\cl{define-presentation-type}.  \arg{plural-count} is as for
+\cl{describe-presentation-type}.
+
+
+\Defun {make-presentation-type-specifier} {type-name-and-parameters \rest options}
+
+A convenient way to assemble a presentation type specifier with only non-default
+options included.  This is only useful for abbreviation expanders, not for
+\cl{:inherit-from}.  \arg{type-name-and-parameters} is a presentation type
+specifier, which must be in the \cl{(\arg{type-name} \arg{parameters...})} form.
+\arg{options} are alternating keywords and values that are added as options to
+the presentation type specifier, except that if a value is equal to
+\arg{type-name}'s default, that option is omitted, producing a more concise
+presentation type specifier.
+
+
+\section {Typed Output}
+
+An application can specify that all output done within a certain dynamic extent
+should be associated with a given Lisp object and be declared to be of a
+specified presentation type.  The resulting output is saved in the window's
+output history as a presentation.  Specifically, the presentation remembers the
+output that was performed (by saving the associated output record), the Lisp
+object associated with the output, and the presentation type specified at output
+time.  The object can be any Lisp object.
+
+
+\Defmacro {with-output-as-presentation} {(stream object type
+                                          \key modifier single-box allow-sensitive-inferiors
+                                               parent record-type \allow)
+                                         \body body} 
+
+The output of \arg{body} to the \term{extended output recording} \arg{stream} is
+used to generate a presentation whose underlying object is \arg{object} and
+whose presentation type is \arg{type}.  Each invocation of this macro results in
+the creation of a presentation object in the stream's output history unless
+output recording has been disabled or \cl{:allow-sensitive-inferiors nil} was
+specified at a higher level, in which case the presentation object is not
+inserted into the history.  \cl{with-output-as-presentation} returns the
+presentation corresponding to the output.
+
+The \arg{stream} argument is not evaluated, and must be a symbol that is bound
+to an extended output stream or output recording stream.  If \arg{stream} is
+\cl{t}, \cl{*standard-output*} is used. \arg{body} may have zero or more
+declarations as its first forms.
+
+\arg{type} may be a presentation type abbreviation.
+
+\arg{modifier}, which defaults to \cl{nil}, is some sort of object that
+describes how the presentation object might be modified.  For example, it might
+be a function of one argument (the new value) that can be called in order to
+store a new value for \arg{object} after a user somehow ``edits'' the
+presentation.  \arg{modifier} must have indefinite extent.
+
+\arg{single-box} is used to specify the \cl{presentation-single-box} component
+of the resulting presentation.  It can take on the values described under
+\cl{presentation-single-box}.
+
+When the boolean \arg{allow-sensitive-inferiors} is \term{false}, nested calls
+to \cl{present} or \cl{with-output-as-presentation} inside this one will not
+generate presentations.  The default is \term{true}.
+
+\arg{parent} specifies what output record should serve as the parent for the
+newly created presentation.  If unspecified, \cl{stream-current-output-record}
+of \arg{stream} will be used as the parent.
+
+\arg{record-type} specifies the class of the presentation output record to be
+created.  It defaults to \cl{standard-presentation}.  This argument should only
+be supplied by a programmer if there is a new class of output record that
+supports the updating output record protocol.
+
+All arguments of this macro are evaluated.
+
+For example,
+\begin{verbatim}
+(with-output-as-presentation (stream #p"foo" 'pathname)
+  (princ "FOO" stream))
+\end{verbatim}
+
+
+\Defun {present} {object \optional type
+                  \key stream view modifier acceptably for-context-type
+                       single-box allow-sensitive-inferiors sensitive record-type}
+
+The \arg{object} of \term{presentation type} \arg{type} is presented to the
+\term{extended output stream} \arg{stream} (which defaults to
+\cl{*standard-output*}), using the type's \cl{present} method for the supplied
+\term{view} \arg{view}.  \arg{type} is a presentation type specifier, and can be
+an abbreviation.  It defaults to \cl{(presentation-type-of \arg{object})}.  The
+other arguments and overall behavior of \cl{present} are as for
+\cl{stream-present}.
+
+The returned value of \cl{present} is the presentation object that contains the
+output corresponding to the object.
+
+\cl{present} must be implemented by first expanding any presentation type
+abbreviations (\arg{type} and \arg{for-context-type}), and then calling
+\cl{stream-present} on \arg{stream}, \arg{object}, \arg{type}, and the remaining
+keyword arguments, which are described below.
+
+\Defgeneric {stream-present} {stream object type
+                              \key view modifier acceptably for-context-type
+                                   single-box allow-sensitive-inferiors sensitive 
+                                   record-type}
+
+\cl{stream-present} is the per-stream implementation of \cl{present}, analogous
+to the relationship between \cl{write-char} and \cl{stream-write-char}.  All
+extended output streams and output recording streams must implement a method for
+\cl{stream-present}.  The default method (on
+\cl{standard-extended-output-stream}) implements the following behavior.
+
+The object \arg{object} of type \arg{type} is presented to the \term{stream}
+\arg{stream} by calling the type's \cl{present} method for the supplied
+\term{view} \arg{view}.  The returned value is the presentation containing the
+output corresponding to the object.
+
+\arg{type} is a presentation type specifier.  \arg{view} is a view object that
+defaults to \cl{stream-default-view} of \arg{stream}.
+
+\arg{for-context-type} is a presentation type specifier that is passed to the
+\cl{present} method for \arg{type}, which can use it to tailor how the object
+will be presented.  \arg{for-context-type} defaults to \arg{type}.
+
+\arg{modifier}, \arg{single-box}, \arg{allow-sensitive-inferiors}, and
+\arg{record-type} are the same as for \cl{with-output-as-presentation}.
+
+\arg{acceptably} defaults to \cl{nil}, which requests the \cl{present} method to
+produce text designed to be read by human beings.  If \arg{acceptably} is
+\cl{t}, it requests the \cl{present} method to produce text that is recognized
+by the \cl{accept} method for \arg{for-context-type}.  This makes no difference
+to most presentation types.
+
+The boolean \arg{sensitive} defaults to \term{true}.  If it is \term{false}, no
+presentation is produced.
+
+
+\Defun {present-to-string} {object \optional type
+                            \key view acceptably for-context-type string index}
+
+Same as \cl{present} inside \cl{with-output-to-string}.  If \arg{string} is
+supplied, it must be a string with a fill pointer.  When \arg{index} is
+supplied, it is used as an index into \arg{string}.  \arg{view},
+\arg{acceptably}, and \arg{for-context-type} are as for \cl{present}.
+
+The first returned value is the string.  When \arg{string} is supplied, a second
+value is returned, the updated \arg{index}.
+
+
+\section {Context-dependent (Typed) Input}
+
+Associating semantics with output is only half of the user interface equation.
+The presentation type system also supports the input side of the user
+interaction.  When an application wishes to solicit from the user input of a
+particular presentation type, it establishes an \concept{input context} for that
+type.  CLIM will then automatically allow the user to satisfy the input request
+by pointing at a visible presentation of the requested type (or a valid subtype)
+and pressing a pointer button.  Only the presentations that ``match'' the input
+context will be ``sensitive'' (that is, highlighted when the pointer is moved
+over them) and accepted as input, thus the presentation-based input mechanism
+supports \concept{context-dependent input}.
+
+\issue {SWM} {What exactly is an input context?  What does it mean for them to
+be nested?}
+
+\Defvar {*input-context*}
+
+The current input context.  This will be a list, each element of which
+corresponds to a single call to \cl{with-input-context}.  The first element of
+the list represents the context established by the most recent call to
+\cl{with-input-context}, and the last element represents the context established
+by the least recent call to \cl{with-input-context}.
+
+The exact format of the elements in the list is unspecified, but will typically
+be a list of a presentation type and a tag that corresponds to the point in the
+control structure of CLIM at which the input context was establish.
+\cl{*input-context*} and the elements in it may have dynamic extent.
+
+\Defun {input-context-type} {context-entry}
+
+Given one element from \cl{*input-context*}, \arg{context-entry}, returns the
+presentation type of the context entry.
+
+\Defmacro {with-input-context} {(type \key override)
+                                (\optional object-var type-var event-var options-var)
+                                form
+                                \body pointer-cases} 
+
+Establishes an input context of \term{presentation type} \arg{type}; this must
+be done by binding \cl{*input-context*} to reflect the new input context.  When
+the boolean \arg{override} is \term{false} (the default), this invocation of
+\cl{with-input-context} adds its context presentation type to the current
+context.  In this way an application can solicit more than one type of input at
+the same time.  When \arg{override} is \term{true}, it overrides the current
+input context rather than nesting inside the current input context.
+
+\arg{type} can be a presentation type abbreviation.
+
+After establishing the new input context, \arg{form} is evaluated.  If no
+pointer gestures are made by the user during the evaluation of \arg{form}, the
+values of \arg{form} are returned.  Otherwise, one of the \arg{pointer-cases} is
+executed (based on the presentation type of the object that was clicked on) and
+the value of that is returned.  (See the descriptions of
+\cl{call-presentation-menu} and \cl{throw-highlighted-presentation}.)
+\arg{pointer-cases} is constructed like a \cl{typecase} statement clause list whose
+keys are presentation types; the first clause whose key satisfies the condition
+\cl{(presentation-subtypep \arg{type} \arg{key})} is the one that is chosen.
+
+During the execution of one of the \arg{pointer-cases}, \arg{object-var} is
+bound to the object that was clicked on (the first returned value from the
+presentation translator that was invoked), \arg{type-var} is bound to its
+presentation type (the second returned value from the translator), and
+\arg{event-var} is bound to the pointer button event that was used.
+\arg{options-var} is bound to any options that a presentation translator might
+have returned (the third value from the translator), and will be either \cl{nil}
+or a list of keyword-value pairs.  \arg{object-var}, \arg{type-var},
+\arg{event-var}, and \arg{options-var} must all be symbols.
+
+\arg{type}, \arg{stream}, and \arg{override} are evaluated, the others are not.
+
+For example,
+\begin{verbatim}
+(with-input-context ('pathname)
+                    (path)
+     (read)
+   (pathname
+     (format t "~&The pathname ~A was clicked on." path)))
+\end{verbatim}
+
+
+\Defun {accept} {type
+                 \key stream view
+                      default default-type provide-default 
+                      insert-default replace-input history active-p
+                      prompt prompt-mode display-default query-identifier
+                      activation-gestures additional-activation-gestures
+                      delimiter-gestures additional-delimiter-gestures}
+
+Requests input of type \arg{type} from the \term{stream} \arg{stream}, which
+defaults to \cl{*standard-input*}.  \cl{accept} returns two values, the object
+representing the input and its presentation type.  \arg{type} is a presentation
+type specifier, and can be an abbreviation.  The other arguments and overall
+behavior of \cl{accept} are as for \cl{accept-1}.
+
+\cl{accept} must be implemented by first expanding any presentation type
+abbreviations (\arg{type}, \arg{default-type}, and \arg{history}), handling the
+interactions between the default, default type, and presentation history,
+prompting the user by calling \cl{prompt-for-accept}, and then calling
+\cl{stream-accept} on \arg{stream}, \arg{type}, and the remaining keyword
+arguments.
+
+\Defgeneric {stream-accept} {stream type
+                             \key view 
+                                  default default-type provide-default 
+                                  insert-default replace-input history active-p
+                                  prompt prompt-mode display-default query-identifier
+                                  activation-gestures additional-activation-gestures
+                                  delimiter-gestures additional-delimiter-gestures}
+
+\cl{stream-accept} is the per-stream implementation of \cl{accept}, analogous to
+the relationship between \cl{read-char} and \cl{stream-read-char}.  All extended
+input streams must implement a method for \cl{stream-accept}.  The default
+method (on \cl{standard-extended-input-stream}) simply calls \cl{accept-1}.
+
+The arguments and overall behavior of \cl{stream-accept} are as for \cl{accept-1}.
+
+{\bf Rationale:} the reason \cl{accept} is specified as a three-function
+``trampoline'' is to allow close tailoring of the behavior of \cl{accept}.
+\cl{accept} itself is the function that should be called by application
+programmers.  CLIM implementors will specialize \cl{stream-accept} on a
+per-stream basis.  (For example, the behavior of \cl{accepting-values} can be
+implemented by creating a special class of stream that turns calls to
+\cl{accept} into fields of a dialog.)  \cl{accept-1} is provided as a
+convenient function for the \cl{stream-accept} methods to call when they require
+the default behavior.
+
+\Defun {accept-1} {stream type
+                   \key view 
+                        default default-type provide-default 
+                        insert-default replace-input history active-p
+                        prompt prompt-mode display-default query-identifier
+                        activation-gestures additional-activation-gestures
+                        delimiter-gestures additional-delimiter-gestures}
+
+Requests input of type \arg{type} from the \term{stream} \arg{stream}.
+\arg{type} must be a presentation type specifier.  \arg{view} is a view object
+that defaults to \cl{stream-default-view} of \arg{stream}.  \cl{accept-1}
+returns two values, the object representing the input and its presentation type.
+(If \cl{frame-maintain-presentation-histories} is \term{true} for the current
+frame, then the returned object is also pushed on to the presentation history
+for that object.)
+
+\cl{accept-1} establishes an input context via \cl{with-input-context}, and then
+calls the \cl{accept} presentation method for \arg{type} and \arg{view}.  When
+called on an interactive stream, \cl{accept} must allow input editing; see
+Chapter~\ref{input-editing} for a discussion of input editing.  The call to
+\cl{accept} will be terminated when the \cl{accept} method returns, or the user
+clicks on a sensitive presentation.  The typing of an activation and delimiter
+character is typically one way in which a call to an \cl{accept} method is
+terminated.
+
+A top-level \cl{accept} satisfied by keyboard input discards the terminating
+keyboard gesture (which will be either a delimiter or an activation gesture).
+A nested call to \cl{accept} leaves the terminating gesture unread.
+
+If the user clicked on a matching presentation, \cl{accept-1} will insert
+the object into the input buffer by calling \cl{presentation-replace-input} on
+the object and type returned by the presentation translator, unless either the
+boolean \arg{replace-input} is \term{false} or the presentation translator
+returned an \cl{:echo} option of \term{false}.  \arg{replace-input} defaults to
+\term{true}, but this default is overridden by the translator explicitly
+returning an \cl{:echo} option of \term{false}.
+
+If \arg{default} is supplied, then it and \arg{default-type} are returned as
+values from \cl{accept-1} when the input is empty.  \arg{default-type}
+must be a presentation type specifier.  If \arg{default} is not supplied and
+\arg{provide-default} is \term{true} (the default is \term{false}), then the
+default is determined by taking the most recent item from the presentation type
+history specified by \arg{history}.  If \arg{insert-default} is \term{true} and
+there is a default, the default will be inserted into the input stream by
+calling \cl{presentation-replace-input}.
+
+\arg{history} must be either \cl{nil}, meaning that no presentation type history
+will be used, or a presentation type (or abbreviation) that names a history to
+be used for the call to \cl{accept}.  \arg{history} defaults to \arg{type}.
+
+\arg{prompt} can be \cl{t}, which prompts by describing the type, \cl{nil},
+which suppresses prompting, or a string, which is displayed as a prompt (via
+\cl{write-string}).  The default is \cl{t}, which produces ``Enter a
+\arg{type}:'' in a top-level call to \cl{accept} or ``(\arg{type})'' in a nested
+call to \cl{accept}.
+
+If the boolean \arg{display-default} is \term{true}, the default is displayed
+(if one was supplied).  If \arg{display-default} is \term{false}, the default is
+not displayed.  \arg{display-default} defaults to \term{true} if \arg{prompt}
+was provided, otherwise it defaults to \term{false}.
+
+\arg{prompt-mode} can be \cl{:normal} (the default) or \cl{:raw}, which
+suppresses putting a colon after the prompt and/or default in a top-level
+\cl{accept} and suppresses putting parentheses around the prompt and/or default
+in a nested \cl{accept}.
+
+\arg{query-identifier} is used within \cl{accepting-values} to identify the
+field within the dialog.  The \cl{active-p} argument (which defaults to \cl{t})
+can be used to control whether a field within an \cl{accepting-values} is
+active; when \term{false}, the field will not be active, that is, it will not be
+available for input.  Some CLIM implementations will provide a visual cue that
+the field is inactive, for instance, by ``graying out'' the field.
+
+\arg{activation-gestures} is a list of gesture names that will override the
+current activation gestures (which are stored in \cl{*activation-gestures*}).
+Alternatively, \arg{additional-activation-gestures} can be supplied to add
+activation gestures without overriding the current ones.  See
+Chapter~\ref{input-editing} for a discussion of activation gestures.
+
+\arg{delimiter-gestures} is a list of gesture names that will override the
+current delimiter gestures (which are stored in \cl{*delimiter-gestures*}).
+Alternatively, \arg{additional-delimiter-gestures} can be supplied to add
+delimiter gestures without overriding the current ones.  See
+Chapter~\ref{input-editing} for a discussion of delimiter gestures.
+
+
+\Defun {accept-from-string} {type string \key view default default-type start end}
+
+Like \cl{accept}, except that the input is taken from \arg{string}, starting at
+the position specified by \arg{start} and ending at \arg{end}.  \arg{view},
+\arg{default}, and \arg{default-type} are as for \cl{accept}.
+
+\cl{accept-from-string} returns an object and a presentation type (as in
+\cl{accept}), but also returns a third value, the index at which input
+terminated.
+
+
+\Defgeneric {prompt-for-accept} {stream type view \rest accept-args \key}
+
+Called by \cl{accept} to prompt the user for input of \term{presentation type}
+\arg{type} on the \term{stream} \arg{stream} for the \term{view} \arg{view}.
+\arg{accept-args} are all of the keyword arguments supplied to \cl{accept}.  The
+default method (on \cl{standard-extended-input-stream}) simply calls
+\cl{prompt-for-accept-1}.
+
+\Defun {prompt-for-accept-1} {stream type
+                              \key default default-type display-default
+                                   prompt prompt-mode
+                              \allow}
+
+Prompts the user for input of \term{presentation type} \arg{type} on the
+\term{stream} \arg{stream}.
+
+If the boolean \arg{display-default} is \term{true}, then the default is
+displayed; otherwise, the default is not displayed.  When the default is being
+displayed, \arg{default} and \arg{default-type} are the taken as the object and
+presentation type of the default to display. \arg{display-default} defaults to
+\term{true} if \arg{prompt} is non-\cl{nil}, otherwise it defaults to
+\term{false}.
+
+If \arg{prompt} is \cl{nil}, no prompt is displayed.  If it is a string, that
+string is displayed as the prompt.  If \arg{prompt} is \cl{t} (the default), the
+prompt is generated by calling \cl{describe-presentation-type} to produce a
+prompt of the form ``Enter a \arg{type}:'' in a top-level call to \cl{accept},
+or ``(\arg{type})'' in a nested call to \cl{accept}.
+
+\arg{prompt-mode} can be \cl{:normal} (the default) or \cl{:raw}, which
+suppresses putting a colon after the prompt and/or default in a top-level
+\cl{accept} and suppresses putting parentheses around the prompt and/or default
+in a nested \cl{accept}.
+
+
+\section {Views}
+
+\cl{accept} and \cl{present} methods can specialize on the \arg{view} argument
+in order to define more than one view of the data.  For example, a spreadsheet
+program might define a presentation type for quarterly earnings, which can be
+displayed as a floating point number or as a bar of some length in a bar graph.
+These two views might be implemented by specializing the view arguments for the
+\cl{textual-view} class and the user-defined \cl{bar-graph-view} class.
+
+\Defprotoclass {view}
+
+The protocol class for view objects.
+\IfYouWantClass {a} {view} {view}
+
+All of the view classes are immutable.
+
+\Defpredicate {viewp} {object}
+
+Returns \term{true} if \arg{object} is a \term{view}, otherwise returns
+\term{false}.
+
+\Defclass {textual-view}
+
+The instantiable class representing all textual views, a subclass of \cl{view}.
+Presentation methods that apply to a textual view must only do textual input and
+output (such as \cl{read-char} and \cl{write-string}).
+
+\Defclass {textual-menu-view}
+
+The instantiable class that represents the default view that is used inside
+\cl{menu-choose} for frame managers that are not using a gadget-oriented look
+and feel.  It is a subclass of \cl{textual-view}.
+
+\Defclass {textual-dialog-view}
+
+The instantiable class that represents the default view that is used inside
+\cl{accepting-values} dialogs for frame managers that are not using a
+gadget-oriented look and feel.  It is a subclass of \cl{textual-view}.
+
+\Defclass {gadget-view}
+
+The instantiable class representing all gadget views, a subclass of \cl{view}.
+
+\Defclass {gadget-menu-view}
+
+The instantiable class that represents the default view that is used inside
+\cl{menu-choose} for frame managers that are using a gadget-oriented look and
+feel.  It is a subclass of \cl{gadget-view}.
+
+\Defclass {gadget-dialog-view}
+
+The instantiable class that represents the default view that is used inside
+\cl{accepting-values} dialogs for frame managers that are using a
+gadget-oriented look and feel.  It is a subclass of \cl{gadget-view}.
+
+\Defclass {pointer-documentation-view}
+
+The instantiable class that represents the default view that is used when
+computing pointer documentation.  It is a subclass of \cl{textual-view}.
+
+\defconst {+textual-view+}
+\defconst {+textual-menu-view+}
+\defconst {+textual-dialog-view+}
+\defconst {+gadget-view+}
+\defconst {+gadget-menu-view+}
+\defconst {+gadget-dialog-view+}
+\Defconst {+pointer-documentation-view+}
+
+These are objects of class \cl{textual-view}, \cl{textual-menu-view},
+\cl{textual-dialog-view}, \cl{gadget-view}, \cl{gadget-menu-view},
+\cl{gadget-dialog-view}, and \cl{pointer-documentation-view}, respectively.
+
+\Defgeneric {stream-default-view} {stream}
+
+Returns the default view for the extended stream \arg{stream}.  \cl{accept} and
+\cl{present} get the default value for the \arg{view} argument from this.  All
+extended input and output streams must implement a method for this generic
+function.
+
+\Defgeneric {(setf stream-default-view)} {view stream}
+
+Changes the default view for \arg{stream} to the \term{view} \arg{view}.  All
+extended input and output streams must implement a method for this generic
+function.
+
+
+\section {Presentation Translators}
+
+CLIM provides a mechanism for \concept{translating} between types.  In other
+words, within an input context for presentation type {\it A} the translator
+mechanism allows a programmer to define a translation from presentations of some
+other type {\it B} to objects that are of type {\it A}.
+
+Note that the exact representation of a presentation translator has been left
+explicitly unspecified.
+
+
+\subsection {Defining Presentation Translators}
+
+\Defmacro {define-presentation-translator} {name 
+                                            (from-type to-type command-table
+                                             \key gesture
+                                                  tester tester-definitive
+                                                  documentation pointer-documentation 
+                                                  menu priority)
+                                            arglist
+                                            \body body}
+
+Defines a presentation translator named \arg{name} that translates from objects
+of type \arg{from-type} to objects of type \arg{to-type}.  \arg{from-type} and
+\arg{to-type} are presentation type specifiers, but must not include any
+presentation type options.  \arg{from-type} and \arg{to-type} may be
+presentation type abbreviations.
+
+\arg{command-table} is a \term{command table designator}.  The translator created
+by this invocation of \cl{define-presentation-translator} will be stored in the
+command table \arg{command-table}.
+
+\arg{gesture} is a gesture name that names a pointer gesture (described in
+Section~\ref{gesture-names}).  The body of the translator will be run only if
+the translator is applicable and gesture used by the user matches the gesture
+name in the translator.  (We will explain \concept{applicability}, or
+\concept{matching}, in detail below.)  \arg{gesture} defaults to \cl{:select}.
+
+\arg{tester} is either a function or a list of the form
+\\
+\arg{(tester-arglist . tester-body)}
+\\
+where \arg{tester-arglist} takes the same form as \arg{arglist} (see below), and
+\arg{tester-body} is the body of the tester.  The tester must return either
+\term{true} or \term{false}.  If it returns \term{false}, then the translator is
+definitely not applicable.  If it returns \term{true}, then the translator might
+be applicable, and the body of the translator might be run (if
+\arg{tester-definitive} is \term{false}) in order to definitively decide if the
+translator is applicable (this is described in more detail below).  If no tester
+is supplied, CLIM supplies a tester that always returns \term{true}.
+
+When the boolean \arg{tester-definitive} is \term{true}, the body of the
+translator will never be run in order to decide if the translator is applicable,
+that is, the tester is assumed to definitively decide whether the translator
+applies.  The default for \arg{tester-definitive} is \term{false}.  When there
+is no explicitly supplied tester, the tester supplied by CLIM is assumed to be
+definitive.
+
+Both \arg{documentation} and \arg{pointer-documentation} are objects that will
+be used for documenting the translator.  \arg{pointer-documentation} will be
+used to generate documentation for the pointer documentation window; the
+documentation generated by \arg{pointer-documentation} should be very brief and
+computing it should be very fast and preferably not cons.  \arg{documentation}
+is used to generate such things as items in the \cl{:menu}-gesture menu.  If the
+object is a string, the string itself will be used as the documentation.
+Otherwise, the object must be the name of a function or a list of the form
+\\
+\arg{(doc-arglist . doc-body)}
+\\
+where \arg{doc-arglist} takes the same form as \arg{arglist}, but includes a
+named (keyword) \arg{stream} argument as well (see below), and \arg{doc-body}
+is the body of the documentation function.  The body of the documentation
+function should write the documentation to \arg{stream}.  The default for
+\arg{documentation} is \cl{nil}, meaning that there is no explicitly supplied
+documentation; in this case, CLIM is free to generate the documentation in
+other ways.  The default for \arg{pointer-documentation} is \arg{documentation}.
+
+\arg{menu} must be \cl{t} or \cl{nil}.  When it is \cl{t}, the translator will
+be included in the \cl{:menu}-gesture menu if it matches.  When it is \cl{nil},
+the translator will not be included in the \cl{:menu}-gesture menu.  Other
+non-\cl{nil} values are reserved for future extensions to allow multiple
+presentation translator menus.
+
+\arg{priority} is either \cl{nil} (the default, which corresponds to 0) or an
+integer that represents the priority of the translator.  When there are several
+translators that match for the same gesture, the one with the highest priority
+is chosen.
+
+\arg{arglist}, \arg{tester-arglist}, and \arg{doc-arglist} are each an argument
+list that must ``match'' the following ``canonical'' argument list.
+\\
+\arg{(object \key presentation context-type frame event window x y)}
+\\
+In order to ``match'' the canonical argument list, there must be a single
+positional argument that corresponds to the presentation's object, and
+several named arguments that must match the canonical names above (using
+\cl{string-equal} to do the comparison).
+
+In the body of the translator (or the tester), the positional \arg{object}
+argument will be bound to the presentation's object.  The named arguments
+\arg{presentation} will be bound to the presentation that was clicked on,
+\arg{context-type} will be bound to the presentation type of the context that
+actually matched, \arg{frame} will be bound to the application frame that is
+currently active (usually \cl{*application-frame*}), \arg{event} will be bound
+to the pointer button event that the user used, \arg{window} will be bound to
+the window stream from which the event came, and \arg{x} and \arg{y} will be
+bound to the $x$ and $y$ positions within \arg{window} that the pointer was at
+when the event occurred.  The special variable \cl{*input-context*} will be
+bound to the current input context.  Note that, in many implementations
+\arg{context-type} and \cl{*input-context*} will have dynamic extent, so
+programmers should not store without first copying them.
+
+\arg{body} is the body of the translator, and is run in the context of the
+application.  \arg{body} may have zero or more declarations as its first forms.
+It should return either one, two, or three values.  The first value is an object
+which must be \cl{presentation-typep} of \arg{to-type}, and the second value is
+a presentation type that must be \cl{presentation-subtypep} of \arg{to-type}.
+The consequences are unspecified if the object is not \cl{presentation-typep} of
+\arg{to-type} or the type is not \cl{presentation-subtypep} of \arg{to-type}.
+The first two returned values of \arg{body} are used, in effect, as the returned
+values for the call to \cl{accept} that established the matching input context.
+
+The third value returned by \arg{body} must either be \cl{nil} or a list of
+options (as keyword-value pairs) that will be interpreted by \cl{accept}.  The
+only option defined so far is \cl{:echo}, whose value must be either \term{true}
+(the default) or \term{false}.  If it is \term{true}, the object returned by the
+translator will be ``echoed'' by \cl{accept}, which will use
+\cl{presentation-replace-input} to insert the textual representation of the
+object into the input buffer.  If it is \term{false}, the object will not be
+echoed.
+
+None of \cl{define-presentation-translator}'s arguments are evaluated.
+
+
+\Defmacro {define-presentation-to-command-translator} {name 
+                                                       (from-type command-name command-table
+                                                        \key gesture tester
+                                                             documentation pointer-documentation 
+                                                             menu priority echo)
+                                                       arglist
+                                                       \body body}
+
+This is similar to \cl{define-presentation-translator}, except that the
+\arg{to-type} will be derived to be the command named by \arg{command-name} in
+the command table \arg{command-table}.  \arg{command-name} is the name of the
+command that this translator will translate to.
+
+The \arg{echo} option is a boolean value (the default is \term{true}) that
+indicates whether the command line should be echoed when a user invokes the
+translator.
+
+The other arguments to \cl{define-presentation-to-command-translator} are the
+same as for \cl{define-presentation-translator}.  Note that the tester for
+command translators is always assumed to be definitive, so there is no
+\cl{:tester-definitive} option. The default for \arg{pointer-documentation} is
+the string \arg{command-name} with dash characters replaced by spaces, and each
+word capitalized (as in \cl{add-command-to-command-table}).
+
+The body of the translator must return a list of the arguments to the command
+named by \arg{command-name}.  \arg{body} is run in the context of the
+application.  The returned value of the body, appended to the command name, are
+eventually passed to \cl{execute-frame-command}.  \arg{body} may have zero or
+more declarations as its first forms.
+
+None of \cl{define-presentation-to-command-translator}'s arguments are evaluated.
+
+
+\Defmacro {define-presentation-action} {name 
+                                        (from-type to-type command-table 
+                                         \key gesture tester
+                                              documentation pointer-documentation
+                                              menu priority)
+                                        arglist
+                                        \body body}
+
+\cl{define-presentation-action} is similar to \cl{define-presentation-translator},
+except that the body of the action is not intended to return a value, but should
+instead side-effect some sort of application state.
+
+A presentation action does not satisfy a request for input the way an ordinary
+translator does.  Instead, an action is something that happens while waiting for
+input.  After the action has been executed, the program continues to wait for
+the same input that it was waiting for prior to executing the action.
+
+The other arguments to \cl{define-presentation-action} are the same as for
+\cl{define-presentation-translator}.  Note that the tester for presentation
+actions is always assumed to be definitive.
+
+None of \cl{define-presentation-action}'s arguments are evaluated.
+
+
+\Defmacro {define-drag-and-drop-translator} {name
+                                             (from-type to-type destination-type command-table 
+                                              \key gesture tester
+                                                   documentation pointer-documentation
+                                                   menu priority
+                                                   feedback highlighting)
+                                             arglist
+                                             \body body}
+
+Defines a ``drag and drop'' (or ``direct manipulation'') translator named
+\arg{name} that translates from objects of type \arg{from-type} to objects of
+type \arg{to-type} when a ``from presentation'' is ``picked up'', ``dragged''
+over, and ``dropped'' on to a ``to presentation'' having type
+\arg{destination-type}.  \arg{from-type}, \arg{to-type}, and
+\arg{destination-type} are presentation type specifiers, but must not include
+any presentation type options.  \arg{from-type}, \arg{to-type} and
+\arg{destination-type} may be presentation type abbreviations.
+
+The interaction style used by these translators is that a user points to a
+``from presentation'' with the pointer, picks it up by pressing a pointer button
+matching \arg{gesture}, drags the ``from presentation'' to a ``to presentation''
+by moving the pointer, and then drops the ``from presentation'' onto the ``to
+presentation''.  The dropping might be accomplished by either releasing the
+pointer button or clicking again, depending on the frame manager.  When the
+pointer button is released, the translator whose \arg{destination-type} matches
+the presentation type of the ``to presentation'' is chosen.  For example,
+dragging a file to the TrashCan on a Macintosh could be implemented by a drag
+and drop translator.
+
+While the pointer is being dragged, the function specified by \arg{feedback} is
+invoked to provide feedback to the user.  The function is called with eight
+arguments: the application frame object, the ``from presentation'', the stream,
+the initial $x$ and $y$ positions of the pointer, the current $x$ and $y$
+positions of the pointer, and a feedback state (either \cl{:highlight} to draw
+feedback, or \cl{:unhighlight} to erase it).  The feedback function is called to
+draw some feedback the first time pointer moves, and is then called twice each
+time the pointer moves thereafter (once to erase the previous feedback, and then
+to draw the new feedback).  It is called a final time to erase the last feedback
+when the pointer button is released.  \arg{feedback} defaults to
+\cl{frame-drag-and-drop-feedback}.
+
+When the ``from presentation'' is dragged over any other presentation that has a
+direct manipulation translator, the function specified by \arg{highlighting} is
+invoked to highlight that object.  The function is called with four arguments:
+the application frame object, the ``to presentation'' to be highlighted or
+unhighlighted, the stream, and a highlighting state (either \cl{:highlight} or
+\cl{:unhighlight}).  \arg{highlighting} defaults to
+\cl{frame-drag-and-drop-highlighting}.
+
+Note that it is possible for there to be more than one drag and drop translator
+that applies to the same from-type, to-type, and gesture.  In this case, the
+exact translator that is chosen for use during the dragging phase is
+unspecified.  If these translators have different feedback, highlighting,
+documentation, or pointer documentation, the exact behavior is unspecified.
+
+The other arguments to \cl{define-drag-and-drop-translator} are the same as for
+\cl{define-presentation-translator}.
+
+
+\subsection {Presentation Translator Functions}
+
+\Defun {find-presentation-translators} {from-type to-type command-table}
+
+Returns a list of all of the translators in the \term{command table}
+\arg{command-table} that translate from \arg{from-type} to \arg{to-type},
+without taking into account any type parameters or testers.  \arg{from-type} and
+\arg{to-type} are presentation type specifiers, and must not be abbreviations.
+\arg{frame} must be an application frame.
+
+{\bf Implementation note:} Because \cl{find-presentation-translators} is called
+during pointer sensitivity computations (that is, whenever the user mouses the
+pointer around in any CLIM pane), it should cache its result in order to avoid
+consing.  Therefore, the resulting list of translators should not be modified;
+the consequences of doing so are unspecified.
+
+{\bf Implementation note:} The ordering of the list of translators is left
+unspecified, but implementations may find it convenient to return the list using
+the ordering specified for \cl{find-applicable-translators}.
+
+
+\Defun {test-presentation-translator} {translator presentation context-type frame window x y
+                                       \key event modifier-state for-menu}
+
+Returns \term{true} if the translator \arg{translator} applies to the
+presentation \arg{presentation} in input context type \arg{context-type},
+otherwise returns \term{false}.  (There is no \arg{from-type} argument because
+it is derived from \arg{presentation}.)  \arg{x} and \arg{y} are the $x$ and $y$
+positions of the pointer within the window stream \arg{window}.
+
+\arg{event} and \arg{modifier-state} are a pointer button event and modifier
+state (see \cl{event-modifier-key-state}), and are compared against the
+translator's gesture.  \arg{event} defaults to \cl{nil}, and
+\arg{modifier-state} defaults to 0, meaning that no modifier keys are held down.
+Only one of \arg{event} or \arg{modifier-state} may be supplied; it is
+unspecified what will happen if both are supplied.
+
+If \arg{for-menu} is \term{true}, the comparison against \arg{event} and
+\arg{modifier-state} is not done.
+
+\arg{presentation}, \arg{context-type}, \arg{frame}, \arg{window}, \arg{x},
+\arg{y}, and \arg{event} are passed along to the translator's tester if and
+when the tester is called.
+
+\cl{test-presentation-translator} is responsible for matching type parameters
+and calling the translator's tester.  Under some circumstances,
+\cl{test-presentation-translator} may also call the body of the translator to
+ensure that its value matches \arg{to-type}.
+
+
+\Defun {find-applicable-translators} {presentation input-context frame window x y
+                                      \key event modifier-state for-menu fastp}
+
+Returns a list that describes the translators that definitely apply to the
+\term{presentation} \arg{presentation} in the input context \arg{input-context}.
+Each element in the returned list is of the form
+\\
+\arg{(translator the-presentation context-type . rest)}
+\\
+where \arg{translator} is a presentation translator, \arg{the-presentation} is
+the presentation that the translator applies to (and can be different from
+\arg{presentation} due to nesting of presentations), \arg{context-type} is the
+context type in which the translator applies, and \arg{rest} is other
+unspecified data reserved for internal use by CLIM.  \arg{translator},
+\arg{the-presentation}, and \arg{context-type} can be passed to such functions
+as \cl{call-presentation-translator} and \cl{document-presentation-translator}.
+
+Since input contexts can be nested, \cl{find-applicable-translators} must
+iterate over all the contexts in \arg{input-context}.  \arg{window}, \arg{x},
+and \arg{y} are as for \cl{test-presentation-translator}.  \arg{event} and
+\arg{modifier-state} (which default to \cl{nil} and the current modifier state
+for \arg{window}, respectively) are used to further restrict the set of
+applicable translators.  (Only one of \arg{event} or \arg{modifier-state} may be
+supplied; it is unspecified what will happen if both are supplied.)
+
+Presentations can also be nested.  The ordering of the translators returned by
+\cl{find-applicable-translators} is that translators matching inner contexts
+should precede translators matching outer contexts, and, in the same input
+context, inner presentations precede outer presentations.
+
+When \arg{for-menu} is non-\cl{nil}, this matches the value of \arg{for-menu}
+against the presentation's menu specification, and returns only those
+translators that match.  \arg{event} and \arg{modifier-state} are disregarded in
+this case.  \arg{for-menu} defaults to \cl{nil}.
+
+When the boolean \arg{fastp} is \term{true}, \cl{find-applicable-translators}
+will simply return \term{true} if there are any translators.  \arg{fastp}
+defaults to \term{false}.
+
+When \arg{fastp} is \term{false}, the list of translators returned by
+\cl{find-applicable-translators} must be in order of their ``desirability'',
+that is, translators having more specific from-types and/or higher priorities
+must precede translators having less specific from-types and lower priorities.
+
+The rules used for ordering the translators returned by
+\cl{find-applicable-translators} are as follows (in order):
+
+\begin{enumerate}
+\item Translators with a higher ``high order'' priority precede translators with
+a lower ``high order'' priority.  This allows programmers to set the priority of
+a translator in such a way that it always precedes all other translators.
+
+\item Translators with a more specific ``from type'' precede translators with a
+less specific ``from type''.
+
+\item Translators with a higher ``low order'' priority precede translators with
+a lower ``low order'' priority.  This allows programmers to break ties between
+translators that translate from the same type.
+
+\item Translators from the current command table precede translators inherited
+from superior command tables.
+\end{enumerate}
+
+{\bf Implementation note:} \cl{find-applicable-translators} could be implemented
+by looping over \arg{input-context}, calling \cl{find-presentation-translators}
+to generate all the translators, and then calling \cl{test-presentation-translator}
+to filter out the ones that do not apply.  The consequences of modifying the
+returned value are unspecified.  Note that the ordering of translators can be
+done by \cl{find-presentation-translators}, provided that
+\cl{find-applicable-translators} takes care to preserve this ordering.
+
+\issue {SWM} {Describe and implement the \cl{class-nondisjoint-classes} idea.
+Be very clear and precise about when the translator body gets run.}
+
+\Defun {presentation-matches-context-type} {presentation context-type frame window x y
+                                            \key event modifier-state}
+
+Returns \term{true} if there are any translators that translate from the
+\term{presentation} \arg{presentation}'s type to the input context type
+\arg{context-type}, otherwise returns \term{false}.  (There is no
+\arg{from-type} argument because it is derived from \arg{presentation}.)
+\arg{frame}, \arg{window}, \arg{x}, \arg{y}, \arg{event}, and
+\arg{modifier-state} are as for \cl{test-presentation-translator}.
+
+If there are no applicable translators, \cl{presentation-matches-context-type}
+will return \term{false}.
+
+
+\Defun {call-presentation-translator} {translator presentation context-type
+                                       frame event window x y}
+
+Calls the function that implements the body of the translator \arg{translator}
+on the \term{presentation} \arg{presentation}'s object, and passes
+\arg{presentation}, \arg{context-type}, \arg{frame}, \arg{event}, \arg{window},
+\arg{x}, and \arg{y} to the body of the translator as well.
+
+The returned values are the same as the values returned by the body of the
+translator, namely, the translated object and the translated type.
+
+
+\Defun {document-presentation-translator} {translator presentation context-type
+                                           frame event window x y
+                                           \key (stream \cl{*standard-output*}) documentation-type}  
+
+Computes the documentation string for the translator \arg{translator} and
+outputs it to the stream \arg{stream}.  \arg{presentation}, \arg{context-type},
+\arg{frame}, \arg{event}, \arg{window}, \arg{x}, and \arg{y} are as for
+\cl{test-presentation-translator}.
+
+\cl{documentation-type} must be either \cl{:normal} or \cl{:pointer}.  If it is
+\cl{:normal}, the usual translator documentation function is called.  If it is
+\cl{:pointer}, the translator's pointer documentation is called.
+
+
+\Defun {call-presentation-menu} {presentation input-context frame window x y
+                                 \key for-menu label}
+
+Finds all the applicable translators for the \term{presentation}
+\arg{presentation} in the input context \arg{input-context}, creates a menu that
+contains all of the translators, and pops up the menu from which the user can
+choose a translator.  After the translator is chosen, it is called with the
+arguments supplied to \cl{call-presentation-menu} and the matching input context
+that was established by \cl{with-input-context} is terminated.
+
+\arg{window}, \arg{x}, \arg{y}, and \arg{event} are as for
+\cl{find-applicable-translators}.  \arg{for-menu}, which defaults to \cl{t}, is
+used to decide which of the applicable translators will go into the menu; only
+those translators whose \cl{:menu} option matches \arg{menu} will be included.
+
+\arg{label} is either a string to use as a label for the menu, or is \cl{nil}
+(the default), meaning the menu will not be labelled.
+
+
+\subsection {Finding Applicable Presentations}
+
+\Defun {find-innermost-applicable-presentation} {input-context window x y 
+                                                 \key frame modifier-state event}
+
+Given an input context \arg{input-context}, an output recording window stream
+\arg{window}, $x$ and $y$ positions \arg{x} and \arg{y}, returns the innermost
+presentation whose sensitivity region contains \arg{x} and \arg{y} that matches
+the innermost input context, using the translator matching algorithm described
+below.  If there is no such presentation, this function will return \cl{nil}.
+
+\arg{event} and \arg{modifier-state} are a pointer button event and modifier
+state (see \cl{event-modifier-key-state}).  \arg{event} defaults to \cl{nil},
+and \arg{modifier-state} defaults to the current modifier state for
+\arg{window}.  Only one of \arg{event} or \arg{modifier-state} may be supplied;
+it is unspecified what will happen if both are supplied.
+
+\arg{frame} defaults to the current frame, \cl{*application-frame*}.
+
+The default method for \cl{frame-find-innermost-applicable-presentation} will
+call this function.
+
+
+\Defun {throw-highlighted-presentation} {presentation input-context button-press-event}
+
+Given a \term{presentation} \arg{presentation}, input context
+\arg{input-context}, and a button press event (which contains the window,
+pointer, $x$ and $y$ position of the pointer within the window, the button
+pressed, and the modifier state), find the translator that matches the innermost
+presentation in the innermost input context, then call the translator to produce
+an object and a presentation type.  Finally, the matching input context that was
+established by \cl{with-input-context} will be terminated.
+
+Note that it is possible that more than one translator having the same gesture
+may be applicable to \arg{presentation} in the specified input context.  In this
+case, the translator having the highest priority will be chosen.  If there is
+more than one having the same priority, it is unspecified what translator will
+be chosen.
+
+
+\Defun {highlight-applicable-presentation} {frame stream input-context
+                                            \optional prefer-pointer-window}
+
+This is the core of the ``input wait'' handler used by \cl{with-input-context}
+on behalf of the \term{application frame} \arg{frame}.  It is responsible for
+locating the innermost applicable presentation on \arg{stream} in the input
+context \arg{input-context}, unhighlighting presentations that are not
+applicable, and highlighting the presentation that is applicable.  Typically on
+entry to \cl{highlight-applicable-presentation}, \arg{input-context} will be the
+value of \cl{*input-context*} and \arg{frame} will be the value of
+\cl{*application-frame*}.
+
+If \arg{prefer-pointer-window} is \term{true} (the default), CLIM will highlight
+the applicable presentation on the same window that the pointer is located over.
+Otherwise, CLIM will highlight an applicable presentation on \arg{stream}.
+
+{\bf Implementation note:} This will probably use
+\cl{frame-find-innermost-applicable-presentation-at-position} to locate the
+innermost presentation, and \cl{unhighlight-highlighted-presentation} and
+\cl{set-highlighted-presentation} to unhighlight and highlight presentations.
+
+
+\Defun {set-highlighted-presentation} {stream presentation \optional prefer-pointer-window}
+
+Highlights the \term{presentation} \arg{presentation} on \arg{stream}.  This
+must call \cl{highlight-presentation} methods if that is appropriate.
+
+\arg{prefer-pointer-window} is as for \cl{highlight-applicable-presentation}.
+
+
+\Defun {unhighlight-highlighted-presentation} {stream \optional prefer-pointer-window}
+
+Unhighlights any highlighted presentations on \arg{stream}.
+
+\arg{prefer-pointer-window} is as for \cl{highlight-applicable-presentation}.
+
+
+\subsection {Translator Applicability}
+
+The top-level ``input wait'', which is what you are in when inside of a
+\cl{with-input-context}, is responsible for determining what translators are
+applicable to which presentations in a given input context.  This loop both
+provides feedback in the form of highlighting sensitive presentation, and is
+responsible for calling the applicable translator when the user presses a
+pointer button.
+
+{\bf Implementation note:} \cl{with-input-context} uses
+\cl{frame-find-innermost-applicable-presentation-at-position} (via
+\cl{highlight-applicable-presentation}) as its ``input wait'' handler, and
+\cl{frame-input-context-button-press-handler} as its button press ``event
+handler''.
+
+Given a presentation, an input context established by \cl{with-input-context},
+and an event corresponding to a user gesture, translator matching proceeds as
+follows. 
+
+The set of candidate translators is initially those translators accessible in
+the command table in use by the current application.  A translator is said to
+``match'' if all of the following are true (in this order):
+
+\begin{enumerate}
+\item The presentation's type is \cl{presentation-subtypep} of the translator's
+\arg{from-type}, ignoring type parameters.
+
+\item The translator's \arg{to-type} is \cl{presentation-subtypep} of the input
+context type, ignoring type parameters.
+
+\item The translator's gesture is either \cl{t}, or matches the event
+corresponding to the user's gesture.
+
+\item If there are parameters in the \arg{from-type}, the presentation's object
+must be \cl{presentation-typep} of the \arg{from-type}.
+
+\item The translator's tester returned \term{true}.  If there is no tester, the
+translator behaves as though there is a tester that always returns \term{true}.
+
+\item If there are parameters in the input context type and the tester is not
+declared to be definitive, the value returned by body of the translator must be
+\cl{presentation-typep} of the context type.
+\end{enumerate}
+
+Note that the type parameters from the presentation's type have no effect on
+translator lookup.
+
+\cl{find-presentation-translator} is responsible for the first two steps of the
+matching algorithm, and \cl{test-presentation-translator} is responsible for the
+remaining steps.
+
+When a single translator is being chosen (such as is done by
+\cl{throw-highlighted-presentation}), it is possible that more than one
+translator having the same gesture may be applicable to the presentation in the
+specified input context.  In this case, the translator having the highest
+priority will be chosen.  If there is more than one having the same priority, it
+is unspecified what translator will be chosen.
+
+The matching algorithm is somewhat more complicated in face of nested
+presentations and nested input contexts.  In this case, the applicable
+presentation is the {\sl smallest} presentation that matches the {\sl innermost}
+input context.
+
+Sometimes there may be nested presentations that have exactly the same bounding
+rectangle.  In this case, it is not possible for a user to unambiguously point
+to just one of the nested presentations.  Therefore, when CLIM has located the
+innermost applicable presentation in the innermost input context, it must then
+search for outer presentations having exactly the same bounding rectangle,
+checking to see if there are any applicable translators for those presentations.
+If there are multiple applicable translators, the one having the highest
+priority is chosen.  \cl{find-applicable-translators},
+\cl{call-presentation-menu}, \cl{throw-highlighted-presentation}, and the
+computation of pointer documentation must all take this situation into account.
+
+The translators are searched in the order that they are returned by
+\cl{find-presentation-translators}.  The rules for the ordering of the
+translators are described under that function.
+
+
+\section {Standard Presentation Types}
+
+The following sections document the presentation types supplied by CLIM.  Any
+presentation type with the same name as a Common Lisp type accepts the same
+parameters as the Common Lisp type (and additional parameters in a few cases).
+
+
+\subsection {Basic Presentation Types}
+
+\Defptype {t} {}
+
+The supertype of all other presentation types.
+
+\Defptype {nil} {}
+
+The subtype of all other presentation types.  This has no printed
+representation, and it useful only in writing ``context independent''
+translators, that is, translators whose \arg{to-type} is \cl{nil}.
+
+\Defptype {null} {}
+
+The type that represents ``nothing''.  The single object associated with this
+type is \cl{nil}, and its printed representation is ``None''.
+
+\Defptype {boolean} {}
+
+The type that represents \term{true} or \term{false}.  The printed
+representation is ``Yes'' or ``No'', respectively.
+
+\Defptype {symbol} {}
+
+The type that represents a symbol.
+
+\Defptype {keyword} {}
+
+The type that represents a symbol in the keyword package.  It is a subtype of
+\cl{symbol}.
+
+\Defptype {blank-area} {}
+
+The type that represents all the places in a window where there is no
+presentation that is applicable in the current input context.  CLIM provides a
+single ``null presentation'' as the object associated with this type.
+
+\Defconst {*null-presentation*}
+
+The null presentation, which occupies all parts of a window in which there are
+no applicable presentations.  This will have a presentation type of \cl{blank-area}.
+
+
+\subsection {Numeric Presentation Types}
+
+\Defptype {number} {}
+
+The type that represents a general number.  It is the supertype of all the
+number types.
+
+\Defptype {complex} {\optional type}
+
+The type that represents a complex number.  It is a subtype of \cl{number}.
+
+The components of the complex number are of type \arg{type}, which must be
+\cl{real} or a subtype of \cl{real}.
+
+\Defptype {real} {\optional low high}
+
+The type that represents either a ratio, an integer, or a floating point number
+between \arg{low} and \arg{high}.  \arg{low} and \arg{high} can be inclusive or
+exclusive, as in Common Lisp type specifiers.  Options to this type are
+\arg{base} (default 10) and \arg{radix} (default \cl{nil}).  \cl{real} is a
+subtype of \cl{number}.
+
+\Defptype {rational} {\optional low high}
+
+The type that represents either a ratio or an integer between \arg{low} and
+\arg{high}.  Options to this type are \arg{base} and \arg{radix}.  \cl{rational}
+is a subtype of \cl{real}.
+
+\Defptype {integer} {\optional low high}
+
+The type that represents an integer between \arg{low} and \arg{high}.  Options
+to this type are \arg{base} and \arg{radix}.  \cl{integer} is a subtype of
+\cl{rational}.
+
+\Defptype {ratio} {\optional low high}
+
+The type that represents a ratio between \arg{low} and \arg{high}.  Options to
+this type are \arg{base} and \arg{radix}.  \cl{ratio} is a subtype of
+\cl{rational}.
+
+\Defptype {float} {\optional low high}
+
+The type that represents a floating point number between \arg{low} and
+\arg{high}.  \cl{float} is a subtype of \cl{number}.
+
+
+\subsection {Character and String Presentation Types}
+
+\Defptype {character} {}
+
+The type that represents a character object.
+
+\Defptype {string} {\optional length}
+
+The type that represents a string.  If \arg{length} is supplied, the string
+must contain exactly that many characters.
+
+
+\subsection {Pathname Presentation Type}
+
+\Defptype {pathname} { }
+
+The type that represents a pathname.  The options are \arg{default-version},
+which defaults to \cl{:newest}, \arg{default-type}, which defaults to \cl{nil},
+and \arg{merge-default}, which defaults to \term{true}.  If \arg{merge-default}
+is \term{false}, \cl{accept} returns the exact pathname that was entered,
+otherwise \cl{accept} merges against the default and \arg{default-version}.  If
+no default is supplied, it defaults to \cl{*default-pathname-defaults*}.  The
+\cl{pathname} type should have a default preprocessor that merges the options
+into the default.
+
+
+\subsection {``One-of'' and ``Some-of'' Presentation Types}
+
+\Defptype {completion} {sequence \key test value-key}
+
+The type that selects one from a finite set of possibilities, with
+``completion'' of partial inputs.  The member types below, \cl{token-or-type},
+and \cl{null-or-type} are implemented in terms of the \cl{completion} type.
+
+\arg{sequence} is a list or vector whose elements are the possibilities.  Each
+possibility has a printed representation, called its name, and an internal
+representation, called its value.  \cl{accept} reads a name and returns a value.
+\cl{present} is given a value and outputs a name.
+
+\arg{test} is a function that compares two values for equality.  The default is
+\cl{eql}.
+
+\arg{value-key} is a function that returns a value given an element of
+\arg{sequence}.  The default is \cl{identity}.
+
+The following presentation type options are available:
+
+\arg{name-key} is a function that returns a name, as a string, given an element
+of \arg{sequence}.  The default is a function that behaves as follows: \\
+\begin{tabular}{rcl}
+string & $\Rightarrow$ & the string \\
+null & $\Rightarrow$ & \cl{"NIL"} \\
+cons & $\Rightarrow$ & \cl{string} of the \cl{car} \\
+symbol & $\Rightarrow$ & \cl{string-capitalize} of its name \\
+otherwise & $\Rightarrow$ & \cl{princ-to-string} of it
+\end{tabular}
+
+\arg{documentation-key} is a function that returns either \cl{nil} or a
+descriptive string, given an element of \arg{sequence}.  The default always
+returns \cl{nil}.
+
+\arg{test}, \arg{value-key}, \arg{name-key}, and \arg{documentation-key} must
+have indefinite extent.
+
+\arg{partial-completers} is a possibly-empty list of characters that delimit
+portions of a name that can be completed separately.  The default is a list of
+one character, \verb+#\Space+.
+
+
+\DefptypeAbbrev {member} {\rest elements}
+
+The type that specifies one of \arg{elements}.  The options are the same as for
+\cl{completion}.
+
+
+\DefptypeAbbrev {member-sequence} {sequence \key test}
+
+Like \cl{member}, except that the set of possibilities is the sequence
+\arg{sequence}.  The parameter \arg{test} and the options are the same as for
+\cl{completion}.
+
+
+\DefptypeAbbrev {member-alist} {alist \key test}
+
+Like \cl{member}, except that the set of possibilities is the alist \arg{alist}.
+Each element of \arg{alist} is either an atom as in \cl{member-sequence} or a
+list whose \cl{car} is the name of that possibility and whose \cl{cdr} is one of
+the following:
+
+\begin{itemize}
+\item The value (which must not be a cons)
+
+\item A list of one element, the value
+
+\item A property list that can contain the following properties:
+  \begin{itemize}
+  \item \cl{:value}---the value
+  \item \cl{:documentation}---a descriptive string
+  \end{itemize}
+\end{itemize}
+
+The \arg{test} parameter and the options are the same as for \cl{completion}
+except that \arg{value-key} and \arg{documentation-key} default to functions
+that support the specified alist format.
+
+
+\Defptype {subset-completion} {sequence \key test value-key}
+
+The type that selects one or more from a finite set of possibilities, with
+``completion'' of partial inputs.  The parameters and options are the same as
+for \cl{completion}, plus the additional options \arg{separator} and
+\arg{echo-space}, which are as for the \cl{sequence} type.  The subset types
+below are implemented in terms of the \cl{subset-completion} type.
+
+
+\DefptypeAbbrev {subset} {\rest elements}
+
+The type that specifies a subset of \arg{elements}.  Values of this type are
+lists of zero or more values chosen from the possibilities in \arg{elements}.
+The printed representation is the names of the elements separated by commas.
+The options are the same as for \cl{completion}.
+
+
+\DefptypeAbbrev {subset-sequence} {sequence \key test}
+
+Like \cl{subset}, except that the set of possibilities is the sequence
+\arg{sequence}.  The parameter \arg{test} and the options are the same as for
+\cl{completion}.
+
+
+\DefptypeAbbrev {subset-alist} {alist \key test}
+
+Like \cl{subset}, except that the set of possibilities, the parameters, and the
+options are as for \cl{member-alist}.
+
+
+\subsection {Sequence Presentation Types}
+
+\Defptype {sequence} {type}
+
+The type that represents a sequence of elements of type \arg{type}.  \arg{type}
+can be a presentation type abbreviation.  The printed representation of a
+\cl{sequence} type is the elements separated by commas.  It is unspecified
+whether \cl{accept} returns a list or a vector.
+
+The options to this type are \arg{separator} and \arg{echo-space}.
+\arg{separator} is used to specify a character that will act as the separator
+between elements of the sequence; the default is the comma character \verb+#\,+.
+\arg{echo-space} must be \term{true} or \term{false}; when it is \term{true}
+(the default) a space will be automatically inserted into the input buffer when
+the user types a separator character.
+
+
+\Defptype {sequence-enumerated} {\rest types}
+
+\cl{sequence-enumerated} is like \cl{sequence}, except that the type of each
+element in the sequence is individually specified.  The elements of \arg{types}
+can be presentation type abbreviations.  It is unspecified whether \cl{accept}
+returns a list or a vector.
+
+The options to this type are \arg{separator} and \arg{echo-space}, which are as
+for the \cl{sequence} type.
+
+
+\subsection {``Meta'' Presentation Types}
+
+\Defptype {or} {\rest types}
+
+The type that is used to specify one of several types, for example, \cl{(or
+(member :all :none) integer)}.  The elements of \arg{types} can be presentation
+type abbreviations.  \cl{accept} returns one of the possible types as its second
+value, not the original \cl{or} presentation type specifier.
+
+The \cl{accept} method for \cl{or} could be implemented by iteratively calling
+\cl{accept} on each of the presentation types in \arg{types}.  It would
+establish a condition handler for \cl{parse-error}, call \cl{accept} on one of
+the types and return the result if no condition was signalled.  If a
+\cl{parse-error} is signalled, the \cl{accept} method for \cl{or} would call
+\cl{accept} on the next type.  When there are no more types, the \cl{accept}
+method for \cl{or} would itself signal a \cl{parse-error}.
+
+
+\Defptype {and} {\rest types}
+
+The type that is used for ``multiple inheritance''.  \cl{and} is frequently used
+in conjunction with \cl{satisfies}, for example, \cl{(and integer (satisfies
+oddp))}.  The elements of \arg{types} can be presentation type abbreviations.
+
+The \cl{and} type has special syntax that supports the two ``predicates'',
+\cl{satisfies} and \cl{not}.  \cl{satisfies} and \cl{not} cannot stand alone as
+presentation types and cannot be first in \arg{types}.  \cl{not} can surround
+either \cl{satisfies} or a presentation type.
+
+The first type in \arg{types} is the type whose methods will be used during
+calls to \cl{accept} and \cl{present}.
+
+
+\subsection {Compound Presentation Types}
+
+\DefptypeAbbrev {token-or-type} {tokens type}
+
+A compound type that is used to select one of a set of special tokens, or an
+object of type \arg{type}.  \arg{tokens} is anything that can be used as the
+\arg{sequence} parameter to \cl{member-alist}; typically it is a list of
+symbols.
+
+
+\DefptypeAbbrev {null-or-type} {type}
+
+A compound type that is used to select \cl{nil}, whose printed representation is
+the special token ``None'', or an object of type \arg{type}.
+
+
+\DefptypeAbbrev {type-or-string} {type}
+
+A compound type that is used to select an object of type \arg{type} or an
+arbitrary string, for example, \cl{(type-or-string integer)}.  Any input that
+\cl{accept} cannot parse as the representation of an object of type \arg{type}
+is returned as a string.
+
+
+\subsection {Lisp Expression Presentation Types}
+
+\Defptype {expression} {}
+
+The type used to represent any Lisp object.  The standard \cl{print} and
+\cl{read} functions produce and accept the textual view of this type.
+
+If a presentation history is maintained for the \cl{expression} presentation
+type, it should be maintained separately for each instance of an application
+frame.
+
+\Defptype {form} {}
+
+The type used to represent a Lisp form.  This is a subtype of \cl{expression}
+and is equivalent except that some presentation translators produce \cl{quote}
+forms.

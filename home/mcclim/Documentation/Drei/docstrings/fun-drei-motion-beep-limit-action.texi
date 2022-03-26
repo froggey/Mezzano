@@ -1,0 +1,5 @@
+@anchor{Function drei-motion:beep-limit-action}
+@deffn {Function} {drei-motion:beep-limit-action} mark original-offset remaining unit syntax
+@findex drei-motion:beep-limit-action
+This limit action will beep at the user.
+@end deffn

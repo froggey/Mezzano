@@ -1,0 +1,6 @@
+@anchor{Generic-Function clim-tab-layout:tab-layout-enabled-page}
+@deffn {Generic Function} {@symbol{tab-layout-enabled-page,clim-tab-layout}} tab-layout
+The currently visible tab page of this tab-layout, or NIL if the tab
+layout does not have any pages currently. Use the @code{setf} function of the name
+to change focus to another tab page.
+@end deffn

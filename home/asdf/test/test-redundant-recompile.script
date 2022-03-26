@@ -1,0 +1,37 @@
+;;; -*- Lisp -*-
+#|
+;;;This test system definition attempts to replicate the excess dependencies
+;;;that seem to give rise to launchpad bug 590517
+;;;(https://bugs.launchpad.net/asdf/+bug/590517)
+
+1) from clean, check that all fasl files build and that some function
+   defined in the second file is present
+
+2) load again.  Check to make sure that nothing is recompiled.
+|#
+
+(def-test-system test-redundant-recompile
+  :components ((:file "file2" :in-order-to ((compile-op (load-op "file1"))
+                                            (load-op (load-op "file1"))))
+               (:file "file1")))
+
+
+(load-system 'test-redundant-recompile)
+;; test that it compiled
+(defparameter file1 (test-fasl "file1"))
+(defparameter file2 (test-fasl "file2"))
+(defparameter file1-date (file-write-date file1))
+(defparameter file2-date (file-write-date file2))
+
+(format t "~&test-redundant-recompile 1: ~S ~S~%" file1 file1-date)
+(format t "~&test-redundant-recompile 2: ~S ~S~%" file2 file2-date)
+(assert file1-date)
+(assert file2-date)
+
+;; and loaded
+(assert (symbol-value (find-symbol (symbol-name :*file1*) :test-package)))
+
+;; now rerun the load-op and check that no files are recompiled
+(load-system 'test-redundant-recompile)
+(assert-equal file1-date (file-write-date file1))
+(assert-equal file2-date (file-write-date file2))

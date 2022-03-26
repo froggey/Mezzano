@@ -1,0 +1,74 @@
+--------------
+
+Copyright (c) 1987-1993 by BBN Systems and Technologies,
+A Division of Bolt, Beranek and Newman Inc.
+All rights reserved.
+
+Permission to use, copy, modify and distribute this software and its
+documentation is hereby granted without fee, provided that the above
+copyright notice of BBN Systems and Technologies, this paragraph and the
+one following appear in all copies and in supporting documentation, and
+that the name Bolt Beranek and Newman Inc. not be used in advertising or
+publicity pertaining to distribution of the software without specific,
+written prior permission. Any distribution of this software or derivative
+works must comply with all applicable United States export control laws.
+
+BBN makes no representation about the suitability of this software for any
+purposes.  It is provided "AS IS", without express or implied warranties
+including (but not limited to) all implied warranties of merchantability
+and fitness for a particular purpose, and notwithstanding any other
+provision contained herein.  In no event shall BBN be liable for any
+special, indirect or consequential damages whatsoever resulting from loss
+of use, data or profits, whether in an action of contract, negligence or
+other tortuous action, arising out of or in connection with the use or
+performance of this software, even if BBN Systems and Technologies is
+advised of the possiblity of such damages.
+
+--------------
+
+Scigraph Scientific Graphing Package
+
+Scigraph is a an object-oriented library for doing x-vs-y plots.  It can be
+embedded in other applications.  Scigraph's functionality includes scatter
+plots, linear plots, bar charts, contour plots, and symbolic equations.
+Scatter, linear, and bar plots are fast and reliable.  It runs in Dynamic
+Windows and every version of CLIM under Symbolics, Allegro, Lucid, and MCL.
+Graphs and data points are mouse-sensitive.  You may either interactively
+or programmatically control zooming, annotating, setting colors and
+symbols, and the usual features you would expect.
+
+Scigraph is available via anonymous ftp from cambridge.apple.com
+in the directory pub/clim/clim-1-and-2/scigraph.
+
+There are three subdirectories to this directory, scigraph, dwim, and
+contrib.
+
+Scigraph, contains the main body of the source code.  This source code
+looks a lot like dynamic windows because that is where the system grew up.
+Documentation for scigraph, including how to compile and load it, is in
+scigraph/scigraph.doc.
+
+Dwim, contains a set of utilities for scigraph that make the various lisps
+compatible and make every version of CLIM look like dynamic windows.  DWIM
+can be thought of as a thin layer of syntax that buffers Scigraph from the
+winds of CLIM change.
+
+Contrib, is where users may contribute patches and extensions to Scigraph.
+We may periodically peek in this directory to merge contributions into the
+main source code.
+
+There is also a compressed tar file, scigraph.tar.Z, containing a copy of
+the above files.
+
+Questions and comments should be addressed to the authors.
+
+Jeff Morrill (jmorrill@bbn.com)
+Ken Anderson (kanderson@bbn.com)
+
+---
+
+McCLIM distribution doesn't seem to have scigraph.doc file. Mr. Rainer
+Joswig was kind enough to share the documentation he had which is now
+available at the following url:
+
+https://common-lisp.net/project/mcclim/static/files/scigraph.zip

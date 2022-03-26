@@ -1,0 +1,43 @@
+;;;; -*- Mode: LISP; Syntax: ANSI-Common-Lisp; Base: 10 -*-
+
+;;; cl-pdf copyright 2002-2003 Marc Battyani see license.txt for the details
+;;; You can reach me at marc.battyani@fractalconcept.com or marc@battyani.net
+;;; The homepage of cl-pdf is here: http://www.fractalconcept.com/asp/html/cl-pdf.html
+
+;(load "/home/cph/v/systems/defsystem.lisp")
+
+(mk:defsystem :iterate
+    :source-extension "lisp"
+    :source-pathname "/home/cph/lisp/cl-pdf-current/iterate/"
+    :components ((:file "package")
+		 (:file "iterate" :depends-on ("package"))))
+
+
+(mk:defsystem :cl-pdf
+    :source-extension "lisp"
+    ;; - cph 17-Aug-2004
+    :initially-do #+:cmu (alien:load-foreign "/usr/lib/libz.so.1")
+    #+:lispworks
+    (fli:register-module "ZLIB" :real-name (if (string= (software-type) "Linux") "zlib.so" "zlib.dll"))
+    :components ((:file "defpackage")
+		 (:file "config" :depends-on ("defpackage"))
+		 ;; - cph 17-Aug-2004
+		 ;;(:file "zlib" :depends-on ("config"))
+		 #+:cmu (:file "contrib/zlib-cmucl")
+		 #+:lispworks (:file "contrib/zlib-lw")
+		 (:file "font-metrics"  :depends-on ("config"))
+		 (:file "encodings"  :depends-on ("defpackage"))
+		 (:file "t1-font" :depends-on ("font-metrics" "encodings"))
+		 (:file "font" :depends-on ("t1-font"))
+		 (:file "pdf" :depends-on ("font"))
+		 (:file "x11-colors" :depends-on ("defpackage"))
+		 (:file "pdf-base" :depends-on ("pdf" "x11-colors"))
+		 (:file "pdf-geom" :depends-on ("pdf-base"))
+		 (:file "text" :depends-on ("pdf-base"))
+		 (:file "bar-codes" :depends-on ("pdf-geom"))		 
+		 (:file "chart" :depends-on ("text" "pdf-geom")))
+    :depends-on (:iterate)
+    ;; - cph 17-Aug-2004
+    ;;:depends-on (:uffi)
+    :finally-do (pushnew :cl-pdf cl:*features*)
+    )

@@ -1,0 +1,52 @@
+;;; -*- Lisp -*-
+
+(defparameter asd (subpathname *test-directory* "test-multiple.asd"))
+(defparameter asd2 (subpathname *test-directory* "test-multiple-too.asd"))
+(defparameter file4 (test-fasl "file4"))
+(setf *central-registry* `(,*test-directory*))
+
+;; Don't rely on ln -s because of Windows.
+;; Also allows pathname tests to distinguish between asd and asd2
+(delete-file-if-exists asd2)
+(concatenate-files (list asd) asd2) ;; don't use copy-file, to ensure the timestamp of asd2 is newer.
+
+(defmacro with-bad-system-names (&body body)
+  `(handler-bind ((bad-system-name #'(lambda (c) (muffle-warning c))))
+     ,@body))
+
+(with-asdf-session ()
+  (DBG "Loading test-multiple-too, a copy of test-multiple")
+  (with-bad-system-names
+    (oos 'load-source-op 'test-multiple-too))
+  (assert (asymval :*file2* :test-package))
+  (assert (not (asymval :*file4* :test-package))) ;; file4 from test-multiple-free is not loaded
+  ;; All systems loaded from test-multiple-too.asd
+  (assert-pathname-equal (system-source-file (registered-system 'test-multiple)) asd2)
+  (assert-pathname-equal (system-source-file (registered-system 'test-multiple-too)) asd2)
+  (assert-pathname-equal (system-source-file (registered-system 'test-multiple-dep)) asd2)
+  (assert-pathname-equal (system-source-file (registered-system 'test-multiple-free)) asd2))
+
+(with-asdf-session ()
+  (DBG "Loading test-multiple-free, a badly named secondary system that depends on test-multiple (that was loaded as badly named from test-multiple-too). It shouldn't be found by path, so the existing definition will be used, which will pull test-multiple, which will in turn override test-multiple-too, but test-multiple-free will be locked to the value at the beginning of the session, which uses test-multiple-too.asd (ouch).")
+  (with-bad-system-names
+    (load-system 'test-multiple-free))
+  (assert (probe-file* file4))
+  (assert (asymval :*file4* :test-package)) ;; file4 from test-multiple-free is loaded
+  ;; All systems loaded from test-multiple.asd except test-multiple-free stuck with test-multiple-too.asd
+  (assert-pathname-equal (system-source-file (registered-system 'test-multiple)) asd)
+  (assert-pathname-equal (system-source-file (registered-system 'test-multiple-too)) asd)
+  (assert-pathname-equal (system-source-file (registered-system 'test-multiple-dep)) asd)
+  (assert-pathname-equal (system-source-file (registered-system 'test-multiple-free)) asd2))
+
+(with-asdf-session ()
+  (DBG "Loading test-multiple-free again. [I admit I don't fully understand the behavior -fare]")
+  (setf test-package::*file4* nil)
+  (with-bad-system-names
+    (DBG :l (asdf/plan:plan-actions (nth-value 1 (oos 'load-op 'test-multiple-free)))))
+  ;; All systems loaded from test-multiple-too.asd [I'm not sure why; it may have to do with timestamp (!) -fare]
+  (assert-pathname-equal (system-source-file (registered-system 'test-multiple)) asd2)
+  (assert-pathname-equal (system-source-file (registered-system 'test-multiple-too)) asd2)
+  (assert-pathname-equal (system-source-file (registered-system 'test-multiple-dep)) asd2)
+  (assert-pathname-equal (system-source-file (registered-system 'test-multiple-free)) asd2)
+  ;; The above unexpected reloading of asd causes file4 to be reloaded
+  (assert-equal test-package::*file4* t))

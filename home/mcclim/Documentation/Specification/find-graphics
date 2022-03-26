@@ -1,0 +1,9 @@
+#!/bin/sh
+for i in $*
+do
+    egrep includegraphics $i \
+    | sed  's/^.*includegraphics{\(.*\)}}/\1.pdf/' \
+    | tr ['\n'] [' ']
+done
+
+

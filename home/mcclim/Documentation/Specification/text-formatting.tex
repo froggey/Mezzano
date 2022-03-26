@@ -1,0 +1,97 @@
+% -*- Mode: LaTeX; Package: CLIM-USER -*-
+
+\chapter {Text Formatting}
+\label {text-formatting}
+
+\section {Textual List Formatting}
+
+\Defun {format-textual-list} {sequence printer
+                              \key stream separator conjunction}
+
+Outputs the sequence of items in \arg{sequence} as a ``textual list''.  For
+example, the list \cl{(1 2 3 4)} might be printed as
+\begin{verbatim}
+1, 2, 3, and 4
+\end{verbatim}
+
+\arg{printer} is a function of two arguments: an element of the sequence and a
+stream; it has dynamic extent.  It is called to output each element of the
+sequence.
+
+\arg{stream} specifies the output stream.  The default is \cl{*standard-output*}.
+
+The \arg{separator} and \arg{conjunction} arguments provide control over the
+appearance of each element of the sequence and over the separators used between
+each pair of elements.  \arg{separator} is a string that is output after every
+element but the last one; the default for \arg{separator} is \cl{", "} (that is,
+a comma followed by a space).  \arg{conjunction} is a string that is output
+before the last element.  The default is \cl{nil}, meaning that there is no
+conjunction.  Typical values for \arg{conjunction} are the strings \cl{"and"}
+and \cl{"or"}.
+
+
+\section {Indented Output}
+
+\Defmacro {indenting-output} {(stream indentation \key (move-cursor \cl{t}))
+                              \body body}
+
+Binds \arg{stream} to a stream that inserts whitespace at the beginning of each
+line of output produced by \arg{body}, and then writes the indented output to
+the stream that is the original value of \arg{stream}.
+
+The \arg{stream} argument is not evaluated, and must be a symbol that is bound to
+an output recording stream.  If \arg{stream} is \cl{t}, \cl{*standard-output*} is
+used.  \arg{body} may have zero or more declarations as its first forms.
+
+\arg{indentation} specifies how much whitespace should be inserted at the
+beginning of each line.  It is specified in the same way as the \cl{:x-spacing}
+option to \cl{formatting-table}.
+
+If the boolean \arg{move-cursor} is \term{true} (the default), CLIM moves the
+cursor to the end of the table.
+
+Programmers using \cl{indenting-output} should begin the body with a call to
+\arg{fresh-line} (or some equivalent) to position the stream to the initial
+indentation.
+
+{\bf Implementation note:} Some CLIM implementations restrict the use of
+\cl{indenting-output} and \cl{filling-output} such that a call to
+\cl{indenting-output} should appear outside of a call to \cl{filling-output}.
+Implementations are encouraged to relax this restriction if the behavior is
+well-defined, but uses of \cl{indenting-output} inside of \cl{filling-output}
+may not be portable.
+
+
+\section {Filled Output}
+
+\Defmacro {filling-output} {(stream \key fill-width break-characters
+                                         after-line-break after-line-break-initially) 
+                            \body body}
+
+Binds \arg{stream} to a stream that inserts line breaks into the textual output
+written to it (by such functions as \cl{write-char} and \cl{write-string}) so
+that the output is usually no wider then \arg{fill-width}.  The filled output is
+then written on the original stream.
+
+The \arg{stream} argument is not evaluated, and must be a symbol that is bound
+to a stream.  If \arg{stream} is \cl{t}, \cl{*standard-output*} is used.
+\arg{body} may have zero or more declarations as its first forms.
+
+\arg{fill-width} specifies the width of filled lines, and defaults to 80
+characters.  It is specified the same way as the \cl{:x-spacing} option for
+\cl{formatting-table}.
+
+``Words'' are separated by the characters specified in the list
+\arg{break-characters}.  When a line is broken to prevent wrapping past the end
+of a line, the line break is made at one of these separators.  That is,
+\cl{filling-output} does not split ``words'' across lines, so it might produce
+output wider than \arg{fill-width}.
+
+\arg{after-line-break} specifies a string to be sent to \arg{stream} after line
+breaks; the string appears at the beginning of each new line.  The string must
+not be wider than \arg{fill-width}.
+
+If the boolean \arg{after-line-break-initially} is \term{true}, then the
+\arg{after-line-break} text is to be written to \arg{stream} before executing
+\arg{body}, that is, at the beginning of the first line.  The default is
+\term{false}.

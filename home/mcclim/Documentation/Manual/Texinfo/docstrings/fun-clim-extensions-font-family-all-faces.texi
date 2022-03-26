@@ -1,0 +1,4 @@
+@anchor{Generic-Function clim-extensions:font-family-all-faces}
+@deffn {Generic Function} {@symbol{font-family-all-faces,clim-extensions}} font-family
+Return the list of all font-face instances for this family.
+@end deffn

@@ -1,0 +1,7 @@
+@anchor{Generic-Function clim-extensions:font-face-all-sizes}
+@deffn {Generic Function} {@symbol{font-face-all-sizes,clim-extensions}} font-face
+Return the list of all font sizes known to be valid for this font,
+if the font is restricted to particular sizes.  For scalable fonts, arbitrary
+sizes will work, and this list represents only a subset of the valid sizes.
+See font-face-scalable-p.
+@end deffn

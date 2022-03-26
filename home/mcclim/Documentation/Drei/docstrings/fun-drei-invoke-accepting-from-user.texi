@@ -1,0 +1,7 @@
+@anchor{Generic-Function drei:invoke-accepting-from-user}
+@deffn {Generic Function} {drei:invoke-accepting-from-user} drei continuation
+@findex drei:invoke-accepting-from-user
+Set up @code{drei} and the environment so that
+calls to @code{accept} will behave properly. Then call
+@code{continuation}.
+@end deffn

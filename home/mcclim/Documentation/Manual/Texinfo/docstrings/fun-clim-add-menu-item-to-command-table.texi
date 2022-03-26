@@ -1,0 +1,4 @@
+@anchor{Function clim:add-menu-item-to-command-table}
+@deffn {Function} {@symbol{add-menu-item-to-command-table,clim}} command-table string type value &rest args &key documentation after keystroke text-style errorp
+Adds menu item to the command table.
+@end deffn

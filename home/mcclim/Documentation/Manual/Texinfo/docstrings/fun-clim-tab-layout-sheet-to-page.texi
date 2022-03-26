@@ -1,0 +1,5 @@
+@anchor{Function clim-tab-layout:sheet-to-page}
+@deffn {Function} {@symbol{sheet-to-page,clim-tab-layout}} sheet
+For a @code{sheet} that is a child of a tab layout, return the page corresponding
+to this sheet.  See also @code{tab-page-pane}, the reverse operation.
+@end deffn

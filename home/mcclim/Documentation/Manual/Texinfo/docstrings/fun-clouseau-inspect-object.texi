@@ -1,0 +1,11 @@
+@anchor{Generic-Function clouseau:inspect-object}
+@deffn {Generic Function} {@symbol{inspect-object,clouseau}} object stream
+Present @var{object} to @var{stream}.
+
+By default, calls @code{inspector-object-using-state}.
+
+@var{stream} is the stream to which @var{object} should be presented.
+
+User code normally does not have to define methods on this generic
+functions.
+@end deffn

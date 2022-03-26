@@ -1,0 +1,7 @@
+@anchor{Generic-Function drei-buffer:delete-range}
+@deffn {Generic Function} {drei-buffer:delete-range} mark &optional n
+@findex drei-buffer:delete-range
+Delete @code{n} objects after (if n > 0) or
+before (if n < 0) the mark.  This function eventually calls
+delete-buffer-range, provided that @code{n} is not zero.
+@end deffn

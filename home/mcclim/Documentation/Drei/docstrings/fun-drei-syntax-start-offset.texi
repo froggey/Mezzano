@@ -1,0 +1,6 @@
+@anchor{Generic-Function drei-syntax:start-offset}
+@deffn {Generic Function} {drei-syntax:start-offset} parse-tree
+@findex drei-syntax:start-offset
+The offset in the buffer of the first
+character of a parse tree.
+@end deffn

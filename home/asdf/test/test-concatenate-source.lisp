@@ -1,0 +1,8 @@
+(defpackage :test-package (:use :cl))
+(in-package :test-package)
+(defvar *file3* t)
+(defpackage :test-package (:use :cl))
+(in-package :test-package)
+(defvar *file1* t)
+(in-package :test-package)
+(assert *file1*)

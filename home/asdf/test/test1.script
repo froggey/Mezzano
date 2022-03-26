@@ -1,0 +1,63 @@
+;;; -*- Lisp -*-
+
+(setf asdf::*asdf-session* (make-instance asdf::*asdf-session-class*))
+
+;; We need use the pathnames used by ASDF.
+(defparameter test1.asd (system-source-file 'test1))
+(defparameter file1.lisp (component-pathname (find-component 'test1 "file1")))
+(defparameter file2.lisp (component-pathname (find-component 'test1 "file2")))
+(assert-pathname-equal test1.asd (test-source "test1.asd")) ; unhappily, not usually equal.
+(assert-pathname-equal file1.lisp (test-source "file1.lisp")) ; unhappily, not usually equal.
+(assert-pathname-equal file2.lisp (test-source "file2.lisp")) ; unhappily, not usually equal.
+(defparameter *file1.out* (output-files 'compile-op '(test1 "file1")))
+(defparameter *file2.out* (output-files 'compile-op '(test1 "file2")))
+(defparameter file1.fasl (first *file1.out*))
+(defparameter file2.fasl (first *file2.out*))
+(assert-pathname-equal file1.fasl (test-fasl "file1"))
+(assert-pathname-equal file2.fasl (test-fasl "file2"))
+
+(defparameter *date* (- (file-write-date test1.asd) 3600))
+(touch-file test1.asd :timestamp *date*) ;; touch test1.asd an hour back.
+(touch-file file1.lisp :timestamp *date* :offset 100)
+(touch-file file2.lisp :timestamp *date* :offset 200)
+(assert-equal (get-file-stamp file1.lisp) (+ *date* 100))
+(assert-equal (get-file-stamp file2.lisp) (+ *date* 200))
+(DBG "loading test1")
+(load-system 'test1)
+
+(defparameter *then* (file-write-date (first *file2.out*)))
+(assert-compare (<= (+ *date* 3600) *then*))
+
+(DBG "test that it compiled" *date* *then*)
+(dolist (f (append *file1.out* *file2.out*))
+  (eval `(assert (probe-file ,f))))
+
+(DBG "and loaded")
+(assert (asymval :*file1* :test-package))
+
+(DBG "now remove file2 that depends-on file1")
+(dolist (f *file1.out*) (touch-file f :timestamp (+ *date* 500)))
+(assert-equal (+ *date* 500) (get-file-stamp file1.fasl))
+(map () 'mark-file-deleted *file2.out*)
+(clear-system 'test1)
+
+(DBG "load again")
+(defparameter *plan* (nth-value 1 (operate 'load-op 'test1)))
+(DBG "check that file1 is _not_ recompiled, but file2 is")
+(assert (in-plan-p *plan* '(compile-op "test1" "file2")))
+(assert (not (in-plan-p *plan* '(compile-op "test1" "file1"))))
+
+(assert-equal (+ *date* 500) (get-file-stamp file1.fasl))
+(defparameter *before* (get-file-stamp file2.fasl))
+(assert-compare (<= *then* *before*))
+
+(DBG "now touch file1 and check that file2 _is_ also recompiled")
+;; XXX run-shell-command loses if *default-pathname-defaults* is not the
+;; unix cwd.  this is not a problem for run-tests.sh, but can be in general
+(touch-file file1.lisp :timestamp (+ *date* 3000)) ;; touch file1 a minute ago.
+(dolist (f *file2.out*) (touch-file f :timestamp (+ *date* 2000))) ;; touch file2.fasl some time before.
+(asdf:clear-system 'test1)
+(asdf:operate 'asdf:load-op 'test1)
+(DBG :foo (file-write-date file2.fasl) *before*)
+(assert-compare (>= (file-write-date file2.fasl) *before*))
+

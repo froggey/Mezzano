@@ -1,0 +1,41 @@
+@anchor{Macro clouseau:formatting-place}
+@deffn {Macro} {@symbol{formatting-place,clouseau}} (object place-class cell present-place present-object &key place-var) &body
+Execute @var{body} with @var{present-place} and @var{present-object}
+bound to print functions.
+
+Before @var{body} is executed, an instance of @var{place-class}
+representing the child of @var{container} selected by @var{place-class}
+and @var{cell} is created and stored in the place associated with
+@var{container} unless such an instance already exists.
+
+@var{present-place} is bound to a function that, when called with a
+stream as its sole argument, outputs a presentation corresponding to the
+created place to the stream. The produced presentation will be of
+presentation-type @class{place}.
+
+@var{present-object} is bound to a function that, when called with a
+stream as its sole argument, outputs a presentation corresponding to the
+child of @var{container} selected by @var{place-class} and @var{cell}.
+
+Example:
+
+This application of the macro
+
+@lisp
+(clouseau:formatting-place
+    (object 'clouseau:reader-place 'symbol-name
+     present-place present-object)
+  (write-string "Symbol name" stream) ; Label
+  (present-place stream)              ; Write place presentation
+  (present-object stream))            ; Write value presentation
+@end lisp
+
+outputs the name of @code{symbol} as an immutable place to @code{stream}
+like this:
+
+@example
+Symbol name → <value>
+^ Label       ^ Value presentation
+            ^ Place presentation
+@end example
+@end deffn

@@ -1,0 +1,34 @@
+It is with great pleasure that we announce the release of ASDF 3.2.0, a new milestone in the development of ASDF. This change in minor version number advertises how much ASDF has evolved since we released 3.1 in 2014, and at the same time how stable the API has been since we release 3.0 in 2013. Note that we already have significant changes in the pipeline and are intending to release a 3.3.0 in a couple of months.
+
+We urge implementations that are currently bundling previous versions of ASDF to adopt 3.2.0 at their earliest convenience. Release 3.2.0 contains significant bug fixes on multiple platforms and implementations, and does not introduce any incompatibilities on public APIs. It does however introducing cleanups and refactorings that break some undocumented (and sometimes explicitly deprecated) internals. Those systems in Quicklisp that abused these internals have been fixed (notably including slime, asdf-system-connections, cffi, iolib, prove, cl-protobufs). Details on bugfixes can be found at https://launchpad.net/asdf and in the discussions in merged branches of https://gitlab.common-lisp.net/asdf/asdf
+
+Notable credits go to Robert Goldman for his relentless testing and push for quality, to Elias Pipping for his contribution of the new launch-program infrastructure and upping the standards for code, to François-René Rideau for general coding and fixing a few more bugs than he put in, to Dave Cooper for lending access to a Windows test server, and to Anton Vodonosov for repeatedly testing with cl-test-grid.
+
+Here is the changelog entry for 3.2.0, compared to 3.1.7:
+
+  New milestone:
+  * launch-program: new UIOP API for asynchronous subprocesses, now available
+    on: abcl allegro clozure cmucl ecl (and lispworks os-unix) mkcl sbcl scl.
+    Big thanks to Elias Pipping for this significant contribution!
+  * parameter-error, not-implemented-error: new UIOP functions to better signal
+    abuse of parameters in function calls, or lack of function implementation.
+  * with-deprecation macro in UIOP signals style-warnings, then warnings,
+    then errors when deprecated functions are used. This macro is now used
+    for all deprecated functions in ASDF.
+  * require-system, component-loaded-p fixed to not reload .asd files,
+    and to work in presence of preloaded-systems, that are now eagerly loaded.
+  * registered-system added as an abstraction for internals and extensions.
+  * make-operation is now the only supported way to create an operation;
+    calling make-instance directly will raise an error. Update your software!
+  * Removal of several obsolete backward-compatible internals:
+    if-component-dep-fails, operation-forced. Update SLIME!
+  * Robustness and portability fixes all around uiop, notably dealing with
+    directory access, bundles on ECL and MKCL or with cffi-toolchain,
+    dealing with a fatal-condition, surviving use of "logical" pathnames, etc.
+  * Tests improved and extensively run on Linux, macOS and, notably, Windows,
+    with recent versions of all the maintained CL implementations.
+  * Internals of ASDF systematically cleaned up and documented.
+  * Build, test, release infrastructure improved, both classic and asdf-tools.
+  * Documentation updated.
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Sun, 08 Jan 2017 20:45:29 -0500

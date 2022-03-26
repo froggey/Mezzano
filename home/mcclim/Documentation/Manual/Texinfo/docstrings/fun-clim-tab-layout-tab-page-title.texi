@@ -1,0 +1,5 @@
+@anchor{Generic-Function clim-tab-layout:tab-page-title}
+@deffn {Generic Function} {@symbol{tab-page-title,clim-tab-layout}} tab-page
+Return the title displayed in the tab for this @code{page}.
+Use the @code{setf} function of the same name to set the title dynamically.
+@end deffn

@@ -1,0 +1,12 @@
+#!/bin/sh
+CHAINE=$1
+MOTIF="^\\\\$CHAINE\{.*\}"
+shift
+for i in $*
+do
+    egrep $MOTIF $i \
+    | sed  "s/^\\\\$CHAINE{\(.*\)}/\1/" \
+    | tr ['\n'] [' ']
+done
+
+

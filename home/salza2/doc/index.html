@@ -1,0 +1,486 @@
+<html>
+<head>
+<title>Salza2 - Create compressed data from Common Lisp</title>
+<style type="text/css">
+  a, a:visited { text-decoration: none }
+  a[href]:hover { text-decoration: underline }
+  pre { background: #DDD; padding: 0.25em }
+  p.download { color: red }
+</style>
+</head>
+
+<body>
+
+<h2>Salza2 - Create compressed data from Common Lisp</h2>
+
+<blockquote class='abstract'>
+<h3>Abstract</h3>
+
+<p>Salza2 is a Common Lisp library for creating compressed data in the
+ZLIB, DEFLATE, or GZIP data formats, described in
+<a href="http://ietf.org/rfc/rfc1950.txt">RFC 1950</a>,
+<a href="http://ietf.org/rfc/rfc1951.txt">RFC 1951</a>, and
+<a href="http://ietf.org/rfc/rfc1952.txt">RFC 1952</a>, respectively.
+It does not use any external libraries for compression. It does not
+yet support decompression.  Salza2 is available under
+a <a href="COPYING.txt">BSD-like license</a>. 
+
+The latest version is 2.0.9, released on July 18th, 2013.
+
+<p class='download'>Download shortcut:
+
+<p><a href="http://www.xach.com/lisp/salza2.tgz">http://www.xach.com/lisp/salza2.tgz</a>
+
+</blockquote>
+
+
+<h3>Contents</h3>
+
+<ol>
+
+  <li> <a href='#sect-overview-and-limitations'>Overview and Limitations</a>
+
+  <li> <a href='#sect-dictionary'>Dictionary</a>
+
+    <ul>
+      <li> <a href='#sect-standard-compressors'>Standard Compressors</a>
+
+	<ul>
+	  <li> <a href='#deflate-compressor'><tt>deflate-compressor</tt></a>
+	  <li> <a href='#zlib-compressor'><tt>zlib-compressor</tt></a>
+	  <li> <a href='#gzip-compressor'><tt>gzip-compressor</tt></a>
+	  <li> <a href='#callback'><tt>callback</tt></a>
+	  <li> <a href='#compress-octet'><tt>compress-octet</tt></a>
+	  <li> <a href='#compress-octet-vector'><tt>compress-octet-vector</tt></a>
+	  <li> <a href='#finish-compression'><tt>finish-compression</tt></a>
+	  <li> <a href='#reset'><tt>reset</tt></a>
+	  <li> <a href='#with-compressor'><tt>with-compressor</tt></a>
+	</ul>
+
+      <li> <a href='#sect-customizing-compressors'>Customizing Compressors</a>
+
+	<ul>
+	  <li> <a href='#write-bits'><tt>write-bits</tt></a>
+	  <li> <a href='#write-octet'><tt>write-octet</tt></a>
+	  <li> <a href='#start-data-format'><tt>start-data-format</tt></a>
+	  <li> <a href='#process-input'><tt>process-input</tt></a>
+	  <li> <a href='#finish-data-format'><tt>finish-data-format</tt></a>
+	</ul>
+
+      <li> <a href='#sect-checksums'>Checksums</a>
+
+	<ul>
+	  <li> <a href='#adler32-checksum'><tt>adler32-checksum</tt></a>
+	  <li> <a href='#crc32-checksum'><tt>crc32-checksum</tt></a>
+	  <li> <a href='#update'><tt>update</tt></a>
+	  <li> <a href='#result'><tt>result</tt></a>
+	  <li> <a href='#result-octets'><tt>result-octets</tt></a>
+	  <li> <a href='#reset-checksum'><tt>reset</tt></a>
+	</ul>
+
+      <li> <a href='#sect-shortcuts'>Shortcuts</a>
+
+	<ul>
+	  <li> <a href='#make-stream-output-callback'><tt>make-stream-output-callback</tt></a>
+	  <li> <a href='#gzip-stream'><tt>gzip-stream</tt></a>
+	  <li> <a href='#gzip-file'><tt>gzip-file</tt></a>
+	  <li> <a href='#compress-data'><tt>compress-data</tt></a>
+	</ul>
+    </ul>
+
+  <li> <a href='#sect-references'>References</a>
+
+  <li> <a href='#sect-acknowledgements'>Acknowledgements</a>
+
+  <li> <a href='#sect-feedback'>Feedback</a>
+
+</ol>
+
+
+<a name='sect-overview-and-limitations'><h3>Overview and Limitations</h3></a>
+
+<p>Salza2 provides an interface for creating a compressor object. This
+  object acts as a sink for octets (either individual octets or
+  vectors of octets), and is a source for octets in a compressed data
+  format. The compressed octet data is provided to a user-defined
+  callback that can write it to a stream, copy it to another vector,
+  etc.
+
+<p>Salza2 has built-in compressors that support the ZLIB, DEFLATE, and
+  GZIP data formats. The classes and generic function protocol are
+  available to make it easy to support similar formats via subclassing
+  and new methods. ZLIB and GZIP are extensions to the DEFLATE format
+  and are implemented as subclasses
+  of <a href='#deflate-compressor'><tt>DEFLATE-COMPRESSOR</tt></a>
+  with a few methods implemented for the protocol.
+
+<p>Salza2 is the successor
+to <a href="http://cliki.net/Salza">Salza</a>, but it is not
+backwards-compatible. Among other changes, Salza2 drops support for
+compressing Lisp character data, since the compression formats are
+octet-based and obtaining encoded octets from Lisp characters varies
+from implementation to implementation.
+
+<p>There are a number of functions that provide a simple interface to
+  specific tasks such as gzipping a file or compressing a single
+  vector.
+
+<p>Salza2 does not decode compressed data. There is no support for
+  dynamically defined Huffman codes. There is currently no interface
+  for changing the tradeoff between compression speed and compressed
+  data size.
+
+
+<a name='sect-dictionary'><h3>Dictionary</h3></a>
+
+<p>The following symbols are exported from the SALZA2 package.
+
+
+<a name='sect-standard-compressors'><h4>Standard Compressors</h4></a>
+
+<p><a name='deflate-compressor'
+><a name='zlib-compressor'><a name='gzip-compressor'>[Classes]</a></a></a><br>
+<b>deflate-compressor</b><br>
+<b>zlib-compressor</b><br>
+<b>gzip-compressor</b>
+
+<blockquote>
+Instances of these classes may be created via make-instance. The only
+supported initarg is <tt>:CALLBACK</tt>.
+See <a href='#callback'><tt>CALLBACK</tt></a> for the expected value.
+</blockquote>
+
+
+<p><a name='callback'>[Accessor]</a><br>
+<b>callback</b> <i>compressor</i> => <i>callback</i><br>
+(<tt>setf</tt> (<b>callback</b> <i>compressor</i>) <i>new-value</i>) 
+=> <i>new-value</i>
+
+<blockquote>
+Gets or sets the callback function of <i>compressor</i>. The callback
+should be a function of two arguments, an octet vector and an end
+index, and it should process all octets from the start of the vector
+below the end index as the compressed output data stream of the
+compressor. See <a href='#make-stream-output-callback'><tt>MAKE-STREAM-OUTPUT-CALLBACK</tt></a>
+for an example callback.
+
+</blockquote>
+
+<p><a name='compress-octet'>[Function]</a><br>
+<b>compress-octet</b> <i>octet</i> <i>compressor</i> => |
+
+<blockquote>
+Adds <i>octet</i> to <i>compressor</i> to be compressed.
+</blockquote>
+
+
+<p><a name='compress-octet-vector'>[Function]</a><br>
+<b>compress-octet-vector</b> <i>vector</i> <i>compressor</i> <tt>&key</tt>
+ <i>start</i> <i>end</i> => |
+
+<blockquote>
+Adds the octets from <i>vector</i> to <i>compressor</i> to be
+compressed, beginning with the octet at <i>start</i> and ending at the
+octet at
+<i>end</i> - 1. If <i>start</i> is not specified, it defaults to
+0. If <i>end</i> is not specified, it defaults to the total length
+of <i>vector</i>. Equivalent to (but much more efficient than) the
+following:
+
+<pre>
+(loop for i from start below end
+      do (compress-octet (aref vector i) compressor))
+</pre>
+
+</blockquote>
+
+
+<p><a name='finish-compression'>[Generic function]</a><br>
+<b>finish-compression</b> <i>compressor</i> => |
+
+<blockquote>Compresses any pending data, concludes the data format
+  for <i>compressor</i> with
+<a href='#finish-data-format'><tt>FINISH-DATA-FORMAT</tt></a>, and
+invokes the user callback for the final octets of the compressed data
+format. This function must be called at the end of compression to
+ensure the validity of the data format; it is called implicitly
+by <a href='#with-compressor'><tt>WITH-COMPRESSOR</tt></a>.
+
+</blockquote>
+
+
+<p><a name='reset'>[Generic function]</a><br>
+<b>reset</b> <i>compressor</i> => |
+
+<blockquote>
+The default method
+for <a href='#deflate-compressor'><tt>DEFLATE-COMPRESSOR</tt></a>
+objects resets the internal state of <i>compressor</i> and
+calls <a href='#start-data-format'><tt>START-DATA-FORMAT</tt></a>. This
+allows the re-use of a single compressor object for multiple
+compression tasks.
+</blockquote>
+
+
+<p><a name='with-compressor'>[Macro]<br>
+<b>with-compressor</b> (<i>var</i> <i>class</i> 
+<tt>&amp;rest</tt> <i>initargs</i> 
+<tt>&amp;key</tt> <tt>&allow-other-keys</tt>)
+<tt>&amp;body</tt> <i>body</i> => |
+
+<blockquote>
+Evaluates <i>body</i> with <i>var</i> bound to a new compressor
+created as
+with <tt>(apply&nbsp;#'make-instance&nbsp;class&nbsp;initargs)</tt>.
+<a href='#finish-compression'><tt>FINISH-COMPRESSION</tt></a>
+is implicitly called on the compressor at the end of evaluation.
+</blockquote>
+
+
+<a name='sect-customizing-compressors'><h4>Customizing Compressors</h4></a>
+
+<p>Compressor objects follow a protocol that makes it easy to create
+  specialized data formats. The ZLIB data format is essentially the
+  same as the DEFLATE format with an additional header and a trailing
+  checksum; this is implemented by creating a new class and adding a
+  few new methods to the generic functions below.
+
+<p>For example, consider a new compressed data format FOO that
+  encapsulates a DEFLATE data stream but adds four signature octets,
+  F0 0D 00 D1, to the start of the output data stream, and adds a
+  trailing 32-bit length value, MSB first, after the end. It could be
+  implemented like this:
+
+<pre>
+(defclass foo-compressor (deflate-compressor)
+  ((data-length
+    :initarg :data-length
+    :accessor data-length))
+  (:default-initargs
+   :data-length 0))
+
+(defmethod <a href='#start-data-format'>start-data-format</a> :before ((compressor foo-compressor))
+  (<a href='#write-octet'>write-octet</a> #xF0 compressor)
+  (write-octet #x0D compressor)
+  (write-octet #x00 compressor)
+  (write-octet #xD1 compressor))
+
+(defmethod <a href='#process-input'>process-input</a> :after ((compressor foo-compressor) input start count)
+  (declare (ignore input start))
+  (incf (data-length compressor) count))
+
+(defmethod <a href='#finish-data-format'>finish-data-format</a> :after ((compressor foo-compressor))
+  (let ((length (data-length compressor)))
+    (write-octet (ldb (byte 8 24) length) compressor)
+    (write-octet (ldb (byte 8 16) length) compressor)
+    (write-octet (ldb (byte 8  8) length) compressor)
+    (write-octet (ldb (byte 8  0) length) compressor)))
+
+(defmethod <a href='#reset'>reset</a> :after ((compressor foo-compressor))
+  (setf (data-length compressor) 0))
+</pre>
+
+
+<p><a name='write-bits'>[Function]</a><br>
+<b>write-bits</b> <i>code</i> <i>size</i> <i>compressor</i> => |
+
+<blockquote>
+Writes <i>size</i> low bits of the integer <i>code</i> to the output
+buffer of <i>compressor</i>. Follows the bit packing layout described
+in <a href="http://ietf.org/rfc/rfc1951.txt">RFC 1951</a>. The bits
+are not compressed, but become literal parts of the output stream.
+</blockquote>
+
+
+<p><a name='write-octet'>[Function]</a><br>
+<b>write-octet</b> <i>octet</i> <i>compressor</i> => |
+
+<blockquote>
+Writes <i>octet</i> to the output buffer of <i>compressor</i>. Bits of the
+octet are <i>not</i> packed; the octet is added to the output buffer
+at the next octet boundary. The octet is not compressed, but becomes a
+literal part of the output stream.
+</blockquote>
+
+
+<p><a name='start-data-format'>[Generic function]</a><br>
+<b>start-data-format</b> <i>compressor</i> => |
+
+<blockquote>
+Outputs any prologue bits or octets needed to produce a valid
+compressed data stream for <i>compressor</i>. Called from
+initialize-instance and <a href='#reset'><tt>RESET</tt></a> for
+subclasses of deflate-compressor. Should not be called directly, but
+subclasses may add methods to customize what literal data is added to
+the beginning of the output buffer.
+</blockquote>
+
+
+<p><a name='process-input'>[Generic function]</a><br>
+<b>process-input</b> <i>compressor</i> <i>input</i> 
+<i>start</i> <i>count</i> => |
+
+<blockquote>
+Called when <i>count</i> octets of the octet vector <i>input</i>,
+starting from <i>start</i>, are about to be compressed. This generic
+function should not be called directly, but may be specialized.
+
+<p>This is useful for data formats that must maintain information about
+the uncompressed contents of a compressed data stream, such as
+checksums or total data length.
+</blockquote>
+
+
+<p><a name='finish-data-format'>[Generic function]</a><br>
+<b>finish-data-format</b> <i>compressor</i> => |
+
+<blockquote>
+Called
+by <a href='#finish-compression'><tt>FINISH-COMPRESSION</tt></a>. Outputs
+any epilogue bits or octets needed to produce a valid compressed data
+stream for compressor. This generic function should not be called
+directly, but may be specialized.
+</blockquote>
+
+
+<a name='sect-checksums'><h4>Checksums</h4></a>
+
+<p>Checksums are used in several data formats to check data
+  integrity. For example, PNG uses a CRC32 checksum for its chunks of
+  data. Salza2 exports support for two common checksums.
+
+<p><a name='adler32-checksum'><a name='crc32-checksum'>[Standard classes]</a></a><br>
+<b>adler32-checksum</b><br>
+<b>crc32-checksum</b>
+
+<blockquote>
+Instances of these classes may be created directly with
+make-instance.
+</blockquote>
+
+<p><a name='update'>[Generic function]</a><br>
+<b>update</b> <i>checksum</i> <i>buffer</i> <i>start</i> <i>count</i>
+=> |
+
+<blockquote>
+Updates <i>checksum</i> with <i>count</i> octets from the octet
+vector <i>buffer</i>, starting at <i>start</i>.
+</blockquote>
+
+
+<p><a name='result'>[Generic function]</a><br>
+<b>result</b> <i>checksum</i> => <i>result</i>
+
+<blockquote>
+Returns the accumulated value of <i>checksum</i> as an integer.
+</blockquote>
+
+
+<p><a name='result-octets'>[Generic function]</a><br>
+<b>result-octets</b> <i>checksum</i> => <i>result-list</i>
+
+<blockquote>
+Returns the individual octets of <i>checksum</i> as a list of octets,
+in MSB order.
+</blockquote>
+
+<p><a name='reset-checksum'>[Generic function]<br>
+<b>reset</b> <i>checksum</i> => |
+
+<blockquote>
+The default method for checksum objects resets the internal state
+of <i>checksum</i> so it may be re-used.
+</blockquote>
+
+
+<a name='sect-shortcuts'><h4>Shortcuts</h4></a>
+
+<p>Some shortcuts for common compression tasks are available.
+
+<p><a name='make-stream-output-callback'>[Function]</a><br>
+<b>make-stream-output-callback</b> <i>stream</i> => <i>callback</i>>
+
+<blockquote>
+Creates and returns a callback function that writes all compressed
+data to <i>stream</i>. It is defined like this:
+
+<pre>
+(defun make-stream-output-callback (stream)
+  (lambda (buffer end)
+    (write-sequence buffer stream :end end)))
+</pre>
+</blockquote>
+
+<p><a name='gzip-stream'>[Function]</a><br>
+<b>gzip-stream</b> <i>input-stream</i> <i>output-stream</i> => |
+
+<blockquote>
+Compresses all data read from <i>input-stream</i> and writes the
+compressed data to <i>output-stream</i>.
+</blockquote>
+
+
+<p><a name='gzip-file'>[Function]</a><br>
+<b>gzip-file</b> <i>input-file</i> <i>output-file</i> => <i>pathname</i>
+
+<blockquote>
+Compresses <i>input-file</i> and writes the compressed data
+to <i>output-file</i>.
+</blockquote>
+
+
+<p><a name='compress-data'>[Function]</a><br>
+<b>compress-data</b> <i>data</i> <i>compressor-designator</i> 
+<tt>&amp;rest</tt> <i>initargs</i> => <i>compressed-data</i>
+
+<blockquote>
+Compresses the octet vector <i>data</i> and returns the compressed
+data as an octet vector. <i>compressor-designator</i> should be either
+a compressor object, designating itself, or a symbol, designating a
+compressor created as with <tt>(apply #'make-instance
+compressor-designator initargs)</tt>.
+
+<p>For example:
+
+<pre>
+* <b>(compress-data (sb-ext:string-to-octets "Hello, hello, hello, hello world.") 
+                 'zlib-compressor)</b>
+#(8 153 243 72 205 201 201 215 81 200 192 164 20 202 243 139 114 82 244 0 194 64 11 139)
+</pre>
+</blockquote>
+
+
+<a name='sect-references'><h3>References</h3></a>
+
+<ul>
+
+<li> Deutsch and
+Gailly, <a href='http://ietf.org/rfc/rfc1950.txt'>ZLIB Compressed Data
+Format Specification version 3.3 (RFC 1950)</a>
+
+<li> Deutsch, <a href='http://ietf.org/rfc/rfc1951.txt'>DEFLATE
+Compressed Data Format Specification version 1.3 (RFC 1951)</a>
+
+<li> Deutsch, <a href='http://ietf.org/rfc/rfc1952.txt'>GZIP file
+format specification version 4.3 (RFC 1952)</a>
+
+<li>
+Wikipedia, <a href='http://en.wikipedia.org/wiki/Rabin-Karp_string_search_algorithm'>Rabin-Karp
+string search algorithm</a>
+
+</ul>
+
+
+<a name='sect-acknowledgements'><h3>Acknowledgements</h3></a>
+
+<p>Thanks to Paul Khuong for his help optimizing the modulo-8191
+hashing.
+
+<p>Thanks to Austin Haas for providing some test SWF files
+  demonstrating a data format bug.
+
+<a name='sect-feedback'><h3>Feedback</h3></a>
+
+<p>Please direct any comments, questions, bug reports, or other
+feedback to <a href='mailto:xach@xach.com'>Zach Beane</a>.
+

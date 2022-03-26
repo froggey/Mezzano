@@ -1,0 +1,611 @@
+* Decree that versions older than 2 years are not supported;
+  yet, keep supporting an upgrade from whatever vendors provide
+  — so push them to provide recent stuff.
+** Already, swank-asdf doesn't support anything older than 2.014.6
+   (as provided by the first 2011 iteration of Quicklisp), and
+   I (fare) am pushing for swank-asdf to not support anything older
+   than 3.1.2 (since no maintained implementation has anything older,
+   with the LispWorks 7.0 release being last to upgrade, in May 2015;
+   or CLISP hg in May 2016, though it hasn't been released since 2010).
+** Maybe remove old versions from upgrade tests; or maybe not:
+   if we support old versions in any way,
+   it should be for upgrade only, and "punt" is acceptable.
+** Upgrade tests might be split in two test sets: short and long.
+** Make tests stateless and/or make any modifications private,
+   so that they can be run in parallel.
+
+* Have a better story for linking C static or dynamic libraries.
+** Some groundwork has been done in cffi-toolchain, but an interface must be designed.
+** Then you'll have to migrate all the code in Quicklisp to use your new interface.
+** See commonqt's qt.asd and qtools's qt-libs.asd for instances of ugliness.
+
+* Testing support
+** Replace test-op with run-test-op and test-report-op ?
+
+* Implement a style-checker, that will issue STYLE-WARNINGs
+  when you don't follow all the recommended guidelines.
+
+* Moving toward cross-compilation (ASDF 3.4? 4?)
+   This would allow to get most of the benefits of XCVB
+   (reproducibility, scalability, applicability to mobile platforms, etc.),
+   except without the backward incompatibility of XCVB.
+   NB: the MOCL author would benefit a lot, and might chip in.
+** Need to further split asdf:perform in two parts:
+   A part that runs on the host and specifies (as SEXP or string to read)
+   forms that must be evaluated on the target machine, not the host:
+   (asdf:perform-forms target operation component &key input-files output-files)
+   The default implementation can fallback to running the
+   (asdf:perform operation component) on the target.
+   To ensure isolation, it would run in an isolated process in which
+   just the specially crafted operation and component objects are defined,
+   though the defsystem-depends-on dependencies are also loaded;
+   the action would be run in a temporary directory, that would contain
+   only a read-only copy of the declared input-files, and some writable
+   output directory for the output files, that would afterwards be
+   copied to their actual destination.
+
+   ;; null means the target is the current host.
+   ;; Or should the base class be plan-traversal or such?
+   (defmethod perform-form ((target null) operation component)
+     ;; :host means execute on the host. () is empty options.
+     `(:host () (asdf:perform ',op ',comp)))
+
+   ;; external-target means a cross compiler that we spawn.
+   (defmethod perform-form ((target external-target) operation component)
+     `(:target ;; who is to execute that? the target Lisp.
+       ;; options for the performing system:
+       (:depends-on ,(defsystem-dependencies
+                      (component-system component)))
+       ;; The actual forms to evaluate
+       (asdf:perform ,(fake-operation-form operation)
+                     ,(fake-component-form component))))
+
+   By specifying :host-common-lisp you can have forms run on the host.
+   By specifying :run-program, you can spawn a subprocess without
+   having to first spawn a Lisp that will call run-program. etc.
+
+   The other way around the default perform method could be:
+
+   (defmethod perform ((o t) (c t))
+     (let ((forms (perform-forms nil o c)))
+       (if (equal forms
+                  `((asdf:perform ',o ',c)))
+           (error "Missing perform method on ..." ...)
+           (map () 'eval-thunk forms))))
+
+   Note that in the general case, there are multiple forms,
+   that must be provided on the command line somehow
+   (see the lisp-invocation system and also how cl-launch does it),
+   with packages necessary to read latter forms being
+   created by former forms, so you cannot read everything in one go.
+   ASDF or at least UIOP should probably be provided in the target
+   image by default, anyway, without needing to be explicitly specified.
+   A more declarative interface to needing the defsystem-deps
+   is probably useful.
+** A real cross-compiling backend that works the way of XCVB
+   would need to compute a complete graph for the plan,
+   which could be achieved by inheriting from the code in POIU.
+   Thinking about it, the cross-compiling target object
+   could actually be the same as the plan object.
+   The basic case of in-image execution would need to be in ASDF,
+   while the actual cross-compilation case would be in an extension.
+** Audit all the current specializers of perform, and offer them a new way;
+   they can keep the perform method to run on older versions of ASDF.
+** Modify SBCL and other implementations so they provide UIOP
+   independently from ASDF?
+** The default perform-plan method could iterate over pre-computed forms,
+   in a way that does not involve the ASDF object model anymore,
+   making ASDF friendlier to self-upgrades.
+   Then, ASDF wouldn't need to be concatenated during upgrade
+   — but should still concatenate for bootstrap purposes,
+   when require'ing it as an implementation-provided module,
+   compiling from ASDF 2, or otherwise distributing as a single file.
+
+* Implementation bugs
+** CMUCL has bugs:
+*** In ASDF 2.32.13, sibling-dependencies is renamed to sideway-dependencies
+    in defclass component, a superclass of system, and upgrade from
+    2.32 or earlier thus fails with
+    Error in function KERNEL:CLASS-TYPEP:  Class is currently invalid:
+    #<KERNEL::STANDARD-CLASS ASDF/SYSTEM:SYSTEM {58398145}>
+    in a direct call from ASDF/FIND-SYSTEM:LOCATE-SYSTEM,
+    which suggests CMUCL's PCL fails to finalize classes properly.
+*** Non-default optimize settings may or may not subtly break PCL.
+    For the longest time (from 2.26.136 to 3.1.0.42), ASDF had:
+    (declaim (optimize (speed 1) (safety 3) (debug 3)))
+    This form may or may not work around that breakage in some cases:
+    (setf c::top-level-lambda-max 0)
+*** At some point there was massive breakage due to uninitialized slots
+    as revealed in 3.1.0.37 with
+    make t l=cmucl t=test-encodings.script
+    which was a different PCL bug from the above (without same workaround)
+    but possibly also triggered by the non-standard declaim.
+*** `#5(1 ,@\`(2 3)))` returns `#(1 2 3)`,
+     rather than `#(1 2 3 2 3 2 3 2 3)` or even better `#(1 2 3 3 3)`.
+*** It purports to support Unicode, but it has only 16-bit characters.
+   Note that (subtypep 'character 'base-char) says T -- everything is a base char(!)
+*** In general, running upgrade tests triggers massive CLOS breakage on CMUCL.
+
+** SCL has bugs:
+*** it doesn't like run-program from a modified directory?
+*** it somehow pushes `:non-base-chars-exist-p` even though `+non-base-chars-exist-p+` is `NIL`???
+
+** XCL has bad bugs:
+*** make-pathname doesn't handle :type nil properly and
+    has massive lossage in logical-pathname support.
+*** If using block () and return in search-for-system-definition
+    instead of return-from, XCL mistakenly has the return jump
+    to the end of the try function or something.
+*** It also takes a long time for errors to propagate into a debugging REPL —
+     Maybe O(n^3) behavior or worse in walking the C++ stack?
+*** The backtrace frames may contains unprintable objects.
+*** make-pathname fails to copy the version from the defaults.
+*** (make-pathname :host "ASDFTEST" :directory '(:absolute "system2" "module4")
+      :name nil :type nil) fails to handle the logical-pathname-ness of ASDFTEST.
+*** `#5(1 ,@`(2 3)))` returns #(1 2 3),
+     rather than #(1 2 3 2 3 2 3 2 3) or even better #(1 2 3 3 3).
+*** XCL recognizes :unspecific for a pathname type,
+   but prints the namestring with a dot separator!
+   (make-pathname :name "foo" :type :unspecific) ==> #P"foo."
+    If bug is ever fixed, upgrade *unspecific-pathname-type* in uiop/pathname.
+*** XCL doesn't properly process files the name of which contains a *
+*** XCL fails to recognize that specialized method parameters are implicitly ignorable.
+
+** GCL is almost working again; but implementation bugs remain.
+   See Francois-Rene Rideau's messages on gcl-devel starting November 2013.
+*** Missing support for many UIOP functions:
+   combine-fasls, get-optimization-settings...
+*** ASDF may now be included for (require "asdf") and (require "ASDF"),
+    but how to compile it properly?
+*** GCL fails to properly compile ASDF with the default compilation settings,
+   but works with those in script-support.lisp.
+   Symptoms when trying to load asdf.o:
+   Signalled by "AN ANONYMOUS FUNCTION".
+   INTERNAL-SIMPLE-ERROR: The package named ASDF/INTERFACE, does not exist
+*** Another GCL compiler bug:
+   when I changed the definition of getcwd from
+   `(let ((*default-pathname-defaults* #p"")) (truename #p""))` to
+   `(let ((*default-pathname-defaults* *nil-pathname*)) (truename *nil-pathname*))`
+   to guard against e.g. a logical-pathname context while loading asdf
+   and parsing `#p""`, calls to `getcwd` result in a segfault.
+*** An another bug: gcl refuses dynamic-extent declaration on functions.
+   ```uiop/stream.lisp:         #-gcl (declare (dynamic-extent ,@(when
+   before `(#',beforef)) ,@(when after `(#',afterf))))```
+*** `(typep p 'logical-pathname)` should be T if p has a logical-pathname host.
+*** `apropos` is case-sensitive and returns a same symbol many times
+   (presumably once per package where it is present,
+   instead of just once for its home package)
+*** `compile-file` fails to return proper secondary values in case of non-style `WARNING`.
+*** `(pathname-directory #p"foo/")` is incorrectly `("foo")` instead of `(:RELATIVE "foo")`
+*** Do whatever it takes to pass the asdf tests, add the above?
+*** Trying to `uiop:slurp-stream-forms` from a stream with `#+(or) :foo`
+   (or `read-file-forms` from an file with same) results in an error,
+   rather than `nil`. This is probably a bug in `#+` processing.
+   Unhappily, debian creates such a file in
+   `/etc/common-lisp/asdf-output-translations.conf.d/01-common-lisp-controller.conf`
+*** Tests that try to catch an error fail (but catching a warning succeeds),
+   which suggests brokenness in handler-bind and/or error.
+*** `COMPILE-FILE*` fails due to handler-bind error in
+   `with-muffled-compiler-conditions` or so.
+*** `#5(1 ,@`(2 3)))` returns `#(1 2 3)`,
+     rather than `#(1 2 3 2 3 2 3 2 3)` or even better `#(1 2 3 3 3)`.
+*** `(DIRECTORY #p"*.*")` fails to match files with pathname-type `NIL`.
+*** GCL doesn't properly process files the name of which contains a `*`
+
+** ABCL has a few bugs.
+*** ABCL fails the timestamp propagation test.
+*** `#5(1 ,@`(2 3)))` returns #(1 2 3),
+   rather than #(1 2 3 2 3 2 3 2 3) or even better #(1 2 3 3 3).
+*** ABCL doesn't properly process files the name of which contains a *
+
+** ECL has issues with its bundles.
+   On MacOS X, test-bundle.script fails.
+*** ECL doesn't properly process files the name of which contains a *
+
+** Allegro fails to parse argv the correct Windows way wrt C++ escaping conventions.
+   Is this (still) the case? What about LispWorks? Other implementations?
+
+* Design & Implement some out-of-line configuration mechanism for various options?
+  i.e. let configuration files override some variables around some actions.
+** Could be used to override new backward-incompatible defaults
+   (e.g. for operation propagation, deferred warnings, etc.)
+** Use the above to bind variable around performing of actions.
+
+* Improve robustness
+** Fix bugs on http://bugs.launchpad.net/asdf/+bugs
+*** fix directory-files to not return directories on CCL, etc. Add tests.
+*** have a better defsystem form verifier - see lp#1007335
+*** have a function verify-strict-asd that can verify a asd is pure lp#541562
+   Then if it passes, use load-strict-asd.
+   If not, optionally issue a warning. Start migrating people toward that.
+** Include tests for prebuilt-system in test-bundle and in test-program.
+** Test that a package-system secondary system is properly superseded
+   when the primary system is redefined.
+
+* Learn to use cl-grid-test
+** So we can easily make sure ASDF changes don't break stuff,
+   and that breakage gets fixed quickly.
+
+* Diagnostics
+** have a mode to explain WHY a component needs to be recompiled.
+** A ``dry run'' of an operation can be made with the following form:
+     (let ((asdf:*verbose-out* *standard-output*))
+       (loop :for (op . comp) :in
+         (asdf/plan:plan-actions
+          (asdf/plan:make-plan nil '<operation-name> '<system-name> :force t))
+         :do (asdf:explain op comp)))
+   What would be a nice interface for this functionality?
+
+* have with-input-file use the encodings mechanism?
+** Import asdf-encodings into UIOP? Sounds a lot of code for no users.
+
+* have a single test .asd that tests as many features as possible, use it for upgrade test.
+
+* operation cleanup?
+** Refactor operation classes in action.lisp to not use slots for metadata
+*** See commit message for 8e68ac229c19b7b611caf942a7f0998c88047a79
+*** The problem: slots will NOT get properly upgraded with new initform.
+*** Bad solution: A U-I-F-R-C method might do but would be much more complex to maintain,
+not just for ASDF but potentially for anyone who defines extensions to ASDF.
+*** The solution: use defmethod self-operation, not a self-operation slot.
+This solution is trivially backward-compatible with older variants of ASDF.
+*** Migration: find everyone on Quicklisp that defines an operation, and have them use defmethod.
+Document all that in asdf.texinfo. Yet, unless noone is affected in Quicklisp,
+don't modify ASDF classes themselves until a year or two afterwards, for compatibility purposes;
+and/or when ASDF classes themselves need to be modified for the sake of some fix.
+** To allow semantically distinct operations of the same class:
+You'd need to have a protocol to canonicalize them
+in the *OPERATIONS* memoization table, not by class name,
+but by CONS of the class name and some CANONICAL-OPERATION-INITARGS.
+The latter would be a generic function called on the initargs,
+where any parasite initargs such as FORCE and FORCE-NOT have been removed,
+since they below to the PLAN, not the OPERATION:
+the OPERATE protocol would be refined to explicit split
+arguments to be passed to MAKE-PLAN or to MAKE-OPERATION.
+The default method for CANONICAL-OPERATION-INITARGS
+would SORT (a plist->alist of) the initargs,
+and that would replace the current ORIGINAL-INITARGS slot.
+For this scheme to work even in presence of undisciplined users
+using MAKE-INSTANCE on an operation class,
+the OPERATION class would have an extra slot EFFECTIVE-OPERATION,
+uninitialized by default (nil or unbound), whose accessor initializes it
+if it's uninitialized, by looking up a canonical instance in *OPERATIONS*,
+and if unfound registering the current operation as canonical.
+Then, each component's COMPONENT-OPERATION-TIME hash-table
+would be indexed by canonicalized operation object
+rather than by operation class,
+and POIU would have to be changed accordingly.
+Of course, this entire cleanup is incompatible
+with how SWANK and GBBopen currently abuse slots of operation,
+so these would have to be fixed first.
+And that's why I didn't do it.
+It looks like SWANK can be fixed soon, though, so we'll see.
+
+* Hunt systems that use obsolete APIs
+
+* Get rid of component-properties
+** directly use component-properties:
+*** yaclml.asd => misguided :features for version comparison
+*** amazon-ecs-20110418-git/amazon-ecs.asd => :website property
+*** hemlock.asd => bad implementation of latin1 encodings
+** .asd use :properties
+*** arnesi, arnesi+ => :features, misguided for version comparison and pseudo #+features
+*** lkcas, thopter => :long-name
+*** cl-irc cliki-bot rss cl-syslog com.informatimago.clext
+   com.informatimago.clisp com.informatimago.clmisc
+   com.informatimago.common-lisp.arithmetic
+   com.informatimago.common-lisp.bank
+   com.informatimago.common-lisp.cesarum
+   com.informatimago.common-lisp com.informatimago.common-lisp.csv
+   com.informatimago.common-lisp.cxx
+   com.informatimago.common-lisp.data-encoding
+   com.informatimago.common-lisp.diagram
+   com.informatimago.common-lisp.ed
+   com.informatimago.common-lisp.graphviz
+   com.informatimago.common-lisp.heap
+   com.informatimago.common-lisp.html-base
+   com.informatimago.common-lisp.html-generator
+   com.informatimago.common-lisp.html-parser
+   com.informatimago.common-lisp.http
+   com.informatimago.common-lisp.interactive
+   com.informatimago.common-lisp.invoice
+   com.informatimago.common-lisp.lisp
+   com.informatimago.common-lisp.lisp.ibcl
+   com.informatimago.common-lisp.lisp.stepper
+   com.informatimago.common-lisp.lisp-reader
+   com.informatimago.common-lisp.lisp-sexp
+   com.informatimago.common-lisp.lisp-text
+   com.informatimago.common-lisp.parser
+   com.informatimago.common-lisp.picture
+   com.informatimago.common-lisp.regexp
+   com.informatimago.common-lisp.rfc2822
+   com.informatimago.common-lisp.rfc3548
+   com.informatimago.common-lisp.telnet
+   com.informatimago.common-lisp.unix
+   linc
+   com.informatimago.lispdoc
+   com.informatimago.lua
+   com.informatimago.cocoa-playground
+   com.informatimago.objcl
+   com.informatimago.rdp
+   com.informatimago.rdp.basic
+   com.informatimago.rdp.basic.example
+   com.informatimago.rdp.example
+   com.informatimago.susv3
+   com.informatimago.common-lisp.tools.make-depends
+   com.informatimago.xcode
+   spartns
+   xlunit
+   => (uninterned!)
+   #:author-email #:date
+   (#:albert #:output-dirs)
+   (#:albert #:formats)
+   (#:albert #:docbook #:template)
+   (#:albert #:docbook #:bgcolor)
+   (#:albert #:docbook #:textcolor)
+   (#:albert #:docbook #:dtd)
+*** portableaserve
+   =>
+   ("system" "author" "email")
+   ("albert" "presentation" "output-dir")
+   ("albert" "presentation" "formats")
+   ("albert" "docbook" "dtd")
+   ("albert" "docbook" "template")
+*** com.clearly-useful.generic-collection-interface => :com.clearly-useful
+*** metatilities
+   => :ait-timeout :system-applicable-p
+*** ucw ucw-core
+   =>
+   version
+
+* ASDF4: search for this tag, rename things (incompatibly, thus) and cleanup code.
+** Migrate from component-depends-on to action-depends-on
+*** I contend a future version of ASDF will replace
+`(component-depends-on operation component)`
+with `(action-depends-on plan operation component)`.
+This allows for different normalization strategies for dependencies
+(including strategies that avoid resolving things to NIL),
+a reified context for featurep checks, etc.
+*** Easy but long backward-compatible transition:
+**** get all users to use the new gf and keep extending both new and old gf,
+   meanwhile the new gf has an around method that actually calls the old gf
+   except in testing mode and/or if we can check that they're using the new convention
+**** when everyone has migrated, remove the old mode and the short-circuit.
+*** However, we cannot deprecate component-depends-on yet — not until we have
+   some transition in place to a better interface.
+
+* Documentation
+** See message from 2014-01-27 05:26:44 GMT for stuff to document.
+   http://thread.gmane.org/gmane.lisp.asdf.devel/3675/focus=3695
+** style guide for .asd files
+
+* UIOP
+** deferred-warnings support probably needs to be redone better.
+*** implement deferred warnings support on lispworks
+*** turn undefined function style-warnings into full warnings(?)
+*** work with cl-test-grid to eliminate deferred warnings from quicklisp libraries
+*** https://www.mail-archive.com/asdf-devel@common-lisp.net/msg03608.html
+*** czak@google.com rewrote part of deferred warnings support.
+   Ask him to release the code he implemented at Google under QITAB.
+
+** Ensure all run-program issues on Windows are solved.
+*** SBCL cannot do raw CMD.EXE command-lines
+*** We don't seem to properly escape CRLF in escape-windows-token,
+   or maybe it is, but CMD.EXE does the wrong thing in them,
+   so the semantics depend on whether it's used,
+   or maybe it's CCL eating them while parsing, or maybe not, etc.
+   In any case, this requires clarification.
+
+** define-package cannot deal with symbols moving "forward".
+*** document that THOU SHALT NOT USE :RECYCLE with packages previously
+   defined by define-package when building from scratch.
+*** Maybe add a check? But how to tell whether you're building from scratch?
+*** Add some :moved-to directive to define-package, such that
+   (:moved-to forward-package symbols...)
+   will declare symbols as moved forward: when the symbol already exists,
+   it is moved to the forward package if that package already exists,
+   after the package created if it doesn't exist yet (!)
+*** There again, a check that a forward-package is not backward
+   would be very nice.
+
+* Faster source-registry:
+** In addition and/or as a substitute to the .cl-source-registry.cache,
+   that is meant to be semi-automatically managed, there could be
+   a cl-source-registry.conf meant for manual management:
+   when recursing into a source-registry :tree, if such file is present
+   (or if not, if a hidden .cl-source-registry.conf is present instead?),
+   its contents is read as a (:source-registry ...) specification, and
+   replaces the actual or notional (:tree ...) for the current directory;
+   it may then include :file entries as well as :directory and :tree entries,
+   whereby the programmer can explicitly give a definitive list of
+   systems exported by his software, while excluding any test system
+   that he doesn't want to export. This means that developers have
+   both a way of speeding up the build of their software and of
+   avoiding pollution by test systems that should remain private,
+   and that they can otherwise explicitly enable when they need them.
+** The .cl-source-registry.cache should avoid recursing into
+   directories that themselves already have a cache or a .conf file,
+   but instead store the name of these directories,
+   so these files will be read recursively by asdf, allowing for
+   semi-modular updates.
+
+* Properly deprecate all that needs to go
+** Get lisa, readable, bourbaki to NOT include ASDF 1 anymore in their sources.
+** Identify all the things in ASDF that we want to deprecate, and make
+   sure we deprecate them all in 3.4.
+** Implement support for deprecating old packages,
+   by having all functions and macros under the old package name be
+   proxies to those in the new package name?
+   (Exception: special variables can't be proxies, have to be imported.)
+** Delete asdf-driver.asd, nobody has used it in years
+** Eradicate Quicklisp systems that depend on asdf-package-system, make them depend on asdf3.1 instead.
+** Deprecate and remove asdf-binary-locations (ABL) compatibility altogether.
+  No one has been using ASDF1 for years.
+  There is no ABL to be compatible with —
+  is anyone still using the compatibility mode?
+  Maybe issue a warning, then a cerror, before to remove the code?
+
+
+
+* Fix plan
+** Goal: Implement proper incrementality for defsystem-depends-on.
+Fix the bug wherein ASDF fails to properly handle incrementality for `defsystem-depends-on`.
+https://bugs.launchpad.net/asdf/+bug/1500578
+Some discussion about ASDF at
+http://ccl.clozure.com/irc-logs/lisp/lisp-2016-10.txt
+
+** DONE Items
+*** Add `DEFINE-OP` for loading system definitions.
+*** A `DEFINE-OP` will depend on other `DEFINE-OP`s
+*** A `DEFINE-OP` depends on all `LOAD-OP` in the file.
+Whether via defsystem-depends-on or manual `LOAD-OP`s.
+*** Store timestamps in `DEFINE-OP` entries, not `*DEFINED-SYSTEMS*`.
+*** In find-system, add condition that all dependencies are up-to-date.
+*** This necessitates another layer of visit states,
+that do not plan, just check planning...
+*** `LOAD-ASD` calls `PERFORM DEFINE-OP` (not the other way around)
+*** Systems probably need depend on `(DEFINE-OP . PRIMARY-SYSTEM)`
+*** These dynamically-discovered dependencies are stored in a slot of `SYSTEM`.
+*** Have a special kind of definition-depends-on dependency.
+Before we reuse a node from a previous session,
+we must make sure it is still properly defined.
+This matters because we do reuse (at least *some* nodes, e.g. system nodes)
+from previous sessions, and the control structure may have changed
+(i.e. the system hasn't been redefined, but one of its defsystem-depends-on
+dependencies has changed).
+*** Handle incomplete definitions properly
+Don't just let the incompletely parsed system be registered
+in a false positive success as if it were an empty system.
+Solution: It is registered, but considered out-of-date,
+so next attempt to use it will cause a refresh attempt.
+https://bugs.launchpad.net/asdf/+bug/1515372
+*** Handle nested calls to `OPERATE`
+We must accept that ASDF isn't really plan-then-perform,
+as the ASDF1 model claimed to be.
+It's an arbitrary nesting of plan-and-perform, like a parenthesization
+with plan (steps) as left parenthesis and perform (steps) as right parenthesis,
+and with operate being a maximal balanced span of plan and perform steps.
+*** What goes in a shared dynamic `*SESSION*`, what in a private lexical `PLAN`?
+Memoization CACHE of various functions, Status of VISITED-NODES, FORCING parameters.
+The session will contain not just the current `*CACHE*`, but also
+all or most of the graph traversal, thus the `:force` options, etc.
+The `*PLAN*` may or may not contain some work queueing.
+But even, e.g. a table of "nodes still directly blocking us"
+is shared at the shared traversal level.
+*** It is an error for a nested `OPERATE` to contradict session flags.
+This raises the question of `:force` and `:force-not` flags.
+An actual operate cannot contradict them and cause things to be performed
+with a wrong subset of dependencies loaded.
+Yet, `REQUIRED-COMPONENTS` (that does cause anything to be performed —
+except via nested `OPERATE` from `defsystem-depends-on`)
+must be able to skip some dependencies
+(though maybe only _in addition_ to the global ones).
+*** What timestamp for `forced` and `forced-not` actions?
+If an action is forced-not, it should be returned with an action stamp from this cache,
+and not with `nil` as is currently wrongly done
+(unless of course the cache entry is missing,
+at which point `nil` is the correct answer).
+Conversely, a force means the stamp should be `t`
+(indicating it needs to be done in the future)
+(that part asdf gets right).
+*** Handle planning things that are now done but were done in a previous phase of the build,
+so dependency on them should trigger the build.
+*** Protocol to not re-perform an action twice
+In PERFORM-PLAN, check that an action wasn't already DONE-P due to
+being needed in a previous phase of recursively calling OPERATE,
+before to PERFORM it.
+To correctly propagate timestamps in across nested calls,
+the graph traversal and timestamp propagation is shared at the session level
+between all nested calls to `OPERATE`.
+During a session and across phases, every action has a status made of
+a stamp and three bits: KEEP-P, DONE-P, NEED-P.
+The stamp also survives across sessions, in `COMPONENT-OPERATION-TIMES`.
+*** Detect circularities across nested calls to `OPERATE`
+This means the circularity detection data is part of the session.
+Notably, the visiting list and set.
+The top of the list can also serve to record the dependencies from `OPERATE` to `DEPEND-OP`.
+*** In UIOP, RECORD-DEPENDENCY must not cross to an upper plan and/or it should
+record the dependency in said upper plan (that matters because
+parallel plans doing extra checking, and this is a problem
+whereby some links to extra actions are left unresolved).
+Maybe in the future, record the dependency in the session, not in a plan.
+
+** TODO items
+*** find-system should probably cause a dependency on define-op, especially inside another define-op
+*** Is it worth it trying to optimize away a dependency on a define-op
+when an action already depends on another operation that "obviously" depends on that define-op?
+*** Document DEFINE-OP and the design in asdf.texinfo and/or in some article.
+
+** Future developments
+*** Grovel all .asd files in Quicklisp and collect all violations of declarativeness,
+where declarativeness is having only defsystem forms. Specially classify in-package,
+maybe also defpackage. Then we can assess the impact of requiring declarativeness.
+*** Also grovel Quicklisp for all extensions to ASDF:
+see if there are new methods on perform, input-files, output-files, operate, etc.
+*** To allow defsystem-depends-on to another secondary system within the
+same file, I can imagine some system to dynamically create a separate action
+(DEFINE-OP foo/x) for each form defsystem foo/x, and have it depend on
+all the preceding actions operated in the .asd file.
+Plus a last action for dangling load-system or operate statements?
+Or one action for every operate statement?
+There would be no action of the entire load-asd, but a separate mechanism
+to detect circularity?
+What about dangling statements? They would be a bit like xcvb weakly-ordered
+run-time dependencies that CAN have circularities? Ouch. Really ugly.
+Each statement would need its own action? Ouch.
+*** Have load-asd clear any invalidated previous secondary system
+before loading, which supposes remembering what these systems are.
+Then, you're not allowed to forward-reference a secondary system that
+hasn't been defined yet while you're loading the .asd, whereas you
+can load the asd if you aren't loading it yet.
+*** Maybe split DEFINE-OP into PREPARE-DEFINE-OP and DEFINE-OP, so that
+secondary systems can be properly loaded?
+*** Add mapping from files to action that creates it and/or uses it?
+Then we can detect conflict between multiple actions creating one file.
+Forbid direct use of files not listed as inputs? What about transitive inputs?
+Build in a container that has only the proper files...
+*** What data structure for scheduling planned actions?
+A doubly-linked to remove entire chunks of the plan after a sub-operate?
+That won't do, because later-discovered defsystem dependency can refer to
+systems that were planned but not performed, so there need be no contiguity
+in the chunks that are performed by subcalls to operate.
+Actually, if we otherwise forbid reference to another system
+from non-system components, then we could move things with system granularity,
+which is one thing; but we still need a general mechanism at the system level.
+So, whether it's an explicit queue or an implicit traversal of the dependency graph,
+we must check whether an action has already been done before we try to perform it.
+And an implicit traversal has the advantage that you can avoid entire subtrees
+when you find that the current node has already been performed during
+a previous phase of the plan.
+In conclusion: "just" traverse the graph at the last minute, and
+perform things serially, and/or if you want some parallelism,
+build a queue dynamically at the last minute for the "now" jobs
+while keeping most of the plan as graph structures.
+
+*** Merging in parts of POIU?
+ASDF internals are nothing to be proud of:
+ASDF1 was optimized for "smallest code that kind of works in the usual case",
+and ASDF3 was optimized for "smallest code that fixes ASDF1 in the general case
+while mostly maintaining backward compatibility".
+
+Because of its optimization constraint, ASDF1 was using and abusing lists a lot,
+rather than defining nice data structures.
+ASDF3 uses somewhat more structured data, with a few more classes, and
+algorithms that are O(n) instead of O(n**3) in simple cases and
+exponential in carefully crafted examples;
+yet it has shunned any definition of more advanced or general data structures.
+By contrast, POIU has a dequeue to represent queued compilation jobs, and
+a general graph representation for the action graph
+(though the original POIU was also O(n**3) because it lacked PREPARE-OP).
+
+I could import the POIU queue and graph representations into ASDF, and
+that would add about 100 lines of code to UIOP for the queue, and
+200 lines to ASDF for the graph, maybe a bit more if the code is
+generalized, commented and largely put in UIOP.
+
+Then, there's the support for actual forking and using forks,
+that would be about 400 lines added to UIOP, and
+the using it in ASDF to consume the plan, which would be under 200 lines.
+But those parts are probably better left out of ASDF itself.
+That said, it all was a lot when ASDF was < 1000 lines of code,
+but isn't all that much now that it is > 12000 lines of code.

@@ -1,0 +1,929 @@
+% -*- Mode: LaTeX; Package: CLIM-USER -*-
+
+\chapter {Output Recording}
+\label {output-recording}
+
+\section {Overview of Output Recording}
+
+CLIM provides a mechanism whereby output (textual and graphical) may be captured
+into an \concept{output history} for later replay on the same stream.  This
+mechanism serves as the basis for many other tools, such as the formatted output
+and presentation mechanisms described elsewhere.
+
+The output recording facility is layered on top of the graphics and text output
+protocols.  It works by intercepting the operations in the graphics and text
+output protocols, and saving information about these operations in objects
+called \concept{output records}.  In general, an output record is a kind of
+display list, that is, a collection of instructions for drawing something on a
+stream.  Some output records may have \concept{children}, that is, a collection
+of inferior output records.  Other output records, which are called
+\concept{displayed output records}, correspond directly to displayed information
+on the stream, and do not have children.  If you think of output records being
+arranged in a tree, displayed output records are all of the leaf nodes in the
+tree, for example, displayed text and graphics records.
+
+Displayed output records must record the state of the supplied drawing options
+at the instant the output record is created, as follows.  The ink supplied by
+the programmer must be captured without resolving indirect inks; this is so that
+a user can later change the default foreground and background ink of the medium
+and have that change affect the already-created output records during replay.
+The effect of the specified ``user'' transformation (composed with the medium
+transformation) must be captured; CLIM implementations are free to do this
+either by saving the transformation object or by saving the transformed values
+of all objects that are affected by the transformation.  The user clipping
+region and line style must be captured in the output record as well.  Subsequent
+replaying of the record under a new user transformation, clipping region, or
+line style will not affect the replayed output.  CLIM implementation are
+permitted to capture the text style either fully merged against the medium's
+default, or not; in the former case, subsequent changes to the medium's default
+text style will not affect replaying the record, but in the latter case changing
+the default text style will affect replaying.
+
+A CLIM stream that supports output recording has an output history object, which
+is a special kind of output record that supports some other operations.  CLIM
+defines a standard set of output history implementations and a standard set of
+output record types.
+
+The output recording mechanism is defined so as to permit application specific
+or host window system specific implementations of the various recording
+protocols.  CLIM implementations should provide several types of standard output
+records with different characteristics for search, storage, and retrieval.  Two
+examples are ``sequence'' output records (which store elements in a sequence,
+and whose insertion and retrieval complexity is O(n)) and ``tree'' output
+records (which store elements in some sort of tree based on the location of the
+element, and whose insertion and retrieval complexity is O(log~n)).
+
+\Issue {York, SWM} {There is a proposal on the table to unify the sheet and
+output record protocols, not by unifying the class structure, but by making them
+implement the same generic functions where that makes sense.  For instance,
+sheets and output records both have regions, transformations (that relate sheets
+to their parents), both support a repainting operation, and so forth.
+
+In particular, \cl{sheet-parent} and \cl{output-record-parent} are equivalent,
+as are \cl{sheet-children} and \cl{output-record-children},
+\cl{sheet-adopt-child} and \cl{add-output-record}, \cl{sheet-disown-child} and
+\cl{delete-output-record}, and \cl{repaint-sheet} and \cl{replay-output-record},
+and the mapping functions.  \cl{output-record-position} and its \cl{setf}
+function have sheet analogs.  The sheet and output record notification functions
+are also equivalent.
+
+This simplifies the conceptual framework of CLIM, and could eventually simplify
+the implementation as well.  Doing this work now opens the door for later
+unifications, such as unifying the pane layout functionality with table formatting.}
+
+
+\section {Output Records}
+
+\Defprotoclass {output-record}
+
+The protocol class that is used to indicate that an object is an output record,
+that is, an object that contains other output records.  This is a subclass of
+\cl{bounding-rectangle}, and as such, output records obey the bounding rectangle
+protocol.
+\IfYouWantClass {an} {output record} {output-record}
+
+All output records are mutable.
+
+\Defpredicate {output-record-p} {object}
+
+Returns \term{true} if \arg{object} is an \term{output record}, otherwise
+returns \term{false}.
+
+\Defprotoclass {displayed-output-record}
+
+The protocol class that is used to indicate that an object is a displayed output
+record, that is, an object that represents a visible piece of output on
+some output stream.  This is a subclass of \cl{bounding-rectangle}.
+\IfYouWantClass {a} {displayed output record} {displayed-output-record}
+
+All displayed output records are mutable.
+
+\Defpredicate {displayed-output-record-p} {object}
+
+Returns \term{true} if \arg{object} is a \term{displayed output record},
+otherwise returns \term{false}.
+
+\definitarg {:x-position}
+\definitarg {:y-position}
+\Definitarg {:parent}
+
+All subclasses of either \cl{output-record} or \cl{displayed-output-record} must
+handle these three initargs, which are used to specify, respectively, the $x$
+and $y$ position of the output record, and the parent of the output record.
+
+\Definitarg {:size}
+
+All subclasses of \cl{output-record} must handle the \cl{:size} initarg.  It is
+used to specify how much room should be left for child output records (if, for
+example, the children are stored in a vector).  It is permissible for \cl{:size}
+to be ignored, provided that the resulting output record is able to store the
+specified number of child output records.
+
+
+\subsection {The Basic Output Record Protocol}
+
+All subclasses of \cl{output-record} and \cl{displayed-output-record} must
+inherit or implement methods for the following generic functions.
+
+When the generic functions in this section take both \arg{record} and a
+\arg{stream} arguments, CLIM implementations will specialize the \arg{stream}
+argument for the \cl{standard-output-recording-stream} class and the
+\arg{record} argument for all of the implementation-specific output record
+classes.
+
+\Defgeneric {output-record-position} {record}
+
+Returns the $x$ and $y$ position of the \term{output record} \arg{record} as two
+rational numbers.  The position of an output record is the position of the
+upper-left corner of its bounding rectangle.  The position is relative to the
+stream, where $(0,0)$ is (initially) the upper-left corner of the stream.
+
+\Defgeneric {(setf* output-record-position)} {x y record}
+
+Changes the $x$ and $y$ position of the \term{output record} \arg{record} to be
+\arg{x} and \arg{y} (which are rational numbers), and updates the bounding
+rectangle to reflect the new position (and saved cursor positions, if the output
+record stores it).  If \arg{record} has any children, all of the children (and
+their descendants as well) will be moved by the same amount as \arg{record} was
+moved.  The bounding rectangles of all of \arg{record}'s ancestors will also be
+updated to be large enough to contain \arg{record}.  This does not replay the
+output record, but the next time the output record is replayed it will appear at
+the new position.
+
+For CLIM implementations that do not support \cl{setf*}, the ``setter'' function
+for this is \cl{output-record-set-position}.
+
+\Defgeneric {output-record-start-cursor-position} {record}
+
+Returns the $x$ and $y$ starting cursor position of the \term{output record}
+\arg{record} as two integer values.  The positions are relative to the stream,
+where $(0,0)$ is (initially) the upper-left corner of the stream.
+
+Text output records and updating output records maintain the cursor position.
+Graphical output records and other output records that do not require or affect
+the cursor position will return \cl{nil} as both of the values.
+
+\Defgeneric {(setf* output-record-start-cursor-position)} {x y record}
+
+Changes the $x$ and $y$ starting cursor position of the \term{output record}
+\arg{record} to be \arg{x} and \arg{y} (which are integers).  This does not
+affect the bounding rectangle of \arg{record}, nor does it replay the output
+record.  For those output records that do not require or affect the cursor
+position, the method for this function is a no-op.
+
+For CLIM implementations that do not support \cl{setf*}, the ``setter'' function
+for this is \cl{output-record-set-start-cursor-position}.
+
+\Defgeneric {output-record-end-cursor-position} {record}
+
+Returns the $x$ and $y$ ending cursor position of the \term{output record}
+\arg{record} as two integer values.  The positions are relative to the stream,
+where $(0,0)$ is (initially) the upper-left corner of the stream.  Graphical
+output records do not track the cursor position, so only text output record (and
+some others) will return meaningful values for this.
+
+Text output records and updating output records maintain the cursor position.
+Graphical output records and other output records that do not require or affect
+the cursor position will return \cl{nil} as both of the values.
+
+\Defgeneric {(setf* output-record-end-cursor-position)} {x y record}
+
+Changes the $x$ and $y$ ending cursor position of the \term{output record}
+\arg{record} to be \arg{x} and \arg{y} (which are integers).  This does not
+affect the bounding rectangle of \arg{record}, nor does it replay the output
+record.  For those output records that do not require or affect the cursor
+position, the method for this function is a no-op.
+
+For CLIM implementations that do not support \cl{setf*}, the ``setter'' function
+for this is \cl{output-record-set-end-cursor-position}.
+
+\Defgeneric {output-record-parent} {record}
+
+Returns the output record that is the parent of the \term{output record}
+\arg{record}, or \cl{nil} if the record has no parent.
+
+
+\Defun {replay} {record stream \optional region}
+
+This function binds \cl{stream-recording-p} of \arg{stream} to \term{false}, and
+then calls \cl{replay-output-record} on the arguments \arg{record},
+\arg{stream}, and \arg{region}.  If \cl{stream-drawing-p} of \arg{stream} is
+\term{false}, \cl{replay} does nothing.  \cl{replay} is typically called during
+scrolling, by repaint handlers, and so on.
+
+CLIM implementations are permitted to default \arg{region} either to \cl{nil} or
+to the region corresponding to the viewport of \arg{stream}.
+
+\Defgeneric {replay-output-record} {record stream \optional region x-offset y-offset}
+
+Displays the output captured by the \term{output record} \arg{record} on the
+\term{output recording stream} \arg{stream}, exactly as it was originally
+captured (subject to subsequent modifications).  The current user
+transformation, line style, text style, ink, and clipping region of \arg{stream}
+are all ignored during the replay operation.  Instead, these are gotten from the
+output record.
+
+If \arg{record} is not a displayed output record, then replaying it involves
+replaying all of its children.  If \arg{record} is a displayed output record,
+then replaying it involves redoing the graphics operation captured in the
+record.
+
+\arg{region} is a region that can be supplied to limit what records are
+displayed.  Only those records that overlap \arg{region} are replayed.  The
+default for \arg{region} is \cl{+everywhere+}.
+
+It is permissible for implementations to restrict \cl{replay-output-record} such
+that \arg{stream} must be the same stream on which the output records were
+originally recorded.
+
+\issue {SWM} {How does replaying a text output record (or any record that
+maintains the cursor position) affect the cursor position of the stream?  It
+is probably that case that \cl{replay} should not affect the cursor position.}
+
+
+\Defgeneric {output-record-hit-detection-rectangle*} {record}
+
+This method is used to establish the usual ``effective size'' of \arg{record}
+for hit detection queries.  Four values are returned, corresponding to the edges
+of the bounding rectangle that is the hit detection rectangle.  The default
+method (on CLIM's standard output record class) is equivalent to calling
+\cl{bounding-rectangle*} on \arg{record}, but this method can be specialized to
+return a larger bounding rectangle in order to implement a form of hysteresis.
+
+\Defgeneric {output-record-refined-position-test} {record x y}
+
+This is used to definitively answer hit detection queries, that is, determining
+that the point $(x,y)$ is contained within the output record \arg{record}.  Once
+the position $(x,y)$ has been determined to lie within
+\cl{output-record-hit-detection-rectangle*},
+\cl{output-record-refined-position-test} is invoked.  Output record
+subclasses can provide a method that provides a more precise definition of a
+hit, for example, output records for elliptical rings will implement a method
+that detects whether the pointing device is on the elliptical ring.
+
+\Defgeneric {highlight-output-record} {record stream state}
+
+This method is called in order to draw a highlighting box around the
+\term{output record} \arg{record} on the \term{output recording stream}
+\arg{stream}.  \arg{state} will be either \cl{:highlight} (meaning to draw the
+highlighting) or \cl{:unhighlight} (meaning to erase the highlighting).  The
+default method (on CLIM's standard output record class) will simply draw a
+rectangle that corresponds to the bounding rectangle of \arg{record}.
+
+\Defgeneric {displayed-output-record-ink} {displayed-output-record}
+
+Returns the ink used by the \term{displayed output record}
+\arg{displayed-output-record}.
+
+
+\subsection {The Output Record ``Database'' Protocol}
+
+All classes that are subclasses of \cl{output-record} must implement methods for
+the following generic functions.
+
+\Defgeneric {output-record-children} {record}
+
+Returns a sequence of all of the children of the \term{output record}
+\arg{record}.  It is unspecified whether the sequence is a freshly created
+object or a ``live'' object representing the state of \arg{record}.
+
+\Defgeneric {add-output-record} {child record}
+
+Adds the new \term{output record} \arg{child} to the \term{output record}
+\arg{record}.  The bounding rectangle for \arg{record} (and all its ancestors)
+must be updated to account for the new child record.
+
+The methods for the \cl{add-output-record} will typically specialize only the
+\arg{record} argument.
+
+\Defgeneric {delete-output-record} {child record \optional (errorp \cl{t})}
+
+Removes the \term{output record} \arg{child} from the \term{output record}
+\arg{record}.  The bounding rectangle for \arg{record} (and all its ancestors)
+may be updated to account for the child having been removed, although this is
+not mandatory.
+
+If \arg{errorp} is \term{true} (the default) and \arg{child} is not contained
+within \arg{record}, then an error is signalled.
+
+The methods for the \cl{delete-output-record} will typically specialize only the
+\arg{record} argument.
+
+\Defgeneric {clear-output-record} {record}
+
+Removes all of the children from the \term{output record} \arg{record}, and
+resets the bounding rectangle of \arg{record} to its initial state.
+
+\Defgeneric {output-record-count} {record}
+
+Returns the number of children contained within the \term{output record}
+\arg{record}.
+
+
+\Defgeneric {map-over-output-records-containing-position} 
+            {function record x y \optional x-offset y-offset \rest function-args}
+
+Maps over all of the children of the \term{output record} \arg{record} that
+contain the point at $(x,y)$, calling \arg{function} on each one.
+\arg{function} is a function of one or more arguments, the first argument being
+the record containing the point; it has dynamic extent.  \arg{function} is also
+called with all of \arg{function-args} as ``apply'' arguments.
+
+If there are multiple records that contain the point and that overlap each
+other, \cl{map-over-output-records-containing-position} must hit the uppermost
+(most recently inserted) record first and the bottommost (least recently
+inserted) record last.  Otherwise, the order in which the records are traversed
+is unspecified.
+
+\Defgeneric {map-over-output-records-overlapping-region}
+            {function record region \optional x-offset y-offset \rest function-args}
+
+Maps over all of the children of the \term{output record} \arg{record} that
+overlap the \term{region} \arg{region}, calling \arg{function} on each one.
+\arg{function} is a function of one or more arguments, the first argument being
+the record overlapping the region; it has dynamic extent.  \arg{function} is
+also called with all of \arg{function-args} as ``apply'' arguments.
+
+If there are multiple records that overlap the region and that overlap each
+other, \cl{map-over-output-records-overlapping-region} must hit the bottommost
+(least recently inserted) record first and the uppermost (most recently
+inserted) record last.  Otherwise, the order in which the records are traversed
+is unspecified.
+
+
+\subsection {Output Record Change Notification Protocol}
+
+The following functions are called by programmers and by CLIM itself in order to
+notify a parent output record when the bounding rectangle of one of its child output
+record changes.
+
+\Defgeneric {recompute-extent-for-new-child} {record child}
+
+This function is called whenever a new child is added to an output record.  Its
+contract is to update the bounding rectangle of the \term{output record}
+\arg{record} to be large enough to completely contain the new child \term{output
+record} \arg{child}. The parent of \arg{record} must be notified by calling
+\cl{recompute-extent-for-changed-child}.
+
+\cl{add-output-record} is required to call \cl{recompute-extent-for-new-child}.
+
+\Defgeneric {recompute-extent-for-changed-child} {record child 
+                                                  old-min-x old-min-y old-max-x old-max-y} 
+
+This function is called whenever the bounding rectangle of one of the children of
+a record has been changed.  Its contract is to update the bounding rectangle of
+the \term{output record} \arg{record} to be large enough to completely contain
+the new bounding rectangle of the child \term{output record} \arg{child}.  All
+of the ancestors of \arg{record} must be notified by recursively calling
+\cl{recompute-extent-for-changed-child}.
+
+Whenever the bounding rectangle of an output record is changed or
+\cl{delete-output-record} is called, \cl{recompute-extent-for-changed-child}
+must be called to inform the parent of the record that a change has taken place.
+
+\Defgeneric {tree-recompute-extent} {record}
+
+This function is called whenever the bounding rectangles of a number of children
+of a record have been changed, such as happens during table and graph
+formatting.  Its contract is to compute the bounding rectangle large enough to
+contain all of the children of the output record \arg{record}, adjust the
+bounding rectangle of the \term{output record} \arg{record} accordingly, and
+then call \cl{recompute-extent-for-changed-child} on \arg{record}.
+
+
+\section {Types of Output Records}
+
+This section discusses several types of output records, including two standard
+classes of output records and the displayed output record protocol.
+
+\subsection {Standard Output Record Classes}
+
+\Defclass {standard-sequence-output-record}
+
+The standard instantiable class provided by CLIM to store a relatively short
+sequence of output records; a subclass of \cl{output-record}.  The insertion and
+retrieval complexity of this class is O(n).  Most of the formatted output
+facilities (such as \cl{formatting-table}) create output records that are a
+subclass of \cl{standard-sequence-output-record}.
+
+\Defclass {standard-tree-output-record}
+
+The standard instantiable class provided by CLIM to store longer sequences of
+output records.  Typically, the child records of a tree output record will be
+maintained in some sort of sorted order, such as a lexicographic ordering on the
+$x$ and $y$ coordinates of the children.  The insertion and retrieval complexity
+of this class is O(log~n).
+
+
+\subsection {Graphics Displayed Output Records}
+
+Graphics displayed output records are used to record the output produced by the
+graphics functions, such as \cl{draw-line*}.  Each graphics displayed output
+record describes the output produced by a call to one of the graphics functions.
+
+The exact contents of graphics displayed output records is unspecified, but they
+must store sufficient information to be able to exactly redraw the original
+output at replay time.  The minimum information that must be captured for
+all graphics displayed output records is as follows:
+
+\begin{itemize}
+\item The description of the graphical object itself, for example, the end
+points of a line or the center point and radius of a circle.
+
+\item The programmer-supplied ink at the time the drawing function was called.
+Indirect inks must not be resolved, so that a user can later change the default
+foreground and background ink of the medium and have that change affect the
+already-created output records during replay.
+
+\item For paths, the programmer-supplied line-style at the time the drawing
+function was called.
+
+\item The programmer-supplied clipping region at the time the drawing function
+was called.
+
+\item The user transformation.  This may be accomplished by either explicitly
+storing the transformation, or by transforming the coordinates supplied to the
+drawing function and capturing the transformed coordinates.
+\end{itemize}
+
+
+\Defprotoclass {graphics-displayed-output-record}
+
+The protocol class that corresponds to output records for the graphics
+functions, such as \cl{draw-line*}.  This is a subclass of
+\cl{displayed-output-record}.
+\IfYouWantClass {a} {graphics displayed output record} {graphics-displayed-output-record} 
+
+\Defpredicate {graphics-displayed-output-record-p} {object}
+
+Returns \term{true} if \arg{object} is a \term{graphics displayed output
+record}, otherwise returns \term{false}.
+
+
+\subsection {Text Displayed Output Record}
+
+Text displayed output records are used to record the textual output produced by
+such functions as \cl{stream-write-char} and \cl{stream-write-string}.  Each
+text displayed output record corresponds to no more than one line of textual
+output (that is, line breaks caused by \cl{terpri} and \cl{fresh-line} create a
+new text output record, as do certain other stream operations described below).
+
+The exact contents of text displayed output records is unspecified, but they
+must store sufficient information to be able to exactly redraw the original
+output at replay time.  The minimum information that must be captured for all
+text displayed output records is as follows:
+
+\begin{itemize}
+\item The displayed text strings.
+
+\item The starting and ending cursor positions.
+
+\item The text style in which the text string was written.  Depending on the
+CLIM implementation, this may be either fully merged against the medium's
+default or not; in the former case, subsequent changes to the medium's default
+text style will not affect replaying the record, but in the latter case changing
+the default text style will affect replaying.
+
+\item The programmer-supplied ink at the time the drawing function was called.
+Indirect inks must not be resolved, so that a user can later change the default
+foreground and background ink of the medium and have that change affect the
+already-created output records during replay.
+
+\item The programmer-supplied clipping region at the time the drawing function
+was called.
+\end{itemize}
+
+\Defprotoclass {text-displayed-output-record}
+
+The protocol class that corresponds to text displayed output records.  This is
+a subclass of \cl{displayed-output-record}.
+\IfYouWantClass {a} {text displayed output record} {text-displayed-output-record}
+
+\Defpredicate {text-displayed-output-record-p} {object}
+
+Returns \term{true} if \arg{object} is a \term{text displayed output record},
+otherwise returns \term{false}.
+
+The following two generic functions comprise the text displayed output record
+protocol.
+
+\Defgeneric {add-character-output-to-text-record} {text-record character text-style 
+                                                   width height baseline}
+
+Adds the character \arg{character} to the \term{text displayed output record}
+\arg{text-record} in the text style \arg{text-style}.  \arg{width} and
+\arg{height} are the width and height of the character in device units, and are
+used to compute the bounding rectangle for the text record.  \arg{baseline} is
+the new baseline for characters in the output record.
+
+\Defgeneric {add-string-output-to-text-record} {text-record string start end text-style 
+                                                width height baseline}
+
+Adds the string \arg{string} to the \term{text displayed output record}
+\arg{text-record} in the text style \arg{text-style}.  \arg{start} and \arg{end}
+are integers that specify the substring within \arg{string} to add to the text
+output record.  \arg{width} and \arg{height} are the width and height of the
+character in device units, and are used to compute the bounding rectangle for
+the text record.  \arg{baseline} is the new baseline for characters in the
+output record.
+
+\Defgeneric {text-displayed-output-record-string} {text-record}
+
+Returns the string contained by the \term{text displayed output record}
+\arg{text-record}.
+\ReadOnly
+
+
+\subsection {Top-Level Output Records}
+
+Top-level output records are similar to ordinary output records, except that
+they must maintain additional state, such as the information required to display
+scroll bars.
+
+\Defclass {stream-output-history-mixin}
+
+This class is mixed into some other output record class to produce a new class
+that is suitable for use as a a top-level output history.  This class is not
+intended to be instantiated.
+
+When the bounding rectangle of an member of this class is updated, CLIM
+implementations must update any window decorations (such as scroll bars)
+associated with the stream with which the \term{output record} \arg{history} is
+associated.
+
+\Defclass {standard-tree-output-history}
+
+The standard instantiable class provided by CLIM to use as the top-level output
+history.  This will typically be a subclass of both
+\cl{standard-tree-output-record} and \cl{stream-output-history-mixin}.
+
+\Defclass {standard-sequence-output-history}
+
+Another instantiable class provided by CLIM to use for top-level output records
+that have only a small number of children.  This will typically be a subclass of
+both \cl{standard-sequence-output-record} and \cl{stream-output-history-mixin}.
+
+
+\section {Output Recording Streams}
+
+CLIM defines an extension to the stream protocol that supports output recording.
+The stream has an associated output history record and provides controls to
+enable and disable output recording.
+
+\issue {SWM} {Do we want to support only output recording streams, or do we
+want to support output recording sheets as well?  If the latter, we need to
+split apart graphics output recording and textual output recording, and rename
+lots of things.}
+
+\Defprotoclass {output-recording-stream}
+
+The protocol class that indicates that a stream is an output recording stream.
+\IfYouWantClass {an} {output recording stream} {output-recording-stream}
+
+\Defpredicate {output-recording-stream-p} {object}
+
+Returns \term{true} if \arg{object} is an \term{output recording stream},
+otherwise returns \term{false}.
+
+\Defclass {standard-output-recording-stream}
+
+The class used by CLIM to implement output record streams.  This is a subclass
+of \cl{output-recording-stream}.
+\Mutable
+
+
+\subsection {The Output Recording Stream Protocol}
+
+The following generic functions comprise the output recording stream protocol.
+All subclasses of \cl{output-recording-stream} must implement methods for these
+generic functions.
+
+\Defgeneric {stream-recording-p} {stream}
+
+Returns \term{true} when the \term{output recording stream} \arg{stream} is
+recording all output performed to it, otherwise returns \term{false}.
+
+\Defgeneric {(setf stream-recording-p)} {recording-p stream}
+
+Changes the state of \cl{stream-recording-p} to be \arg{recording-p}, which must
+be either \cl{t} or \cl{nil}.
+
+\Defgeneric {stream-drawing-p} {stream}
+
+Returns \term{true} when the \term{output recording stream} \arg{stream} will
+actually draw on the viewport when output is being performed to it, otherwise
+returns \term{false}.
+
+\Defgeneric {(setf stream-drawing-p)} {drawing-p stream}
+
+Changes the state of \cl{stream-recording-p} to be \arg{drawing-p}, which must
+be either \cl{t} or \cl{nil}.
+
+\Defgeneric {stream-output-history} {stream}
+
+Returns the history (or top-level output record) for the \term{output recording
+stream} \arg{stream}.
+
+\Defgeneric {stream-current-output-record} {stream}
+
+The current ``open'' output record for the \term{output recording stream}
+\arg{stream}, the one to which \cl{stream-add-output-record} will add a new
+child record.  Initially, this is the same as \cl{stream-output-history}.  As
+nested output records are created, this acts as a ``stack''.
+
+\Defgeneric {(setf stream-current-output-record)} {record stream}
+
+Sets the current ``open'' output record for the \term{output recording stream}
+\arg{stream} to the \term{output record} \arg{record}.
+
+\Defgeneric {stream-add-output-record} {stream record}
+
+Adds the \term{output record} \arg{record} to the current output record on the
+\term{output recording stream} \arg{stream} (that is,
+\cl{stream-current-output-record}).
+
+\Defgeneric {stream-replay} {stream \optional region}
+
+Directs the \term{output recording stream} \arg{stream} to invoke \cl{replay}
+on its output history.  Only those records that overlap the \term{region}
+\arg{region} (which defaults to the viewport of the stream) are replayed.
+
+\Defgeneric {erase-output-record} {record stream \optional (errorp \cl{t})}
+
+Erases the \term{output record} \arg{record} from the \term{output recording
+stream} \arg{stream}, removes \arg{record} from \arg{stream}'s output history,
+and ensures that all other output records that were covered by \arg{record} are
+visible.  In effect, this draws background ink over the record, and then redraws
+all the records that overlap \arg{record}.
+
+If \arg{record} is not in the stream's output history, then an error is
+signalled, unless \arg{errorp} is \term{false}.
+
+\Defun {copy-textual-output-history} {window stream \optional region record}
+
+Given an \term{output recording stream} \arg{window} and a character output
+stream \arg{stream}, \cl{copy-textual-output-history} maps over all of the
+textual output records in the region \arg{region} and writes them to
+\arg{stream}, in order from the top of the output to the bottom of the output.
+
+If \arg{record} is supplied, it is the top-level record to map over.  It
+defaults to \cl{stream-output-history} of \arg{window}.
+
+
+\subsection {Graphics Output Recording}
+
+Using \cl{draw-line*} as an example, calling any of the drawing functions
+specified in Section~\ref{drawing-functions} and
+Section~\ref{graphics-protocols} on an output recording stream results in the
+following series of function calls:
+
+\begin{itemize}
+\item A program calls \cl{draw-line*} on arguments \arg{stream} (an output
+recording stream), \arg{x1}, \arg{y1}, \arg{x2}, and \arg{y2}, and perhaps some
+drawing options.
+
+\item \cl{draw-line*} merges the supplied drawing options into the stream's
+medium, and then calls \cl{medium-draw-line*} on the stream.  (Note that a
+compiler macro could detect the case where there are no drawing options or
+constant drawing options, and do this at compile time.)
+
+\item The \cl{:around} method for \cl{medium-draw-line*} on the output recording
+stream is called.  If \cl{stream-recording-p} is \term{true}, this creates an
+output record with all of the information necessary to replay the output record.
+If \cl{stream-drawing-p} is \term{true}, this then does a \cl{call-next-method}.
+(Note that the \cl{call-next-method} could be replaced by a call to the
+\cl{medium-draw-line*} method on the stream's medium, avoiding the need for a
+trampolining function call.)
+
+\item An \cl{:around} method for \cl{medium-draw-line*} performs the necessary
+user transformations by applying the medium transformation to \arg{x1},
+\arg{y1}, \arg{x2}, and \arg{y2}, and to the clipping region, and then calls the
+medium-specific method.
+
+\item The ``real'' \cl{medium-draw-line*} transforms the start and end
+coordinates of the line by the stream's device transformation, decodes the ink
+and line style into port-specific objects, and finally invokes a port-specific
+function (such as \cl{xlib:draw-line}) to do the actual drawing.
+\end{itemize}
+
+\cl{replay-output-record} for a graphics displayed output record simply binds
+the state of the medium to the state captured in the output record, and calls
+the medium drawing function (such as \cl{medium-draw-line*}) directly on the
+medium, with \cl{stream-recording-p} of the stream set to \term{false} and
+\cl{stream-drawing-p} set to \term{true}.
+
+
+\subsection {Text Output Recording}
+
+\Issue {SWM} {This is the place where \cl{write-string} and friends get captured
+in order to create output record.  The generic functions include things like
+\cl{stream-write-string}, which are specialized by output recording streams to
+do the output recording.  Describe exactly what happens.}
+
+\Defgeneric {stream-text-output-record} {stream text-style}
+
+Returns a text output record for the \term{output recording stream} \arg{stream}
+suitable for holding characters in the text style \arg{text-style}.  If there is
+a currently ``open'' text output record that can hold characters in the
+specified text style, it is simply returned.  Otherwise a new text output record
+is created that can hold characters in that text style, and its starting cursor
+position set to the cursor position of \arg{stream}.
+
+\Defgeneric {stream-close-text-output-record} {stream}
+
+Closes the \term{output recording stream} \arg{stream}'s currently ``open'' text
+output record by recording the stream's current cursor position as the ending
+cursor position of the record and adding the text output record to
+\arg{stream}'s current output record by calling \cl{stream-add-output-record}.
+
+If there is no ``open'' text output record, \cl{stream-close-text-output-record}
+does nothing.
+
+Calling \cl{stream-finish-output} or \cl{stream-force-output}, calling
+\cl{redisplay}, setting the text cursor position (via
+\cl{stream-set-cursor-position}, \cl{terpri}, or \cl{fresh-line}), creating a
+new output record (for example, via \cl{with-new-output-record}), or changing
+the state of \cl{stream-recording-p} must close the current text output record.
+Some CLIM implementations may also choose to close the current text output
+record when the stream's drawing options or text style are changed, depending on
+the exact implementation of text output records.
+
+
+\Defgeneric {stream-add-character-output} {stream character text-style
+                                           width height baseline}
+
+Adds the character \arg{character} to the \term{output recording stream}
+\arg{stream}'s text output record in the \term{text style} \arg{text-style}.
+\arg{width} and \arg{height} are the width and height of the character in device
+units.  \arg{baseline} is the new baseline for the stream.
+\cl{stream-add-character-output} must be implemented by calling
+\cl{add-character-output-to-text-record}.
+
+\cl{stream-write-char} on an output recording stream will call
+\cl{stream-add-character-output} when \cl{stream-recording-p} is \term{true}.
+
+\Defgeneric {stream-add-string-output} {stream string start end text-style
+                                        width height baseline}
+
+Adds the string \arg{string} to the \term{output recording stream}
+\arg{stream}'s text output record in the \term{text style} \arg{text-style}.
+\arg{start} and \arg{end} are integers that specify the substring within
+\arg{string} to add to the text output record.  \arg{width} and \arg{height} are
+the width and height of the string in device units.  \arg{baseline} is the new
+baseline for the stream.  \cl{stream-add-string-output} must be implemented by
+calling \cl{add-string-output-to-text-record}.
+
+\cl{stream-write-string} on an output recording stream will call
+\cl{stream-add-string-output} when \cl{stream-recording-p} is \term{true}.
+
+
+\subsection {Output Recording Utilities}
+
+CLIM provides several helper macros to control the output recording facility.
+
+\Defmacro {with-output-recording-options} {(stream \key record draw) \body body} 
+
+Enables or disables output recording and/or drawing on the \term{output
+recording stream} designated by \arg{stream}, within the extent of \arg{body}.
+
+The \arg{stream} argument is not evaluated, and must be a symbol that is bound to
+an output recording stream.  If \arg{stream} is \cl{t}, \cl{*standard-output*} is
+used. \arg{body} may have zero or more declarations as its first forms.
+
+\cl{with-output-recording-options} must be implemented by expanding into a call
+to \cl{invoke-with-output-recording-options}, supplying a function that executes
+\arg{body} as the \arg{continuation} argument to
+\cl{invoke-with-output-recording-options}.  The exact behavior of this macro is
+described under \cl{invoke-with-output-recording-options}.
+
+\Defgeneric {invoke-with-output-recording-options} {stream continuation record draw}
+
+Enables or disables output recording and/or drawing on the \term{output
+recording stream} \arg{stream}, and calls the function \arg{continuation} with
+the new output recording options in effect.  \arg{continuation} is a function
+of one argument, the stream; it has dynamic extent.
+
+If \arg{draw} is \term{false}, output to the stream is not drawn on the
+viewport, but recording proceeds according to \arg{record}; if \arg{draw} is
+\term{true}, the output is drawn.  If \arg{record} is \cl{nil}, output recording
+is disabled, but output otherwise proceeds according to \arg{draw}; if
+\arg{record} is \term{true}, output recording is enabled.
+
+All output recording streams must implement a method for
+\cl{invoke-with-output-recording-options}.
+
+
+\Defmacro {with-new-output-record} {(stream \optional record-type record
+                                     \rest initargs)
+                                    \body body}
+
+Creates a new output record of type \arg{record-type} (which defaults to
+\cl{standard-sequence-output-record}) and then captures the output of \arg{body}
+into the new output record, and inserts the new record into the current ``open''
+output record associated with the \term{output recording stream} designated by
+\arg{stream}.  While \arg{body} is being evaluated, the current output record
+for \arg{stream} will be bound to the new output record.
+
+If \arg{record} is supplied, it is the name of a variable that will be lexically
+bound to the new output record inside of body.  \arg{initargs} are CLOS initargs
+that are passed to \cl{make-instance} when the new output record is created.
+
+\cl{with-new-output-record} returns the output record it creates. 
+
+The \arg{stream} argument is not evaluated, and must be a symbol that is bound to
+an output recording stream.  If \arg{stream} is \cl{t}, \cl{*standard-output*} is
+used.  \arg{body} may have zero or more declarations as its first forms.
+
+\cl{with-new-output-record} must be implemented by expanding into a call to
+\cl{invoke-with-new-output-record} supplying a function that executes \arg{body}
+as the \arg{continuation} argument to \cl{invoke-with-new-output-record}.  The exact
+behavior of this macro is described under \cl{invoke-with-new-output-record}.
+
+\Defgeneric {invoke-with-new-output-record} {stream continuation record-type
+                                             \rest initargs \key parent \allow}
+
+Creates a new output record of type \arg{record-type}.  The function
+\arg{continuation} is then called, and any output it does to the \term{output
+recording stream} \arg{stream} is captured in the new output record.  The new
+record is then inserted into the current ``open'' output record associated with
+\arg{stream} (or the top-level output record if there is no currently ``open''
+one).  While \arg{continuation} is being executed, the current output record for
+\arg{stream} will be bound to the new output record.
+
+\arg{continuation} is a function of two arguments, the stream and the output
+record; it has dynamic extent.
+
+\arg{initargs} are CLOS initargs that are passed to \cl{make-instance} when the
+new output record is created.  The \arg{parent} initarg is handled specially,
+and specifies what output record should serve as the parent for the newly
+created record.  If unspecified, \cl{stream-current-output-record} of
+\arg{stream} will be used as the parent.
+
+\cl{invoke-with-new-output-record} returns the output record it creates.
+
+All output recording streams must implement a method for
+\cl{invoke-with-new-output-record}.
+
+
+\Defmacro {with-output-to-output-record} {(stream \optional record-type record
+                                           \rest initargs)
+                                          \body body}
+
+This is identical to \cl{with-new-output-record}, except that the new output record
+is not inserted into the output record hierarchy, and the text cursor position
+of \arg{stream} is initially bound to $(0,0)$.
+
+\arg{record-type} is the type of output record to create, which defaults to
+\cl{standard-sequence-output-record}.  \arg{initargs} are CLOS initargs that are
+passed to \cl{make-instance} when the new output record is created.
+
+If \arg{record} is supplied, it is a variable that will be bound to the new
+output record while \arg{body} is evaluated.
+
+\cl{with-output-to-output-record} returns the output record it creates.
+
+The \arg{stream} argument is not evaluated, and must be a symbol that is bound to
+an output recording stream.  If \arg{stream} is \cl{t}, \cl{*standard-output*} is
+used.  Unlike facilities such as \cl{with-output-to-string}, \arg{stream} must be
+an actual stream, but no output will be done to it.  \arg{body} may have zero or
+more declarations as its first forms.
+
+\cl{with-output-to-output-record} must be implemented by expanding into a call
+to \cl{invoke-with-output-to-output-record} supplying a function that executes
+\arg{body} as the \arg{continuation} argument to
+\cl{invoke-with-output-to-output-record}.  The exact behavior of this macro is
+described under \cl{invoke-with-output-to-output-record}.
+
+\Defgeneric {invoke-with-output-to-output-record} {stream continuation record-type 
+                                                   \rest initargs \key}
+
+This is similar to \cl{invoke-with-new-output-record} except that the new output
+record is not inserted into the output record hierarchy, and the text cursor
+position of \arg{stream} is initially bound to $(0,0)$.  That is, when
+\cl{invoke-with-output-to-output-record} is used, no drawing on the stream
+occurs and nothing is put into the stream's normal output history.  The function
+\arg{continuation} is called, and any output it does to \arg{stream} is captured in
+the output record.
+
+\arg{continuation} is a function of two arguments, the stream and the output
+record; it has dynamic extent.  \arg{record-type} is the type of output record
+to create.  \arg{initargs} are CLOS initargs that are passed to
+\cl{make-instance} when the new output record is created.
+
+\cl{invoke-with-output-to-output-record} returns the output record it creates.
+
+All output recording streams must implement a method for
+\cl{invoke-with-output-to-output-record}.
+
+
+\Defgeneric {make-design-from-output-record} {record}
+
+Makes a design that replays the \term{output record} \arg{record} when drawn via
+\cl{draw-design}.  If \arg{record} is changed after the design is made, the
+consequences are unspecified.  Applying a transformation to the design and
+calling \cl{draw-design} on the new design is equivalent to establishing the
+same transformation before creating the output record.
+
+It is permissible for implementations to support this only for those output
+records that correspond to the geometric object classes (for example, the output
+records created by \cl{draw-line*} and \cl{draw-ellipse*}).

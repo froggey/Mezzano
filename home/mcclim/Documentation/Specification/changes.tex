@@ -1,0 +1,466 @@
+% -*- Mode: LaTeX; Package: CLIM-USER -*-
+
+\chapter {Changes from CLIM 1.0}
+\label {changes}
+
+This appendix lists the incompatible changes from CLIM 1.0 (and CLIM 0.9 for the
+API related to the windowing substrate and gadgets), and the rationale for those
+changes.  They are listed on a chapter-by-chapter basis.
+
+When the items say that a compatibility stub will be provided, this does not
+mean that this compatibility needs to be part of CLIM itself.  It could be
+provided by a small compatibility package that defines stubs that translate from
+the old behavior to the new behavior at compile-time or run-time, or by some
+sort of conversion utility, or both.  In the first case, compiler warnings
+should be generated to indicate that an obsolete form is being used.
+
+\issue {SWM} {There are still lots of things from the windowing part, and the
+frames, panes, and gadgets chapters that need to be included here.}
+
+\paragraph {Regions}
+
+\begin{itemize}
+\item \cl{point-position*} has been renamed to \cl{point-position}, since the
+term ``position'' unambiguously refers to an $(x,y)$ coordinate pair.  A
+compatibility function will be provided.
+
+\item \cl{region-contains-point*-p} has been renamed to
+\cl{region-contains-position-p}, since the term ``position'' unambiguously
+refers to an $(x,y)$ coordinate pair.  A compatibility function will be
+provided.
+
+\item The use of \cl{region-set-function} has been deprecated in favor of using
+the three classes \cl{standard-region-union}, \cl{standard-region-intersection},
+and \cl{standard-region-difference}, in keeping with the spirit of CLOS.
+\cl{region-set-function} will be provided as a compatibility function.
+\end{itemize}
+
+
+\paragraph {Bounding Rectangles}
+
+\begin{itemize} 
+\item \cl{with-bounding-rectangle*} used to have optional \arg{max-x} and
+\arg{max-y} arguments.  They are now required.
+
+\item The function \cl{bounding-rectangle-set-edges} has been removed, since
+bounding rectangles have been made immutable.  There is no replacement for it.
+
+\item \cl{bounding-rectangle-position*} has been renamed to
+\cl{bounding-rectangle-position}, since the term ``position'' unambiguously
+refers to an $(x,y)$ coordinate pair.  A compatibility function will be
+provided.
+
+\item The functions \cl{bounding-rectangle-left}, \cl{bounding-rectangle-top},
+\cl{bounding-rectangle-right}, and \cl{bounding-rectangle-bottom} have been
+replaced by \cl{bounding-rectangle-min-x}, \cl{bounding-rectangle-min-y},
+\cl{bounding-rectangle-max-x}, and \cl{bounding-rectangle-max-y}.  This is
+because left, top, right, and bottom are ill-specified.  Compatibility functions
+will be provided.
+\end{itemize}
+
+
+\paragraph {Affine Transformations}
+
+\begin{itemize}
+\item The function \cl{make-3-point-transformation} has had its argument list
+changed from {\it (point-1 point-1-image point-2 point-2-image point-3 point-3-image)}
+to {\it (point-1 point-2 point-3 point-1-image point-2-image point-3-image)}.
+This was done because the original argument list did not group together inputs
+and output, which was confusing.
+
+\item The function \cl{make-3-point-transformation*} has had its argument list
+changed from {\it (x1 y1 x1-image y1-image x2 y2 x2-image y2-image x3 y3 x3-image y3-image)}
+to {\it (x1 y1 x2 y2 x3 y3 x1-image y1-image x2-image y2-image x3-image y3-image)}.
+This was done because the original argument list did not group together inputs
+and output, which was confusing.
+
+\item \cl{compose-scaling-transformation}, \cl{compose-translation-transformation}, and
+\cl{compose-rotation-transformation} have been replaced by the six functions
+\cl{compose-translation-with-transformation}, \cl{compose-scaling-with-transformation},
+\cl{compose-rotation-with-transformation}, \cl{compose-transformation-with-translation},
+\cl{compose-transformation-with-scaling}, and \cl{compose-transformation-with-rotation}.
+This was done because the six functions implement all of the optimized useful
+cases of composition of transformations, and new names are required for all six.
+Compatibility functions will be provided for the three CLIM 1.0 functions.
+
+\item \cl{transform-point*} and \cl{untransform-point*} have been renamed to
+\cl{transform-position} and \cl{untransform-position}.  Compatibility functions
+will be provided.
+\end{itemize}
+
+
+\paragraph {Properties of Sheets}
+
+
+\paragraph {Sheet Protocols}
+
+
+\paragraph {Ports, Grafts, and Mirrored Sheets}
+
+
+\paragraph {Text Styles}
+
+\begin{itemize}
+\item The macros \cl{with-text-style}, \cl{with-text-family},
+\cl{with-text-face}, and \cl{with-text-size} have been changed to take the
+\arg{medium} argument first and the text style (or family, face, or size)
+argument second.  This was done in order to be consistent with all of the other
+macros that take a \arg{medium} argument as the first argument.  Compatibility
+code will be provided that attempts to detect the old syntax and massages it
+into the new syntax, although it will probably not be able to detect all cases.
+
+\item \cl{add-text-style-mapping} has been replaced by \cl{(setf~text-style-mapping)}
+to be consistent with Common Lisp conventions.  A compatibility function will be
+provided. 
+\end{itemize}
+
+
+\paragraph {Drawing in Color}
+
+\begin{itemize}
+\item \cl{+foreground+} and \cl{+background+} have been renamed to
+\cl{+foreground-ink+} and \cl{+background-ink+}, for consistency with
+\cl{+flipping-ink+}.  Compatibility constants will be provided.
+
+\item \cl{make-color-rgb} and \cl{make-color-ihs} have been renamed to
+\cl{make-rgb-color} and \cl{make-ihs-color}, by popular demand.  Compatibility
+functions will be provided.
+\end{itemize}
+
+
+\paragraph {Extended Stream Output}
+
+\begin{itemize}
+\item \cl{stream-cursor-position*} and \cl{stream-increment-cursor-position*}
+have been renamed to \cl{stream-cursor-position} and
+\cl{stream-increment-cursor-position}.  Compatibility functions will be
+provided.
+
+\item The function \cl{stream-set-cursor-position*} has been replaced by
+\cl{(setf*~stream-cursor-position)} to be consistent with Common Lisp
+conventions.  A compatibility function will be provided.
+
+\item The function \cl{stream-vsp} has been replace by
+\cl{stream-vertical-spacing}.  A compatibility function will be provided.
+
+\item The macros \cl{with-end-of-line-action} and \cl{with-end-of-page-action}
+have been changed to take the \arg{stream} argument first and the action
+argument second.  This was done in order to be consistent with all of the other
+macros that take a \arg{stream} argument as the first argument.  Compatibility
+code will be provided that attempts to detect the old syntax and massages it
+into the new syntax, although it will probably not be able to detect all cases.
+\end{itemize}
+
+
+\paragraph {Output Recording}
+
+\begin{itemize}
+\item The three protocol classes \cl{output-record}, \cl{output-record-element},
+and \cl{displayed-output-record-element} have been replaced by the two classes
+\cl{output-record} and \cl{displayed-output-record}.  The predicates for the
+classes have been similarly changed.
+
+\item \cl{output-record-position*} has been renamed to
+\cl{output-record-position}.  A compatibility function will be provided.
+
+\item The function \cl{output-record-set-position*} has been replaced by
+\cl{(setf*~output-record-position)} to be consistent with Common Lisp
+conventions.  A compatibility function will be provided.
+
+\item The functions \cl{output-record-start-position*},
+\cl{output-record-set-start-position*}, \cl{output-record-end-position*},
+\cl{output-record-set-end-position*} have been replaced by
+\cl{output-record-start-cursor-position}, \cl{(setf*~output-record-start-cursor-position)},
+\cl{output-record-end-cursor-position}, \cl{(setf*~output-record-end-cursor-position)} to
+better reflect their functionality.  Compatibility functions will be provided.
+
+\item \cl{replay-1} has been renamed to \cl{replay-output-record}.
+
+\item \cl{output-record-elements} and \cl{output-record-element-count} have been
+renamed to \cl{output-record-children} and \cl{output-record-count}, since the
+term ``element'' is no longer used when referring to output records.
+Compatibility functions will be provided.
+
+\item \cl{add-output-record-element} and \cl{delete-output-record-element} have
+been renamed to \cl{add-output-record} and \cl{delete-output-record}, and the
+argument order has been changed.  Compatibility functions will be provided.
+
+\item \cl{map-over-output-record-elements-containing-point*} and
+\cl{map-over-output-record-elements-overlapping-region} have been renamed to
+\cl{map-over-output-records-containing-position} and
+\cl{map-over-output-records-overlapping-region}.  Compatibility functions will
+be provided.
+
+\item \cl{linear-output-record} and \cl{coordinate-sorted-set-output-record}
+have been renamed to \cl{standard-sequence-output-record} and
+\cl{standard-tree-output-record}.
+
+\item \cl{stream-draw-p} and \cl{stream-record-p} and their \cl{setf} functions
+have been renamed to \cl{stream-drawing-p} and \cl{stream-recording-p} to better
+reflect their functionality.  Compatibility functions will be provided.
+
+\item \cl{output-recording-stream-output-record},
+\cl{output-recording-stream-current-output-record-stack}, and
+\cl{output-recording-stream-text-output-record} have been renamed to
+\cl{stream-output-history}, \cl{stream-current-output-record}, and
+\cl{stream-text-output-record}.  Compatibility functions will be provided.
+
+\item \cl{add-output-record} has been renamed to \cl{stream-add-output-record}.
+Because of the change to \cl{add-output-record-element} above, no compatibility
+function can be provided.
+
+\item \cl{close-current-text-output-record} has been renamed to
+\cl{stream-close-text-output-record}.  A compatibility function will be
+provided.
+
+\item \cl{add-string-output-to-output-record} and
+\cl{add-character-output-to-output-record} have been renamed to
+\cl{stream-add-string-output} and \cl{stream-add-character-output}.
+Compatibility functions will be provided.
+
+\item \cl{with-output-recording-options} has had its \cl{:draw-p} and
+\cl{:record-p} keyword arguments changed to \cl{:draw} and \cl{:record} to
+conform to Common Lisp naming conventions.  Compatibility code will be provided.
+\end{itemize}
+
+
+\paragraph {Table Formatting}
+
+\begin{itemize}
+\item The \cl{:inter-column-spacing}, \cl{:inter-row-spacing}, and
+\cl{:multiple-columns-inter-column-spacing} options to \cl{formatting-table}
+have been renamed to \cl{:x-spacing}, \cl{:y-spacing}, and
+\cl{:multiple-columns-x-spacing} in order to be consistent with the pane
+options.  Compatibility options will be provided.
+
+\item The \cl{:minimum-width} and \cl{:minimum-height} options to
+\cl{formatting-cell} have been renamed to \cl{:min-width} and \cl{:min-height}
+in order to be consistent with the pane options.  Compatibility options will be
+provided.
+
+\item The \cl{:inter-column-spacing} and \cl{:inter-row-spacing} options to
+\cl{formatting-item-list} and \cl{format-items} have been renamed to
+\cl{:x-spacing} and \cl{:y-spacing} in order to be consistent with the pane
+options.  Compatibility options will be provided.
+
+\item The \cl{:no-initial-spacing} option to \cl{formatting-item-list} and
+\cl{format-items} has been renamed to \cl{:initial-spacing}, because
+inverted-sense flags are too hard to keep straight.  The default for
+\cl{:no-initial-spacing} was \term{true}, therefore the default for
+\cl{:initial-spacing} is \term{false}.  Compatibility options will be
+provided.
+\end{itemize}
+
+
+\paragraph {Graph Formatting}
+
+\begin{itemize}
+\item The function \cl{format-graph-from-root} has been renamed to
+\cl{format-graph-from-roots}, since it now takes a sequence of root objects,
+rather than a single root object.  The function \cl{format-graph-from-root} will
+remain as a compatibility function that takes a single root object.
+\end{itemize}
+
+
+\paragraph {Incremental Redisplay}
+
+\begin{itemize}
+\item \cl{redisplay-1} has been renamed to \cl{redisplay-output-record}.
+\end{itemize}
+
+
+\paragraph {Extended Stream Input}
+
+\begin{itemize}
+\item \cl{stream-pointer-position*} has been renamed to
+\cl{stream-pointer-position}.  A compatibility function will be provided.
+
+\item The function \cl{stream-set-pointer-position*} has been replaced by
+\cl{(setf*~stream-pointer-position)} to be consistent with Common Lisp
+conventions.  A compatibility function will be provided.
+
+\item All of the clause arglists for \cl{tracking-pointer} are specified with
+{\tt\&key}, that is, they are named arguments rather than positional ones.
+This should not cause any problems, except for the one case that the
+\arg{character} argument to the \cl{:keyboard} clause has been renamed to
+\arg{gesture}.
+
+\item The function \cl{dragging-output-record} has been renamed to
+\cl{drag-output-record} to be consistent with our naming conventions.  A
+compatibility function will be provided.
+\end{itemize}
+
+
+\paragraph {Presentation Types}
+
+\begin{itemize}
+\item The argument list for \cl{with-output-as-presentation} has been changed to
+make \arg{stream}, \arg{object}, and \arg{type} be required arguments instead of
+keyword arguments.  This is because it is always necessary to supply those
+arguments in order for \cl{with-output-as-presentation} to work.  Compatibility
+code will be provided to support the old syntax.
+
+\item The \cl{:activation-characters}, \cl{:additional-activation-characters},
+\cl{:blip-characters}, and \cl{:additional-blip-characters} keyword arguments to
+the \cl{accept} functions have been renamed to \cl{:activation-gestures},
+\cl{:additional-activation-gestures}, \cl{:delimiter-gestures}, and
+\cl{:additional-delimiter-gestures}.  Compatibility code will be provided to
+support the old keyword arguments.
+
+\item The arglists for presentation translators and their documentation and
+tester components have been changed to take a single positional \arg{object}
+argument and a list of named (keyword) arguments.  Except for translators that
+omit the \arg{object} argument or have it in other than the initial position of
+the arglist, this will not pose a problem.  This change can be detected.
+
+\item The \arg{frame} argument to \cl{find-presentation-translators} has
+been changed to be a \arg{command-table} argument.  A check at run-time
+can detect when a frame is supplied to
+\cl{find-presentation-translators} instead of a command table.
+
+\item The \cl{:shift-mask} keyword argument to \cl{test-presentation-translator},
+\cl{find-applicable-translators}, \cl{presentation-matches-context-type}, and
+\cl{find-innermost-applicable-presentation} has been renamed to
+\cl{:modifier-state} in order to be consistent with the device event terminology.
+Compatibility code will be provided to support the old keyword.
+
+\item \cl{define-gesture-name} is completely different from CLIM 1.1.  There
+will be no compatibility code provided to support the old version of
+\cl{define-gesture-name}.
+
+\item \cl{dialog-view} and \cl{+dialog-view+} have been renamed to
+\cl{textual-dialog-view} and \cl{+textual-dialog-view+} in order to accurately
+reflect what they are.  Likewise, \cl{menu-view} and \cl{+menu-view+} have been
+renamed to \cl{textual-menu-view} and \cl{+textual-menu-view+}.  Compatibility
+classes and constants will be provided.
+\end{itemize}
+
+
+\paragraph {Input Editing and Completion Facilities}
+
+\begin{itemize}
+\item \cl{*activation-characters*}, \cl{*standard-activation-characters*},
+\cl{with-activation-characters}, and \cl{activation-character-p} have been
+renamed to \cl{*activation-gestures*}, \cl{*standard-activation-gestures*},
+\cl{with-activation-gestures}, and \cl{activation-gesture-p}.  Compatibility
+functions will remain for \cl{with-activation-characters} and
+\cl{activation-character-p}, but since the variables were not previously
+documented, no compatibility will be provided for them.
+
+\item \cl{*blip-characters*}, \cl{with-blip-characters}, and
+\cl{blip-character-p} have been renamed to \cl{*delimiter-gestures*},
+\cl{with-delimiter-gestures}, and \cl{delimiter-gesture-p}.  Compatibility
+functions will remain for \cl{with-blip-characters} and \cl{blip-character-p},
+but since \cl{*blip-characters*} was not previously documented, no compatibility
+will be provided.
+
+\item \cl{*abort-characters*} has been renamed to \cl{*abort-gestures*}.
+
+\item \cl{*completion-characters*}, \cl{*help-characters*}, and
+\cl{*possibilities-characters*} have been renamed to \cl{*completion-gestures*},
+\cl{*help-gestures*}, and \cl{*possibilities-gestures*}.
+
+\item Input editing streams no longer use the interactive stream class.
+Instead, interactive streams are defined to be any stream that can potentially
+support input editing, and the class \cl{input-editing-stream} now refers to
+input editor streams.
+
+\item \cl{input-editor-buffer}, \cl{input-position}, \cl{insertion-pointer}, and
+\cl{rescanning-p} have been renamed to \cl{stream-input-buffer},
+\cl{stream-scan-pointer}, \cl{stream-insertion-pointer}, and
+\cl{stream-rescanning-p}.  Compatibility functions will be provided.
+\end{itemize}
+
+
+\paragraph {Menus}
+
+\begin{itemize}
+\item The \cl{:inter-column-spacing} and \cl{:inter-row-spacing} options to
+\cl{menu-choose} have been renamed to \cl{:x-spacing} and \cl{:y-spacing} in
+order to be consistent with the pane options.  Compatibility options will be
+provided.
+\end{itemize}
+
+
+\paragraph {Command Processing}
+
+\begin{itemize}
+\item The variable \cl{*unsupplied-argument*} has been renamed to
+\cl{*unsupplied-argument-marker*} in keeping with its functionality, and to
+match the new \cl{*numeric-argument-marker*}.  \cl{*unsupplied-argument*} will
+be retained, but its use is deprecated.
+
+\item The \cl{:inter-column-spacing} and \cl{:inter-row-spacing} options to
+\cl{display-command-table-menu} have been renamed to \cl{:x-spacing} and
+\cl{:y-spacing} in order to be consistent with the pane options.  Compatibility
+options will be provided.
+
+\item The \cl{:test} argument to the following functions has been removed, since
+the use of gesture names makes it unnecessary:
+\cl{add-command-to-command-table}, \cl{(add-keystroke-to-command-table}, and
+\cl{remove-keystroke-from-command-table}.  The \cl{:keystroke-test} argument has
+been removed from \cl{read-command} and \cl{read-command-using-keystrokes} for
+the same reason.
+\end{itemize}
+
+
+\paragraph {Application Frames}
+
+\begin{itemize}
+\item The \cl{:root} argument has been removed from \cl{open-window-stream} and
+\cl{make-application-frame}.
+
+\item The \cl{:layout} option has been removed, and is replaced by the more
+general \cl{:layouts} option.  A compatibility hook will be provided that
+handles the old \cl{:layout} option.
+
+\item The function \cl{set-frame-layout} has been replaced by
+\cl{(setf~frame-current-layout)} to be consistent with Common Lisp conventions.
+A compatibility function will be provided.
+
+\item The function \cl{frame-top-level-window} has been renamed to
+\cl{frame-top-level-sheet}.  A compatibility function will be provided.
+
+\item \cl{command-enabled-p}, \cl{enable-command}, and \cl{disable-command}
+have been replaced by \cl{command-enabled} and \cl{(setf~command-enabled)}.
+Compatibility functions will be provided.
+
+\item \cl{window-viewport-position*} has been renamed to
+\cl{window-viewport-position}.  A compatibility function will be provided.
+
+\item \cl{window-set-viewport-position*} has been replaced by
+{(setf*~window-viewport-position)}.  A compatibility function will be provided.
+\end{itemize}
+
+
+\paragraph {Panes}
+
+\begin{itemize}
+\item \cl{realize-pane} and \cl{realize-pane-1} have been renamed to
+\cl{make-pane} and \cl{make-pane-1}.  A compatibility function will be provided
+for \cl{realize-pane}.
+
+\item The pane options \cl{:hs}, \cl{:hs+}, \cl{:hs-}, \cl{:vs}, \cl{:vs+}, and
+\cl{:vs-} have been replaced by the options \cl{:width}, \cl{:max-width},
+\cl{:min-width}, \cl{:height}, \cl{:max-height}, and \cl{:min-height} to be more
+perspicuous, and to conform the same options for the formatted output
+facilities.  Compatibility options will be supplied.
+
+\item The \cl{:nchars} and \cl{:nlines} pane options have been removed in favor
+of an extended syntax to the \cl{:width} and \cl{:height} options.
+
+\item The pane layout options \cl{:halign} and \cl{:valign} have been renamed to
+\cl{:align-x} and \cl{:align-y} to conform with table formatting.  Compatibility
+options will be supplied.
+
+\item The pane layout options \cl{:hspace} and \cl{:vspace} have been renamed to
+\cl{:x-spacing} and \cl{:y-spacing} to conform with table formatting.
+Compatibility options will be supplied.
+
+\item The term ``space req'' has been renamed to ``space requirement''.  All of
+the functions with \cl{space-req} in their names have been renamed to have
+\cl{space-requirement} instead.
+
+\item \cl{make-space-requirement} no longer takes the \cl{:hs} and \cl{:vs}
+arguments, {\it et al}.  It now takes \cl{:width} and \cl{:height}, {\it et al}.
+\end{itemize}

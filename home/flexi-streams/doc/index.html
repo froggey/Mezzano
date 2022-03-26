@@ -1,0 +1,1123 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN">
+<html> 
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+  <title>FLEXI-STREAMS - Flexible bivalent streams for Common Lisp</title>
+  <style type="text/css">
+  pre { padding:5px; background-color:#e0e0e0 }
+  h3, h4 { text-decoration: underline; }
+  a { text-decoration: none; padding: 1px 2px 1px 2px; }
+  a:visited { text-decoration: none; padding: 1px 2px 1px 2px; }
+  a:hover { text-decoration: none; padding: 1px 1px 1px 1px; border: 1px solid #000000; } 
+  a:focus { text-decoration: none; padding: 1px 2px 1px 2px; border: none; }
+  a.none { text-decoration: none; padding: 0; }
+  a.none:visited { text-decoration: none; padding: 0; } 
+  a.none:hover { text-decoration: none; border: none; padding: 0; } 
+  a.none:focus { text-decoration: none; border: none; padding: 0; } 
+  a.noborder { text-decoration: none; padding: 0; } 
+  a.noborder:visited { text-decoration: none; padding: 0; } 
+  a.noborder:hover { text-decoration: none; border: none; padding: 0; } 
+  a.noborder:focus { text-decoration: none; border: none; padding: 0; }  
+  </style>
+</head>
+
+<body bgcolor=white>
+
+<h2>FLEXI-STREAMS - Flexible bivalent streams for Common Lisp</h2>
+
+<blockquote>
+<br>&nbsp;<br><h3><a name=abstract class=none>Abstract</a></h3>
+
+FLEXI-STREAMS implements "virtual" bivalent streams that can be
+layered atop real binary or bivalent streams and that can be used to
+read and write character data in various single- or multi-octet
+encodings which can be changed on the fly.  It also supplies
+<em>in-memory</em> binary streams which are similar to string streams.
+<p>
+The library needs a Common Lisp implementation that
+supports <a
+href="http://www.nhplace.com/kent/CL/Issues/stream-definition-by-user.html"><em>Gray
+streams</em></a> and relies on David
+Lichteblau's <a
+href="http://www.cliki.net/trivial-gray-streams">trivial-gray-streams</a>
+to offer portability between different Lisps.
+<p>
+The code comes with
+a <a
+href="http://www.opensource.org/licenses/bsd-license.php">BSD-style
+license</a> so you can basically do with it whatever you want.
+
+<p>
+<font color=red>Download shortcut:</font> <a href="http://weitz.de/files/flexi-streams.tar.gz">http://weitz.de/files/flexi-streams.tar.gz</a>.
+</blockquote>
+
+<br>&nbsp;<br><h3><a class=none name="contents">Contents</a></h3>
+<ol>
+  <li><a href="#example">Example usage</a>
+  <li><a href="#install">Download and installation</a>
+  <li><a href="#support">Support</a>
+  <li><a href="#dictionary">The FLEXI-STREAMS dictionary</a>
+  <ol>
+    <li><a href="#external-formats">External formats</a>
+      <ol>
+      <li><a href="#make-external-format"><code>make-external-format</code></a>
+      <li><a href="#external-format-name"><code>external-format-name</code></a>
+      <li><a href="#external-format-eol-style"><code>external-format-eol-style</code></a>
+      <li><a href="#external-format-little-endian"><code>external-format-little-endian</code></a>
+      <li><a href="#external-format-id"><code>external-format-id</code></a>
+      <li><a href="#external-format-equal"><code>external-format-equal</code></a>
+      <li><a href="#*default-eol-style*"><code>*default-eol-style*</code></a>
+      <li><a href="#*default-little-endian*"><code>*default-little-endian*</code></a>
+      <li><a href="#external-format-condition"><code>external-format-condition</code></a>
+      <li><a href="#external-format-condition-external-format"><code>external-format-condition-external-format</code></a>
+      <li><a href="#external-format-error"><code>external-format-error</code></a>
+      <li><a href="#external-format-encoding-error"><code>external-format-encoding-error</code></a>
+      <li><a href="#*substitution-char*"><code>*substitution-char*</code></a>
+      <li><a href="#accept-overlong-sequence"><code>accept-overlong-sequence</code></a>
+      </ol>
+    <li><a href="#flexi-streams">Flexi streams</a>
+      <ol>
+      <li><a href="#flexi-stream"><code>flexi-stream</code></a>
+      <li><a href="#flexi-input-stream"><code>flexi-input-stream</code></a>
+      <li><a href="#flexi-output-stream"><code>flexi-output-stream</code></a>
+      <li><a href="#flexi-io-stream"><code>flexi-io-stream</code></a>
+      <li><a href="#make-flexi-stream"><code>make-flexi-stream</code></a>
+      <li><a href="#flexi-stream-external-format"><code>flexi-stream-external-format</code></a>
+      <li><a href="#flexi-stream-element-type"><code>flexi-stream-element-type</code></a>
+      <li><a href="#flexi-stream-column"><code>flexi-stream-column</code></a>
+      <li><a href="#flexi-stream-position"><code>flexi-stream-position</code></a>
+      <li><a href="#flexi-stream-bound"><code>flexi-stream-bound</code></a>
+      <li><a href="#flexi-stream-stream"><code>flexi-stream-stream</code></a>
+      <li><a href="#unread-byte"><code>unread-byte</code></a>
+      <li><a href="#peek-byte"><code>peek-byte</code></a>
+      <li><a href="#octet"><code>octet</code></a>
+      <li><a href="#flexi-stream-error"><code>flexi-stream-error</code></a>
+      <li><a href="#flexi-stream-out-of-sync-error"><code>flexi-stream-out-of-sync-error</code></a>
+      <li><a href="#flexi-stream-element-type-error"><code>flexi-stream-element-type-error</code></a>
+      <li><a href="#flexi-stream-element-type-error-element-type"><code>flexi-stream-element-type-error-element-type</code></a>
+      </ol>
+    <li><a href="#in-memory">In-memory streams</a>
+      <ol>
+      <li><a href="#in-memory-stream"><code>in-memory-stream</code></a>
+      <li><a href="#in-memory-input-stream"><code>in-memory-input-stream</code></a>
+      <li><a href="#in-memory-output-stream"><code>in-memory-output-stream</code></a>
+      <li><a href="#list-stream"><code>list-stream</code></a>
+      <li><a href="#vector-stream"><code>vector-stream</code></a>
+      <li><a href="#make-in-memory-input-stream"><code>make-in-memory-input-stream</code></a>
+      <li><a href="#make-in-memory-output-stream"><code>make-in-memory-output-stream</code></a>
+      <li><a href="#get-output-stream-sequence"><code>get-output-stream-sequence</code></a>
+      <li><a href="#output-stream-sequence-length"><code>output-stream-sequence-length</code></a>
+      <li><a href="#with-input-from-sequence"><code>with-input-from-sequence</code></a>
+      <li><a href="#with-output-to-sequence"><code>with-output-to-sequence</code></a>
+      <li><a href="#in-memory-stream-error"><code>in-memory-stream-error</code></a>
+      <li><a href="#in-memory-stream-closed-error"><code>in-memory-stream-closed-error</code></a>
+      <li><a href="#in-memory-stream-position-spec-error"><code>in-memory-stream-position-spec-error</code></a>
+      <li><a href="#in-memory-stream-position-spec-error-position-spec"><code>in-memory-stream-position-spec-error-position-spec</code></a>
+      </ol>
+    <li><a href="#strings">Strings</a>
+      <ol>
+      <li><a href="#string-to-octets"><code>string-to-octets</code></a>
+      <li><a href="#octets-to-string"><code>octets-to-string</code></a>
+      <li><a href="#octet-length"><code>octet-length</code></a>
+      <li><a href="#char-length"><code>char-length</code></a>
+      </ol>
+  </ol>
+  <li><a href="#position">File positions</a>
+  <li><a href="#ack">Acknowledgements</a>
+</ol>
+
+<br>&nbsp;<br><h3><a name="example" class=none>Example usage</a></h3>
+
+The examples were created with <a href="http://www.lispworks.com/">LispWorks</a> 4.4.6&nbsp;pro on Windows. The following two functions create <a href="foo.txt">the same file</a>:
+
+<pre>
+(defun foo (pathspec)
+  "With standard LispWorks streams."
+  (with-open-file (out pathspec
+                       :direction :output
+                       :if-exists :supersede
+                       :external-format '(:utf-8 :eol-style :crlf))
+    (write-line "&Auml;&Ouml;&Uuml;1" out))
+  (with-open-file (out pathspec
+                       :direction :output
+                       :if-exists :append
+                       :external-format '(:latin-1 :eol-style :lf))
+    (write-line "&Auml;&Ouml;&Uuml;2" out))
+  (with-open-file (out pathspec
+                       :direction :output
+                       :if-exists :append
+                       :element-type 'octet)
+    (write-byte #xeb out)
+    (write-sequence #(#xa3 #xa4 #xa5) out))
+  (with-open-file (out pathspec
+                       :direction :output
+                       :if-exists :append
+                       :external-format '(:unicode :little-endian nil :eol-style :crlf))
+    (write-line "&Auml;&Ouml;&Uuml;3" out)))
+
+(defun bar (pathspec)
+  &quot;With a <a href="#flexi-streams" class=noborder>flexi stream</a>.&quot;
+  (with-open-file (out pathspec
+                       :direction :output
+                       :if-exists :supersede
+                       :external-format '(:latin-1 :eol-style :lf))
+    (setq out (<a href="#make-flexi-stream" class=noborder>make-flexi-stream</a> out <a href="#external-formats" class=noborder>:external-format</a> :utf-8))
+    (write-line "&Auml;&Ouml;&Uuml;1" out)
+    (setf (<a href="#flexi-stream-external-format" class=noborder>flexi-stream-external-format</a> out) '(:latin-1 :eol-style :lf))
+    (write-line "&Auml;&Ouml;&Uuml;2" out) 
+    (write-byte #xeb out)
+    (write-sequence #(#xa3 #xa4 #xa5) out)
+    (setf (flexi-stream-external-format out) :ucs-2be)
+    (write-line "&Auml;&Ouml;&Uuml;3" out)))
+</pre>
+
+<p>
+And applying this function
+<pre>
+(defun baz (pathspec)
+  (let (result)
+    (with-open-file (in pathspec :element-type '<a href="#octet" class=noborder>octet</a>)
+      (setq in (<a href="#make-flexi-stream" class=noborder>make-flexi-stream</a> in <a href="#external-formats" class=noborder>:external-format</a> :utf-8))
+      (push (read-line in) result)
+      (push (read-byte in) result)
+      (setf (<a href="#flexi-stream-external-format" class=noborder>flexi-stream-external-format</a> in) '(:latin-1 :eol-style :lf))
+      (push (read-line in) result) 
+      (setf (flexi-stream-external-format in) :greek)
+      (push (read-char in) result)
+      (setf (flexi-stream-external-format in) :latin0)
+      (let ((string (make-string 3 :element-type 'character)))
+        (read-sequence string in)
+        (push string result))
+      (let ((octets (make-array 2 :element-type 'octet)))
+        (read-sequence octets in)
+        (push octets result))
+      (setf (flexi-stream-external-format in) :ucs-2be)
+      (push (read-line in) result))
+    (nreverse result)))
+</pre>
+to the file created above will yield the list
+<pre>
+("&Auml;&Ouml;&Uuml;1"&nbsp;196&nbsp;"&Ouml;&Uuml;2"&nbsp;#\&lambda;&nbsp;"&#163;&#8364;&#165;"&nbsp;#(0&nbsp;196)&nbsp;"&Ouml;&Uuml;3")
+</pre>
+
+<p>
+For more examples see the source code
+of 
+<a href="http://mr-co.de/projects/cl-rfc2047/">CL-RFC2047</a>,
+<a
+href="http://weitz.de/drakma/">Drakma</a>, <a
+href="http://weitz.de/chunga/">Chunga</a>,
+or <a href="http://weitz.de/cl-wbxml/">CL-WBXML</a>.
+
+<br>&nbsp;<br><h3><a name="install" class=none>Download and installation</a></h3>
+
+Before you try to install FLEXI-STREAMS, first check that in your Lisp
+each <a
+href="http://www.lispworks.com/documentation/HyperSpec/Body/13_.htm">character</a>'s
+<a
+href="http://www.lispworks.com/documentation/HyperSpec/Body/26_glo_c.htm#character_code">character
+code</a> is equal to
+its <a
+href="http://en.wikipedia.org/wiki/Unicode">Unicode</a> <a
+href="http://unicode.org/glossary/">code point</a> and
+that <code>(CHAR-CODE&nbsp;#\Newline)</code>
+and <code>(CHAR-CODE&nbsp;#\Linefeed)</code> have the same
+value&nbsp;(10).  (This is the case for all relevant CL
+implementations which were in use when this library was written.  It
+is <em>not</em> mandated by the ANSI standard, though.)
+<p>
+FLEXI-STREAMS together with this documentation can be downloaded from <a
+href="http://weitz.de/files/flexi-streams.tar.gz">http://weitz.de/files/flexi-streams.tar.gz</a>. The
+current version is 1.0.12.
+<p>
+Before you install FLEXI-STREAMS you first need to
+install the <a
+href="http://www.cliki.net/trivial-gray-streams">trivial-gray-streams</a> library
+unless you already have it.
+<p>
+FLEXI-STREAMS comes with a system definition for <a
+href="http://www.cliki.net/asdf">ASDF</a> so you can install the library with
+<pre>
+(asdf:oos 'asdf:load-op :flexi-streams)
+</pre>
+if you've unpacked it in a place where ASDF can find it.  Installation
+via <a href="http://www.cliki.net/asdf-install">asdf-install</a>
+should also be possible, and there's a port
+to <a href="http://www.cliki.net/Gentoo">Gentoo Lisp</a> thanks to
+Matthew Kennedy.
+<p>
+You can run a test suite which tests <em>some</em> (but
+not <em>all</em>) aspects of the library with
+<pre>
+(asdf:oos 'asdf:test-op :flexi-streams)
+</pre>
+This might take a while...
+<p>
+The current development version of FLEXI-STREAMS can be found
+at <a href="http://bknr.net/trac/browser/trunk/thirdparty">http://bknr.net/trac/browser/trunk/thirdparty</a>.
+This is the one to send <a href="#mail">patches</a> against.  Use at
+your own risk.
+<p>
+Lu&iacute;s Oliveira maintains a <a href="http://darcs.net/">darcs</a>
+repository of FLEXI-STREAMS
+at <a href="http://common-lisp.net/%7Eloliveira/ediware/">http://common-lisp.net/~loliveira/ediware/</a>.
+<p>
+A <a href="http://www.selenic.com/mercurial/wiki/">Mercurial</a>
+repository of older versions is available
+at <a
+href="http://arcanes.fr.eu.org/~pierre/2007/02/weitz/">http://arcanes.fr.eu.org/~pierre/2007/02/weitz/</a>
+thanks to Pierre Thierry.
+
+<br>&nbsp;<br><h3><a name="support" class=none>Support</a></h3>
+
+The development version of flexi-streams can be
+found <a href="https://github.com/edicl/flexi-streams" target="_new">on
+github</a>.  Please use the github issue tracking system to submit bug
+reports.  Patches are welcome, please
+use <a href="https://github.com/edicl/flexi-streams/pulls">GitHub pull
+requests</a>.  If you want to make a change,
+please <a href="http://weitz.de/patches.html" target="_new">read this
+first</a>.
+
+<br>&nbsp;<br><h3><a class=none name="dictionary">The FLEXI-STREAMS dictionary</a></h3>
+
+<h4><a name="external-formats" class=none>External formats</a></h4>
+
+<code>EXTERNAL-FORMAT</code> objects are used to denote the external
+formats of <a href="#flexi-streams">flexi streams</a>.  These objects are created using
+the <a
+href="#make-external-format"><code>MAKE-EXTERNAL-FORMAT</code></a>
+function, and there are <a href="#external-format-name">various
+readers</a> to query their attributes.  Once such an object is
+created it can't be changed.
+<p>
+An external format consists of a basic encoding
+(like <a
+href="http://en.wikipedia.org/wiki/Iso-8859-1">ISO&nbsp;8859-1</a>
+or <a href="http://en.wikipedia.org/wiki/UTF-8">UTF-8</a>), a
+definition how line endings are denoted - by a carriage return
+character (ASCII&nbsp;13), by a line feed character (ASCII&nbsp;10),
+or by both of these characters in a row -, and optionally (for
+encodings that use units larger than 8&nbsp;bits) information
+about the <a href="http://en.wikipedia.org/wiki/Endian">endianess</a>
+of the encoding.
+<p>
+The following encodings are currently supported by FLEXI-STREAMS:
+<ul>
+<li><a href="http://en.wikipedia.org/wiki/UTF-8">UTF-8</a> (denoted by the keyword <code>:UTF-8</code>),
+<li><a href="http://en.wikipedia.org/wiki/UTF-16">UTF-16</a> (denoted by the keyword <code>:UTF-16</code>),
+<li><a href="http://en.wikipedia.org/wiki/UTF-32">UTF-32</a> (denoted by the keyword <code>:UTF-32</code>),
+<li>all <a href="http://czyborra.com/charsets/iso8859.html">ISO 8859</a> character sets (denoted by keywords like <code>:ISO-8859-15</code>),
+<li><a href="http://en.wikipedia.org/wiki/KOI8-R">KOI8-R</a> (denoted by the keyword <code>:KOI8-R</code>),
+<li>a couple
+of <a href="http://czyborra.com/charsets/codepages.html">Windows code
+pages</a> (denoted by the keyword <code>:CODE-PAGE</code> and an
+obligatory <code>:ID</code> argument), and
+<li><a href="http://en.wikipedia.org/wiki/ASCII">US-ASCII</a>.
+</ul>
+<p>
+A couple of alternative names are allowed that are listed below:
+<p>
+<table border=1>
+<tr><td><code>:UTF-8</code></td><td><code>:UTF8</code></td></tr>
+<tr><td rowspan=4 valign=top><code>:UTF-16</code></td><td><code>:UTF16</code></td></tr>
+<tr><td><code>:UCS-2</code></td></tr>
+<tr><td><code>:UCS2</code></td></tr>
+<tr><td><code>:UNICODE</code></td></tr>
+<tr><td rowspan=3 valign=top><code>:UTF-32</code></td><td><code>:UTF32</code></td></tr>
+<tr><td><code>:UCS-4</code></td></tr>
+<tr><td><code>:UCS4</code></td></tr>
+<tr><td rowspan=2 valign=top><code>:ISO-8859-1</code></td><td><code>:LATIN-1</code></td></tr>
+<tr><td><code>:LATIN1</code></td></tr>
+<tr><td rowspan=2 valign=top><code>:ISO-8859-2</code></td><td><code>:LATIN-2</code></td></tr>
+<tr><td><code>:LATIN2</code></td></tr>
+<tr><td rowspan=2 valign=top><code>:ISO-8859-3</code></td><td><code>:LATIN-3</code></td></tr>
+<tr><td><code>:LATIN3</code></td></tr>
+<tr><td rowspan=2 valign=top><code>:ISO-8859-4</code></td><td><code>:LATIN-4</code></td></tr>
+<tr><td><code>:LATIN4</code></td></tr>
+<tr><td><code>:ISO-8859-5</code></td><td><code>:CYRILLIC</code></td></tr>
+<tr><td><code>:ISO-8859-6</code></td><td><code>:ARABIC</code></td></tr>
+<tr><td><code>:ISO-8859-7</code></td><td><code>:GREEK</code></td></tr>
+<tr><td><code>:ISO-8859-8</code></td><td><code>:HEBREW</code></td></tr>
+<tr><td rowspan=2 valign=top><code>:ISO-8859-9</code></td><td><code>:LATIN-5</code></td></tr>
+<tr><td><code>:LATIN5</code></td></tr>
+<tr><td rowspan=2 valign=top><code>:ISO-8859-10</code></td><td><code>:LATIN-6</code></td></tr>
+<tr><td><code>:LATIN6</code></td></tr>
+<tr><td><code>:ISO-8859-11</code></td><td><code>:THAI</code></td></tr>
+<tr><td rowspan=2 valign=top><code>:ISO-8859-13</code></td><td><code>:LATIN-7</code></td></tr>
+<tr><td><code>:LATIN7</code></td></tr>
+<tr><td rowspan=2 valign=top><code>:ISO-8859-14</code></td><td><code>:LATIN-8</code></td></tr>
+<tr><td><code>:LATIN8</code></td></tr>
+<tr><td rowspan=4 valign=top><code>:ISO-8859-15</code></td><td><code>:LATIN-9</code></td></tr>
+<tr><td><code>:LATIN9</code></td></tr>
+<tr><td><code>:LATIN-0</code></td></tr>
+<tr><td><code>:LATIN0</code></td></tr>
+<tr><td rowspan=2 valign=top><code>:ISO-8859-16</code></td><td><code>:LATIN-10</code></td></tr>
+<tr><td><code>:LATIN10</code></td></tr>
+<tr><td rowspan=2 valign=top><code>:CODE-PAGE</code></td><td><code>:CODEPAGE</code></td></tr>
+<tr><td><code>WIN32:CODE-PAGE<br>(only on <a href="http://www.lispworks.com/products/lww.html">LWW</a>)</code></td></tr>
+<tr><td><code>:KOI8-R</code></td><td><code>:KOI8R</code></td></tr>
+<tr><td><code>:US-ASCII</code></td><td><code>:ASCII</code></td></tr>
+</table>
+<p>
+(Note that we treat UCS-2 exactly like UTF-16 although there
+are <a href="http://en.wikipedia.org/wiki/UTF-16">subtle
+differences</a>.  Also note that even though we support encodings like
+UTF-32 some Lisps only supports characters contained within
+the <a
+href="http://en.wikipedia.org/wiki/Basic_Multilingual_Plane">Basic
+Multilingual Plane</a> (like LispWorks) or even less (like CMUCL), so
+if other characters are read from a
+<a href="#flexi-streams">flexi
+stream</a>, <a
+href="http://www.lispworks.com/documentation/HyperSpec/Body/f_rd_cha.htm"><code>READ-CHAR</code></a>
+will try to be helpful and return the corresponding Unicode code point -
+an integer - instead.  This might lead to an error if you're using
+functions
+like <a
+href="http://www.lispworks.com/documentation/HyperSpec/Body/f_rd_lin.htm"><code>READ-LINE</code></a>, though.)
+
+<p>
+Whenever a FLEXI-STREAMS function accepts an external format as one of
+its arguments, you can provide either an <code>EXTERNAL-FORMAT</code>
+object or a shortcut which can be a list or a symbol.  The list
+shortcuts have a syntax similar
+to <a
+href="http://www.lispworks.com/documentation/lw50/LWUG/html/lwuser-360.htm">the
+one used by LispWorks</a> - the cars are the names of and encoding
+and the cdrs of these lists correspond to the keyword arguments
+to <a
+href="#make-external-format"><code>MAKE-EXTERNAL-FORMAT</code></a>, so
+for example
+<pre>(:latin-1 :eol-style :crlf)</pre> 
+is equivalent to 
+<pre>(<a class=noborder href="#make-external-format">make-external-format</a> :latin-1 :eol-style :crlf)</pre> The
+symbol shortcuts are equivalent to
+calling <a
+href="#make-external-format"><code>MAKE-EXTERNAL-FORMAT</code></a>
+without keyword arguments, i.e.
+<pre>:thai</pre>
+behaves like
+<pre>(<a class=noborder href="#make-external-format">make-external-format</a> :thai)</pre>
+Finally, the following expansions are
+available:
+<p>
+<table border=1>
+<tr><td><code>:UCS-2LE</code></td><td><code>(:UCS-2&nbsp;:LITTLE-ENDIAN&nbsp;T)</code></td></tr>
+<tr><td><code>:UCS-2BE</code></td><td><code>(:UCS-2&nbsp;:LITTLE-ENDIAN&nbsp;NIL)</code></td></tr>
+<tr><td><code>:UCS-4LE</code></td><td><code>(:UCS-4&nbsp;:LITTLE-ENDIAN&nbsp;T)</code></td></tr>
+<tr><td><code>:UCS-4BE</code></td><td><code>(:UCS-4&nbsp;:LITTLE-ENDIAN&nbsp;NIL)</code></td></tr>
+<tr><td><code>:UTF-16LE</code></td><td><code>(:UTF-16&nbsp;:LITTLE-ENDIAN&nbsp;T)</code></td></tr>
+<tr><td><code>:UTF-16BE</code></td><td><code>(:UTF-16&nbsp;:LITTLE-ENDIAN&nbsp;NIL)</code></td></tr>
+<tr><td><code>:UTF-32LE</code></td><td><code>(:UTF-32&nbsp;:LITTLE-ENDIAN&nbsp;T)</code></td></tr>
+<tr><td><code>:UTF-32BE</code></td><td><code>(:UTF-32&nbsp;:LITTLE-ENDIAN&nbsp;NIL)</code></td></tr>
+<tr><td><code>:IBM437</code></td><td><code>(:CODE-PAGE&nbsp;:ID&nbsp;437)</code></td></tr>
+<tr><td><code>:IBM850</code></td><td><code>(:CODE-PAGE&nbsp;:ID&nbsp;850)</code></td></tr>
+<tr><td><code>:IBM852</code></td><td><code>(:CODE-PAGE&nbsp;:ID&nbsp;852)</code></td></tr>
+<tr><td><code>:IBM855</code></td><td><code>(:CODE-PAGE&nbsp;:ID&nbsp;855)</code></td></tr>
+<tr><td><code>:IBM857</code></td><td><code>(:CODE-PAGE&nbsp;:ID&nbsp;857)</code></td></tr>
+<tr><td><code>:IBM860</code></td><td><code>(:CODE-PAGE&nbsp;:ID&nbsp;860)</code></td></tr>
+<tr><td><code>:IBM861</code></td><td><code>(:CODE-PAGE&nbsp;:ID&nbsp;861)</code></td></tr>
+<tr><td><code>:IBM862</code></td><td><code>(:CODE-PAGE&nbsp;:ID&nbsp;862)</code></td></tr>
+<tr><td><code>:IBM863</code></td><td><code>(:CODE-PAGE&nbsp;:ID&nbsp;863)</code></td></tr>
+<tr><td><code>:IBM864</code></td><td><code>(:CODE-PAGE&nbsp;:ID&nbsp;864)</code></td></tr>
+<tr><td><code>:IBM865</code></td><td><code>(:CODE-PAGE&nbsp;:ID&nbsp;865)</code></td></tr>
+<tr><td><code>:IBM866</code></td><td><code>(:CODE-PAGE&nbsp;:ID&nbsp;866)</code></td></tr>
+<tr><td><code>:IBM869</code></td><td><code>(:CODE-PAGE&nbsp;:ID&nbsp;869)</code></td></tr>
+<tr><td><code>:WINDOWS-1250</code></td><td><code>(:CODE-PAGE&nbsp;:ID&nbsp;1250)</code></td></tr>
+<tr><td><code>:WINDOWS-1251</code></td><td><code>(:CODE-PAGE&nbsp;:ID&nbsp;1251)</code></td></tr>
+<tr><td><code>:WINDOWS-1252</code></td><td><code>(:CODE-PAGE&nbsp;:ID&nbsp;1252)</code></td></tr>
+<tr><td><code>:WINDOWS-1253</code></td><td><code>(:CODE-PAGE&nbsp;:ID&nbsp;1253)</code></td></tr>
+<tr><td><code>:WINDOWS-1254</code></td><td><code>(:CODE-PAGE&nbsp;:ID&nbsp;1254)</code></td></tr>
+<tr><td><code>:WINDOWS-1255</code></td><td><code>(:CODE-PAGE&nbsp;:ID&nbsp;1255)</code></td></tr>
+<tr><td><code>:WINDOWS-1256</code></td><td><code>(:CODE-PAGE&nbsp;:ID&nbsp;1256)</code></td></tr>
+<tr><td><code>:WINDOWS-1257</code></td><td><code>(:CODE-PAGE&nbsp;:ID&nbsp;1257)</code></td></tr>
+<tr><td><code>:WINDOWS-1258</code></td><td><code>(:CODE-PAGE&nbsp;:ID&nbsp;1258)</code></td></tr>
+</table>
+<p>
+Note that if you provide a shortcut, it
+will be converted to an <code>EXTERNAL-FORMAT</code> object first.
+So, if you're concerned about efficiency, create these objects once and
+re-use them.
+
+<p><br>[Function]
+<br><a class=none name="make-external-format"><b>make-external-format</b> <i>name <tt>&amp;key</tt> eol-style little-endian id</i> =&gt; <i>external-format</i></a>
+
+<blockquote><br> Creates and returns
+an <a href="#external-formats"><code>EXTERNAL-FORMAT</code>
+object</a>.  <code><i>name</i></code> is a
+symbol, <code><i>eol-style</i></code> is one of the
+keywords <code>:CR</code>, <code>:LF</code>, or <code>:CRLF</code>,
+and <code><i>little-endian</i></code> is
+a <a
+href="http://www.lispworks.com/documentation/HyperSpec/Body/26_glo_g.htm#generalized_boolean">generalized
+boolean</a>.  The default value for <code><i>eol-style</i></code> is the value of <a href="#*default-eol-style*"><code>*DEFAULT-EOL-STYLE*</code></a> except for Windows code pages where it is <code>:CRLF</code>.  The default value
+for <code><i>little-endian</i></code> is the value of <a href="#*default-little-endian*"><code>*DEFAULT-LITTLE-ENDIAN*</code></a> - this value is ignored unless <code><i>name</i></code> denotes one of UTF-16 or UTF-32.
+<code><i>id</i></code> must be an integer denoting a Windows code page
+known by FLEXI-STREAMS if <code><i>name</i></code>
+is <code>:CODE-PAGE</code> or <code>WIN32:CODE-PAGE</code>, otherwise
+the value is ignored.  See <a href="#external-formats">the section
+about external formats</a> for more info.
+<p>
+Examples (run on Windows):
+
+<pre>
+CL-USER 1 > (make-external-format :latin-1)
+#&lt;FLEXI-STREAMS::EXTERNAL-FORMAT (:ISO-8859-1 :EOL-STYLE :CRLF) 2067DA84&gt;
+
+CL-USER 2 &gt; (make-external-format :latin-1 :eol-style :lf)
+#&lt;FLEXI-STREAMS::EXTERNAL-FORMAT (:ISO-8859-1 :EOL-STYLE :LF) 2068B4D4&gt;
+
+CL-USER 3 &gt; (make-external-format :ibm437)
+#&lt;FLEXI-STREAMS::EXTERNAL-FORMAT (:CODE-PAGE :ID 437 :EOL-STYLE :CRLF) 2069B33C&gt;
+
+CL-USER 4 &gt; (make-external-format :ucs-2)
+#&lt;FLEXI-STREAMS::EXTERNAL-FORMAT (:UTF-16 :EOL-STYLE :CRLF :LITTLE-ENDIAN T) 206B4F4C&gt;
+
+CL-USER 5 &gt; (make-external-format :ucs-2be)
+#&lt;FLEXI-STREAMS::EXTERNAL-FORMAT (:UTF-16 :EOL-STYLE :CRLF :LITTLE-ENDIAN NIL) 2067DBE4&gt;
+
+CL-USER 6 > (make-external-format :ucs-2be :eol-style :cr)
+#&lt;FLEXI-STREAMS::EXTERNAL-FORMAT (:UTF-16 :EOL-STYLE :CR :LITTLE-ENDIAN NIL) 206B54AC&gt;
+</pre>
+</blockquote>
+
+<p><br>[Readers]
+<br><a class=none name="external-format-name"><b>external-format-name</b> <i>external-format</i> =&gt; <i>name</i></a>
+<br><a class=none name="external-format-eol-style"><b>external-format-eol-style</b> <i>external-format</i> =&gt; <i>eol-style</i></a>
+<br><a class=none name="external-format-little-endian"><b>external-format-little-endian</b> <i>external-format</i> =&gt; <i>little-endian</i></a>
+<br><a class=none name="external-format-id"><b>external-format-id</b> <i>external-format</i> =&gt; <i>id</i></a>
+
+<blockquote><br>
+These methods can be used to query an <a href="#external-formats"><code>EXTERNAL-FORMAT</code> object</a> for its attributes.
+</blockquote>
+
+<p><br>[Functions]
+<br><a class=none name="external-format-equal"><b>external-format-equal</b> <i>external-format-1 external-format-2</i> =&gt; <i>generalized-boolean</i></a>
+
+<blockquote><br>
+Checks whether the two <a href="#external-formats">external formats</a> <code><i>external-format-1</i></code> and <code><i>external-format-2</i></code> are equivalent with respect to their effects on <a href="#flexi-streams">flexi streams</a>.
+<p>
+Examples (run on Windows):
+
+<pre>
+CL-USER 1 &gt; (<a href="#make-external-format" class=noborder>make-external-format</a> :ucs-4le)
+#&lt;FLEXI-STREAMS::EXTERNAL-FORMAT (:UTF-32 :EOL-STYLE :CRLF :LITTLE-ENDIAN T) 2067FB74&gt;
+
+CL-USER 2 &gt; (external-format-equal <a href="http://www.lispworks.com/documentation/HyperSpec/Body/v__stst_.htm" class=noborder>*</a> (make-external-format :utf32 :little-endian t))
+T
+
+CL-USER 3 &gt; (make-external-format :code-page :id 437)
+#&lt;FLEXI-STREAMS::EXTERNAL-FORMAT (:CODE-PAGE :ID 437 :EOL-STYLE :CRLF) 2069428C&gt;
+
+CL-USER 4 &gt; (external-format-equal * (make-external-format :ibm437))
+T
+</pre>
+
+</blockquote>
+
+<p><br>[Special variable]
+<br><a class=none name="*default-eol-style*"><b>*default-eol-style*</b></a>
+
+<blockquote><br>
+The default value for the <code><i>eol-style</i></code> keyword argument of <a href="#make-external-format"><code>MAKE-EXTERNAL-FORMAT</code></a>.  Its initial value is <code>:CRLF</code> on Windows and <code>:LF</code> on other operating systems.
+</blockquote>
+
+<p><br>[Special variable]
+<br><a class=none name="*default-little-endian*"><b>*default-little-endian*</b></a>
+
+<blockquote><br>
+The default value for the <code><i>little-endian</i></code> keyword argument of <a href="#make-external-format"><code>MAKE-EXTERNAL-FORMAT</code></a>.  Its initial value corresponds to the endianess of the platform FLEXI-STREAMS is used on as revealed by the <code>:LITTLE-ENDIAN</code> <a href="http://www.lispworks.com/documentation/HyperSpec/Body/24_ab.htm">feature</a>.
+</blockquote>
+
+<p><br>[Condition]
+<br><a class=none name="external-format-condition"><b>external-format-condition</b></a>
+
+<blockquote><br>
+All conditions related to <a href="#external-formats">external formats</a> are of this type.
+There's a slot for the external format which can be accessed with <a href="#external-format-condition-external-format"><code>EXTERNAL-FORMAT-CONDITION-EXTERNAL-FORMAT</code></a>.
+</blockquote>
+
+<p><br>[Reader]
+<br><a class=none name="external-format-condition-external-format"><b>external-format-condition-external-format</b> <i>condition</i> =&gt; <i>external-format</i></a>
+
+<blockquote><br> If <code><i>condition</i></code> is of
+type <a href="#external-format-condition"><code>EXTERNAL-FORMAT-CONDITION</code></a>,
+this function will return the associated external format.  Note that
+there are situation which happen during the creation of external
+formats where this method returns <code>NIL</code>.
+</blockquote>
+
+<p><br>[Condition]
+<br><a class=none name="external-format-error"><b>external-format-error</b></a>
+
+<blockquote><br>
+All errors related to <a href="#external-formats">external formats</a> are of this type.
+This is a subtype of <a href="#external-format-condition"><code>EXTERNAL-FORMAT-CONDITION</code></a>.
+</blockquote>
+
+<p><br>[Condition]
+<br><a class=none name="external-format-encoding-error"><b>external-format-encoding-error</b></a>
+
+<blockquote><br>
+All errors related to encoding problems with <a href="#external-formats">external formats</a> are of this type.  (This includes situation where an end of file is encountered in the middle of a multi-octet character.)  When this condition is signalled during reading, <a href="http://www.lispworks.com/documentation/HyperSpec/Body/r_use_va.htm"><code>USE-VALUE</code>
+restart</a> is provided. See also <a href="#*substitution-char*"><code>*SUBSTITUTION-CHAR*</code></a> and the example for it. <a href="#external-format-encoding-error"><code>EXTERNAL-FORMAT-ENCODING-ERROR</code></a> is a subtype of <a href="#external-format-error"><code>EXTERNAL-FORMAT-ERROR</code></a>.
+</blockquote>
+
+<p><br>[Special variable]
+<br><a class=none name="*substitution-char*"><b>*substitution-char*</b></a>
+
+<blockquote><br>
+If this value is not NIL, it should be a character which is used
+(as if by a <a href="http://www.lispworks.com/documentation/HyperSpec/Body/r_use_va.htm"><code>USE-VALUE</code> restart</a>) whenever during reading an error of
+type <a href="#external-format-encoding-error"><code>EXTERNAL-FORMAT-ENCODING-ERROR</code></a> would have been signalled otherwise.
+
+<pre>
+CL-USER 1 &gt; (defun foo ()
+              <font color=orange>;; not a valid UTF-8 sequence</font>
+              (<a href="#with-input-from-sequence" class=noborder>with-input-from-sequence</a> (in '(#xe4 #xf6 #xfc))
+                (setq in (<a href="#make-flexi-stream" class=noborder>make-flexi-stream</a> in :external-format :utf8))
+                (read-line in)))
+FOO
+
+CL-USER 2 &gt; (foo)
+
+Error: Unexpected value #xF6 in UTF-8 sequence.
+  1 (continue) Specify a character to be used instead.
+  2 (abort) Return to level 0.
+  3 Return to top loop level 0.
+
+Type :b for backtrace, :c &lt;option number&gt; to proceed,  or :? for other options
+
+CL-USER 3 : 1 &gt; :c
+Type a character: x
+
+Error: End of file while in UTF-8 sequence.
+  1 (continue) Specify a character to be used instead.
+  2 (abort) Return to level 0.
+  3 Return to top loop level 0.
+
+Type :b for backtrace, :c &lt;option number&gt; to proceed,  or :? for other options
+
+CL-USER 4 : 1 &gt; :c
+Type a character: y
+"xy"
+T
+
+CL-USER 5 &gt; (<a href="http://www.lispworks.com/documentation/HyperSpec/Body/m_handle.htm" class=noborder>handler-bind</a> ((<a href="#external-format-encoding-error" class=noborder>external-format-encoding-error</a> (lambda (condition)
+                                                          (<a href="http://www.lispworks.com/documentation/HyperSpec/Body/r_use_va.htm" class=noborder>use-value</a> #\-))))
+              (foo))
+"--"
+T
+
+CL-USER 6 &gt; (let ((<a href="#*SUBSTITUTION-CHAR*" class=noborder>*substitution-char*</a> #\?))
+              (foo))
+"??"
+T
+</pre>
+</blockquote>
+
+<p><br>[Restart]
+<br><a class=none name="accept-overlong-sequence"><b>accept-overlong-sequence</b></a>
+
+<blockquote><br> This is
+a <a href="http://www.lispworks.com/documentation/HyperSpec/Body/09_adb.htm">restart</a>
+which is established whenever a UTF-8 "overlong" sequence is
+encountered.  If
+you <a href="http://www.lispworks.com/documentation/HyperSpec/Body/f_invo_1.htm">invoke</a>
+this restart, the corresponding code point will be accepted although
+it was encoded in an illegal way.
+</blockquote>
+
+<h4><a name="flexi-streams" class=none>Flexi streams</a></h4>
+
+<em>Flexi streams</em> are the core of the FLEXI-STREAMS library.  You
+create them using the
+function <a
+href="#make-flexi-stream"><code>MAKE-FLEXI-STREAM</code></a> which
+takes an open binary stream (called the <em>underlying</em> stream) as its only required argument.
+A <em>binary</em> stream in this context means that if it's an <a href="http://www.lispworks.com/documentation/HyperSpec/Body/26_glo_i.htm#input">input
+stream</a>, you can read from it with
+<a href="http://www.lispworks.com/documentation/HyperSpec/Body/f_rd_by.htm"><code>READ-BYTE</code></a>
+(or, as a workaround for LispWorks, you can at least apply
+<a
+href="http://www.lispworks.com/documentation/HyperSpec/Body/f_rd_seq.htm"><code>READ-SEQUENCE</code></a>
+to it where the sequence is an array of element
+type <a href="#octet"><code>OCTET</code></a>), and similarly for 
+<a
+href="http://www.lispworks.com/documentation/HyperSpec/Body/f_wr_by.htm#write-byte"><code>WRITE-BYTE</code></a>
+(<a
+href="http://www.lispworks.com/documentation/HyperSpec/Body/f_wr_seq.htm"><code>WRITE-SEQUENCE</code></a>
+for LispWorks)
+and <a
+href="http://www.lispworks.com/documentation/HyperSpec/Body/26_glo_o.htm#output">output
+streams</a>.  (Note that this specifically holds
+for <a
+href="http://www.lispworks.com/documentation/lw50/LWRM/html/lwref-91.htm"><em>bivalent</em>
+streams</a> like socket streams.)
+<p>
+A flexi stream behaves like an ordinary Lisp stream.  It is an input
+stream if the underlying binary stream is an input stream, and it is
+an output stream when the underlying binary stream is an output
+stream.  You can write characters as well
+as <a href="#octet">octets</a> to an output flexi stream and similarly
+you can read characters and octets from an input flexi stream.
+<p>
+A flexi stream always has an <a href="#external-formats">external
+format</a> associated with it which is deployed whenever you read
+characters from the stream or write characters to it.  You
+can <a href="#flexi-stream-external-format">change</a> the external
+format while you use the stream.
+<p>
+Once you're using a flexi stream you should <em>not</em> read from or
+write to the underlying stream directly anymore.
+<p>
+If
+you <a
+href="http://www.lispworks.com/documentation/HyperSpec/Body/f_close.htm">close</a>
+a flexi stream, the underlying stream will also be closed.  However, it
+also suffices to close the underlying stream directly should you not
+want to use the flexi stream anymore.  So, the following usage
+(where <code>IN</code> is implicitly closed at the end) is OK:
+<pre>
+(with-open-file (in "/foo/bar/baz.txt")
+  (let ((flexi (<a href="#make-flexi-stream" class=noborder>make-flexi-stream</a> in <a href="#external-formats" class=noborder>:external-format</a> :hebrew)))
+    (read-line flexi)))
+</pre>
+<p>
+Output flexi streams will try to keep track of
+the <a
+href="http://www.lispworks.com/documentation/lw50/LWRM/html/lwref-591.htm">column</a>
+they're in but you can also <a href="#flexi-stream-column">set</a> the
+column directly.  This value will be incremented by one for each
+character written to the stream and it will be set to <code>0</code>
+if you send a <code>#\Newline</code> character.  The column will be
+set to <code>NIL</code> if an <a href="#octet"><code>OCTET</code></a>
+is sent to the stream.  Once the column is <code>NIL</code> it'll stay
+like that unless it is explicitly set to another value.
+<p>
+Input flexi streams keep track of
+their <a href="#flexi-stream-position">position</a> within the stream.
+This value is incremented by one for
+each <a href="#octet"><code>OCTET</code></a> read from the stream, and
+it is incremented by the number of octets actually read for each
+character read from the stream.  So, if the encoding is UTF-8, reading
+the character <code>#\&auml;</code> (a-umlaut) will advance the position by two.
+If the encoding is UTF-32 and the end-of-line style
+is <code>:CRLF</code>, reading a <code>#\Newline</code> will advance
+the position by eight.
+<p>
+You can also set the <a href="#flexi-stream-bound">bound</a> of an
+input flexi stream.  Initially it is <code>NIL</code>, but when it's
+an integer and the
+stream's <a href="#flexi-stream-position">position</a> has gone beyond
+this bound, the stream will behave as if no more input is available.
+<p>
+Caveat: You can
+only <a
+href="http://www.lispworks.com/documentation/HyperSpec/Body/f_unrd_c.htm">unread</a>
+a character from a flexi stream if you haven't changed the external format after you read it.
+<p>
+Caveat: The <em>underlying</em> stream should either be a <a href="http://www.lispworks.com/documentation/HyperSpec/Body/26_glo_b.htm#binary">binary stream</a> (i.e. have an element type that is a subtype of integer) or it should explicitly use an <a href="http://www.lispworks.com/documentation/lw50/LWUG/html/lwuser-360.htm">external format</a> with <code>:LF</code> as its end-of-line style.  Otherwise it might perform unwanted conversion of line endings on its own.  (LispWorks <a href="http://article.gmane.org/gmane.lisp.lispworks.general/4859">does this</a> even if you write binary data to the stream using <a href="http://www.lispworks.com/documentation/HyperSpec/Body/f_wr_seq.htm"><code>WRITE-SEQUENCE</code></a>.)
+
+<p><br>[Standard class]
+<br><a class=none name="flexi-stream"><b>flexi-stream</b></a>
+
+<blockquote><br>
+Every <a href="#flexi-streams"><em>flexi stream</em></a> returned by <a href="#make-flexi-stream"><code>MAKE-FLEXI-STREAM</code></a> is of this type which is a subtype of <a href="http://www.lispworks.com/documentation/HyperSpec/Body/t_stream.htm"><code>STREAM</code></a>.
+</blockquote>
+
+<p><br>[Standard class]
+<br><a class=none name="flexi-input-stream"><b>flexi-input-stream</b></a>
+
+<blockquote><br>
+A <a href="#flexi-streams"><em>flexi stream</em></a> is of this type if its underlying stream is an <a href="http://www.lispworks.com/documentation/HyperSpec/Body/f_in_stm.htm">input stream</a>.  This is a subtype of <a href="#flexi-stream"><code>FLEXI-STREAM</code></a>.
+</blockquote>
+
+<p><br>[Standard class]
+<br><a class=none name="flexi-output-stream"><b>flexi-output-stream</b></a>
+
+<blockquote><br>
+A <a href="#flexi-streams"><em>flexi stream</em></a> is of this type if its underlying stream is an <a href="http://www.lispworks.com/documentation/HyperSpec/Body/f_in_stm.htm">output stream</a>.  This is a subtype of <a href="#flexi-stream"><code>FLEXI-STREAM</code></a>.
+</blockquote>
+
+<p><br>[Standard class]
+<br><a class=none name="flexi-io-stream"><b>flexi-io-stream</b></a>
+
+<blockquote><br>
+A <a href="#flexi-streams"><em>flexi stream</em></a> is of this type if it is both a <a href="#flexi-input-stream"><code>FLEXI-INPUT-STREAM</code></a> as well as a <a href="#flexi-output-stream"><code>FLEXI-OUTPUT-STREAM</code></a>.
+</blockquote>
+
+<p><br>[Function]
+<br><a class=none name="make-flexi-stream"><b>make-flexi-stream</b> <i>stream <tt>&amp;key</tt> external-format element-type column position bound</i> =&gt; <i>flexi-stream</i></a>
+
+<blockquote><br>
+Creates and returns a <a href="#flexi-streams"><em>flexi stream</em></a>, i.e. an object of type <a href="#flexi-stream"><code>FLEXI-STREAM</code></a>.  <code><i>stream</i></code> is the underlying Lisp stream. <code><i>external-format</i></code> is the initial <a href="#external-formats">external format</a> to be used by the stream, the default is the value of evaluating <code>(<a href="#make-external-format">MAKE-EXTERNAL-FORMAT</a>&nbsp;:LATIN1)</code>.  <code><i>element-type</i></code> is the initial <a href="http://www.lispworks.com/documentation/HyperSpec/Body/f_stm_el.htm">element type</a> of the flexi stream the default of which is <a href="http://www.lispworks.com/documentation/lw50/LWRM/html/lwref-346.htm"><code>LW:SIMPLE-CHAR</code></a> for LispWorks and <a href="http://www.lispworks.com/documentation/HyperSpec/Body/t_ch.htm"><code>CHARACTER</code></a> otherwise. <code><i>column</i></code> is the initial column of the stream and should only be provided for output streams, the default is <code>0</code>.  <code><i>position</i></code> is the initial octet position of the stream and must only be provided for input streams, the default is <code>0</code>.  <code><i>bound</i></code> should be <code>NIL</code> (the default) or an integer and must only be provided for input streams.  If the octet position of the stream has gone beyond this bound, the stream will behave as if no more input is available.  See <a href="#flexi-streams">the section about flexi streams</a> for more information.
+</blockquote>
+
+<p><br>[Accessors]
+<br><a class=none name="flexi-stream-external-format"><b>flexi-stream-external-format</b> <i>flexi-stream</i> =&gt; <i>external-format</i></a>
+<br><tt>(setf (</tt><b>flexi-stream-external-format</b> <i>flexi-stream</i>) <i>external-format</i><tt>)</tt>
+<br><a class=none name="flexi-stream-element-type"><b>flexi-stream-element-type</b> <i>flexi-stream</i> =&gt; <i>element-type</i></a>
+<br><tt>(setf (</tt><b>flexi-stream-element-type</b> <i>flexi-stream</i>) <i>element-type</i><tt>)</tt>
+<br><a class=none name="flexi-stream-column"><b>flexi-stream-column</b> <i>flexi-output-stream</i> =&gt; <i>column</i></a>
+<br><tt>(setf (</tt><b>flexi-stream-column</b> <i>flexi-output-stream</i>) <i>column</i><tt>)</tt>
+<br><a class=none name="flexi-stream-position"><b>flexi-stream-position</b> <i>flexi-input-stream</i> =&gt; <i>position</i></a>
+<br><tt>(setf (</tt><b>flexi-stream-position</b> <i>flexi-input-stream</i>) <i>position</i><tt>)</tt>
+<br><a class=none name="flexi-stream-bound"><b>flexi-stream-bound</b> <i>flexi-input-stream</i> =&gt; <i>bound</i></a>
+<br><tt>(setf (</tt><b>flexi-stream-bound</b> <i>flexi-input-stream</i>) <i>bound</i><tt>)</tt>
+
+<blockquote><br>
+These methods can be used to get and set the corresponding attributes of a <a href="#flexi-streams">flexi stream</a>.
+<p>
+<a href="#flexi-stream-external-format"><code>(SETF
+FLEXI-STREAM-EXTERNAL-FORMAT)</code></a> accepts keyword symbols
+(<a href="#external-formats">names of external formats</a>), lists
+(which should be valid lists of parameters
+to <a
+href="#make-external-format"><code>MAKE-EXTERNAL-FORMAT</code></a>), or <code>EXTERNAL-FORMAT</code> objects:
+<pre>
+CL-USER 1 &gt; (setf (flexi-stream-external-format *my-stream*) :ucs-4le)
+#&lt;FLEXI-STREAMS::EXTERNAL-FORMAT (:UTF-32 :EOL-STYLE :CRLF :LITTLE-ENDIAN T) 206920DC&gt;
+
+CL-USER 2 &gt; (setf (flexi-stream-external-format *my-stream*) '(:ucs-2be :eol-style :br))
+#&lt;FLEXI-STREAMS::EXTERNAL-FORMAT (:UTF-16 :EOL-STYLE :BR :LITTLE-ENDIAN NIL) 20696934&gt;
+
+CL-USER 3 &gt; (setf (flexi-stream-external-format *my-stream*) (make-external-format :ibm437))
+#&lt;FLEXI-STREAMS::EXTERNAL-FORMAT (:CODE-PAGE :ID 437 :EOL-STYLE :CRLF) 2068716C&gt;
+</pre>
+</blockquote>
+
+<p><br>[Reader]
+<br><a class=none name="flexi-stream-stream"><b>flexi-stream-stream</b> <i>flexi-stream</i> =&gt; <i>stream</i></a>
+
+<blockquote><br>
+This method returns the underlying stream of a <a href="#flexi-streams">flexi stream</a>.
+</blockquote>
+
+<p><br>[Generic function]
+<br><a class=none name="unread-byte"><b>unread-byte</b> <i>byte stream</i> =&gt; <i>nil</i></a>
+
+<blockquote><br>
+Similar to <a href="http://www.lispworks.com/documentation/HyperSpec/Body/f_unrd_c.htm"><code>UNREAD-CHAR</code></a> in that it "unreads" the last <a href="#octet">octet</a> from
+<code><i>stream</i></code> which must be a <a href="#flexi-streams">flexi stream</a>.  Note that you can only call <code>UNREAD-BYTE</code> after a corresponding
+<a href="http://www.lispworks.com/documentation/HyperSpec/Body/f_rd_by.htm"><code>READ-BYTE</code></a>, <em>not</em> after <a href="http://www.lispworks.com/documentation/HyperSpec/Body/f_rd_cha.htm"><code>READ-CHAR</code></a>.
+</blockquote>
+
+<p><br>[Generic function]
+<br><a class=none name="peek-byte"><b>peek-byte</b> <i>stream <tt>&amp;optional</tt> peek-type eof-error-p eof-value</i> =&gt; <i>byte</i></a>
+
+<blockquote><br>
+<code>PEEK-BYTE</code> is like <a href="http://www.lispworks.com/documentation/HyperSpec/Body/f_peek_c.htm"><code>PEEK-CHAR</code></a>, i.e. it returns an <a href="#octet">octet</a> from <code><i>stream</i></code> (which must be a <a href="#flexi-streams">flexi stream</a>)
+without actually removing it.  If <code><i>peek-type</i></code> is <code>NIL</code>, the next octet is
+returned, if <code><i>peek-type</i></code> is <code>T</code>, the next octet which is not <code>0</code> is
+returned, if <code><i>peek-type</i></code> is an octet, the next octet which equals
+<code><i>peek-type</i></code> is returned.  <code><i>eof-error-p</i></code> and <code><i>eof-value</i></code> are interpreted as usual.
+<p>
+Note that the parameters aren't in the same order as with <a href="http://www.lispworks.com/documentation/HyperSpec/Body/f_peek_c.htm"><code>PEEK-CHAR</code></a> because it doesn't make much sense to make <code><i>stream</i></code> an optional argument.
+</blockquote>
+
+<p><br>[Type]
+<br><a class=none name="octet"><b>octet</b></a>
+
+<blockquote><br>
+Just a shortcut for <code>(UNSIGNED-BYTE&nbsp;8)</code>.
+</blockquote>
+
+<p><br>[Condition]
+<br><a class=none name="flexi-stream-error"><b>flexi-stream-error</b></a>
+
+<blockquote><br>
+All errors related to <a href="#flexi-streams">flexi streams</a> are of this type.  This is a subtype of <a href="http://www.lispworks.com/documentation/HyperSpec/Body/e_stm_er.htm"><code>STREAM-ERROR</code></a>.
+</blockquote>
+
+<p><br>[Condition]
+<br><a class=none name="flexi-stream-out-of-sync-error"><b>flexi-stream-out-of-sync-error</b></a>
+
+<blockquote><br> This can happen if you're trying to write to
+an <a href="#flexi-io-stream">IO stream</a> which had prior to that
+"looked ahead" while reading and now can't "rewind" to the octet where
+you <em>should</em> be.
+</blockquote>
+
+<p><br>[Condition]
+<br><a class=none name="flexi-stream-element-type-error"><b>flexi-stream-element-type-error</b></a>
+
+<blockquote><br>
+All errors related to problems with the element type of <a href="#flexi-streams">flexi streams</a> are of this type.  This is a subtype of <a href="#flexi-stream-error"><code>FLEXI-STREAM-ERROR</code></a> and has an additional slot for the element type which can be accessed with <a href="#flexi-stream-element-type-error-element-type"><code>FLEXI-STREAM-ELEMENT-TYPE-ERROR-ELEMENT-TYPE</code></a>.
+</blockquote>
+
+<p><br>[Reader]
+<br><a class=none name="flexi-stream-element-type-error-element-type"><b>flexi-stream-element-type-error-element-type</b> <i>condition</i> =&gt; <i>element-type</i></a>
+
+<blockquote><br>
+If <code><i>condition</i></code> is of type <a href="#flexi-stream-element-type-error"><code>FLEXI-STREAM-ELEMENT-TYPE-ERROR</code></a>, this function will return the offending element type.
+</blockquote>
+
+<h4><a name="in-memory" class=none>In-memory streams</a></h4>
+
+The library also provides <em>in-memory</em> binary streams which are modeled after <a href="http://www.lispworks.com/documentation/HyperSpec/Body/t_stg_st.htm">string streams</a> and behave very similar only that they deal with <a href="#octet">octets</a> instead of characters and the underlying data structure is not a string but either a list or a vector.  These streams can obviously be used as the underlying streams for <a href="#flexi-streams">flexi streams</a>.
+
+<p><br>[Standard class]
+<br><a class=none name="in-memory-stream"><b>in-memory-stream</b></a>
+
+<blockquote><br>
+Every <a href="#in-memory"><em>in-memory stream</em></a> returned by <a href="#make-in-memory-input-stream"><code>MAKE-IN-MEMORY-INPUT-STREAM</code></a> or <a href="#make-in-memory-output-stream"><code>MAKE-IN-MEMORY-OUTPUT-STREAM</code></a> is of this type which is a subtype of <a href="http://www.lispworks.com/documentation/HyperSpec/Body/t_stream.htm"><code>STREAM</code></a>.
+</blockquote>
+
+<p><br>[Standard class]
+<br><a class=none name="in-memory-input-stream"><b>in-memory-input-stream</b></a>
+
+<blockquote><br>
+Every <a href="#in-memory"><em>in-memory stream</em></a> returned by <a href="#make-in-memory-input-stream"><code>MAKE-IN-MEMORY-INPUT-STREAM</code></a> is of this type which is a subtype of <a href="#in-memory-stream"><code>IN-MEMORY-STREAM</code></a>.
+</blockquote>
+
+<p><br>[Standard class]
+<br><a class=none name="in-memory-output-stream"><b>in-memory-output-stream</b></a>
+
+<blockquote><br>
+Every <a href="#in-memory"><em>in-memory stream</em></a> returned by <a href="#make-in-memory-output-stream"><code>MAKE-IN-MEMORY-OUTPUT-STREAM</code></a> is of this type which is a subtype of <a href="#in-memory-stream"><code>IN-MEMORY-STREAM</code></a>.
+</blockquote>
+
+<p><br>[Standard class]
+<br><a class=none name="list-stream"><b>list-stream</b></a>
+
+<blockquote><br>
+Every <a href="#in-memory"><em>in-memory input stream</em></a> is of this type if it reads from a list.
+</blockquote>
+
+<p><br>[Standard class]
+<br><a class=none name="vector-stream"><b>vector-stream</b></a>
+
+<blockquote><br>
+Every <a href="#in-memory"><em>in-memory stream</em></a> is of this type if it reads from or writes to a vector.
+</blockquote>
+
+<p><br>[Generic function]
+<br><a class=none name="make-in-memory-input-stream"><b>make-in-memory-input-stream</b> <i>sequence <tt>&amp;key</tt> start end transformer</i> =&gt; <i>in-memory-input-stream</i></a>
+
+<blockquote><br>
+Returns a <a href="http://www.lispworks.com/documentation/HyperSpec/Body/26_glo_b.htm#binary">binary</a> <a href="http://www.lispworks.com/documentation/HyperSpec/Body/26_glo_i.htm#input">input</a> stream (of type <a href="#in-memory-input-stream"><code>IN-MEMORY-INPUT-STREAM</code></a>) which will supply, in order, the
+octets in the subsequence of <code><i>sequence</i></code> bounded by <code><i>start</i></code> (the default is <code>0</code>) and <code><i>end</i></code> (the default is the length of <code><i>sequence</i></code>).  <code><i>sequence</i></code> must either be a list or a vector of <a href="#octet">octets</a>.
+Each octet returned will be transformed in turn by the optional
+<code><i>transformer</i></code> function.
+</blockquote>
+
+<p><br>[Function]
+<br><a class=none name="make-in-memory-output-stream"><b>make-in-memory-output-stream</b>  <i><tt>&amp;key</tt> element-type transformer</i> =&gt; <i>in-memory-output-stream</i></a>
+
+<blockquote><br>
+Returns a <a href="http://www.lispworks.com/documentation/HyperSpec/Body/26_glo_b.htm#binary">binary</a> <a href="http://www.lispworks.com/documentation/HyperSpec/Body/26_glo_o.htm#output">output</a> stream (of type <a href="#in-memory-output-stream"><code>IN-MEMORY-OUTPUT-STREAM</code></a>) which accepts objects of type <code><i>element-type</i></code> (a subtype of <a href="#octet"><code>OCTET</code></a>) and makes
+available a sequence (see <a href="#get-output-stream-sequence"><code>GET-OUTPUT-STREAM-SEQUENCE</code></a>) that contains the octets that were actually
+output.  The octets stored will each be transformed by the optional <code><i>transformer</i></code> function.
+</blockquote>
+
+<p><br>[Generic function]
+<br><a class=none name="get-output-stream-sequence"><b>get-output-stream-sequence</b> <i>stream <tt>&amp;key</tt> as-list</i> =&gt; <i>sequence</i></a>
+
+<blockquote><br>
+Returns a vector containing, in order, all the octets that have
+been output to the <a href="#in-memory">in-memory output stream</a> <code><i>stream</i></code>. This operation clears any
+octets on <code><i>stream</i></code>, so the vector contains only those octets which have
+been output since the last call to <a href="#get-output-stream-sequence"><code>GET-OUTPUT-STREAM-SEQUENCE</code></a> or since
+the creation of the stream, whichever occurred most recently.  If
+<code><i>as-list</i></code> is true the return value is coerced to a list.
+</blockquote>
+
+<p><br>[Generic function]
+<br><a class=none name="output-stream-sequence-length"><b>output-stream-sequence-length</b> <i>stream</i> =&gt; <i>length</i></a>
+
+<blockquote><br> Returns the current length of the underlying vector
+of the <a href="#in-memory">in-memory output
+stream</a> <code><i>stream</i></code>, i.e. this is the length of the
+sequence that <a href="#get-output-stream-sequence"><code>GET-OUTPUT-STREAM-SEQUENCE</code></a> would return if called at
+this very moment.
+</blockquote>
+
+<p><br>[Macro]
+<br><a class=none name="with-input-from-sequence"><b>with-input-from-sequence</b> <i>(var sequence <tt>&amp;key</tt> start end transformer) statement*</i> =&gt; <i>result*</i></a>
+
+<blockquote><br> Creates an <a href="#in-memory">in-memory input
+stream</a> from the sequence <code><i>sequence</i></code> using the
+parameters <code><i>start</i></code> and <code><i>end</i></code>
+(see <a
+href="#make-in-memory-input-stream"><code>MAKE-IN-MEMORY-INPUT-STREAM</code></a>),
+binds <code><i>var</i></code> to this stream and then executes
+the <code><i>statement*</i></code> forms.  A
+function <code><i>transformer</i></code> may optionally be specified
+to transform the returned octets.  The stream is automatically closed
+on exit from
+<a href="#with-output-to-sequence"><code>WITH-OUTPUT-TO-SEQUENCE</code></a>, no matter whether the exit is normal or
+abnormal.  The return value of this macro is the return value of
+the last statement of <code><i>statement*</i></code>.
+</blockquote>
+
+<p><br>[Macro]
+<br><a class=none name="with-output-to-sequence"><b>with-output-to-sequence</b> <i>(var <tt>&amp;key</tt> as-list element-type transformer) statement*</i> =&gt; <i>sequence</i></a>
+
+<blockquote><br>
+Creates an <a href="#in-memory">in-memory output stream</a>, binds <code><i>var</i></code> to this stream and
+then executes the <code><i>statement*</i></code> forms.  The stream stores
+data of type <code><i>element-type</i></code> (a subtype of <a href="#octet"><code>OCTET</code></a>) which is (optionally) transformed by the
+function <code><i>transformer</i></code> prior to storage. The stream is automatically closed on
+exit from <a href="#with-output-to-sequence"><code>WITH-OUTPUT-TO-SEQUENCE</code></a>, no matter whether the exit is
+normal or abnormal.  The return value of this macro is a vector (or a
+list if <code><i>as-list</i></code> is true) containing the octets that were sent to the
+stream within the body of the macro.
+</blockquote>
+
+<p><br>[Condition]
+<br><a class=none name="in-memory-stream-error"><b>in-memory-stream-error</b></a>
+
+<blockquote><br>
+All errors related to <a href="#in-memory">in-memory streams</a> are of this type.  This is a subtype of <a href="http://www.lispworks.com/documentation/HyperSpec/Body/e_stm_er.htm"><code>STREAM-ERROR</code></a>.
+</blockquote>
+
+<p><br>[Condition]
+<br><a class=none name="in-memory-stream-closed-error"><b>in-memory-stream-closed-error</b></a>
+
+<blockquote><br>
+An error of this type is signalled if one tries to read from or write to an <a href="#in-memory">in-memory stream</a> which had already been closed.  This is a subtype of <a href="#in-memory-stream-error"><code>IN-MEMORY-STREAM-ERROR</code></a>.
+</blockquote>
+
+<p><br>[Condition]
+<br><a class=none name="in-memory-stream-position-spec-error"><b>in-memory-stream-position-spec-error</b></a>
+
+<blockquote><br> Errors of this type are signalled if an erroneous
+position spec is used in conjunction
+with <a href="#position"><code>FILE-POSITION</code></a>.  This is a
+subtype
+of <a href="#in-memory-stream-error"><code>IN-MEMORY-STREAM-ERROR</code></a>
+and has an additional slot for the position spec which can be accessed
+with <a href="#in-memory-stream-position-spec-error-position-spec"><code>IN-MEMORY-STREAM-POSITION-SPEC-ERROR-POSITION-SPEC</code></a>.
+</blockquote>
+
+<p><br>[Reader]
+<br><a class=none name="in-memory-stream-position-spec-error-position-spec"><b>in-memory-stream-position-spec-error-position-spec</b> <i>condition</i> =&gt; <i>position-spec</i></a>
+
+<blockquote><br>
+If <code><i>condition</i></code> is of type <a href="#in-memory-stream-position-spec-error"><code>IN-MEMORY-STREAM-POSITION-SPEC-ERROR</code></a>, this function will return the offending position spec.
+</blockquote>
+
+<h4><a name="strings" class=none>Strings</a></h4>
+
+This section collects a few convenience functions for strings conversions.
+
+<p><br>[Function]
+<br><a class=none name="string-to-octets"><b>string-to-octets</b> <i>string <tt>&amp;key</tt> external-format start end</i> =&gt; <i>vector</i></a>
+
+<blockquote><br>
+
+Converts the Lisp string <code><i>string</i></code> from <code><i>start</i></code> to <code><i>end</i></code> to an array of
+<a href="#octet">octets</a> corresponding to the <a href="#external-formats">external
+format</a> designated by <code><i>external-format</i></code>. The defaults for
+<code><i>start</i></code> and <code><i>end</i></code>
+are <code>0</code> and the length of the string.  The default
+for <code><i>external-format</i></code> is <code>:LATIN1</code>.
+<p>
+In spite of the name, <code><i>string</i></code> can be any sequence of characters, but
+the function is optimized for strings.
+</blockquote>
+
+<p><br>[Function]
+<br><a class=none name="octets-to-string"><b>octets-to-string</b> <i>sequence <tt>&amp;key</tt> external-format start end</i> =&gt; <i>string</i></a>
+
+<blockquote><br> Converts the Lisp
+sequence <code><i>sequence</i></code> of <a href="#octet">octets</a>
+from <code><i>start</i></code> to <code><i>end</i></code> to a string
+using the <a href="#external-formats">external format</a> designated
+by <code><i>external-format</i></code>.  The defaults for
+<code><i>start</i></code> and <code><i>end</i></code>
+are <code>0</code> and the length of the sequence.  The default
+for <code><i>external-format</i></code> is <code>:LATIN1</code>.
+<p>
+This function is optimized for the case
+of <code><i>sequence</i></code> being
+a <a href="http://www.lispworks.com/documentation/HyperSpec/Body/t_vector.htm">vector</a>.
+Don't use lists if you are in hurry.
+</blockquote>
+
+<p><br>[Function]
+<br><a class=none name="octet-length"><b>octet-length</b> <i>string <tt>&amp;key</tt> external-format start end</i> =&gt; <i>length</i></a>
+
+<blockquote><br>
+
+Returns the length of the subsequence of <code><i>string</i></code> from <code><i>start</i></code> to <code><i>end</i></code> in
+<a href="#octet">octets</a> if encoded using
+the <a href="#external-formats">external format</a> designated
+by <code><i>external-format</i></code>.
+The defaults for
+<code><i>start</i></code> and <code><i>end</i></code>
+are <code>0</code> and the length of <code><i>string</i></code>.  The default
+for <code><i>external-format</i></code> is <code>:LATIN1</code>.
+<p>
+In spite of the name, <code><i>string</i></code> can be any sequence of characters, but
+the function is optimized for strings.
+</blockquote>
+
+<p><br>[Function]
+<br><a class=none name="char-length"><b>char-length</b> <i>sequence <tt>&amp;key</tt> external-format start end</i> =&gt; <i>length</i></a>
+
+<blockquote><br>
+
+Kind of the inverse of <a href="#octet-length"><code>OCTET-LENGTH</code></a>.
+Returns the length of the subsequence (of <a href="#octet">octets</a>) of <code><i>sequence</i></code> from <code><i>start</i></code> to <code><i>end</i></code> in
+characters if decoded using
+the <a href="#external-formats">external format</a> designated
+by <code><i>external-format</i></code>.
+The defaults for
+<code><i>start</i></code> and <code><i>end</i></code>
+are <code>0</code> and the length of the sequence.  The default
+for <code><i>external-format</i></code> is <code>:LATIN1</code>.  Note that this function doesn't check for the validity of the data in <code><i>sequence</i></code>.
+<p>
+This function is optimized for the case
+of <code><i>sequence</i></code> being
+a <a href="http://www.lispworks.com/documentation/HyperSpec/Body/t_vector.htm">vector</a>.
+Don't use lists if you are in hurry.
+</blockquote>
+
+<br>&nbsp;<br><h3><a class=none name="position">File positions</a></h3>
+
+For <a href="#flexi-streams">flexi streams</a> as well
+as for  <a href="#input-memory">in-memory
+streams</a>, <a
+href="http://www.lispworks.com/documentation/HyperSpec/Body/f_file_p.htm">FILE-POSITION</a>
+will usually return <code>NIL</code> and do nothing when a second
+argument is supplied.  This is correct
+w.r.t. the <a
+href="http://www.lispworks.com/documentation/HyperSpec/">ANSI
+standard</a>, but not very helpful.  However, even
+with <a
+href="http://www.nhplace.com/kent/CL/Issues/stream-definition-by-user.html">Gray
+streams</a> there is no <em>portable</em> way to implement a better
+behaviour.
+<p>
+For <a href="http://www.lispworks.com/">LispWorks</a>
+and <a href="http://clisp.sf.net/">CLISP</a>,
+<a
+href="http://www.lispworks.com/documentation/HyperSpec/Body/f_file_p.htm">FILE-POSITION</a>
+for <a href="#flexi-streams">flexi streams</a> will work as if the
+function had been applied to the underlying stream, and
+for <a href="#input-memory">in-memory streams</a> it will try to do
+something sensible if the underlying data structure is a vector
+(i.e. <em>not</em> a list).  Patches for other Common Lisp
+implementations should be sent to
+the <a
+href="http://common-lisp.net/project/cl-plus-ssl/#trivial-gray-streams">trivial-gray-streams</a>
+maintainers.
+
+<br>&nbsp;<br><h3><a class=none name="ack">Acknowledgements</a></h3>
+
+Thanks to David Lichteblau for numerous portability patches.  Thanks
+to Igor Plekhov for the KOI8-R code.  Thanks to Anton Vodonosov for
+numerous patches and additions.  Thanks
+to <a href="http://netzhansa.blogspot.com/">Hans H&uuml;bner</a> for
+his work on making FLEXI-STREAMS faster.
+
+<p>
+$Header: /usr/local/cvsrep/flexi-streams/doc/index.html,v 1.126 2008/08/26 10:59:24 edi Exp $
+<p><a href="http://weitz.de/index.html">BACK TO MY HOMEPAGE</a>
+
+</body>
+</html>

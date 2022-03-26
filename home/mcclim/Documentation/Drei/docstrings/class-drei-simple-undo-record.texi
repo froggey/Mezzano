@@ -1,0 +1,16 @@
+@anchor{Class drei:simple-undo-record}
+@deftp {Class} {drei:simple-undo-record}
+@tindex drei:simple-undo-record
+Class precedence list: @code{@w{simple-undo-record}, @w{drei-undo-record}, @w{standard-undo-record}, @w{undo-record}, @w{standard-object}, @w{slot-object}, @w{t}}
+
+Slots:
+@itemize
+@item @code{offset} --- initargs: @code{@w{:offset}}
+
+The offset that determines the
+position at which the undo operation is to be executed.
+@end itemize
+
+A base class for output records that modify
+buffer contents at a specific offset.
+@end deftp

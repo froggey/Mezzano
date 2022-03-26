@@ -1,0 +1,5 @@
+.gitattributes          export-ignore
+.gitignore              export-ignore
+.gitref                 export-subst
+*.lisp text eol=lf
+*.el   text eol=lf

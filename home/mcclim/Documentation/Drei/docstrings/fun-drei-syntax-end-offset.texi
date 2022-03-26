@@ -1,0 +1,6 @@
+@anchor{Generic-Function drei-syntax:end-offset}
+@deffn {Generic Function} {drei-syntax:end-offset} parse-tree
+@findex drei-syntax:end-offset
+The offset in the buffer of the character
+following the last one of a parse tree.
+@end deffn

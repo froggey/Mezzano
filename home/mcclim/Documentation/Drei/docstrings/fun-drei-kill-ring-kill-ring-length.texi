@@ -1,0 +1,6 @@
+@anchor{Generic-Function drei-kill-ring:kill-ring-length}
+@deffn {Generic Function} {drei-kill-ring:kill-ring-length} kr
+@findex drei-kill-ring:kill-ring-length
+Returns the current length of the kill-ring.
+Note this is different than @code{kill-ring-max-size}.
+@end deffn

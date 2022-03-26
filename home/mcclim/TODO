@@ -1,0 +1,101 @@
+TBM:20040123:204400
+    rescanning buffers with accept extents doesn't work reliably,
+    especially in accepting-values.
+
+    The default present methods, and those for Lisp types, should be
+    more careful about :acceptably. In the same vein,
+    command-line-command-unparser should be prepared to emit
+    accept-extents (how?) if the arguments aren't acceptable as text.
+
+TBM:20031112:002300
+    These are TODO's from the 0.9 release notes. The listed functions
+    are unimplemented unless otherwise noted.
+
+    General designs need more work, particularly the support of
+    compositing.
+
+    make-design-from-output-record
+
+    (setf* pointer-position)
+
+    More spiffy presentation accept and present methods
+
+    with-input-editor-typeout
+
+    read-only extents in Goatee
+
+    with-accept-help
+
+    accepting-values needs a lot of work
+
+    command-line-complete-input
+
+    display-command-table-menu, menu-choose-command-from-table
+
+    notify-user
+
+    :accept-values panes
+
+    display-command-menu
+
+    restraining-pane
+
+RS:20030805:111640
+    Changing the sheet-transformation of a pane does not alter its
+    native transformation, despite the fact that calls are made to
+    invalidate-cached-transformations and
+    note-sheet-transformation-changed.  Perhaps this code is
+    responsible:  
+
+    (defmethod invalidate-cached-transformations ((sheet mirrored-sheet-mixin))
+      (with-slots (native-transformation device-transformation) sheet
+	(setf ;; native-transformation nil XXX hm...
+	      device-transformation nil))
+      (loop for child in (sheet-children sheet)
+	    do (invalidate-cached-transformations child)))
+
+RS:20030805:101708
+    The way the text-field pane handles keyboard input focus (by
+    remembering who had it before and restoring it) does not work very
+    well with respect to other X applications.  It would be better for
+    each pane to decide when it wants the input focus. 
+
+======================  Resolved issues ======================
+TBM:20060323:175700
+    A compound output recording record structure based on R trees or
+    another spatial data structure is needed. [Implemented by
+    Christophe Rhodes and Andreas Fuchs].
+
+    drag-output-record, dragging-output
+
+    define-drag-and-drop-translator
+
+    raise-frame, bury-frame
+
+    frame-drag-and-drop-feedback, frame-drag-and-drop-highlighting 
+
+TBM:20040524:100000
+    command-enable
+
+TBM:20040121:150000
+    presentation type histories, frame-maintain-presentation-histories
+    [This has been implemented but needs some work]
+
+    presentation-default-processor [ The presentation generic function
+    is defined and called, but there aren't real methods defined yet.]
+
+TBM:20031124:230300
+    command-or-form presentation type
+
+TBM:20031119:142500
+    presentation-single-box
+
+TBM:20031113:234700
+    surrounding-output-with-border - :move-cursor
+
+RS:20030805:102038
+    Output recording is broken for records that inherit from
+    coord-seq-mixin.  Contrary to comments in the code, the coordinate
+    sequence is not transformed before the output record is created.
+    [resolved by moore and hefner in various ways]
+	

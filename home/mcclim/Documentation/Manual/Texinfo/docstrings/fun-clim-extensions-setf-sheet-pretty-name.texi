@@ -1,0 +1,7 @@
+@anchor{Generic-Function clim-extensions:setf-sheet-pretty-name}
+@deffn {Generic Function} {@symbol{setf-sheet-pretty-name,clim-extensions}} new-value sheet
+Set @var{sheet}'s pretty name to @var{new-value}.
+@var{new-value} must be a string.
+Changing the pretty name of @var{sheet} usually changes the title of the
+window associated with it.
+@end deffn

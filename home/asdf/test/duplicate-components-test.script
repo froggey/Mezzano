@@ -1,0 +1,14 @@
+;;; -*- Lisp -*-
+
+(handler-case (asdf:find-system "duplicate-components")
+  (asdf:duplicate-names (x) (declare (ignore x)) t)
+  (asdf:load-system-definition-error (x)
+    (or (and (asdf/find-system::error-condition x)
+             (typep (asdf/find-system::error-condition x) 'asdf:duplicate-names))
+        (progn
+          (DBG :err (asdf/find-system::error-condition x))
+          (error "LOAD-SYSTEM-DEFINITION-ERROR not as expected ~%~
+(no contained DUPLICATE-NAMES error)."))))
+  (:no-error (x)
+    (error "FIND-SYSTEM of duplicate-components returned ~S ~%~
+instead of raising DUPLICATE-NAMES error." x)))

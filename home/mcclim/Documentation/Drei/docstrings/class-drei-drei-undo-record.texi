@@ -1,0 +1,16 @@
+@anchor{Class drei:drei-undo-record}
+@deftp {Class} {drei:drei-undo-record}
+@tindex drei:drei-undo-record
+Class precedence list: @code{@w{drei-undo-record}, @w{standard-undo-record}, @w{undo-record}, @w{standard-object}, @w{slot-object}, @w{t}}
+
+Slots:
+@itemize
+@item @code{buffer} --- initargs: @code{@w{:buffer}}
+
+The buffer to which the record
+belongs.
+@end itemize
+
+A base class for all output records in
+Drei.
+@end deftp

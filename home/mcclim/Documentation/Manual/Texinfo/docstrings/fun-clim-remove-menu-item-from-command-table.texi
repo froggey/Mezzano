@@ -1,0 +1,4 @@
+@anchor{Function clim:remove-menu-item-from-command-table}
+@deffn {Function} {@symbol{remove-menu-item-from-command-table,clim}} command-table string &key errorp
+Removes item from the @code{command-table}.
+@end deffn

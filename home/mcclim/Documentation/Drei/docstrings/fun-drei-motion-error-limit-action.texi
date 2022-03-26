@@ -1,0 +1,6 @@
+@anchor{Function drei-motion:error-limit-action}
+@deffn {Function} {drei-motion:error-limit-action} mark original-offset remaining unit syntax
+@findex drei-motion:error-limit-action
+This limit action will signal an error of type
+@code{motion-limit-error}.
+@end deffn

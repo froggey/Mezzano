@@ -1,0 +1,74 @@
+RELEASE NOTES FOR McCLIM 0.9.5, "Eastern Orthodox Liturgical New Year":
+
+Compatibility
+=============
+
+This release was tested and found to work on the following
+implementations:
+
+ * SBCL
+ * OpenMCL
+ * CLISP (requires "Telent" CLX)
+ * Allegro Common Lisp 8.0 in ANSI Mode
+
+In our tests, this release of McCLIM did not work on the following
+implementations:
+
+ * CMUCL (at the time of this release, the released CMUCL has a bug
+   that prevents successful loading of McCLIM; CMUCL 19d + patch 1 and
+   the 2006-12 snapshot or later contain a fix for this problem)
+
+Also, McCLIM currently does not support lisps with case-sensitive
+readers (Allegro CL "modern mode" and lower-case Scieneer CL).
+
+
+Changes in mcclim-0.9.5 "Eastern Orthodox Liturgical New Year" 
+relative to 0.9.4:
+==============================================================
+
+From the NEWS file:
+
+* Changes in mcclim-0.9.5 relative to 0.9.4:
+** Installation: the systems clim-listener, clim-examples,
+   and clouseau can now be loaded without loading the system mcclim
+   first. Users with existing McCLIM installations should use the 
+   provided script:
+   		./symlink-asd-files.sh /path/to/asdf-central-registry/
+** New extension: tab-layout. This extension allows keeping a stack of panes 
+   whose foreground pane is controlled by a tab bar. This layout can be 
+   customized in backends and frame managers. For examples, see the
+   gtkairo backend and the pixie frame manager.
+** New extension function: SHEET-RGB-IMAGE: makes a screenshot of a sheet 
+   in the CLX backend. (Supported on truecolor visuals only for now.)
+** New experimental extension: tree-with-cross-edges are an extension to
+   the graph formatter.
+** New experimental backend: clim-graphic-forms: native widgets on Windows. 
+   This backend is still very experimental (it doesn't run demos yet).
+** New inspector feature: The inspector now displays more useful information
+   about hash tables and generic functions.
+** Specification compliance: Various layout panes no longer quite as
+   aggressive at eating the space requirements of their children.
+** Specification compliance: There is now a rudimentary implementation of 
+   NOTIFY-USER
+** Usability: Text editors and text input panes now use click-to-focus.
+** Improvement: the ACCEPTING-VALUES command table was renamed to 
+   ACCEPT-VALUES (as this is the name that the other clim-2 implementation 
+   uses)
+** Improvement: the CLX backend should no longer cause focus stealing
+   when an application has text-editor panes.  This change comes with
+   a rudimentary click-to-focus-keyboard widget policy.
+** Improvement: define-application-frame now allows a :default-initargs
+   option. (This is not exactly a "specification compliance" fix, as 
+   d-a-frame is not defined to accept this option.).
+** Improvement: menu-choose menus now look a little prettier.
+** Improvement: added more styles for bordered-output: :rounded, :ellipse
+** Improvement: Toggle button values now default to NIL.
+** Improvement: Frame layouts are now inherited from the frame's 
+   superclass.
+** Improvement: The Lisp Syntax is much improved: now recognizes 
+   delimiter characters, and more types of Lambda lists.
+** Bug fix: Bezier designs should now draw in the right place in all 
+   backends.
+** Bug fix: Text in Drei no longer "walks" to the left.
+** Bug fix: Drei now has better support for delimiter gestures.
+** Bug fix: Partial commands now work better when invoked from the menu.

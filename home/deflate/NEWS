@@ -1,0 +1,20 @@
+Release 1.0.2
+=============
+
+ * Adjust package name specifications to belatedly support ACL in its
+   "modern-mode".
+
+Release 1.0.1
+=============
+
+ * Renamed Deflate system from Deflate to deflate to support
+   convenience references to system by symbol rather than string name.
+   NOTE: This is an incompatible change from all prior releases, all
+   references to "Deflate" in system definitions will have to be
+   changed to "deflate" or :deflate or equivalents.
+
+ * Preliminary support for ecl has been added:  Due to bugs in current
+   versions of ecl (10.7.1), prior versions of Deflate do not work out
+   of the box.  This version should work better, once fixnum-specialized
+   arrays work again on 64bit versions of ecl in an upcoming release of
+   ecl.

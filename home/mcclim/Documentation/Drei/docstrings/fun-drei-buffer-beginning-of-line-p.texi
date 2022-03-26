@@ -1,0 +1,8 @@
+@anchor{Generic-Function drei-buffer:beginning-of-line-p}
+@deffn {Generic Function} {drei-buffer:beginning-of-line-p} mark
+@findex drei-buffer:beginning-of-line-p
+Return @code{t} if the mark is at the beginning of
+the line (i.e., if the character preceding the mark is a newline
+character or if the mark is at the beginning of the buffer), NIL
+otherwise.
+@end deffn

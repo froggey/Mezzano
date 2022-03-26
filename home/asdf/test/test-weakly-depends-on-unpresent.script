@@ -1,0 +1,20 @@
+;;; -*- Lisp -*-
+
+;;;---------------------------------------------------------------------------
+;;; This test verifies that if you have a system with a weakly-depends-on
+;;; dependency, and the weakly-depended-on system is NOT THERE, the depending
+;;; system will still load successfully. [2011/12/14:rpg]
+;;;---------------------------------------------------------------------------
+
+
+
+
+(asdf:load-system 'test-weakly-depends-on-unpresent)
+;; test that it compiled
+(defparameter file1 (test-fasl "file1"))
+(defparameter file1-date (file-write-date file1))
+
+(format t "~&test1 1: ~S ~S~%" file1 file1-date)
+(assert file1-date)
+;; and loaded
+(assert (symbol-value (find-symbol (symbol-name :*file1*) :test-package)))

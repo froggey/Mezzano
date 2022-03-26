@@ -1,0 +1,16 @@
+;;; -*- Lisp -*-
+
+;;; make sure we get a missing-component-of-version error
+
+
+
+
+(progn
+  (handler-case
+      (load-test-system :test-asdf/test9-1)
+    (asdf:missing-component-of-version (c)
+      (format t "got missing-component-of-version as expected: - ~%~A~%" c))
+    (:no-error (c)
+      (declare (ignore c))
+      (error "should have failed, oops")))
+  (load-test-system :test-asdf/test9-3)) ; positive case, to make sure.

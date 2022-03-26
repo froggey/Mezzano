@@ -1,0 +1,10 @@
+@anchor{Class clim-tab-layout:tab-layout}
+@deftp {Class} {@symbol{tab-layout,clim-tab-layout}}
+Class precedence list: @code{@w{tab-layout}, @w{sheet-multiple-child-mixin}, @w{basic-pane}, @w{sheet-parent-mixin}, @w{pane}, @w{standard-repainting-mixin}, @w{standard-sheet-input-mixin}, @w{sheet-transformation-mixin}, @w{basic-sheet}, @w{sheet}, @w{bounding-rectangle}, @w{standard-object}, @w{slot-object}, @w{t}}
+
+The abstract tab layout pane is a composite pane arranging
+its children so that exactly one child is visible at any time, with a row of
+buttons allowing the user to choose between them.  Use @code{with-tab-layout} to
+define a tab layout and its children, or use the :@code{pages} argument
+to specify its contents when creating it dynamically using @code{make-pane}.
+@end deftp

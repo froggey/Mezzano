@@ -1,0 +1,8 @@
+@anchor{Generic-Function drei-buffer:end-of-line}
+@deffn {Generic Function} {drei-buffer:end-of-line} mark
+@findex drei-buffer:end-of-line
+Move the mark to the end of the line. The mark
+will be positioned either immediately before the closest
+following newline character, or at the end of the buffer if no
+following newline character exists. Returns @code{mark}.
+@end deffn

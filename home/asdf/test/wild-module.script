@@ -1,0 +1,9 @@
+;;; -*- Lisp -*-
+
+(load (subpathname *asdf-directory* "contrib/wild-modules.lisp"))
+
+(def-test-system :wild-module
+  :version "0.0"
+  :components ((:wild-module "systems" :pathname #p"*.asd")))
+
+(load-system :wild-module)

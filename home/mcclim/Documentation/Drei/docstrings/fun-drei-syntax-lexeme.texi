@@ -1,0 +1,6 @@
+@anchor{Generic-Function drei-syntax:lexeme}
+@deffn {Generic Function} {drei-syntax:lexeme} lexer pos
+@findex drei-syntax:lexeme
+Given a lexer and a position, return the
+lexeme in that position in the lexer.
+@end deffn

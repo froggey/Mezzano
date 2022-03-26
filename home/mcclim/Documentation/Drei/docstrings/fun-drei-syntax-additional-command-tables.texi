@@ -1,0 +1,20 @@
+@anchor{Generic-Function drei-syntax:additional-command-tables}
+@deffn {Generic Function} {drei-syntax:additional-command-tables} editor command-table
+@findex drei-syntax:additional-command-tables
+Method combination: @code{APPEND} (@w{most-specific-first})
+
+Return a list of additional command tables
+that should be checked for commands in addition to those
+@code{command-table} inherits from. The idea is that methods are
+specialised to @code{editor} (which is at first a Drei instance), and
+that those methods may call the function again recursively with a
+new @code{editor} argument to provide arbitrary granularity for
+command-table-selection. For instance, some commands may be
+applicable in a situation where the editor is a pane or gadget in
+its own right, but not when it functions as an input-editor. In
+this case, a method could be defined for @code{application-frame} as
+the @code{editor} argument, that calls @code{additional-command-tables}
+again with whatever the "current" editor instance is. The
+default method on this generic function just returns the empty
+list.
+@end deffn

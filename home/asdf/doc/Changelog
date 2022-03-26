@@ -1,0 +1,1753 @@
+cl-asdf (2:3.3.3-1) unstable; urgency=low
+
+  Bug fix release:
+  * Dependency tracking: fix bugs in handling misnamed secondary systems.
+    We now distinguish between "syntactic" and "semantic" primariness,
+    properly warn in case a secondary system is misnamed, yet properly
+    recompile or avoid spurious recompilation depending on whether
+    there or not is a conflict or redefinition.
+    Similarly handle package-inferred-system (thanks to Eric Timmons).
+    Better warning in a fishy case of compute-action-stamp.
+  * UIOP: Fix loading, allow the user to specify UIOP location from which
+	to load.
+  * SBCL compatibility: Fix issue with deferred warnings on SBCL.
+  * Allegro compatibility: Fix issue detecting "modern" lisp.
+  * Genera compatibility: Fix minor issues.  Not fully tested.
+  * ECL compatibility: Bundling fixes.
+  * Fiveam-ASDF: Added to contrib/ example system for integrating FiveAM
+    tests with ASDF's test-op.
+  * Miscellaneous fixes: Avoid an infinite loop parsing :perform options,
+	quash warnings for known bad system names that won't be fixed.
+  * Documentation: Multiple user-contributed documentation fixes.
+  * Tests: Miscellaneous improvements.
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Wed, 27 Mar 2019 17:33:42 -0400
+
+cl-asdf (2:3.3.2-1) unstable; urgency=low
+
+  Bug fix release:
+  * Dependency tracking: fix bugs in handling misnamed secondary systems.
+    We now distinguish between "syntactic" and "semantic" primariness,
+    properly warn in case a secondary system is misnamed, yet properly
+    recompile or avoid spurious recompilation depending on whether
+    there or not is a conflict or redefinition.
+    Similarly handle package-inferred-system (thanks to Eric Timmons).
+    Better warning in a fishy case of compute-action-stamp.
+  * UIOP: Add package location information to define-package on SBCL.
+  * Upgrade: fix issue with asdf/bundle.
+  * Portability: add support for Mezzano (thanks to E. Housel, H. Harrington)
+  * Documentation: add discussion of best practices.
+  * Package-inferred system: Improve source file handling.
+  * Test and documentation improvements.
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Thu, 03 May 2018 22:46:19 -0400
+
+cl-asdf (2:3.3.1-1) unstable; urgency=low
+
+  New milestone:
+  * UIOP compatibility fix: Introduced new replacement "timestamp"
+    comparison functions, because of inadvertent change in the
+    API. Functions that are compatible with the old semantics are retained
+    as "stamp" comparison functions, but will eventually be deprecated.
+  * Upgrade fix: Upgrade from 3.2.1 needed repair.
+  * Syntax manipulation: Fix for bugs that could be introduced when the
+    default readtable was manipulated during the loading of a
+    defsystem-depends-on system.
+  * Tests: tests for new capabilities and bugs
+  * Documentation: a number of improvements and clarifications.
+
+ -- Robert P. Goldman <rpgoldman@sift.net>  Sun, 12 Nov 2017 17:39:04 -0600
+
+cl-asdf (2:3.3.0-1) unstable; urgency=low
+
+  New milestone:
+  * Build-plan: Extensively revised the build plan process so that
+    :DEFSYSTEM-DEPENDS-ON would work correctly, even when depended on systems
+    change (which didn't work before). See our ELS demonstration about it:
+    "Delivering Common Lisp Applications with ASDF 3.3"
+    < https://github.com/fare/asdf2017 >
+  * Internals: to support the above, many ASDF internals have changed.
+    ASDF now has the notion of multiple build phases to a common build session
+    (which generalizes the previous build cache). ASDF considers loading a .asd
+    file as an operation DEFINE-OP, and tracks as dependencies files mentioned
+    during in :LOAD-FILE-FORM statements, etc. Some code has moved to new
+    files or among old files, and between packages. Actions are now
+    uniformly represented as a CONS of an OPERATION and a COMPONENT, where
+    in some cases previously only the class of the operation was
+    preserved. Forcing is constrained to be uniform across all phases of a
+    top level ASDF operation invocation. Fixed the protocol for
+    resetting systems being (re)defined, allowing subclasses to define
+    default slot values. Remove *LOAD-SYSTEM-OPERATION*, as the current
+    maintainer of ECL, for which it was originally designed, decided
+    that it could never be made to work properly, after all.
+  * ASDF&UIOP: Tweak dependencies between ASDF and UIOP. To avoid DEFINE-OP
+    circularity, asdf.asd with no longer causes uiop.asd to be loaded.
+    A standalone UIOP won't be loaded at all unless it's strictly more recent
+    than ASDF.
+  * Tests: tests for new capabilities and bugs. Test backtraces can be disabled.
+  * Documentation: a number of improvements and clarifications.
+  * Feature: a new feature :asdf3.3
+  * ECL: restored the deprecated function MAKE-BUILD, removed in 3.2.0,
+    in a way that works on top of supported APIs (we still recommend you migrate
+    to these supported APIs). Also stop using the deprecated COMPUTE-INIT-NAME.
+  * Deprecation: starting to emit STYLE-WARNINGs for deprecated
+    functions.  Will gradually escalate to true WARNINGs and then ERRORs.
+
+ -- Robert P. Goldman <rpgoldman@sift.net>  Sun, 20 August 2017 21:00:00 -0500
+
+cl-asdf (2:3.2.1-1) unstable; urgency=low
+
+  New release:
+  * source-registry: resolve conflicts in a way compatible with Quicklisp.
+  * Upgrade: make the upgrade logic more robust, especially on CCL.
+  * Require-system: better normalize module vs system names on CMUCL MKCL SBCL.
+  * Logical pathnames: fix bad-system-name warning behavior when using LPNs.
+  * XDG: skip empty entries, for compatibility with Ubuntu
+  * Bundles: numerous fixes for bundles especially so for ECL and MKCL.
+    Don't try to combine .a's as it's not portable; only ever combine but .o's.
+    Getting rid of the *load-system-operation*, now it's always load-op.
+  * launch-program: more fixes, notably for ECL, clasp.
+  * Deprecation: fix issues with the deprecation schedule of some functions.
+  * Test and Release: fixes to the release process and to a few tests.
+  * Documentation: a document describing best practices when using ASDF.
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Sun, 03 Avril 2017 14:49:29 +0100
+
+cl-asdf (2:3.2.0-1) unstable; urgency=low
+
+  New milestone:
+  * launch-program: new UIOP API for asynchronous subprocesses, now available
+    on: abcl allegro clozure cmucl ecl (and lispworks os-unix) mkcl sbcl scl.
+    Big thanks to Elias Pipping for this significant contribution!
+  * parameter-error, not-implemented-error: new UIOP functions to better signal
+    abuse of parameters in function calls, or lack of function implementation.
+  * with-deprecation macro in UIOP signals style-warnings, then warnings,
+    then errors when deprecated functions are used. This macro is now used
+    for all deprecated functions in ASDF.
+  * require-system, component-loaded-p fixed to not reload .asd files,
+    and to work in presence of preloaded-systems, that are now eagerly loaded.
+  * registered-system added as an abstraction for internals and extensions.
+  * make-operation is now the only supported way to create an operation;
+    calling make-instance directly will raise an error. Update your software!
+  * Removal of several obsolete backward-compatible internals:
+    if-component-dep-fails, operation-forced. Update SLIME!
+  * Robustness and portability fixes all around uiop, notably dealing with
+    directory access, bundles on ECL and MKCL or with cffi-toolchain,
+    dealing with a fatal-condition, surviving use of "logical" pathnames, etc.
+  * Tests improved and extensively run on Linux, macOS and, notably, Windows,
+    with recent versions of all the maintained CL implementations.
+  * Internals of ASDF systematically cleaned up and documented.
+  * Build, test, release infrastructure improved, both classic and asdf-tools.
+  * Documentation updated.
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Sun, 08 Jan 2017 20:45:29 -0500
+
+cl-asdf (2:3.1.7-1) unstable; urgency=low
+
+  Bug fix and portability release:
+  * Fix compilation on Genera.
+  * Fix UIOP:FILE-EXISTS-P for dotfiles on CCL.
+  * Fix infinite loop in source registry configuration that can occur when
+        there are cycles in the filesystem (typically caused by symlinks)
+        on some CL implementations.
+  * Miscellaneous bug fixes.
+  * Documentation improvements.
+  * Restore original Makefile.
+
+ -- Robert P. Goldman <rpgoldman@sift.net>  Wed, 23 Mar 2016 09:34:14 -0500
+
+cl-asdf (2:3.1.6-1) unstable; urgency=low
+
+  Bug fix and portability release:
+  * Fix backtrace on SBCL.
+  * Fix RUN-PROGRAM of string (shell command) on Windows SBCL (ticket
+    #1501373).
+  * Fix a number of issues with bundle operations (especially on
+    non-C-compiler-based implementations).
+  * Fix component-finding in package-inferred-system.
+  * Fix race condition between multiple concurrent lisp processes
+    doing ASDF builds (ticket #1483948).
+  * Fix misplaced fasl cache on Windows.
+  * Miscellaneous bug fixes.
+  * Documentation improvements.
+
+ -- Robert P. Goldman <rpgoldman@sift.net>  Sat, 17 Oct 2015 15:01:34 -0500
+
+cl-asdf (2:3.1.5-1) unstable; urgency=low
+
+  Bug fix and portability release:
+  * Add immutable-system support (thanks to Dave Cooper).  This support
+    should be regarded as preliminary and subject to change.
+  * Substantially improved operation on Windows: many bugfixes and improve-
+    ments to UIOP functions that interface with the operating system.
+  * Add CLASP support.
+  * Many miscellaneous fixes for issues on individual implementations,
+    notably UIOP incompatibility introduced by SBCL 1.2.12, support for
+    LispWorks 7 character types, fixes to chdir on ABCL, improvements
+    to run-program on Windows.
+  * Added OS-COND to UIOP to paper over some incompatibilities about when
+    and how operating system can be detected on different implementations.
+    Made OS predicates run test at runtime so you can bind *features* from
+    a target system and determine its OS.
+  * Fixes to XDG configuration directory handling.  Try to stick to the
+    XDG spec, rather than guessing what it should be on different platforms.
+    To recognize this, change UIOP functions about XDG files to "XDG-"
+    prefixes.
+  * Documentation improvements.
+
+ -- François-René Rideau <fare@tunes.org>  Sat, 18 Jul 2015 16:51:50 -0500
+
+cl-asdf (2:3.1.4-1) unstable; urgency=low
+
+  [ Robert P. Goldman ]
+  Bug fix release:
+  * Remove compatibility stubs for old bundle classes (not working
+    properly, anyway), these are now available in a contrib.
+  * Add INPUT-STRING function to UIOP.
+  * For developer and tester convenience, bring all the external
+    dependencies into the git repo as submodules. See target make ext
+  * Optionally speed up registry search by providing a cache for
+    the SOURCE-REGISTRY. See the cache-generating script in:
+      asdf/tools/cl-source-registry-cache.lisp
+  * Fixes to tests and documentation.
+  * Many minor bugfixes.
+
+ -- François-René Rideau <fare@tunes.org>  Thu, 09 Oct 2014 21:18:21 -0400
+
+cl-asdf (2:3.1.3-1) unstable; urgency=low
+
+  Bug fix release:
+  * A bug in 3.1.2 caused errors when hot-upgrading from 3.1.2 ASDF.
+  * Fix bugs in ASDF component search caching. In some circumstances,
+    aggressive caching (particularly of negative results) interfered with
+    error-handling through restarts.  Also, in some cases use of caching
+    interfered with error-checking. Some of these issues are discussed in
+    ticket #1335323 on launchpad.
+  * Miscellaneous bug fixes and tweaks to UIOP.
+  * Documentation improvements.
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Mon, 14 Jul 2014 16:54:49 -0400
+
+cl-asdf (2:3.1.2-2) unstable; urgency=low
+
+  New release:
+  * ~/common-lisp/ is now present by default in the source-registry, so
+    you don't need to configure anything if you put source code there.
+  * package-inferred-system implements the one-file, one-package, one-system
+    paradigm of quick-build and faslpath as an extension to ASDF 3.
+  * non-propagating-operation replaces OPERATION for operations as a base class
+    to inherit from for operations that do not propagate,
+    whereas for backward compatibility with ASDF 1 and 2,
+    subclasses of OPERATION implicitly propagate DOWNWARD and SIDEWAYs.
+    Failure to explicitly inherit from one of the explicitly propagating
+    or non-propagating classes will result in a WARNING for now.
+  * Accept strings as operation class designators in DEFSYSTEM, which
+    provides better integration of ASDF extensions loaded using
+    DEFSYSTEM-DEPENDS-ON.
+  * force-not now takes precedence over force, and systems named in the
+    *immutable-systems* set (represented as an equal hash-table) are always
+    forced-not, and even their .asd is not refreshed from the filesystem.
+  * portability is much improved, with support for the latest GCL, and
+    fixes for ABCL, CLISP, ECL, LispWorks, MKCL, SBCL, XCL, etc.
+  * bundle support was refactored, with many fixes to previously uncommon cases.
+    ECL support is fixed, MKCL added, with a common extension to build programs
+    without pulling in UIOP and with it the compiler.
+    image-op was added to create heap images for use with e.g. cl-launch.
+    load-fasl-op was renamed to load-bundle-op, fasl-op to compile-bundle-op,
+    binary-op to deliver-asd-op, and so forth for the monolithic- variants;
+    previous names remain available for backward compatibility.
+  * robustness: Test improvements and new tests.
+    Added missing dependencies in asdf.asd itself(!).
+    Fixes to version-satisfies (thanks to stassats), to the file-stamp cache.
+    Fix to regression from 3.0.2.12 whereby ASDF failed to avoid downgrading.
+    Many cleanups. Many explanatory updates to source code comments.
+  * run-program tweaked again, notably on Windows, on CLISP, and
+    on implementations without a native run-program. On Windows, we
+    punt on trying to ensure no final space is ever echo'ed by CMD.EXE " ".
+  * provide both "asdf" and "ASDF" to play nicer with various Lisps.
+  * upgrading from a sufficiently forward-compatible version (currently: 2.33)
+    will be less disruptive of ASDF data and enhancements in the current image:
+    previously loaded systems will not be cleared anymore,
+    variables defined with defparameter* will not be reset.
+    Punting on upgrades from ASDF 1 for more robust behavior.
+  * make is the new name for build-system, as an experimental alternative
+    interface to building software with ASDF — it operates with build-op,
+    which itself delegates to *load-system-operation* by default.
+    Prepare-op also delegates to *load-system-operation* on systems.
+    You might bind that variable to load-bundle-op instead of load-op.
+  * uiop much improved so as to be used with Google's build system blaze:
+    with-temporary-file, dump-image / restore-image, ensure-pathname,
+    compile-file*, with-saved-deferred-warnings.
+  * Added portable API to optimization settings.
+  * Refine detection of operating systems. os-macosx-p and os-unix-p no
+    longer mutually exclusive.
+  * asdf3.1 feature pushed, to signal the slew of significant improvements
+    in over a year since initial ASDF 3.0 pre-release (i.e. version 2.27).
+  * Substantially rewritten, updated, and expanded manual.
+  * TODO updated.
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Mon, 19 May 2014 20:07:40 -0400
+
+
+cl-asdf (2:3.0.3-1) unstable; urgency=low
+
+  New release:
+  * Run-program much improved, with a slight backward incompatibility.
+    See the new documentation about it.
+  * Portability enhanced, with more robust Windows support,
+    plus patches for CCL, CLISP, LispWorks, XCL.
+  * UIOP improved, with a README, more docstrings, a few new functions
+    (println, writeln, stripln, ensure-gethash, vomit-output-stream),
+    and bugfixes (to ensure-function, with-temporary-file, split-string).
+  * Debian installations that don't export XDG_DATA_DIRS will benefit
+    from the fix to split-string, as the bug was basically disabling
+    the default source-registry entry for /usr/share/common-lisp/source//
+    Closes: #723977
+  * Minor tweaks to the defsystem, mostly to print more information
+    in some situations, less in other situations, but also to better
+    handle systems with secondary names like foo/bar, a fix for user
+    functions in output-translation, and to :version (:read-file-...)
+  * Documentation somewhat updated.
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Tue, 22 Oct 2013 22:30:12 -0500
+
+cl-asdf (2:3.0.2.4-1) unstable; urgency=low
+
+  UIOP:DIRECTORY* fixed to NOT follow symbolic links on LispWorks.
+  Fix handling of :at key in :read-file-form.
+  Fix package issue for system-definition-error (lp #1206173).
+  Some docstring updates. Also documentation updates.
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Tue, 03 Sep 2013 12:17:21 -0500
+
+cl-asdf (2:3.0.2-1) unstable; urgency=low
+
+  Improve support for CMUCL, ABCL, restore MCL support.
+  TRAVERSE is deprecated (moved to BACKWARD-INTERFACE), use
+  MAKE-PLAN instead.
+  Added DLL-OP and MONOLITHIC-DLL-OP for ECL.
+
+ -- Robert P. Goldman <rpgoldman@sift.info>  Tue, 02 Jul 2013 12:05:57 -0500
+
+cl-asdf (2:3.0.1.3-1) unstable; urgency=low
+
+  Add some backward-compatibility to the debian package,
+  with a symlink from asdf.lisp to build/asdf.lisp.
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Sun, 02 Jun 2013 00:56:50 +0200
+
+cl-asdf (2:3.0.1.2-1) unstable; urgency=low
+
+  ASDF 3.0.1.2 fixes issues with the debian package itself.
+  It also includes fixes to run-program and run-shell-command.
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Mon, 27 May 2013 22:44:50 -0400
+
+cl-asdf (2:3.0.1-1) unstable; urgency=low
+
+  ASDF 3.0.1 is an emergency release for better compatibility with Quicklisp.
+
+  * version-satisfies now uses uiop:version<= for comparison,
+    and does not check for a same major version number,
+    like version-compatible-p does, which was the
+    undocumented behavior since ASDF 1.
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Mon, 16 May 2013 19:20:28 -0400
+
+cl-asdf (2:3.0.0-1) unstable; urgency=low
+
+  ASDF 3.0.0 is the first official release of ASDF 3;
+  ASDF 2.27 to 2.33 were pre-releases.
+  Since 2.33, the following changes were done:
+
+  * Portability: have *uninteresting-conditions* be empty by default.
+    Move stuff to *usual-uninteresting-conditions*, unused by default.
+    Will make the SBCL team happy. Also, fix tests on ABCL.
+    Fix regression of program-op on ECL, by implicitly linking in UIOP or ASDF.
+
+  * UIOP: improvements to slurp-input-stream and thus run-program,
+    notably accepting T as alias for *standard-output*,
+    for better backward-compatibility of the deprecated run-shell-command.
+    New macro with-output-file.
+
+  * POIU support enhanced with various tweaks.
+
+  * Build cleanup so make and concatenate-source-op create the same asdf.lisp
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Mon, 15 May 2013 23:57:22 -0400
+
+cl-asdf (2:2.33-1) unstable; urgency=low
+
+  ASDF 2.33 is a set of cleanups since 2.32.
+  Since previous release 2.32, it includes the following changes:
+
+  * Portability tweaks for ABCL, Allegro, CCL, CLISP, ECL, LispWorks, SBCL.
+
+  * deferred-warning received yet more improvements for CCL.
+
+  * upgrade is made more robust in many cases, notably for ECL, SBCL,
+    or when using UIOP with an old ASDF<=2.26.
+
+  * Packages have been tweaked to pass more tests,
+    notably wrt what symbols are exported.
+
+  * Image lifecycle support is improved, thanks to deploying ASDF3 for QRes.
+    More options for dump-image on CCL; handle reentrance in restore-image.
+
+  * delete-directory-tree, delete-empty-directory, copy-file,
+    directory-exists-p, file-exists-p were added to UIOP,
+    also better strcat, with reduce/strcat, base-string-p, etc.
+
+  * Recompilation avoided for things already done by defsystem-depends-on.
+
+  * monolithic-fasl-op was fixed in cases when the main system has components.
+
+  * fasl-op and monolithic-fasl-op now work on ABCL trunk and upcoming 1.2.0,
+    and will eventually replace the ABCL-JAR contrib.
+
+  * *uninteresting-conditions* was added as a common list of conditions
+    shared between the compile-time and load-time muffled conditions.
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Thu, 04 Apr 2013 01:54:26 -0400
+
+cl-asdf (2:2.32-1) unstable; urgency=low
+
+  ASDF 2.31 is yet another bug fix release in preparation of an upcoming ASDF 3.
+  Since previous release 2.31, it includes the following changes:
+
+  * deferred-warning checks are now disabled by default,
+    to enhance backward compatibility with ASDF 2.26 and earlier.
+    In the future, we will enable them by default,
+    but not until we implement a smoother transition plan.
+
+  * UIOP is the new official name for ASDF-DRIVER.
+    "Utilities for Implementation- and OS- Portability".
+    Old names remain as package and system nicknames:
+    . ASDF/DRIVER ASDF-DRIVER ASDF-UTILS
+
+  * require-system so systems may depend on implementation-provided modules.
+
+  * auto-upgrade attempt in operate *before* the implicit find-system.
+
+  * class specification for components can now be a string to be read as a symbol.
+
+  * feature conditional dependencies are now debugged and tested:
+    . :depends-on ("some-system" (:feature :foo "other-system))
+    we only recommend them for dependencies between systems;
+    within systems, we recommend you use feature-conditional components with
+    . :if-feature :foo
+    and we only provide limited support for the deprecated legacy way of using
+    feature-conditionals with a module having :if-component-dep-fails :ignore
+    while its components specify things like:
+    . :in-order-to ((compile-op (feature :foo)))
+
+  * read-from-file for :version specification is made more useful by using
+    the ASDF-USER package rather than CL (into which interning is forbidden)
+    to read the files.
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Tue, 05 Mar 2013 19:35:43 -0500
+
+cl-asdf (2:2.31-1) unstable; urgency=low
+
+  ASDF 2.31 is another bug fix release in preparation of an upcoming ASDF 3.
+  Since previous release 2.30, it includes the following changes:
+
+  * *default-encoding* is now UTF-8. As tested with cl-test-grid,
+    This is a boon for most programs,
+    that will compile in a more predictable way in a wider range of settings.
+    A handful of unmaintained outliers still need to be fixed.
+
+  * Downgrade is now explicitly avoided. ASDF will issue a warning
+    if your system is misconfigured in a way that specifies downgrade,
+    but will then ignore the specified ASDF downgrade.
+
+  * version specifications, when invalid, will lead only to a warning for now;
+    a future ASDF3 may restore the behavior of ASDF 2.27,
+    that raises an errors when there is a bad :version specification,
+    but for now, backward compatibility prevails.
+
+  * ECL support received several bug fixes.
+
+  * precompiled-system support was notably fixed, enabling single-fasl
+    deployment of SBCL contribs.
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Mon, 25 Feb 2013 19:02:14 -0500
+
+cl-asdf (2:2.30-1) unstable; urgency=low
+
+  ASDF 2.30 is another bug fix release in preparation of an upcoming ASDF 3.
+  Since previous release 2.29, it includes:
+
+  * syntax around loading .asd files made more backward-compatible,
+    by *not* (for now) binding *readtable* and *print-pprint-dispatch*
+    to standard values, because it breaks some indelicate libraries.
+    We intend to reinstate these bindings at some point in the future,
+    but only after more implementations enforce the immutability
+    of these standard values like SBCL does,
+    and after fixed libraries have been released.
+    This notably unbreaks iolib 0.7.3 (for readtable) and
+    defdoc (for the pprint-dispatch table).
+
+  * portability fixes for CCL and CMUCL.
+    On CCL, punt on package upgrade, and on reify-simple-sexp.
+    On CMUCL, fix raw-print-backtrace and hostname.
+
+  * exported symbols cleaned up somewhat.
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Fri, 20 Feb 2013 17:53:32 -0500
+
+cl-asdf (2:2.29-1) unstable; urgency=low
+
+  ASDF 2.29 is a bug fix release in preparation of an upcoming ASDF 3.
+  Since previous release 2.28, it includes:
+
+  * deferred-warnings support for Allegro, CMUCL, SCL;
+    fixes to the CCL support.
+
+  * Upgrade fixes regarding fallback system versions;
+    making it possible (via massive use of eval-when)
+    to compile ASDF without loading it first.
+
+  * Compatibility with private use of :D package nickname
+    by not claiming it for package ASDF/DRIVER anymore.
+    Also explicitly handle NIL in safe-file-write-date,
+    in case the implementation doesn't issue a file-error in that case;
+    make UTF-8 the default encoding for with-input-file.
+    Be portable to #+(and sbcl (not sb-eval)).
+
+  * Bugfixes to old bugs: inline-methods can now be unqualified (lp#485393),
+    defsystem-depends-on accepts arbitrary specs, not just names (lp#1027521).
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Fri, 16 Feb 2013 15:07:24 +0100
+
+cl-asdf (2:2.28-1) unstable; urgency=low
+
+  ASDF 2.28 is a quick patch to ASDF 2.27 to make it work better with
+  systems that specify a relative pathname, then at runtime (e.g. in tests)
+  use merge-pathnames or merge-pathnames* against it expecting a directory.
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Fri, 01 Feb 2013 17:07:53 -0500
+
+cl-asdf (2:2.27-1) unstable; urgency=low
+
+  ASDF 2.27 is actually an almost complete rewrite of ASDF, and
+  should be considered a pre-release for an upcoming ASDF 3.
+  It nevertheless maintains backward compatibility with the current practice,
+  and is tested against the software in Quicklisp.
+
+  * ASDF-BUNDLE was merged into ASDF.
+    This notably means fewer headaches for users of ECL;
+    it also means a new load-fasl-op feature for all users of a modern CL,
+    making it easier to deliver software as a single fasl.
+    After release, I plan to offer a patch so SBCL use that for its contrib's.
+    All remnants of asdf-bundle's predecessor asdf-ecl were removed.
+
+  * DECADES-OLD bugs of notable significance were fixed:
+    (a) changes in dependencies now trigger a rebuild across systems, and
+    https://bugs.launchpad.net/asdf/+bug/479522
+    (b) timestamps are now correctly propagated (they weren't at all!)
+    https://bugs.launchpad.net/asdf/+bug/1087609
+    Fixing them required a complete rewrite of ASDF's dependency tracking.
+    In olden days, some have argued for not rebuilding systems that :depend-on
+    a modified one as a "feature". It really isn't. On the other hand,
+    it is now possible to explicitly prevent a system from being rebuilt, using
+    an actual feature, :force-not, which was released in 2.21 in April 2012.
+
+  * PREPARE-OP was introduced to fix a conceptual bug in the ASDF object model.
+    It corresponds to "loading the dependencies of a component and its parents"
+    and is explicitly depends-on'ed by LOAD-OP and COMPILE-OP of the component,
+    instead of their implicitly depending on it via the TRAVERSE algorithm,
+    which implicit dependency proved fatal in cases revealed by the above bugs.
+    It propagates upward in the component hierarchy, rather than downward,
+    like the TRAVERSE algorithm used to systematically propagate dependencies.
+
+  * TRAVERSE was gutted out and factored into reusable higher-order functions
+    and objects, which not only fixes the above conceptual bug, but makes for
+    semantics that are simpler to implement, possible to understand,
+    easier to extend, and less limited in expressivity.
+    TRAVERSE doesn't automatically propagate operations
+    downward the component hierarchy anymore;
+    propagation is now implemented through methods on COMPONENT-DEPENDS-ON.
+
+  * COMPONENT-DEPENDS-ON is now more powerful:
+    it can express dependencies on arbitrary operation objects
+    (i.e. operations of the same class can have different options)
+    acting on arbitrary component objects
+    (i.e. not necessarily siblings of the current component).
+    The ASDF object model can now express arbitrary build graphs, with
+    no more special magic for children components vs other dependencies.
+
+  * COMPONENT-DO-FIRST is no more. It used to specify some dependencies
+    that were skipped if no re-build was triggered based on local timestamps;
+    except that ASDF 1 didn't let the users control it,
+    and ASDF 2 only let you control it since 2.017 or so.
+    In ASDF 3, COMPONENT-DEPENDS-ON is used for all dependencies,
+    and all are consulted to correctly propagate timestamps.
+    However actions meant for in-image side-effects are included
+    only if needed, and might be visited twice by TRAVERSE,
+    first without the needed-in-image-p flag, another time with.
+    You can use :IN-ORDER-TO everywhere you used to use :DO-FIRST, if ever.
+
+  * FORCE and FORCE-NOT now correctly distinguish T from :ALL in addition to
+    a list of system name specifiers, as per the original specification
+    (which was never implemented in ASDF 1). Additionally,
+    builtin systems (such as SB-BSD-SOCKETS on SBCL) cannot be forced
+    (which doesn't work on SBCL).
+
+  * IF-FEATURE is a new attribute of components that accepts an arbitrary
+    feature expression such as (:and :sbcl (:or :x86 :x86-64)),
+    which when defined is a precondition to the component being enabled;
+    when the expression is false, the component is disabled,
+    and dependencies to it are removed.
+    It replaces the misguided :if-component-dep-fails attribute of modules
+    and the accompanying :feature feature, which were dropped.
+    They were not very expressive, clunky to use, and relied on baking
+    conceptually dubious non-local behavior in the old TRAVERSE algorithm,
+    which belied the object model and defeated other features.
+    Unhappily, this breaks backwards compatibility for the few who used it,
+    namely sb-grovel, nibbles and ironclad.
+    A minimal compatibility layer is included that allows ASDF 3 or later
+    to load the SB-GROVEL of old versions of SBCL; but it won't suffice
+    to load an old version of nibbles or ironclad; please upgrade them
+    a recent version that was updated to support ASDF 3.
+
+  * CONCATENATE-SOURCE-OP is a new operation that builds a single Lisp file
+    from all the source files in a system,
+    which allows you to develop in a structured way with many compact files,
+    yet deliver a large single file. Other related operations allow you
+    to load that source file, or compile and load it,
+    or do the same while including all other system dependencies.
+    ASDF was broken up into lots of small files, to be delivered that way.
+
+  * FOO/BAR/BAZ names will be recognized by defsystem as having to be located
+    in a file called foo.asd. This is backward compatible in the case where
+    you somehow arranged to load foo.asd before to use the other subsystems,
+    except now ASDF can find the subsystems by name without the main system
+    definition having been loaded. See uses of function PRIMARY-SYSTEM-NAME.
+
+  * BUILD-OP is a generic operation that can do the "right thing" for
+    each system, without users having to maintain the knowledge of
+    what the right thing is for each system they may indirectly depend on.
+
+  * Convenience methods were added to most exported generic functions,
+    so you can (input-files 'compile-op '(system1 "file1")) instead of
+    (input-files (make-instance 'compile-op) (find-component 'system1 "file1"))
+    This notably makes it much easier to interact with ASDF at the REPL
+    and debug your system definitions or ASDF extensions (or modifications).
+
+  * Packages were introduced as ASDF was broken up into small files.
+    Each file now has its own package, importing and exporting functionality,
+    following the style made popular by faslpath and quick-build.
+    ASDF does not yet include builtin support for quick-build or faslpath
+    systems and dependencies, however. Possibly in ASDF 2.28.
+
+  * ASDF-DRIVER is a separately-usable library for Common Lisp runtime support.
+    It is transcluded in asdf.lisp (i.e. when delivering ASDF as a separate
+    bootstrap file, the contents of ASDF-DRIVER have been included in it),
+    but can also be used as a separate ASDF system on top of an old ASDF
+    (within limits: CLISP and XCL still need a recent ASDF).
+    The package ASDF/DRIVER (with short nickname :D) re-exports
+    all the functions that ASDF needed to run portably.
+
+  * Pathnames are a notable part of ASDF-DRIVER, required to deal
+    portably with pathnames despite the many bugs and variations
+    from platform to platform. See notably in pathname.lisp,
+    MERGE-PATHNAMES*, SUBPATHNAME, PARSE-UNIX-NAMESTRING,
+    PARSE-NATIVE-NAMESTRING, ENSURE-PATHNAME, and many many more.
+
+  * Pathname use by ASDF was also improved in countless small ways,
+    closing more buglets that appeared in as many corner cases.
+    For instance, system pathname defaulting was improved,
+    and systems not associated with a file will now have NIL as their pathname,
+    which will otherwise be correctly treated.
+    Many things that would vary depending on implementation will work better.
+    Also, although we cannot strongly enough disrecommend the use of so-called
+    "logical pathnames", especially where portability matters in any way, we
+    support them better than ever within the limitations of the implementation.
+
+  * Image lifecycle support is included in ASDF-DRIVER (and thus ASDF);
+    this standardizes things like access to *COMMAND-LINE-ARGUMENTS*,
+    declaring an entry-point to a program, hook functions and/or a prelude
+    to run before to start the main entry, and a postlude and/or hook functions
+    to run before to dump an image, dumping or creating an image, etc.
+
+  * PROGRAM-OP allows you to create standalone executables on implementations
+    that support it: CLISP, Clozure CL, CMUCL ECL, LispWorks, SBCL, SCL.
+    A hello-world-example system shows demonstrates how to use it.
+
+  * Run-program is a replacement for the old run-shell-command.
+    Unlike run-shell-command, it is portable to Windows as well as Unix,
+    it can avoid going through a shell and will sensibly escape arguments
+    when it does go through a shell, and it has a usable interface
+    to either capture program output or run the program interactively.
+    This supersedes run-program/ previously available from xcvb-driver,
+    including several improvements and portability fixes.
+
+  * Conditions can be selectively muffled around compilation thanks to
+    the an around-compile hook and the *UNINTERESTING-COMPILER-CONDITIONS*
+    parameter, and around loading with *UNINTERESTING-LOADER-CONDITIONS*
+    which is _appended_ to the former during loading.
+    This supersedes the functionality previously available from xcvb-driver
+    and its thin wrapper asdf-condition-control, which was retired.
+
+  * Deferred warnings for yet undefined functions, that in a single-session
+    build are usually signaled at the end of a compilation unit, will be
+    saved and reassembled to make each system a compilation unit of its own,
+    even when compilation of file happens across multiple sessions;
+    only CCL and SBCL support this feature at this time.
+    I welcome patches for other compilers, for which ASDF will _not_
+    wrap an implicit WITH-COMPILATION-UNIT around its operate method anymore.
+
+  * COMPILE-FILE* was beefed up to support all these features and more,
+    and the Right Thing(tm) on all implementations, including
+    support for their various extensions.
+
+  * Internals have been refactored, and some sorry features were excised.
+    The semantics of OPERATION-DONE-P is simplified and now well-specified.
+    FIND-COMPONENT will pass component objects through, and
+    a corresponding FIND-OPERATION replaces MAKE-SUB-OPERATION.
+    Many internal accessors were renamed, after checking on Quicklisp
+    that no one was using them.
+
+  * Portability updates were done for each and every implementation.
+    Working support for GCL 2.6 was restored, with notable limitations
+    including lack of support for output-translations or logical-pathnames.
+
+  * TRUENAME resolution can be reliably turned off in all cases where
+    ASDF was using them by setting the variable *RESOLVE-SYMLINKS* to NIL.
+    This is useful if your operating system makes that operation slow,
+    or if your build system uses symlinks to content-addressed storage
+    in which case TRUENAME just does the wrong thing.
+
+  * PERFORMANCE of ASDF3 is somewhat slower (about 70%) than ASDF2
+    when *RESOLVE-SYMLINKS* is true, and slightly faster when it is false;
+    but underneath ASDF3 does much more work than ASDF2.
+
+  * VERSION strings can now be specified as having to be fetched
+    from a file using a (:read-file-form <path>) specification,
+    that can use an optional :at keyword argument to specify
+    a form or subform other than the first form in the file,
+    as per the utility asdf-driver:access-at. For instance,
+    if your file specials.lisp is a defpackage, an in-package
+    and a defparameter of the version, then you could use:
+      (:read-file-form "specials.lisp" :at (2 2))
+    This makes it easier for developers to manage versioning
+    of one or multiple systems with a single master version location.
+
+  * COMPONENT-PROPERTY and the :PROPERTIES initarg of defsystem are deprecated;
+    though they are still supported for now, we intend to retire them
+    in a hypothetical future ASDF 4. To replace them, we recommend you instead
+    define a subclass of asdf:system, with new slots and/or initargs, and
+    use them with the :defsystem-depends-on and :class options of defsystem.
+    We looked at usage of in Quicklisp systems, and added to asdf:system
+    these slots corresponding to the general-purpose metadata we saw:
+    :homepage :bug-tracker :mailto :long-name
+
+  * Self-Upgrade of ASDF will happen automatically as the first thing
+    before any attempt to build anything, as it was determined that
+    doing it in the midst of a build breaks everything, and it is not
+    otherwise possible to reliably detect in advance whether ASDF may
+    be needed in such midst. If you don't want an ASDF upgrade, just
+    don't configure your source-registry to include any copy of ASDF.
+
+  * DEFINE-PACKAGE is provided as a replacement to DEFPACKAGE that supports
+    hot upgrade of software where some packages have changed.
+    It also provides new forms :MIX and :REEXPORT which can be quite practical.
+
+  * ASDF-USER is now the shared package in which all .asd files are loaded.
+    There will be no more temporary packages created
+    around the loading of each .asd file. This shouldn't change much for users:
+    you should probably still define your own private package whenever you
+    define new classes, functions, or variables, to avoid namespace conflict;
+    except now, when you don't, you can still access your defined symbols
+    after the file is loaded.
+    ASDF is not the right place to fix Common Lisp namespace issues, and
+    these temporary packages were never a successful fix anyway;
+    indeed, users were still required to define their own package as soon
+    as they wanted to define variables, functions and classes
+    in the system file.
+
+  * ASDF3 was added to the *features* so you can detect the presence of
+    this massively updated ASDF and its new features with #+asdf3.
+
+  * Documentation received some updates, though by no means comparable
+    to the complete rewrite of the code base.
+
+  * Tests were updated, notably including support for bundles, encodings,
+    run-program, and more. They were successfully run on
+      abcl allegro allegromodern ccl clisp cmucl
+      ecl ecl_bytecodes lispworks sbcl scl xcl
+    Manual tests were run on gcl2.6 genera lispworks-personal-edition.
+    Untested remain cormancl mkcl rmcl.
+    The internal test system itself was massively improved.
+
+  * ASDF-DEBUG is a simple utility to make your favorite debugging primitives
+    available in the package you're debugging. See contrib/debug.lisp
+    and the asdf/utility:*asdf-debug-utility* variable.
+
+  * ASDF-UTILS is now but an empty shell that depends-on ASDF-DRIVER.
+    The ASDF-DRIVER package has the ASDF-UTILS nickname, and exports
+    all the functionality that used to be in ASDF-UTILS, and much more,
+    minus a few misdesigned things from ASDF1 that you ought not
+    to have been using, and for which there are non-broken replacements.
+    ASDF-UTILS was distributed separately from ASDF; ASDF-DRIVER is available
+    both as part of ASDF 3 and later and separately.
+
+  * POIU was updated. This extension is still distributed separately from ASDF.
+    It is now much simplified and made correct by construction by
+    reusing the new TRAVERSE infrastructure of ASDF and now being able to
+    assume the ASDF object model is a complete description of dependencies.
+    On SBCL it will handle deferred warnings from background compilations.
+    Where forking is not supported or not possible because of threads,
+    it will gracefully fall back to serial compilation.
+
+  * INFERIOR-SHELL (distributed separately) was updated to use asdf-driver
+    instead of xcvb-driver. It notably provides a richer interface to
+    the RUN-PROGRAM functionality.
+
+  * SLIME support for ASDF was significantly enhanced.
+    It is distributed with SLIME, separately from ASDF.
+    See latest slime checkin from 2013-01-29.
+    It requires ASDF 2.014.6 or later (as used by 2011 quicklisp releases).
+    We recommend that you should include slime-asdf in your slime-setup
+    and that in your ~/.swank.lisp you should include:
+    (in-package :swank)
+    (pushnew 'try-compile-file-with-asdf *compile-file-for-emacs-hook*)
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Fri, 01 Feb 2013 13:27:12 -0500
+
+cl-asdf (2:2.26-1) unstable; urgency=low
+
+  * Package change: removed the old ASDF-UTILITIES package nickname for ASDF.
+    Please use the separate ASDF-UTILS system and package for utilities.
+  * compile-file-pathname* bug fix for :output-file nil. Fixes lp#1067617.
+  * get-folder-path factored out of various functions, thanks Martin Simmons.
+  * Lispworks: enable sys:get-folder-path on Personal Edition for Windows.
+  * ECL: add proper wrapping-source-registry
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Thu, 30 Oct 2012 08:09:06 +0900
+
+cl-asdf (2:2.25-1) unstable; urgency=low
+
+  * Lispworks: avoid professional edition functions in personal edition.
+  * CormanLisp: improve support a little bit.
+  * Exports: don't export utilities anymore. Please use asdf-utils.
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Thu, 27 Sep 2012 18:35:21 -0400
+
+cl-asdf (2:2.24-1) unstable; urgency=low
+
+  * ACL: handle SMP vs non-SMP builds in Allegro 9.0
+  * MKCL: add support for ManKai Common Lisp
+  * ECL: merge improvements from ECL git. Refactor ECL support somewhat.
+  * Remove broken-fasl-support: first, cormanlisp is supposed to have fixed it;
+    second, cormanlisp is dead;
+    third, one can now (setf *load-system-operation* 'load-source-op) instead
+    while using asdf:load-system.
+  * renaming ends-with to string-suffix-p to avoid conflict with alexandria.
+  * Refactor load-system to use *load-system-operation*,
+    and change require-system and module-provide-asdf to use that.
+
+  Also note:
+  * We recommend you use asdf-utils to access the utilities in asdf.
+    Some time next year, we may stop exporting the utilities from asdf itself.
+  * To avoid conflicts between alexandria, fare-utils, xcvb-driver,
+    asdf-utils, etc., you can use xcvb-utils that solves the conflicts.
+    Or you can use fare-utils:define-package-mix that will help you
+    automatically resolve them.
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Sat, 25 Aug 2012 08:05:21 -0400
+
+cl-asdf (2:2.23-1) unstable; urgency=low
+
+  * add new :compile-check argument to compile-file* and around-compile-hook.
+    This allows for consistency check of .fasl output before the file can
+    possibly be seen by other builds (i.e. no race condition).
+  * export more utilities for dealing with pathnames from environment.
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Tue, 17 Jul 2012 11:03:32 -0400
+
+cl-asdf (2:2.22-1) unstable; urgency=low
+
+  * require is now mapped to the recently defined require-system,
+   not to load-system anymore.
+  * more sensible inheritance semantics for default-component-class,
+   which can be either a class or a class name.
+  * accept wildcards in directory-files for physical pathnames. lp#1000842
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Tue, 12 Jun 2012 11:22:33 -0400
+
+cl-asdf (2:2.21-1) unstable; urgency=low
+
+  * New features:
+    * Most importantly, encodings.
+      ASDF now lets you specify an :encoding for a system, module or component,
+      that is used when loading or compiling Lisp files. See the documentation.
+      By default, the only useful value is :utf-8, and
+      we recommend you use UTF-8 everywhere.
+      We intend to make UTF-8 the default in the future
+      (current default is the legacy behavior of using whichever implicit
+      default your underlying implementation is currently configured to use).
+      An extension asdf-encodings is available that supports more encodings,
+      including autodetection of encoding from either emacs-style declaration
+      -*- Mode: Lisp ; coding: utf-8 -*- or content.
+    * require-system works like load-system, but won't try to load or update
+      systems that have already been loaded, as listed by loaded-systems.
+      More generally, you can specify a list of systems as :force-not argument
+      to load-system and the specified systems won't be loaded or updated.
+    * You can specify :force-not and a list of systems when loading a system,
+    * You can now specify :hostname in your asdf-output-translations,
+      so you can easily share a home directory via the network
+      yet split its fasl cache between several subtly different machines.
+  * Bug Fixes:
+    * lp#982285. since 2.014.4, the default source-registry
+      was skipping anything from /usr or XDG_DATA_DIRS,
+      because of a missing test in getenv-absolute-pathnames. Fixed in .15.
+    * In 2.019.9 aka 2.20, ECL support was broken by using
+      a function in the wrong package (defined in cl-user). Fixed in .1.
+    * logical-pathname support was somewhat broken since 2.017.6,
+      due to the way most implementations fail to read physical namestrings
+      when *default-pathname-defaults* is a logical-pathname.
+      Fixed, together with other logical-pathname issues, and
+      a test case was added to the test suite to ensure no further regression.
+      Works great modulo quirks around implementation bugs on CLISP and Allegro.
+    * Make upgrading ASDF more robust on CMUCL, LispWorks, SBCL.
+  * Minor tweaks:
+    * Use :unspecific in pathname components on more implementations.
+    * export and/or document more utilities.
+    * add a few missing compatfmt for Genera.
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Sat, 28 Apr 2012 23:55:23 -0400
+
+cl-asdf (2:2.20-1) unstable; urgency=low
+
+  * Portability: support the new CCL fasl numbering API
+  * Bug fixes: handle various configuration corner cases better
+   (thanks to Sergey Katrevich and Rupert Warwick).
+  * Feature: Robert Goldman fixed and documented WEAKLY-DEPENDS-ON.
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Fri, 13 Jan 2012 14:40:12 -0500
+
+cl-asdf (2:2.019-1) unstable; urgency=low
+
+  * UI: Create and use a load-systems abstraction,
+   in view of using it in a system-granular parallelizing backend. (.15)
+  * Usability: when a system can't be found, there's now a restart to retry
+   finding a system after reinitializing the source-registry (.10).
+  * Feature: :around-compile now accepts lambda expressions, and also strings,
+   so you can specify future wrappers that can't even be read yet. (.11, .12).
+  * Filesystem: recursing through logical pathnames in LispWorks (.2, .3),
+   on SBCL as on CMUCL, have asdf:subdirectories follow symlinks (.8., .9)
+  * Configuration: modify user-configuration-directories and
+   system-configuration-directories to return all valid directory names
+   even when they don't exist yet so you may create them (.6), also output
+   name of non-existing configuration file when opening them for writing (.7),
+  * Internals: strcat (.5), split locate-systems from find-systems (.6)
+  * Portability: Debugged CormanLisp support (.1).
+   Fix type declaration for SCL (.17).
+  * Bug fix: don't drop pathname components without a / at the end
+   when reading a path using GETENV (.18). (Bug from 2.017.27)
+  Closes: #647544.
+  * Bug fix: don't redefine reinitialize-instance in ways that break
+   its contract and its clients (such as asdf-dependency-grovel).
+   Use change-class to reset slots (.16), but not to 'standard-object,
+   which breaks ecl, rather to a proto-system class (.19), and not
+   using keys with breaks genera (.21). (Bug from 2.017.3)
+  * Bug fix: buglet in maybe-add-tree (.4)
+  * Upgrade: unintern internals of signature changed in 2.017.12 (.13),
+   have *system-definition-search-functions* not be a defparameter,
+   but a defvar with a fixup (.14), clear *systems-being-defined* when
+   upgrading asdf but re-find them immediately because they may be needed
+   as part of a higher operation (.14).
+   Unintern some more functions that have changed signature (.20).
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Sun, 27 Nov 2011 16:09:42 -0500
+
+cl-asdf (2:2.018-1) unstable; urgency=low
+
+  Bugs:
+  * Solved a bug due to ASDF reusing components even when the ASDF definition
+    has changed wildly, leading to bad behavior in incremental compilation
+    and sometimes total failure of compilation of a new version.
+    (Thanks to Xach for reporting and RPGoldman for fixing.)
+  * Fix an issue with ASDF doing the wrong thing in case of a clock skew,
+    thanks to Andreas Fuchs.
+  * Simplification of the internals of perform-with-restarts and
+   traverse's do-dep, that should fix some corner cases and make it
+   easier to extend or further fix. There scarily doesn't remain
+   any unedited code from Dan Barlow's original ASDF, though
+   much of the interface design is preserved.
+  * Upgrade code slightly simplified, with a particular fix for CLISP;
+   it is now tested on all supported implementations, not just SBCL.
+  * Improvements to tests and documentation.
+
+  Portability:
+  * Many implementation specific improvements for ECL:
+   merge with the ECL upstream version, support for the bytecode compiler.
+  * Because it is required at least on ABCL, made the Unix vs Windows detection
+   a runtime rather than compile-time distinction
+   No more asdf-unix or asdf-windows feature, but
+   (asdf::os-unix-p) and (asdf::os-windows-p) functions (not exported for now).
+   Also recognize darwin as Unix ECL.
+  * Also small improvements for SCL.
+
+  Features:
+  * Bind *default-pathname-defaults* around load-sysdef,
+   to increase chances of successful pathname parsing in defsystem.
+  * Fixed run-shell-command on allegro/unix and clisp,
+   documented the function, noted how it mightn't do what you think on Windows,
+   marked it as obsolete, promoted as an official replacement my new
+       xcvb-driver:run-program/process-output-stream
+  * New :around-compile hook so you can control the syntax, optimization,
+   and warning level, rename packages and balance compile-time side-effects,
+   etc., around the compilation of files in your own modules.
+  * Now exporting function subpathname, to portably make subpathnames.
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Sat, 29 Oct 2011 12:46:22 -0400
+
+cl-asdf (2:2.017-1) unstable; urgency=low
+
+  Promoting 2.016.3 as 2.017. Since 2.016, we have the following improvements:
+  * ABCL: jar translation happier with recent compile-file-pathname* change.
+  * CCL: see truenamize change below.
+  * GCL: vain partially reverted attempts at making GCL 2.6 and 2.7 fail less.
+  * LispWorks: use probe-file for probe-file*
+  * RMCL: location strings are now POSIX namestrings.
+    You can thus share configuration files and environment variables
+    between RMCL and other Lisp implementations on same host.
+    Use #p"" syntax when you insist on using MacOS 9 style MCL pathnames.
+  * truenamize: happier when e.g. the *default-pathname-defaults* is #p"",
+    which is the case notably on CCL.
+  * Logical pathnames: now preserved by the source-registry's tree directive.
+  * Upgrade: instead of unintern'ing symbols, use fmakunbound;
+    however, treat compilation of asdf specially, by always making sure
+    it is loaded as source before it is compiled,
+    so that compilation is never an upgrade and never calls fmakunbound, thus
+    ensuring functions in the continuation of compilation are always fbound.
+  * Obsolete: dropped support for *system-cache* and get-uid.
+  * Internals: refactored resolve-relative-location-component.
+  * Documentation: update wrt to the location DSL.
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Tue, 26 Jul 2011 12:52:49 -0400
+
+cl-asdf (2:2.016-1) unstable; urgency=low
+
+  Promoting 2.015.12 as 2.016. Since 2.015, we have the following improvements:
+  * Portability: fixes for ECL, RMCL, CLISP.
+    Improvements to Windows configuration.
+  * Fix to load-source-op (broken in 2.014.13).
+  * Avoid infinite loops in defsystem in cases of bad interference
+    between quicklisp and your source-registry.
+  * Small fixes regarding upgrade, compile-file* :output-file.
+  * Make defsystem-depends-on much more useful by allowing a system
+    thus depended on to define the class of the system depending on it.
+  * Some documentation updates.
+    Notably, for the sake of CLISP, (require "asdf") is the new canonical way
+    to load ASDF, instead of (require :asdf). Sigh.
+  * Better tests, notably wrt hot upgrade.
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Tue, 07 Jun 2011 17:46:15 -0400
+
+cl-asdf (2:2.015-1) unstable; urgency=low
+
+  Promoting 2.014.17 as 2.015. Since 2.014, we have the following improvements:
+  * Portability: support cormanlisp, xcl;
+    fixes for cmucl, ecl; tweaks for abcl, allegro, clisp, genera, lispworks.
+  * Feature: un-cerror and actually fix the :force '(sys1 sys2 sys3) feature,
+    introduced in 2002 and never working before.
+  * Feature: classes asdf:cl-source-file.cl and asdf:cl-source-file.lsp
+    for people who use these file type extensions.
+  * Semantic change: the source-registry eagerly gathers a list of .asd,
+    rather than querying the filesystem over and over again.
+  * API change: exposing function asdf:search-for-system-definition as looking
+    through asdf:*system-definition-search-functions* for either pathnames *or*
+    (new feature) system objects. Should make quicklisp happier.
+  * Better support for asdf upgrading itself, with new function
+    asdf:upgrade-asdf that knows to invalidate old systems when necessary,
+    and is magically invoked before to build any system that :depends-on asdf.
+    Make upgrade smoother some cases that were previously broken.
+  * More robust handling of version strings.
+  * Declaring function asdf:system-definition-pathname obsolete, but still
+    supporting it for now, as an alias for asdf:system-source-file.
+  * Various refactorings of internals. Splitting a function asdf::perform-plan
+    out of the default asdf:operate method.
+    asdf::register-system now takes only one argument.
+  * Tests to prevent the regressions experienced during this development cycle
+  * Tried and reverted: attempts to make asdf more verbose when it's verbose,
+    but not verbose by default.
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Tue, 07 Jun 2011 17:38:50 -0400
+
+cl-asdf (2:2.014.3-1) unstable; urgency=low
+
+  * yet another debian package attempt
+  * update to 2.014.3, workaround for ABCL make-pathname bug (same as on XCL).
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Mon, 04 Apr 2011 23:27:30 -0400
+
+cl-asdf (2:2.014.2-1) unstable; urgency=low
+
+  * yet another attempt at a debian package.
+  * update to 2.014.2, adds XCL support.
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Thu, 31 Mar 2011 14:08:09 -0400
+
+cl-asdf (2:2.014.1-1) unstable; urgency=low
+
+  * new attempt for a debian package.
+  * while I'm at it, update to 2.014.1 which will make CMUCL happy.
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Tue, 29 Mar 2011 18:19:19 -0400
+
+cl-asdf (2:2.014-3) unstable; urgency=low
+
+  * another attempt with my new GPG key
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Sun, 27 Mar 2011 19:33:43 -0400
+
+cl-asdf (2:2.014-2) unstable; urgency=low
+
+  * tweak Makefile for debian packaging.
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Sun, 27 Mar 2011 17:17:15 -0400
+
+cl-asdf (2:2.014-1) unstable; urgency=low
+
+  * Blessing 2.013.7 as 2.014.
+  * Fixed bug preventing upgrade from 2.000 to 2.008 (test added)
+  * Better support for URL pathnames on SCL (test added)
+  * Robustified defsystem-depends-on
+  * Cosmetic changes:
+    * better more portably readable error messages.
+    * remove forward references, again (test added)
+    * canonicalize system names earlier (slight robustness improvement)
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Sun, 27 Mar 2011 16:45:58 -0400
+
+cl-asdf (2:2.013.3-1) unstable; urgency=low
+
+  * Packaging 2.013.3 because 2.013 had important issues.
+  * Fix important upgradability issue with 2.013 (unable to upgrade from
+  versions 2.00[0-8] that have a separate ASDF-UTILITIES)
+  * Fix minor verbosity issue (forward reference makes sbcl noisy
+  when loading asdf.lisp directly as does quicklisp.)
+  * Also, enhance support for SCL.
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Mon, 21 Mar 2011 16:24:27 -0400
+
+cl-asdf (2:2.013-1) unstable; urgency=low
+
+  * Blessing 2.012.12: many small improvements since 2.012.
+  * Fixes and cleanups for CLISP, ECL, SBCL.
+  * Added support for two legacy platforms: (R)MCL, Genera
+  * Cleanup features: now using #+asdf-unix and #+asdf-window
+  * Many cleanups and improvements regarding our portable pathname layer
+  * Fixes a regression in source-registry scanning from 2.011.4
+  * Remember *source-registry-parameter* and *output-translations-parameter*
+  * Export and document coerce-pathname (f.k.a merge-component-name-type)
+  * allow description and long-description for all components
+  * Several documentation updates
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Sat, 19 Mar 2011 20:01:34 -0400
+
+cl-asdf (2:2.012-1) unstable; urgency=low
+
+  * Blessing 2.011.9: more fixes to corner cases.
+  * Added :here directive to pathname DSL,
+    robustified ECL support,
+    fixed infinite loop when filesystem clock is in the future,
+    extended the AOT DSL and made it more futureproof,
+    fixed how clear-system interacts with map-systems,
+    fixed use of directory under old SBCLs,
+    fixed run-shell-command status and version string under clisp,
+    fixed error messages.
+  * Synchronized version of asdf.asd and asdf.lisp, automatically.
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Mon, 03 Jan 2011 06:59:17 +0100
+
+cl-asdf (2:2.011-1) unstable; urgency=low
+
+  * Mostly same as 2.010.9: several minor tweaks and bug fixes since 2.010.
+  * Will be happier: users of implementations ACL, GCL; users of libraries
+    CL-Launch, XCVB; future former users of ASDF-Binary-Locations; people
+    with missing dependencies (in lieu of error-in-error); people extending
+    ASDF (notably Stelian Ionescu), who'd like to use keywords to name
+    component classes.
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Sun, 28 Nov 2010 13:21:34 -0500
+
+cl-asdf (2:2.010-1) unstable; urgency=low
+
+  * same as 2.146
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Thu, 28 Oct 2010 15:58:36 -0700
+
+cl-asdf (2:2.009-1) unstable; urgency=low
+
+  * new upstream release 2.009, identical to 2.134 from master.
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Wed, 06 Oct 2010 13:26:36 -0400
+
+cl-asdf (2:2.008-1) unstable; urgency=low
+
+  * new upstream: removes unwanted exports,
+    plays nicer with sbcl, cmucl, old clisp.
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Fri, 10 Sep 2010 17:16:06 -0400
+
+cl-asdf (2:2.007-1) unstable; urgency=low
+
+  * new upstream, fixes lp#623992 introduced in 2.006, allows upgrade on SBCL.
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Wed, 25 Aug 2010 23:22:13 -0400
+
+cl-asdf (2:2.006-1) unstable; urgency=low
+
+  * new upstream, with bug fixes and API changes.
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Tue, 24 Aug 2010 18:43:48 -0400
+
+cl-asdf (2:2.005-1) unstable; urgency=low
+
+  * New upstream.
+  * Don't use dh-lisp
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Tue, 17 Aug 2010 13:57:04 -0400
+
+cl-asdf (2:2.004-1) unstable; urgency=low
+
+  * Imported new upstream, try not to diverge from it.
+  * Remove cl-cclan which was removed from the upstream repository.
+  * Updated Debian configuration and documentation.
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Wed, 14 Jul 2010 14:06:50 -0400
+
+cl-asdf (2:1.704-1) unstable; urgency=low
+
+  * Imported new upstream.
+  * We now have a makefile for Documentation, use it
+  * Add debian/source/format for the stupid quilt mess
+
+ -- Peter Van Eynde <pvaneynd@debian.org>  Mon, 19 Apr 2010 21:37:48 +0200
+
+cl-asdf (2:1.627-1) unstable; urgency=low
+
+  * New upstream release.
+  * Added dh_installinfo for info files. (Closes: #560290)
+  * Incorporated run-shell-command patch for LispWorks. Thanks tianchun!
+    (Closes: #457919)
+  * Added info that this version breaks clc
+  * Fix conflict with clc
+  * Small patch to make :implementation-type work for clc
+
+ -- Peter Van Eynde <pvaneynd@debian.org>  Thu, 25 Feb 2010 18:36:16 +0100
+
+cl-asdf (2:1.502-1) unstable; urgency=low
+
+  * new upstream, back to version numbers.
+  * added /etc/common-lisp/source-registry.conf.d/ directory
+  * Added README's to documentation
+  * it's debian/*.dirs not debian/*.dir\!
+  * Updated standard version, no real changes
+  * Added lintian overrides for cl-cclan
+
+ -- Peter Van Eynde <pvaneynd@debian.org>  Mon, 01 Feb 2010 07:31:06 +0100
+
+cl-asdf (1:20091221-1) unstable; urgency=low
+
+  * New upstream, version 1.374
+
+ -- Peter Van Eynde <pvaneynd@debian.org>  Thu, 31 Dec 2009 08:36:15 +0100
+
+cl-asdf (1:20090819-3) unstable; urgency=low
+
+  * Fixed the loop construct again. (Closes: #546205)
+
+ -- Peter Van Eynde <pvaneynd@debian.org>  Sat, 12 Sep 2009 10:08:23 +0100
+
+cl-asdf (1:20090819-2) unstable; urgency=low
+
+  * Fix the loop contruct. This makes ecl fail. (Closes: #545768)
+
+ -- Peter Van Eynde <pvaneynd@debian.org>  Thu, 10 Sep 2009 14:20:11 +0100
+
+cl-asdf (1:20090819-1) unstable; urgency=low
+
+  * New upstream, New homepage and new upstream repository.
+  * changed section to lisp
+  * now using debhelper v7
+  * added debian/README.building
+  * remove cvs2cl from dependencies
+  * remove upstream ChangeLog
+  * added dummy watch file
+  * added ${misc:Depends} to cl-asdf Depends
+  * Updated Standards-Version no real changes
+  * fixed Section of cl-asdf.doc-base
+
+ -- Peter Van Eynde <pvaneynd@debian.org>  Tue, 01 Sep 2009 08:20:28 +0100
+
+cl-asdf (1.111-1) unstable; urgency=low
+
+  * New upstream release.
+  * Updated standard version without real changes
+  * Corrected Vcs-Bzr field
+  * Move to using dh-lisp
+  * Fixed Vcs-Git field
+  * Changed to group maintanance
+  * recreated upstream changelog with git2cl
+  * Changed directory, so we depend on a newer clc
+
+ -- Peter Van Eynde <pvaneynd@debian.org>  Sat, 09 Feb 2008 10:07:21 +0100
+
+cl-asdf (1.109-2) unstable; urgency=low
+
+  * stop trying to dump the package, use the package name instead.
+    (Closes: #436129)
+
+ -- Peter Van Eynde <pvaneynd@debian.org>  Thu, 27 Sep 2007 05:42:20 +0200
+
+cl-asdf (1.109-1) unstable; urgency=low
+
+  * New upstream. Major changes:
+     + main change is the addition of system-relative-pathname function. This takes a
+       system name and a partial pathname and combines them to return a new pathname
+       _relative_ to the system. This is exported and lightly documented.
+     + this patch also updates preference-file-for-system/operation in an effort
+       to prevent it from being confused by *default-pathname-defaults* that include
+       a specific name and type.
+     + Removes inline component methods more carefully (and, I believe, correctly!). Helps keep LispWorks happy.
+     + Reworked asdf tests to make them more robust and perhaps more flexible too.
+  * Now use texlive to build.
+
+ -- Peter Van Eynde <pvaneynd@debian.org>  Sun, 16 Sep 2007 14:45:57 +0200
+
+cl-asdf (1.107-1) unstable; urgency=low
+
+  * New upstream release, adding the system-relative-pathname
+    function.
+
+ -- Peter Van Eynde <pvaneynd@debian.org>  Sun, 08 Apr 2007 23:05:18 +0200
+
+cl-asdf (1.106-1) experimental; urgency=low
+
+  * New upstream. Major changes:
+
+      + Minor patch in class-for-type that evaluates only *package* at read
+   time rather than (package-name *package*); this keeps case sensitive Lisps
+   happy all the time and keeps case insensitive lisps happily insensitive.
+
+      + A patch from Richard Kreuter that allows pathname defaulting to work
+   better with *load-truename* and *default-pathname-defaults*; this makes it
+   easier to work with defsystems in the REPL.
+
+ -- Peter Van Eynde <pvaneynd@debian.org>  Wed, 14 Mar 2007 09:18:25 +0100
+
+cl-asdf (1.104-1) experimental; urgency=low
+
+  * Added XS-X-Vcs-Darcs header
+  * modified S-X-Vcs-Darcs to XS-Vcs-Darcs field
+  * New upstream. Major changes:
+     + add a better docstring for component-depends-on (via #lisp and Robert
+     Goldman)
+     + ASDF now sends output to *standard-output* (thanks to Richard M.
+     Kreuter).
+     + Slightly better SBCL_HOME treatement for SBCL.
+  * upload to experimental during the freeze
+
+ -- Peter Van Eynde <pvaneynd@debian.org>  Tue,  6 Feb 2007 08:21:06 +0100
+
+cl-asdf (1.101-1) unstable; urgency=low
+
+  * New upstream version.
+
+ -- Peter Van Eynde <pvaneynd@debian.org>  Wed, 20 Sep 2006 07:08:57 +0200
+
+cl-asdf (1.99-3) unstable; urgency=low
+
+  * Added tetex-bin to Build-Depends-Indep (Closes: #379532)
+
+ -- Peter Van Eynde <pvaneynd@debian.org>  Mon, 24 Jul 2006 19:34:49 +0200
+
+cl-asdf (1.99-2) unstable; urgency=low
+
+  * Move asdf.info files from sbcl to this package.
+  * move texinfo to BuildDependsIndep
+  * we build something build-indep
+
+ -- Peter Van Eynde <pvaneynd@debian.org>  Fri, 30 Jun 2006 23:18:40 +0200
+
+icl-asdf (1.99-1) unstable; urgency=low
+
+  * New upstream.
+
+ -- Peter Van Eynde <pvaneynd@debian.org>  Mon, 19 Jun 2006 05:28:12 +0200
+
+cil-asdf (1.97-1) unstable; urgency=low
+
+  * New upstream release
+  * Moved debhelper to build-depeneds
+  * increased standards-version without real changes.
+
+ -- Peter Van Eynde <pvaneynd@debian.org>  Sat, 20 May 2006 19:28:58 +0200
+
+
+cl-asdf (1.89-1) unstable; urgency=low
+
+  * Noticed that I actually increased the version with the CVS commit
+  * Updated the standards version
+  * Remove the prepare build stuff, build through darcs
+  * Improve duplicate names test: use equal instead of equalp.
+    From a comment from Faré.
+  * Remove CVS cruft
+  * Separate CVS version of asdf.lisp from version of package. The tag
+    is not the version of the package
+
+ -- Peter Van Eynde <pvaneynd@debian.org>  Thu, 22 Sep 2005 12:52:31 +0200
+
+cl-asdf (1.86-5) unstable; urgency=low
+
+  * Fixed duplicate components patch to better handle reloading
+    defsystem files. Now works again with McClim. Closes: #310640
+  * Corrected dependencies.
+  * Added postinst rebuild of all clc-enabled lisps so the new version
+    actually gets loaded.
+
+ -- Peter Van Eynde <pvaneynd@debian.org>  Wed, 25 May 2005 08:22:17 +0200
+
+cl-asdf (1.86-4) unstable; urgency=low
+
+  * My release script stripped the patch. So this should really contain the
+    patch. Damn.
+
+ -- Peter Van Eynde <pvaneynd@debian.org>  Tue, 10 May 2005 14:17:51 +0200
+
+cl-asdf (1.86-3) unstable; urgency=low
+
+  * Now checks if components names are unique Closes: #304972, #304970
+  * Fix dependency on common-lisp-controller  Closes: #308385
+
+ -- Peter Van Eynde <pvaneynd@debian.org>  Tue, 10 May 2005 07:50:25 +0200
+
+cl-asdf (1.86-2) unstable; urgency=low
+
+  * New maintainer. (Closes: #297349: O: cl-asdf -- Another System
+    Definition Facility)
+  * Adopted by Peter Van Eynde
+
+ -- Peter Van Eynde <pvaneynd@debian.org>  Tue,  1 Mar 2005 10:11:55 +0100
+
+cl-asdf (1.86-1) unstable; urgency=low
+
+  * New upstream
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Wed,  4 Aug 2004 21:19:16 -0600
+
+cl-asdf (1.84-1) unstable; urgency=low
+
+  * New upstream
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Wed, 12 May 2004 12:43:58 -0600
+
+cl-asdf (1.81-1) unstable; urgency=low
+
+  * New upstream
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Tue, 30 Dec 2003 12:12:38 -0700
+
+cl-asdf (1.80-1) unstable; urgency=low
+
+  * New upstream
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Fri,  5 Dec 2003 14:55:43 -0700
+
+cl-asdf (1.79-1) unstable; urgency=low
+
+  * New upstream
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Tue, 11 Nov 2003 16:12:07 -0700
+
+cl-asdf (1.78-1) unstable; urgency=low
+
+  * New upstream
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Thu,  9 Oct 2003 16:46:38 -0600
+
+cl-asdf (1.77.2-1) unstable; urgency=low
+
+  * Don't export asdf:wild-module as can cause a full warning when
+  reloading asdf
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Mon, 11 Aug 2003 21:55:16 -0600
+
+cl-asdf (1.77.1-1) unstable; urgency=low
+
+  * cclan.lisp: conditionalize for sbcl (closes: 201822)
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Thu, 17 Jul 2003 23:30:57 -0600
+
+cl-asdf (1.77-1) unstable; urgency=low
+
+  * New upstream
+  * Add automated [cvs2cl] ChangeLog
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Thu, 17 Jul 2003 10:27:27 -0600
+
+cl-asdf (1.76) unstable; urgency=low
+
+  * New upstream
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Thu, 10 Jul 2003 16:42:48 -0600
+
+cl-asdf (1.75) unstable; urgency=low
+
+  * New upstream
+  * Use compat rather than DH_COMPAT
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Thu,  5 Jun 2003 00:15:11 -0600
+
+cl-asdf (1.73b) unstable; urgency=low
+
+  * Update README
+  * export two variables
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Wed, 28 May 2003 11:19:40 -0600
+
+cl-asdf (1.73) unstable; urgency=low
+
+  * Update README to mention asdf::*compile-file-warnings-behaviour*
+  (closes:194957)
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Tue, 27 May 2003 16:00:36 -0600
+
+cl-asdf (1.72) unstable; urgency=low
+
+  * New upstream
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Tue, 20 May 2003 14:07:10 -0600
+
+cl-asdf (1.71) unstable; urgency=low
+
+  * New upstream
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Tue, 13 May 2003 09:33:51 -0600
+
+cl-asdf (1.70) unstable; urgency=low
+
+  * Add another check in check-component-values.
+  * Signal a generalized instance of SYSTEM-DEFINITION-ERROR
+  from check-component-values
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Tue,  6 May 2003 09:32:16 -0600
+
+cl-asdf (1.69) unstable; urgency=low
+
+  * Add check-component-values function with partial checking of components
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Tue,  6 May 2003 08:26:11 -0600
+
+cl-asdf (1.68) unstable; urgency=low
+
+  * New upstream with 'asdf:test-op
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Wed, 19 Mar 2003 10:16:01 -0700
+
+cl-asdf (1.66) unstable; urgency=low
+
+  * New upstream version, added changes to dependent system
+  compilations with :force option.
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Mon, 17 Mar 2003 12:50:00 -0700
+
+cl-asdf (1.62) unstable; urgency=low
+
+  * New upstream, fixes a sbcl-specific directory name
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Fri,  7 Mar 2003 09:23:11 -0700
+
+cl-asdf (1.61-1) unstable; urgency=low
+
+  * New upstream, fixes 'load-source-op
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Tue,  4 Mar 2003 09:48:40 -0700
+
+cl-asdf (1.60-1) unstable; urgency=low
+
+  * New upstream
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Mon,  3 Mar 2003 12:40:27 -0700
+
+cl-asdf (1.59-1) unstable; urgency=low
+
+  * New upstream
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Fri, 14 Feb 2003 09:24:59 -0700
+
+cl-asdf (1.58-1) unstable; urgency=low
+
+  * New upstream
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Sun,  9 Feb 2003 11:55:03 -0700
+
+cl-asdf (1.57-1) unstable; urgency=low
+
+  * New upstream
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Tue,  4 Feb 2003 10:23:03 -0700
+
+cl-asdf (1.55-1) unstable; urgency=low
+
+  * New upstream.version (closes: 172074)
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Mon,  9 Dec 2002 10:23:21 -0700
+
+cl-asdf (1.54-1) unstable; urgency=low
+
+  * New upstream.
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Fri,  8 Nov 2002 07:30:41 -0700
+
+cl-asdf (1.49-1) unstable; urgency=low
+
+  * Remove clc-reregister-all-impl from postinst
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Sat,  5 Oct 2002 09:38:18 -0600
+
+cl-asdf (1.49) unstable; urgency=low
+
+  * New upstream release, fixes run-shell-command for allegro. Code
+    refactoring for run-shell-code.
+  * Support new CLC reregister command
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Wed, 25 Sep 2002 23:57:23 -0600
+
+cl-asdf (1.47) unstable; urgency=low
+
+  * Return numeric exit status for openmcl's run-shell-command
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Fri, 20 Sep 2002 10:22:36 -0600
+
+cl-asdf (1.46) unstable; urgency=low
+
+  * New upstream version, adds run-shell-command for openmcl
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Fri, 20 Sep 2002 10:11:48 -0600
+
+cl-asdf (1.45) unstable; urgency=low
+
+  * Changes to improve clisp support
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Fri, 20 Sep 2002 07:12:21 -0600
+
+cl-asdf (1.44.1-1) unstable; urgency=low
+
+  * Make cclan.asd a symlink, remove :pathname keyword
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Wed, 18 Sep 2002 00:19:26 -0600
+
+cl-asdf (1.44-1) unstable; urgency=low
+
+  * New upstream version
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Tue, 17 Sep 2002 12:24:27 -0600
+
+cl-asdf (1.43-1) unstable; urgency=low
+
+  * New upstream version
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Tue, 17 Sep 2002 10:34:57 -0600
+
+cl-asdf (1.42-2) unstable; urgency=low
+
+  * Add reregister-common-lisp-implementations call when installing cl-asdf.
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Mon, 16 Sep 2002 08:31:13 -0600
+
+cl-asdf (1.42-1) unstable; urgency=low
+
+  * Remove Depends on lisp-compiler for cl-asdf (fixes problem with
+  circular dependencies)
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Sat, 14 Sep 2002 11:59:58 -0600
+
+cl-asdf (1.42) unstable; urgency=low
+
+  * New upstream.
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Fri, 13 Sep 2002 08:40:58 -0600
+
+cl-asdf (1.41) unstable; urgency=low
+
+  * Same release as 1.40, but with proper version number.
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Fri, 13 Sep 2002 08:38:30 -0600
+
+cl-asdf (1.40) unstable; urgency=low
+
+  * New upstream version.
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Fri, 13 Sep 2002 07:31:27 -0600
+
+cl-asdf (1.39) unstable; urgency=low
+
+  * New upstream version.
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Wed, 11 Sep 2002 19:21:32 -0600
+
+cl-asdf (1.38) unstable; urgency=low
+
+  * New upstream version
+  * Re-add register and unregister clc-source for cclan
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Wed, 11 Sep 2002 13:39:51 -0600
+
+cl-asdf (1.35-1) unstable; urgency=low
+
+  * Comment call to register and unregister clc-source until new
+    version of clc is released. (closes: 158697)
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Wed, 28 Aug 2002 18:58:59 -0600
+
+cl-asdf (1.35) unstable; urgency=high
+
+  * New upstream version, fixes important bugs.
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Wed, 28 Aug 2002 09:36:58 -0600
+
+cl-asdf (1.34) unstable; urgency=low
+
+  * New upstream version.
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Wed, 28 Aug 2002 07:18:57 -0600
+
+cl-asdf (0.0+cvs.2002.08.26-1) unstable; urgency=low
+
+  * Add Common Lisp Controller registration functions for cl-cclan
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Mon, 26 Aug 2002 04:21:32 -0600
+
+cl-asdf (0.0+cvs.2002.08.26) unstable; urgency=low
+
+  * New upstream version
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Mon, 26 Aug 2002 01:23:48 -0600
+
+cl-asdf (0.0+cvs.2002.08.22) unstable; urgency=low
+
+  * Add new binary package: cl-cclan
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Thu, 22 Aug 2002 12:43:21 -0600
+
+cl-asdf (0.0+cvs.2002.08.18) unstable; urgency=low
+
+  * New upstream version
+  * Expand description in control file.
+  * Change version numbering scheme since upstream has native debian
+  directory
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Sat, 17 Aug 2002 14:25:33 -0600
+
+cl-asdf (0.0+cvs.2002.08.15-1) unstable; urgency=low
+
+  * Initial Release (closes: 157009)
+
+ -- Kevin M. Rosenberg <kmr@debian.org>  Fri, 16 Aug 2002 23:14:49 -0600

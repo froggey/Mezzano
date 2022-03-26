@@ -1,0 +1,8 @@
+@anchor{Generic-Function drei-buffer:clone-mark}
+@deffn {Generic Function} {drei-buffer:clone-mark} mark &optional stick-to
+@findex drei-buffer:clone-mark
+Clone a mark.  By default (when stick-to is
+NIL) the same type of mark is returned.  Otherwise stick-to is
+either :left or :right indicating whether a left-sticky or a
+right-sticky mark should be created.
+@end deffn

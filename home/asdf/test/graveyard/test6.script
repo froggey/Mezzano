@@ -1,0 +1,19 @@
+;;; -*- Lisp -*-
+
+;; no preference loading by default
+(load "script-support")
+(load "../asdf")
+(in-package #:common-lisp-user)
+
+(defvar *test6* nil)
+
+(exit-on-error
+ (setf asdf:*central-registry* '(*default-pathname-defaults*))
+ (defmethod asdf:preference-file-for-system/operation
+           ((system (eql (asdf:find-system 'test1))) operation)
+  (merge-pathnames (make-pathname :name "test1" :type "preferences")))
+ (asdf:operate 'asdf:load-op 'test1)
+ (assert (null *test6*)))
+
+
+

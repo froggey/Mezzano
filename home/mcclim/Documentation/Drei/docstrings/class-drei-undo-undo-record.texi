@@ -1,0 +1,7 @@
+@anchor{Class drei-undo:undo-record}
+@deftp {Class} {drei-undo:undo-record}
+@tindex drei-undo:undo-record
+Class precedence list: @code{@w{undo-record}, @w{standard-object}, @w{slot-object}, @w{t}}
+
+The base class for all undo records.
+@end deftp

@@ -1,0 +1,118 @@
+\chapter{Fonts and Extended Text Styles}
+
+\section{Extended Text Styles}
+
+McCLIM extends the legal values for the \texttt{family} and \texttt{face}
+arguments to \texttt{make-text-style} to include strings (in additional to
+the portable keyword symbols), as permitted by the CLIM spec, section
+11.1.
+
+Each backend defines its own specific syntax for these family and face
+names.
+
+The CLX backend maps the text style family to the X font's
+\emph{foundry} and \emph{family} values, separated by a dash.  The
+face is mapped to \emph{weight} and \emph{slant} in the same way.  For
+example, the following form creates a text style for
+\emph{-misc-fixed-bold-r-*-*-18-*-*-*-*-*-*-*}:
+
+\begin{verbatim}
+(make-text-style "misc-fixed" "bold-r" 18)
+\end{verbatim}
+
+In the GTK backend, the text style family and face are used directly
+as the Pango font family and face name.  Please refer to Pango
+documentation for details on the syntax of face names.  Example:
+
+\begin{verbatim}
+(make-text-style "Bitstream Vera Sans" "Bold Oblique" 54)
+\end{verbatim}
+
+\section{Listing Fonts}
+
+McCLIM's font listing functions allow applications to list all
+available fonts available on a \texttt{port} and create text style
+instances for them.
+
+Example:
+
+\begin{verbatim}
+* (find "Bitstream Vera Sans Mono"
+        (clim-extensions:port-all-font-families (clim:find-port))
+        :key #'clim-extensions:font-family-name
+        :test #'equal)
+#<CLIM-GTKAIRO::PANGO-FONT-FAMILY Bitstream Vera Sans Mono>
+
+* (clim-extensions:font-family-all-faces *)
+(#<CLIM-GTKAIRO::PANGO-FONT-FACE Bitstream Vera Sans Mono, Bold>
+ #<CLIM-GTKAIRO::PANGO-FONT-FACE Bitstream Vera Sans Mono, Bold Oblique>
+ #<CLIM-GTKAIRO::PANGO-FONT-FACE Bitstream Vera Sans Mono, Oblique>
+ #<CLIM-GTKAIRO::PANGO-FONT-FACE Bitstream Vera Sans Mono, Roman>)
+
+* (clim-extensions:font-face-scalable-p (car *))
+T
+
+* (clim-extensions:font-face-text-style (car **) 50)
+#<CLIM:STANDARD-TEXT-STYLE "Bitstream Vera Sans Mono" "Bold" 50>
+\end{verbatim}
+
+\Defclass {font-family}
+
+The protocol class for font families.  Each backend defines a subclass
+of font-family and implements its accessors.  Font family instances
+are never created by user code.  Use port-all-font-families to list
+all instances available on a port.
+
+\Defclass {font-face}
+
+The protocol class for font faces Each backend defines a subclass of
+font-face and implements its accessors.  Font face instances are never
+created by user code.  Use font-family-all-faces to list all faces of
+a font family.
+
+\Defgeneric {port-all-font-families} {port \key invalidate-cache \allow}
+
+Returns the list of all \texttt{font-family} instances known by
+\texttt{port}.  With \texttt{invalidate-cache}, cached font family
+information is discarded, if any.
+
+\Defgeneric {font-family-name} {font-family}
+
+Return the font family's name.  This name is meant for user display,
+and does not, at the time of this writing, necessarily the same string
+used as the text style family for this port.
+
+\Defgeneric {font-family-port} {font-family}
+
+Return the port this font family belongs to.
+
+\Defgeneric {font-family-all-faces} {font-family}
+
+Return the list of all font-face instances for this family.
+
+\Defgeneric {font-face-name} {font-face}
+
+Return the font face's name.  This name is meant for user display, and
+does not, at the time of this writing, necessarily the same string
+used as the text style face for this port.
+
+\Defgeneric {font-face-family} {font-face}
+
+Return the font family this face belongs to.
+
+\Defgeneric {font-face-all-sizes} {font-face}
+
+Return the list of all font sizes known to be valid for this font, if
+the font is restricted to particular sizes.  For scalable fonts,
+arbitrary sizes will work, and this list represents only a subset of
+the valid sizes.  See font-face-scalable-p.
+
+\Defgeneric {font-face-scalable-p} {font-face}
+
+Return true if this font is scalable, as opposed to a bitmap font.
+For a scalable font, arbitrary font sizes are expected to work.
+
+\Defgeneric {font-face-text-style} {font-face \optional size}
+
+Return an extended text style describing this font face in the specified
+size.  If size is nil, the resulting text style does not specify a size.

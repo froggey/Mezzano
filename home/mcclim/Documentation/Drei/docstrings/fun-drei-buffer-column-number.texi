@@ -1,0 +1,8 @@
+@anchor{Generic-Function drei-buffer:column-number}
+@deffn {Generic Function} {drei-buffer:column-number} mark
+@findex drei-buffer:column-number
+Return the column number of the mark. The
+column number of a mark is the number of objects between it and
+the preceding newline, or between it and the beginning of the
+buffer if the mark is on the first line of the buffer.
+@end deffn

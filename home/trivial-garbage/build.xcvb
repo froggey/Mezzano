@@ -1,0 +1,1 @@
+#+xcvb (module (:fullname "/trivial-garbage" :depends-on ("trivial-garbage")))

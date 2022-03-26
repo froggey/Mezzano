@@ -1,0 +1,46 @@
+;;; -*- Lisp -*-
+
+(def-test-system :test-module-pathnames
+  :pathname #.*test-directory*
+  :components
+  ((:module "sources/level1"
+    :serial t
+    :components
+    ((:file "file1")
+     (:file "level2/file2")
+     (:static-file "level2/static.file")
+     (:static-file "test-tmp.cl")))))
+
+(DBG "Loading the system")
+(asdf:load-system 'test-module-pathnames)
+
+(DBG "Checking pathnames")
+(flet ((pathname-foo (x)
+         (list (or (normalize-pathname-directory-component (pathname-directory x)) '(:relative))
+               (pathname-name x) (pathname-type x))))
+  (let* ((static (find-component "test-module-pathnames" '("sources/level1" "level2/static.file")))
+         (test-tmp (find-component "test-module-pathnames" '("sources/level1" "test-tmp.cl"))))
+    (assert-equal (pathname-foo (asdf:component-relative-pathname test-tmp))
+                  '((:relative) "test-tmp" "cl"))
+    (assert-equal (pathname-foo (asdf:component-relative-pathname static))
+                  '((:relative "level2") "static" "file"))))
+(assert (find-package :test-package)
+        () "package test-package not found")
+(assert (find-symbol (symbol-name '*file-tmp*) :test-package)
+        () "symbol `*file-tmp*` not found")
+(assert (symbol-value (find-symbol (symbol-name '*file-tmp*) :test-package))
+        () "symbol `*file-tmp*` has wrong value")
+
+(defun pf (path)
+  (let* ((fasl (apply-output-translations
+                (subpathname *test-directory* path :type (compile-file-type)))))
+    (assert (probe-file fasl) () "Cannot find compiled file ~S" fasl)))
+
+(pf "sources/level1/file1")
+
+(assert (find-symbol (symbol-name '*file-tmp2*) :test-package)
+        () "symbol `*file-tmp2*` not found")
+(assert (symbol-value (find-symbol (symbol-name '*file-tmp2*) :test-package))
+        () "symbol `*file-tmp2*` has wrong value")
+
+(pf "sources/level1/level2/file2")

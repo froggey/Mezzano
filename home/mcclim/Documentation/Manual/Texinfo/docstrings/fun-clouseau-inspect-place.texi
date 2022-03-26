@@ -1,0 +1,10 @@
+@anchor{Generic-Function clouseau:inspect-place}
+@deffn {Generic Function} {@symbol{inspect-place,clouseau}} place stream
+Present @var{place} to @var{stream}.
+
+By default, retrieve the value of @var{place} and inspect it using
+@code{inspect-object}.
+
+User code normally does not have to define methods on this generic
+functions.
+@end deffn

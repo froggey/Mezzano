@@ -1,0 +1,42 @@
+2017-02-17  Eugene Zaikonnikov  <eugene@funcall.org>
+
+	* Added :CACHED-SOURCE-P option to decoder allowing to read-sequence the image at once
+
+2017-02-16  Eugene Zaikonnikov  <eugene@funcall.org>
+
+	* Added a test for decode only
+
+	* Moved IDCT workspace from a special variable into image descriptor to reduce consing
+
+2017-02-07  Eugene Zaikonnikov  <eugene@funcall.org>
+
+	* Added support for descriptor reuse (e.g. in video decoding)
+
+2017-01-20  Eugene Zaikonnikov  <eugene@funcall.org>
+
+	* Fixed the special vairable related warnings via explicit argument passing (@slyrus)
+
+2017-01-16  Eugene Zaikonnikov  <eugene@funcall.org>
+
+	* Extended decoder and probe functions to return APP14 color transform type
+
+2017-01-15  Eugene Zaikonnikov  <eugene@funcall.org>
+
+	* Added convenicence CONVERT-CMYK-TO-RGB function
+
+	* Added basic Adobe APP14 marker transform handling
+
+	* Added CMYK image support
+
+2017-01-12  Eugene Zaikonnikov  <eugene@funcall.org>
+
+	* Changed BUFFER to &key argument from &optional in DECODE-STREAM and DECODE-IMAGE
+
+	* Fixed SVREF to AREF in BMP converter
+
+2017-01-10  Eugene Zaikonnikov  <eugene@funcall.org>
+
+	* Added :colorspace-conversion flag to DECODE-IMAGE to produce undecoded YUV colorspace
+
+	* Added specific conditions for error handling
+

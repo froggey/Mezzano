@@ -1,0 +1,42 @@
+;;; -*- Lisp -*-
+
+;;;---------------------------------------------------------------------------
+;;; This is supposed to verify that if a lisp file is lost, then any attempt to
+;;; make the system will fail.  I.e., we verify that we won't just load a stale
+;;; fasl when the source file is lost.
+;;;---------------------------------------------------------------------------
+
+
+
+
+
+(def-test-system test-missing-lisp-file
+  :components ((:file "file2" :in-order-to ((compile-op (load-op "fileMissing"))
+                                            (load-op (load-op "fileMissing"))))
+               (:file "fileMissing")))
+
+(defparameter missing-name (test-source "fileMissing.lisp"))
+(defparameter template-file (test-source "file1.lisp"))
+(concatenate-files (list template-file) missing-name)
+(unless (probe-file missing-name)
+  (format t "File copy failed.~%"))
+
+(asdf:operate 'asdf:load-op 'test-missing-lisp-file)
+;; test that it compiled
+
+(defparameter file1 (test-fasl "file2"))
+(defparameter file2 (test-fasl "fileMissing"))
+(defparameter file1-date (file-write-date file1))
+
+(assert file1-date)
+(assert (file-write-date file2))
+
+;; and loaded
+(assert (symbol-value (find-symbol (symbol-name :*file1*) :test-package)))
+
+;; now remove the lisp file we created, and wait for an error
+
+(delete-file-if-exists missing-name)
+;; we shouldn't be able to find the input-file for the compile-op, and that
+;; should be an error.
+(assert (nth-value 1 (ignore-errors (asdf:operate 'asdf:load-op 'test-missing-lisp-file))))

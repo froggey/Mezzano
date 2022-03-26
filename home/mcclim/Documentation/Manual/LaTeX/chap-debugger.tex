@@ -1,0 +1,60 @@
+
+\chapter{Debugger}
+
+The debugger is used for interactively inspecting stack frame when the
+unhandled conditions are signalled. Given high enough debug settings
+it lets you inspecting frame local variables, evaluating code in it,
+examining backtrace and choosing available restarts.
+
+\section{Debugger usage}
+
+To get up and running quickly with Debugger:
+
+\itemize
+\item
+ With Quicklisp loaded, invoke in repl:
+
+  \texttt{(ql:quickload 'clim-debugger)}
+\item
+Run simple test condition:
+
+  \texttt{(clim-debugger:with-debugger (error "test"))}
+\end itemize
+
+Debugger is highly inspired by Slime and uses Swank to gain
+portability across implementations. Module is still under development
+and some details may change in the future.
+
+Selecting frame with a pointer switches its details and marks it
+active. Each locale value may be inspected by selection with mouse
+pointer. Active frame is distinguished from others with red
+color. \texttt{Eval in frame} command evaluates expression in the
+active frame.
+
+\section{Keyboard shortcuts}
+
+Warning: these key accelerators may change in the future.
+
+
+\begin{itemize}
+\item [M-m] Show more frames
+\item [M-p] Mark previous frame active
+\item [M-n] Mark next frame active
+\item [M-e] Eval in active frame
+\item [TAB] Toggle active frame details
+\item [M-[0-9]] Invoke nth restart
+\item [M-q] Quit debugger
+\end{itemize}
+
+\section{API}
+
+\Defun {debugger} {condition me-or-my-encapsulation}
+
+Starts debugger with supplied condition. Second argument should be
+supplied by an underlying implementation allowing to encapsulate or
+supply different debugger for recursive debugger calls.
+
+\Defmacro {with-debugger} {&bodybody }
+
+Wraps the code in \texttt{body} to invoke clim debugger when condition
+is signalled (binds \texttt{*debugger-hook*} to \texttt{#'debugger}).

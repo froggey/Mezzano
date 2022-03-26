@@ -1,0 +1,14 @@
+@anchor{Macro drei:with-undo}
+@deffn {Macro} {drei:with-undo} (get-buffers-exp) &body body
+@findex drei:with-undo
+This macro executes the forms of @code{body}, registering changes
+made to the list of buffers retrieved by evaluating
+@code{get-buffers-exp}. When @code{body} has run, for each buffer it will
+call @code{add-undo} with an undo record and the undo tree of the
+buffer.  If the changes done by @code{body} to the buffer has resulted
+in only a single undo record, it is passed as is to @code{add-undo}.
+If it contains several undo records, a compound undo record is
+constructed out of the list and passed to @code{add-undo}.  Finally,
+if the buffer has no undo records, @code{add-undo} is not called at
+all.
+@end deffn

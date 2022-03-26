@@ -1,0 +1,10 @@
+@anchor{Generic-Function drei-buffer:buffer-sequence}
+@deffn {Generic Function} {drei-buffer:buffer-sequence} buffer offset1 offset2
+@findex drei-buffer:buffer-sequence
+Return the contents of the buffer starting at
+@code{offset1} and ending at offset2-1 as a sequence.  If either of
+the offsets is less than zero or greater than or equal to the
+size of the buffer, a @code{no-such-offset} condition is signaled.  If
+@code{offset2} is smaller than or equal to @code{offset1}, an empty
+sequence will be returned.
+@end deffn

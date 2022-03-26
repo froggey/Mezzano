@@ -1,0 +1,628 @@
+<html>
+<head>
+<title>ZPB-TTF - TrueType font file access for Common Lisp</title>
+<style type='text/css'>
+a, a:visited { text-decoration: none }
+a[href]:hover { text-decoration: underline }
+pre { background: #DDD; padding: 0.25em }
+</style>
+
+<body>
+
+<h2>ZPB-TTF - TrueType font file access for Common Lisp</h2>
+
+<blockquote>
+<h3>Abstract</h3>
+
+<p>TrueType fonts have a <a
+href="http://developer.apple.com/fonts/TTRefMan/RM06/Chap6.html">publicly</a>
+<a
+href="http://www.microsoft.com/OpenType/OTSpec/otff.htm">documented</a>
+file format. ZPB-TTF is a TrueType file parser that provides an
+interface for reading typographic metrics, glyph outlines, and other
+information from the file. It is available under a BSD-like
+license. 
+
+The latest version is 1.0.2, released on November 30th, 2011.
+
+<p>TrueType is a registered trademark of Apple Computer, Inc.
+
+<p style='color: red'>Download shortcut: <a href='http://www.xach.com/lisp/zpb-ttf.tgz'>http://www.xach.com/lisp/zpb-ttf.tgz</a>
+
+</blockquote>
+
+<h3>Contents</h3>
+
+<ol>
+<li> <a href='#sect-limitations'>Limitations</a>
+<li> <a href='#sect-overview'>Overview</a>
+<li><a href='#sect-glyph-example'>Glyph Example</a>
+<li> <a href='#sect-dictionary'>The ZPB-TTF Dictionary</a>
+
+<ol>
+<li> <a href='#open-font-loader'><tt>open-font-loader</tt></a>
+<li> <a href='#close-font-loader'><tt>close-font-loader</tt></a>
+<li> <a href='#with-font-loader'><tt>with-font-loader</tt></a>
+<li> <a href='#glyph-count'><tt>glyph-count</tt></a>
+<li> <a href='#name-entry-value'><tt>name-entry-value</tt></a>
+<li> <a href='#find-name-entry'><tt>find-name-entry</tt></a>
+<li> <a href='#value'><tt>value</tt></a>
+<li> <a href='#italic-angle'><tt>italic-angle</tt></a>
+<li> <a href='#underline-thickness'><tt>underline-thickness</tt></a>
+<li> <a href='#underline-position'><tt>underline-position</tt></a>
+<li> <a href='#fixed-pitch-p'><tt>fixed-pitch-p</tt></a>
+<li> <a href='#units/em'><tt>units/em</tt></a>
+<li> <a href='#ascender'><tt>ascender</tt></a>
+<li> <a href='#descender'><tt>descender</tt></a>
+<li> <a href='#line-gap'><tt>line-gap</tt></a>
+<li> <a href='#postscript-name'><tt>postscript-name</tt></a>
+<li> <a href='#full-name'><tt>full-name</tt></a>
+<li> <a href='#family-name'><tt>family-name</tt></a>
+<li> <a href='#subfamily-name'><tt>subfamily-name</tt></a>
+<li> <a href='#all-kerning-pairs'><tt>all-kerning-pairs</tt></a>
+<li> <a href='#glyph-exists-p'><tt>glyph-exists-p</tt></a>
+<li> <a href='#index-glyph'><tt>index-glyph</tt></a>
+<li> <a href='#find-glyph'><tt>find-glyph</tt></a>
+<li> <a href='#bounding-box'><tt>bounding-box</tt></a>
+<li> <a href='#xmin-and-friends'><tt>xmin</tt></a>
+<li> <a href='#xmin-and-friends'><tt>ymin</tt></a>
+<li> <a href='#xmin-and-friends'><tt>xmax</tt></a>
+<li> <a href='#xmin-and-friends'><tt>ymax</tt></a>
+<li> <a href='#x-and-friends'><tt>x</tt></a>
+<li> <a href='#x-and-friends'><tt>y</tt></a>
+<li> <a href='#on-curve-p'><tt>on-curve-p</tt></a>
+<li> <a href='#contour-count'><tt>contour-count</tt></a>
+<li> <a href='#contour'><tt>contour</tt></a>
+<li> <a href='#contours'><tt>contours</tt></a>
+<li> <a href='#do-contours'><tt>do-contours</tt></a>
+<li> <a href='#explicit-contour-points'><tt>explicit-contour-points</tt></a>
+<li> <a href='#do-contour-segments'><tt>do-contour-segments</tt></a>
+<li> <a href='#do-contour-segments*'><tt>do-contour-segments*</tt></a>
+<li> <a href='#code-point'><tt>code-point</tt></a>
+<li> <a href='#font-index'><tt>font-index</tt></a>
+<li> <a href='#advance-width'><tt>advance-width</tt></a>
+<li> <a href='#left-side-bearing'><tt>left-side-bearing</tt></a>
+<li> <a href='#right-side-bearing'><tt>right-side-bearing</tt></a>
+<li> <a href='#kerning-offset'><tt>kerning-offset</tt></a>
+<li> <a href='#string-bounding-box'><tt>string-bounding-box</tt></a>
+</ol>
+
+<li><a href='#sect-feedback'>Feedback</a>
+
+</ol>
+
+
+<a name='sect-limitations'><h3>Limitations</h3></a>
+
+<p>ZPB-TTF has the following limitations:
+
+<ul>
+
+<li>is not a rasterizer; it will not produce bitmaps
+
+<li>is not a scaler; all units are unscaled values directly from the
+font file
+
+<li>only works with fonts that have a Unicode character map
+
+<li>has been tested on a limited number of fonts
+
+</ul>
+
+
+
+<a name='sect-overview'><h3>Overview</h3></a>
+
+<p>Font files are loaded by creating <i>font loaders</i>. A font
+loader has information that applies to the font as a whole, such as
+its overall bounding box and other typographic metrics, the number of
+glyphs it contains, and a character map that can be used to convert a
+character set index into a glyph index meaningful to the font loader.
+
+<p>A font loader can also be used to create and find <i>glyphs</i>. A
+glyph object has information about an individual glyph such as
+typographic metrics and its outline.
+
+<p>Glyph outlines are made up of arrays of <i>control points</i>. An
+array of control points is called a <i>contour</i>. Contours define
+the shape of the glyph. For example, in most fonts, the glyph for the
+character <tt>#\I</tt> has one contour defining its outline. The glyph
+for the character <tt>#\O</tt> has two contours: one for the outer
+edge, and one for the inner edge.
+
+<p>This documentation is not meant to be a substitute for the TrueType
+file format documentation. For file format details, see the
+specifications from either <a
+href="http://developer.apple.com/fonts/TTRefMan/RM06/Chap6.html">Apple</a>
+or <a
+href="http://www.microsoft.com/OpenType/OTSpec/otff.htm">Microsoft</a>.
+
+
+<a name='sect-glyph-example'><h3>Glyph Example</h3></a>
+
+<p><img src="lambda.png">
+
+<p>This image is a rendering of the Greek small letter lambda (U+03BB)
+from the <a href="http://www.identifont.com/show?WP">Times New
+Roman</a> TrueType font. The visualization was programmed by Frederic
+Jolliton and rendered
+with <a href="http://projects.tuxee.net/cl-vectors">CL-VECTORS</a>.
+
+<p>The dark gray grid lines represent the axes of the glyph coordinate
+system. Light grid lines are drawn at intervals of 256 em-square
+units.
+
+<p>Black squares represent the control points returned from <a
+href='#contour'><tt>CONTOUR</tt></a>. Solid black squares are points
+on the outline (<a href='#on-curve-p'><tt>ON-CURVE-P</tt></a> returns
+<i>true</i>), and hollow black squares are not on the outline. Solid
+red squares represent implicit control points on the glyph outline;
+they are not in the original contour, but they would be returned in a
+new contour created with <a
+href='#explicit-contour-points'><tt>EXPLICIT-CONTOUR-POINTS</tt></a>.
+
+<p>The alternating blue and green portions of the glyph outline
+represent the separate segments whose start, control, and end points
+were bound with <a
+href='#do-contour-segments'><tt>DO-CONTOUR-SEGMENTS</tt></a>.
+
+
+<a name='sect-dictionary'><h3>The ZPB-TTF Dictionary</h3></a>
+
+<p><a name='open-font-loader'>[Function]</a><br>
+<b>open-font-loader</b> <i>font-file-designator</i> => <i>font-loader</i>
+
+<blockquote>
+Creates and returns a font-loader object from
+<i>font-file-designator</i>, which should be either a pathname,
+pathname namestring, a stream, or a font-loader object.
+</blockquote>
+
+
+<p><a name='close-font-loader'>[Function]</a><br>
+<b>close-font-loader</b> <i>font-loader</i> =>
+
+<blockquote>
+Closes any open resources held by <i>font-loader</i>.
+</blockquote>
+
+
+<p><a name='with-font-loader'>[Macro]</a><br>
+<b>with-font-loader</b> <i>(font-loader font-loader-designator)</i> <tt>&body</tt> <i>body</i> =>
+
+<blockquote>
+Performs <i>body</i> with <i>font-loader</i> bound to a font-loader
+object created as if with <tt>(open-font-loader</tt>
+<i>font-loader-designator</i></tt>). Automatically closes the
+font-loader when finished.
+</blockquote>
+
+
+<p><a name="glyph-count">[Function]</a><br>
+<b>glyph-count</b> <i>font-loader</i> => <i>number</i>
+
+<blockquote>
+Returns the number of glyphs available in <i>font-loader</i>.
+</blockquote>
+
+
+<p><a name='name-entry-value'>[Function]</a><br>
+<b>name-entry-value</b> <i>name-designator</i> <i>font-loader</i> => <i>string</i>
+
+<blockquote>
+Returns an entry from the TrueType "name" table, which contains
+human-readable values for copyright info, trademark notices, creator
+names, and the like.
+
+<p><i>name-designator</i> may be either an integer ID from the table of
+NameIDs in the <a
+href="http://developer.apple.com/fonts/TTRefMan/RM06/Chap6name.html">TrueType
+"name" table specification</a>, or a keyword designating such an
+ID. Valid keywords and their IDs are:
+
+<p><table cellpadding=3 cellspacing=0>
+<tr><th>Keyword</th><th align=right>&nbsp; ID</th></tr>
+<tr><td><tt>:COPYRIGHT-NOTICE</tt></td><td align=right>0</td></tr>
+<tr><td><tt>:FONT-FAMILY</tt></td><td align=right>1</td></tr>
+<tr><td><tt>:FONT-SUBFAMILY</tt></td><td align=right>2</td></tr>
+<tr><td><tt>:UNIQUE-SUBFAMILY</tt></td><td align=right>3</td></tr>
+<tr><td><tt>:FULL-NAME</tt></td><td align=right>4</td></tr>
+<tr><td><tt>:NAME-TABLE-VERSION</tt></td><td align=right>5</td></tr>
+<tr><td><tt>:POSTSCRIPT-NAME</tt></td><td align=right>6</td></tr>
+<tr><td><tt>:TRADEMARK-NOTICE</tt></td><td align=right>7</td></tr>
+<tr><td><tt>:MANUFACTURER-NAME</tt></td><td align=right>8</td></tr>
+<tr><td><tt>:DESIGNER</tt></td><td align=right>9</td></tr>
+<tr><td><tt>:DESCRIPTION</tt></td><td align=right>10</td></tr>
+<tr><td><tt>:VENDOR-URL</tt></td><td align=right>11</td></tr>
+<tr><td><tt>:DESIGNER-URL</tt></td><td align=right>12</td></tr>
+<tr><td><tt>:LICENSE-DESCRIPTION</tt></td><td align=right>13</td></tr>
+<tr><td><tt>:LICENCE-INFO-URL</tt></td><td align=right>14</td></tr>
+<tr><td><tt>:RESERVED</tt></td><td align=right>15</td></tr>
+<tr><td><tt>:PREFERRED-FAMILY</tt></td><td align=right>16</td></tr>
+<tr><td><tt>:PREFERRED-SUBFAMILY</tt></td><td align=right>17</td></tr>
+<tr><td><tt>:COMPATIBLE-FULL</tt></td><td align=right>18</td></tr>
+<tr><td><tt>:SAMPLE-TEXT</tt></td><td align=right>19</td></tr>
+</table>
+
+<p>If the font does not provide any "name" table entry for the given
+<i>name-designator</i>, returns <tt>NIL</tt>.
+
+</blockquote>
+
+
+<p><a name='find-name-entry'>[Function]</a><br>
+<b>find-name-entry</b> <i>platform-id language-id name-id font-loader</i> => <i>name-entry</i>
+
+<blockquote>
+This is the low-level interface used by <a
+href="#name-entry-value"><tt>NAME-ENTRY-VALUE</tt></a>. <i>platform-id</i>,
+<i>language-id</i>, and <i>name-id</i> should be integer ID values from the <a
+href="http://developer.apple.com/fonts/TTRefMan/RM06/Chap6name.html">TrueType
+"name" table specification</a>. If the combination of IDs is found in
+the name table, a name-entry object is returned, otherwise
+<tt>NIL</tt> is returned.
+</blockquote>
+
+
+<p><a name='value'>[Function]</a><br>
+<b>value</b> <i>name-entry</i> => <i>string</i>
+
+<blockquote>
+Returns the string value of a name-entry object.
+</blockquote>
+
+
+<p><a name="italic-angle">[Function]</a><br>
+<b>italic-angle</b> <i>font-loader</i> => <i>number</i>
+
+<blockquote>
+Returns the typographic italic angle of <i>font-loader</i>.
+</blockquote>
+
+
+<p><a name="underline-thickness">[Function]</a><br>
+<b>underline-thickness</b> <i>font-loader</i> => <i>number</i>
+
+<blockquote>
+Returns the typographic underline thickness of <i>font-loader</i>.
+</blockquote>
+
+
+<p><a name="underline-position">[Function]</a><br>
+<b>underline-position</b> <i>font-loader</i> => <i>number</i>
+
+<blockquote>
+Returns the typographic underline position of <i>font-loader</i>.
+</blockquote>
+
+<p><a name='fixed-pitch-p'>[Function]</a><br>
+<b>fixed-pitch-p</b> <i>font-loader</i> => <i>boolean</i>
+
+<blockquote>
+Returns <i>true</i> if <i>font-loader</i> is fixed pitch (all glyphs
+have the same width).
+</blockquote>
+
+
+<p><a name="units/em">[Function]</a><br>
+<b>units/em</b> <i>font-loader</i> => <i>number</i>
+
+<blockquote>
+Return the number of units in the typographic em-square of
+<i>font-loader</i>.
+</blockquote>
+
+
+<p><a name='ascender'>[Function]</a><br>
+<b>ascender</b> <i>font-loader</i> => <i>number</i>
+
+<blockquote>
+Returns the typographic ascender value of <i>font-loader</i>.
+</blockquote>
+
+
+<p><a name='descender'>[Function]</a><br>
+<b>descender</b> <i>font-loader</i> => <i>number</i>
+
+<blockquote>
+Returns the typographic descender value of <i>font-loader</i>.
+</blockquote>
+
+
+<p><a name='line-gap'>[Function]</a><br>
+<b>line-gap</b> <i>font-loader</i> => <i>number</i>
+
+<blockquote>
+Returns the typographic line gap of <i>font-loader</i>.
+</blockquote>
+
+
+<p><a name='postscript-name'>[Generic function]</a><br>
+<b>postscript-name</b> <i>object</i> => <i>string</i>
+
+<blockquote>
+Returns the Postscript name of <i>object</i>, which may be a glyph or a
+font-loader.
+</blockquote>
+
+
+<p><a name='full-name'>[Function]</a><br>
+<b>full-name</b> <i>font-loader</i> => <i>string</i>
+
+<blockquote>
+Returns the full name of <i>font-loader</i>.
+</blockquote>
+
+
+<p><a name='family-name'>[Function]</a><br>
+<b>family-name</b> <i>font-loader</i> => <i>string</i>
+
+<blockquote>
+Returns the family name of <i>font-loader</i>.
+</blockquote>
+
+
+<p><a name='subfamily-name'>[Function]</a><br>
+<b>subfamily-name</b> <i>font-loader</i> => <i>string</i>
+
+<blockquote>
+Returns the subfamily name of <i>font-loader</i>.
+</blockquote>
+
+<p><a name='all-kerning-pairs'>[Function]</a><br>
+<b>all-kerning-pairs</b> <i>font-loader</i> => <i>list</i>
+
+<blockquote>
+Returns a list of all the kerning pairs available in
+<i>font-loader</i>. Each element of the list is itself a list, with
+three elements: a left glyph, a right glyph, and a numeric kerning
+offset.
+</blockquote>
+
+
+<p><a name="glyph-exists-p">[Function]</a><br>
+<b>glyph-exists-p</b> <i>character-designator font-loader</i> => <i>boolean</i>
+
+<blockquote>
+Returns <i>true</i> if <i>font-loader</i> has glyph data for
+<i>character-designator</i>.
+</blockquote>
+
+
+<p><a name='index-glyph'>[Function]</a><br>
+<b>index-glyph</b> <i>index</i> <i>font-loader</i> => <i>glyph</i>
+
+<blockquote>
+Returns the glyph at <i>index</i> in <i>font-loader</i>.
+</blockquote>
+
+
+<p><a name='find-glyph'>[Function]</a><br>
+<b>find-glyph</b> <i>character-designator</i> <i>font-loader</i> => <i>glyph</i>
+
+<blockquote>
+Returns the glyph for <i>character-designator</i> in
+<i>font-loader</i>. If
+<i>character-designator</i> is an integer, it is treated as a Unicode
+code-point and the corresponding glyph is fetched from the font. If
+<i>character-designator</i> is a character, its <tt>char-code</tt> is used as
+a Unicode code-point for lookup.<br><b>Note:</b> If the
+<tt>char-code</tt>s of characters the Lisp implementation do not
+correspond to Unicode (or a subset), this may not return the expected
+glyph.
+
+<p>If <i>font-loader</i> does not contain any glyphs for
+<i>character-designator</i>, the "missing glyph" glyph is returned. To
+test for the existence of a glyph without returning the "missing
+glyph" glyph, use <a
+href="#glyph-exists-p"><tt>GLYPH-EXISTS-P</tt></a>.
+
+</blockquote>
+
+
+<p><a name='bounding-box'>[Generic function]</a><br>
+<b>bounding-box</b> <i>object</i> => <i>#(xmin ymin xmax ymax)</i>
+
+<blockquote>
+Returns the bounding box of <i>object</i>, which may be a glyph or a
+font-loader.
+</blockquote>
+
+
+<p><a name='xmin-and-friends'>[Generic functions]</a><br>
+<b>xmin</b> <i>object</i> => <i>value</i><br>
+<b>ymin</b> <i>object</i> => <i>value</i><br>
+<b>xmax</b> <i>object</i> => <i>value</i><br>
+<b>ymax</b> <i>object</i> => <i>value</i><br>
+
+<blockquote>
+Returns the horizontal and vertical extreme values for <i>object</i>, which
+may be a glyph or font-loader. If <i>object</i> is a four-element vector,
+each function is an accessor to the appropriate entry in the vector.
+</blockquote>
+
+
+<p><a name='x-and-y'>[Function]</a><br>
+<b>x</b> <i>control-point</i> => <i>number</i><br>
+<b>y</b> <i>control-point</i> => <i>number</i>
+
+<blockquote>
+Returns the respective coordinate of <i>control-point</i>.
+</blockquote>
+
+
+<p><a name='on-curve-p'>[Function]</a><br>
+<b>on-curve-p</b> <i>control-point</i> => <i>boolean</i>
+
+<blockquote>
+Returns <i>true</i> if <i>control-point</i> is on the contour outline.
+</blockquote>
+
+
+<p><a name='contour-count'>[Function]</a><br>
+<b>contour-count</b> <i>glyph</i> => <i>number</i>
+
+<blockquote>
+Returns the number of contours of <i>glyph</i>. Some glyphs, such as the
+glyph for the Space character, may have zero contours.
+</blockquote>
+
+
+<p><a name='contour'>[Function]</a><br>
+<b>contour</b> <i>glyph</i> <i>index</i> => <i>vector</i>
+
+<blockquote>
+Returns the <i>index</i>th contour from the contours of
+<i>glyph</i>. A contour is represented as a vector of control point
+objects. Each control point may be on (touching) or off (not touching)
+the the contour outline.
+
+<p>TrueType files may store contours that have implicit control
+points. When two consecutive control points are off the contour
+outline, there is an implied control point at the midpoint between
+them on the contour curve.
+</blockquote>
+
+
+<p><a name='contours'>[Function]</a><br>
+<b>contours</b> <i>glyph</i> => <i>vector</i>
+
+<blockquote>
+Returns all contours of glyph as a vector.
+</blockquote>
+
+
+<p><a name='do-contours'>[Macro]</a><br>
+<b>do-contours</b> <i>(contour glyph</i> <tt>&optional</tt>
+<i>result)</i> <tt>&body</tt> <i>body</i> => <i>result</i>
+
+<blockquote>
+Performs <i>body</i> for each contour in <i>glyph</i>, with the
+contour bound to <i>contour</i>. Returns <i>result</i> (evaluated) at
+the end of processing.
+</blockquote>
+
+
+<p><a name="explicit-contour-points">[Function]</a><br>
+<b>explicit-contour-points</b> <i>contour</i> => <i>vector</i>
+
+<blockquote>
+Returns a vector of points that is the same as <i>contour</i> with the implicit
+contour points inserted.
+</blockquote>
+
+
+<p><a name="do-contour-segments">[Macro]</a><br>
+<b>do-contour-segments</b> <i>(start control end) contour</i> <tt>&body</tt> <i>body</i> =>
+
+<blockquote>
+For convenience, a TrueType contour may be thought of as being made up
+of connected segments. Each segment is either a straight line from one
+point on the outline to another, or a curved line that starts with a
+point on the outline, is controlled by a point off the outline, and
+ends with a point on the outline.
+
+<p><tt>DO-CONTOUR-SEGMENTS</tt> performs <i>body</i> for each segment of
+<i>contour</i>, with the <i>start</i>, <i>control</i>, and <i>end</i>
+variables (not evaluated) bound to the start, control, and end points
+of the segment. If the segment is a straight line, <i>control</i> is
+bound to <tt>NIL</tt>.
+
+<p>Contours of a glyph in a TrueType file may contain implied control
+points; two consecutive points off the outline may be treated as if
+there is there is an point on the outline at the midpoint between
+them. <tt>DO-CONTOUR-SEGMENTS</tt> synthesizes and binds any implicit
+points as needed when going through the contour segments. (See the <a
+href='#sect-glyph-example'>Glyph Example</a> for a visual explanation.)
+
+<p>Segments are not a TrueType glyph concept. The term is used for
+convenience by ZPB-TTF.
+
+</blockquote>
+
+
+<p><a name="do-contour-segments*">[Macro]</a><br>
+<b>do-contour-segments*</b> <i>(control end) contour</i> <tt>&body</tt> <i>body</i> =>
+
+<blockquote>
+<tt>DO-CONTOUR-SEGMENTS*</tt> is like <a
+href="#do-contour-segments"><tt>DO-CONTOUR-SEGMENTS</tt></a>, except it does
+not bind a start variable.
+</blockquote>
+
+
+<p><a name='code-point'>[Function]</a><br>
+<b>code-point</b> <i>glyph</i> => <i>number</i>
+
+<blockquote>
+Returns the Unicode code point of a character <i>glyph</i>
+represents. <b>Note:</b> Since font glyphs may represent more than one
+character, this value may not be exactly what you expect. <b>Note:</b>
+Since glyphs in a font do not necessarily correspond to a code point,
+or to a single code point, this may not always return a meaningful
+value.
+</blockquote>
+
+
+<p><a name='font-index'>[Function]</a><br>
+<b>font-index</b> <i>glyph</i> => <i>number</i>
+
+<blockquote>
+Returns the integer index of <i>glyph</i> in its font loader.
+</blockquote>
+
+
+<p><a name='advance-width'>[Function]</a><br>
+<b>advance-width</b> <i>glyph</i> => <i>number</i>
+
+<blockquote>
+Returns the typographic advance width of <i>glyph</i>.
+</blockquote>
+
+
+<p><a name='left-side-bearing'>[Function]</a><br>
+<b>left-side-bearing</b> <i>glyph</i> => <i>number</i>
+
+<blockquote>
+Returns the typographic left side bearing of <i>glyph</i>.
+</blockquote>
+
+
+<p><a name='right-side-bearing'>[Function]</a><br>
+<b>right-side-bearing</b> <i>glyph</i> => <i>number</i>
+
+<blockquote>
+Returns the typographic right side bearing of <i>glyph</i>.
+</blockquote>
+
+
+<p><a name='kerning-offset'>[Function]</a><br>
+<b>kerning-offset</b> <i>left-glyph</i> <i>right-glyph</i>
+<i>font-loader</i> => <i>number</i>
+
+<blockquote>
+Returns the typographic kerning adjustment needed for the advance
+width when <i>left-glyph</i> and <i>right-glyph</i> appear next to
+each other.
+</blockquote>
+
+
+<p><a name='string-bounding-box'>[Function]</a><br>
+<b>string-bounding-box</b> <i>string</i> <i>font-loader</i>
+ <tt>&amp;key</tt> (<i>kerning</i> <tt><i>t</i></tt>) => 
+<i>#(xmin ymin xmax ymax)</i>
+
+<blockquote>
+Returns the bounding box for <i>string</i> in the natural unit size of 
+<i>font-loader</i>. If <i>kerning</i> is <i>true</i>, the inter-glyph
+spacing will take kerning offsets into account when calculating the
+bounding box.
+</blockquote>
+
+
+<a name='sect-feedback'><h3>Feedback</h3></a>
+
+<p>Please send bug reports, patches, questions, and any other feedback
+to <a href="mailto:xach@xach.com">Zachary Beane</a>.
+
+

@@ -1,0 +1,285 @@
+% -*- Mode: LaTeX; Package: CLIM-USER -*-
+
+\chapter {Menu Facilities}
+\label {menus}
+
+\Issue {SWM} {There is a general issue about how these menus fit in with the
+menus that might be provided by the underlying toolkit.  For example, under what
+circumstances is CLIM allowed to directly use the menu facilities provided by
+the host?  Should \cl{:leave-menu-visible~t} interact with the ``pushpin''
+facility provided by OpenLook?}
+
+
+\Defgeneric {menu-choose} {items \key associated-window printer presentation-type
+                                      default-item text-style label
+                                      cache unique-id id-test cache-value cache-test
+                                      max-width max-height n-rows n-columns
+                                      x-spacing y-spacing row-wise
+                                      cell-align-x cell-align-y
+                                      scroll-bars pointer-documentation}
+
+Displays a menu whose choices are given by the elements of the sequence
+\arg{items}.  It returns three values:  the value of the chosen item, the item
+itself, and the pointer button event corresponding to the gesture that the user
+used to select it.  If the user aborts out of the menu, a single value is
+returned, \cl{nil}.
+
+\cl{menu-choose} will call \cl{frame-manager-menu-choose} on the frame manager
+being used by \arg{associated-window} (or the frame manager of the current
+application frame).  All of the arguments to \cl{menu-choose} will be passed on
+to \cl{frame-manager-menu-choose}.
+
+\Defgeneric {frame-manager-menu-choose} {frame-manager items
+                                         \key associated-window printer presentation-type
+                                              default-item text-style label
+                                              cache unique-id id-test cache-value cache-test
+                                              max-width max-height n-rows n-columns
+                                              x-spacing y-spacing row-wise
+                                              cell-align-x cell-align-y
+                                              scroll-bars pointer-documentation}
+
+Displays a menu whose choices are given by the elements of the sequence
+\arg{items}.  It returns three values:  the value of the chosen item, the item
+itself, and the pointer button event corresponding to the gesture that the user
+used to select it.  If the user aborts out of the menu, a single value is
+returned, \cl{nil}.
+
+{\bf Implementation note:} the default method on \cl{standard-frame-manager}
+will generally be implemented in terms of CLIM's own window stream and
+formatting facilities, such as using \cl{menu-choose-from-drawer} on a stream
+allocated by \cl{with-menu}.  However, some frame managers may be able to use a
+native menu facility to handle most (if not all) menus.  If the native menu
+facility cannot handle some cases, it can simply use \cl{call-next-method} to
+invoke the default method.
+
+\arg{items} is a sequence of menu items.  Each menu item has a visual
+representation derived from a display object, an internal representation that is
+a value object, and a set of menu item options.  The form of a menu item is one
+of the following:
+
+\begin{itemize}
+\item An atom. The item is both the display object and the value object.
+
+\item A cons. The \cl{car} is the display object and the \cl{cdr} is the value
+object.  The value object must be an atom. If you need to return a list as the
+value, use the :value option in the list menu item format described below.
+
+\item A list. The \cl{car} is the display object and the cdr is a list of
+alternating option keywords and values.  The value object is specified with the
+keyword \cl{:value} and defaults to the display object if \cl{:value} is not
+present.
+\end{itemize}
+
+The menu item options are: 
+
+\begin{itemize}
+\item \cl{:value}---specifies the value object.
+
+\item \cl{:style}---specifies the text style used to \cl{princ} the display
+object when neither \arg{presentation-type} nor \arg{printer} is supplied.
+
+\item \cl{:items}---specifies a sequence of menu items for a sub-menu to be used
+if this item is selected.
+ 
+\item \cl{:documentation}---associates some documentation with the menu item.
+When \arg{:pointer-documentation} is not \cl{nil}, this will be used as pointer
+documentation for the item.
+
+\item \cl{:active}---when \term{true} (the default), this item is active.  When
+\term{false}, the item is inactive, and cannot be selected.  CLIM will generally
+provide some visual indication that an item is inactive, such as by ``graying
+over'' the item.
+
+\item \cl{:type}---specifies the type of the item.  \cl{:item} (the default)
+indicates that the item is a normal menu item.  \cl{:label} indicates that the
+item is simply an inactive label; labels will not be ``grayed over''.
+\cl{:divider} indicates that the item serves as a divider between groups of
+other items; divider items will usually be drawn as a horizontal line.
+\end{itemize}
+
+The visual representation of an item depends on the \arg{printer} and
+\arg{presentation-type} keyword arguments.  If \arg{presentation-type} is
+supplied, the visual representation is produced by \cl{present} of the menu item
+with that presentation type.  Otherwise, if \arg{printer} is supplied, the visual
+representation is produced by the \arg{printer} function, which receives two
+arguments, the \arg{item} and a \arg{stream} to do output on.  The \arg{printer}
+function should output some text or graphics at the stream's cursor position, but
+need not call \cl{present}.  If neither \arg{presentation-type} nor \arg{printer}
+is supplied, the visual representation is produced by \cl{princ} of the display
+object.  Note that if \arg{presentation-type} or \arg{printer} is supplied, the
+visual representation is produced from the entire menu item, not just from the
+display object.  CLIM implementations are free to use the menus provided by the
+underlying window system when possible; this is likely to be the case when the
+printer and presentation-type are the default, and no other options are supplied.
+
+\arg{associated-window} is the CLIM window with which the menu is associated.
+This defaults to the top-level window of the current application frame.
+
+\arg{default-item} is the menu item where the mouse will appear.
+
+\arg{text-style} is a text style that defines how the menu items are
+presented.
+
+\arg{label} is a string to which the menu title will be set.
+
+\arg{printer} is a function of two arguments used to print the menu items in the
+menu.  The two arguments are the menu item and the stream to output it on.  It
+has dynamic extent.
+
+\arg{presentation-type} specifies the presentation type of the menu items. 
+
+\arg{cache} is a boolean that indicates whether CLIM should cache this menu for
+later use.  (Caching menus might speed up later uses of the same menu.)  If
+\arg{cache} is \term{true}, then \arg{unique-id} and \arg{id-test} serve to
+uniquely identify this menu.  When cache is \term{true}, \arg{unique-id}
+defaults to \arg{items}, but programmers will generally wish to specify a more
+efficient tag.  \arg{id-test} is a function of two arguments used to compare
+unique-ids, which defaults to \cl{equal}.  \arg{cache-value} is the value that
+is used to indicate that a cached menu is still valid.  It defaults to
+\arg{items}, but programmers may wish to supply a more efficient cache value
+than that.  \arg{cache-test} is a function of two arguments that is used to
+compare cache values, which defaults to \cl{equal}.  Both \arg{cache-value} and
+\arg{unique-id} have dynamic extent.
+
+\arg{max-width} and \arg{max-height} specify the maximum width and height of the
+menu, in device units.  They can be overridden by \arg{n-rows} and
+\arg{n-columns}.
+
+\arg{n-rows} and \arg{n-columns} specify the number of rows and columns in the
+menu.
+
+\arg{x-spacing} specifies the amount of space to be inserted between columns of
+the table; the default is the width of a space character.  It is specified the
+same way as the \cl{:x-spacing} option to \cl{formatting-table}.
+
+\arg{y-spacing} specifies the amount of blank space inserted between rows of the
+table; the default is the vertical spacing for the stream.  The possible values
+for this option are the same as for the \arg{:y-spacing} option to
+\cl{formatting-table}.
+
+\arg{cell-align-x} specifies the horizontal placement of the contents of the
+cell.  Can be one of \cl{:left}, \cl{:right}, or \cl{:center}.  The default is
+\cl{:left}.   The semantics are the same as for the \cl{:align-x} option to
+\cl{formatting-cell}.
+
+\arg{cell-align-y} specifies the vertical placement of the contents of the cell.
+Can be one of \cl{:top}, \cl{:bottom}, or \cl{:center}.  The default is
+\cl{:top}.  The semantics are the same as for the \cl{:align-y} option to
+\cl{formatting-cell}.
+
+\arg{row-wise} is as for \cl{formatting-item-list}.  It defaults to \cl{t}.
+
+\arg{scroll-bars} specifies whether the menu should have scroll bars.  It acts
+the same way as the \cl{:scroll-bars} option to \cl{make-clim-stream-pane}.  It
+defaults to \cl{:vertical}.
+
+\arg{pointer-documentation} is either \cl{nil} (the default), meaning that no
+pointer documentation should be computed, or a stream on which pointer
+documentation should be displayed.
+
+
+\Defgeneric {menu-choose-from-drawer} {menu presentation-type drawer
+                                       \key x-position y-position
+                                            cache unique-id id-test cache-value cache-test
+                                            default-presentation pointer-documentation}
+
+This is a a lower-level routine for displaying menus.  It allows the programmer
+much more flexibility in the menu layout.  Unlike \cl{menu-choose}, which
+automatically creates and lays out the menu, \cl{menu-choose-from-drawer} takes
+a programmer-provided window and drawing function.  The drawing function is
+responsible for drawing the contents of the menu; generally it will be a lexical
+closure that closes over the menu items.
+
+\cl{menu-choose-from-drawer} draws the menu items into that window using the
+drawing function.  The drawing function gets called with two arguments,
+\arg{stream} and \arg{presentation-type}.  It can use \arg{presentation-type}
+for its own purposes, such as using it as the presentation type argument in a
+call to \cl{present}.
+
+\cl{menu-choose-from-drawer} returns two values: the object the user clicked on,
+and the pointer button event.  If the user aborts out of the menu, a single
+value is returned, \cl{nil}.
+
+\arg{menu} is a CLIM window to use for the menu.  This argument may be
+specialized to provide a different look-and-feel for different host window
+systems.
+
+\arg{presentation-type} is a presentation type specifier for each of the mouse-sensitive
+items in the menu.  This is the input context that will be established once the
+menu is displayed.  For programmers who don't need to define their own types, a
+useful presentation type is \cl{menu-item}.
+
+\arg{drawer} is a function that takes two arguments, \arg{stream} and
+\arg{presentation-type}, draws the contents of the menu.  It has dynamic extent.
+
+\arg{x-position} and \arg{y-position} are the requested $x$ and $y$ positions of
+the menu.  They may be \cl{nil}, meaning that the position is unspecified.
+
+If \arg{leave-menu-visible} is \term{true}, the window will not be deexposed
+once the selection has been made. The default is \term{false}, meaning that the
+window will be deexposed once the selection has been made.
+
+\arg{default-presentation} is used to identify the presentation that the mouse
+is pointing to when the menu comes up.
+
+\arg{cache}, \arg{unique-id}, \arg{id-test}, \arg{cache-value}, and
+\arg{cache-test} are as for \cl{menu-choose}.
+
+\Defun {draw-standard-menu} {stream presentation-type items default-item
+                             \key item-printer
+                                  max-width max-height n-rows n-columns
+                                  x-spacing y-spacing row-wise
+                                  cell-align-x cell-align-y}
+
+\cl{draw-standard-menu} is the function used by CLIM to draw the contents of a
+menu, unless the current frame manager determines that host window toolkit
+should be used to draw the menu instead.  \arg{stream} is the stream onto which
+to draw the menu, \arg{presentation-type} is the presentation type to use for
+the menu items (usually \cl{menu-item}), and \arg{item-printer} is a function
+used to draw each item.  \arg{item-printer} defaults to \cl{print-menu-item}.
+
+\arg{items}, \arg{default-item}, \arg{max-width}, \arg{max-height},
+\arg{n-rows}, \arg{n-columns}, \arg{x-spacing}, \arg{y-spacing}, \arg{row-wise},
+\arg{cell-align-x}, and \arg{cell-align-y} are as for \cl{menu-choose}
+
+\Defun {print-menu-item} {menu-item \optional (stream \cl{*standard-output*})}
+
+Given a menu item \arg{menu-item}, displays it on the stream \arg{stream}. This
+is the function that \cl{menu-choose} uses to display menu items if no printer
+is supplied.
+
+
+\Defun {menu-item-value} {menu-item}
+
+Returns the value of the menu item \arg{menu-item}, where the format of a menu
+item is described under \cl{menu-choose}.  If \arg{menu-item} is not a menu item,
+the result is unspecified.
+
+\Defun {menu-item-display} {menu-item}
+
+Returns the display object of the menu item \arg{menu-item}, where the format of
+a menu item is described under \cl{menu-choose}.  If \arg{menu-item} is not a
+menu item, the result is unspecified.
+
+\Defun {menu-item-options} {menu-item}
+
+Returns the options of the menu item \arg{menu-item}, where the format of a menu
+item is described under \cl{menu-choose}.  If \arg{menu-item} is not a menu
+item, the result is unspecified.
+
+
+\Defmacro {with-menu} {(menu \optional associated-window \key (deexpose t))
+                       \body body} 
+
+Binds \arg{menu} to a ``temporary'' window, exposes the window on the same
+screen as the \arg{associated-window} and runs the body.  After the body has
+been run, the window is deexposed only if the boolean \arg{deexpose} is
+\term{true} (the default).
+
+The values returned by \cl{with-menu} are the values returned by \arg{body}.
+\arg{body} may have zero or more declarations as its first forms.
+
+\arg{menu} must be a variable name.  \arg{associated-window} is as for
+\cl{menu-choose}.
+
+None of the arguments are evaluated.

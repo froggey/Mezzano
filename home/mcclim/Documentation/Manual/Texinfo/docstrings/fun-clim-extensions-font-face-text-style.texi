@@ -1,0 +1,5 @@
+@anchor{Generic-Function clim-extensions:font-face-text-style}
+@deffn {Generic Function} {@symbol{font-face-text-style,clim-extensions}} font-face &optional size
+Return an extended text style describing this font face in the specified
+size.  If size is nil, the resulting text style does not specify a size.
+@end deffn

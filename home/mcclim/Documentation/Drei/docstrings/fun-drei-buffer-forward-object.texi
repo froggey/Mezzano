@@ -1,0 +1,13 @@
+@anchor{Generic-Function drei-buffer:forward-object}
+@deffn {Generic Function} {drei-buffer:forward-object} mark &optional count
+@findex drei-buffer:forward-object
+Move the mark forward the number of positions
+indicated by count.  This function could be implemented by an
+@code{incf} on the offset of the mark, but many buffer implementations
+can implement this function much more efficiently in a different
+way.  A @code{motion-before-beginning} condition is signaled if the
+resulting offset of the mark is less than zero. A
+@code{motion-after-end} condition is signaled if the resulting offset
+of the mark is greater than the size of the buffer. Returns
+@code{mark}.
+@end deffn

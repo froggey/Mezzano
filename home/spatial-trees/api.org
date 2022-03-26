@@ -1,0 +1,122 @@
+
+* Usage
+
+If you want to insert your arbitrary object into =spatial-trees=
+you first use the package =rectangle=
+in order to implement a function which returns its
+bounding rectangle.
+
+Constructors and methods for tree manipulation such as =insert, delete=
+ are provided by package =SPATIAL-TREES=.
+
+If you use both packages, conflicts are expected in 4 symbols.
+You can avoid them by adding the following to your =defpackage=:
+
+#+BEGIN_SRC lisp
+(:shadowing-import-from :spatial-trees :insert :delete :search)
+(:shadowing-import-from :rectangles :intersection)
+#+END_SRC
+
+Additionally, package =SPATIAL-TREES.NNS= provides an efficient
+nearest neighbor search function. See the description below.
+
+** package =SPATIAL-TREES= 
+
+*** Generic (make-spatial-tree kind :rectfun #'function)
+
++ kind :: Currently, one of =:r :x :greene :r-star=. The list could be
+          updated, and the planned feature is listed in [[./TODO][TODO-list]] . It
+          specifies the instance of the tree.
++ rectfun ( t -> rectangle:rectangle ) :: a function which returns a
+     bounding rectangle. In order to create a rectangle in a
+     user-defined =rectfun=, use =make-rectangle= exported by package =RECTANGLES=.
+
+*** Generic (bounding-rectangle tree)
+
+Returns a bounding rectangle of a tree.
+
+*** Generic (insert obj tree)
+
+Insert an object into the spacial tree.
+The bounding rectangle returned by
+=rectfun= and the object itself is held in an instance of LEAF-NODE-ENTRY,
+an internally defined structure-class, and then the node entry is
+added to the tree.
+
+It conflicts with =cl:insert=.
+
+*** Generic (delete obj tree)
+
+Destructively modify a spacial tree so that *no object eq to obj*
+exists in a spacial tree.
+It runs the following operations:
+
+1. find all LEAF-NODE-ENTRYies in the tree which contains the object.
+2. delete all such entries.
+3. then returns the modified tree.
+
+It conflicts with =cl:delete=.
+
+*** Generic (search obj tree)
+
+Returns *every objects* in the tree whose bounding rectangle intersects the
+bounding rectangle of =obj=.
+
+It conflicts with =cl:search=.
+
+** package =RECTANGLES=
+
+This package provides a class =rectangle= and its methods.
+=Rectangle= represents a minimum bounding
+rectangle recognized by =spatial-trees=.
+Its constructor is =make-rectangle=. Example usage for 2-dimentional
+bounding rectangle:
+
+: (make-rectangle :lows (list lx ly) :highs (list hx hy))
+
+where =lx,ly= and =hx,hy= denotes a coordinate of left-bottom and
+top-right corner of a rectangle, respectively.
+
+The methods for =rectangle= are the following (where =rectangle= is
+denoted by =R=):
+
++ intersection =R,R -> R= :: returns a rectangular product of two Rs.
++ minimum-bound =R,R -> R= :: returns a rectangular sum of two Rs.
++ intersectp =R,R -> Boolean= :: Returns whether the two rectangles
+     intersects each other.
++ area =R -> Number= :: Returns an area/volume of the dimension.  It
+     is an area in 2d and a volume in 3d but it could be whatever
+     n-dimentional volume of the rectangle.
++ lows, highs =R -> (list number*)= :: Returns the point which is
+     nearest to/farthest from (-Infty,-Infty,...-Infty).
+
+
+** package =SPATIAL-TREES.NNS=
+
+Provides Nearest Neighbor Search (NNS) function.
+
+This package is in a different system
+=SPATIAL-TREES.NNS= (same name as the package),
+so you have to load the system independently before using the package.
+Similarly, the unit test on this system is provided independently to the
+main system. =(asdf:test-system :spatial-trees.nns)= will run the test.
+
+The implementation is based on /Nearest Neighbor Queries/,
+N Roussopoulos, S Kelley, F Vincent - /ACM sigmod record, 1995/.
+It implements two good bounding heuristics, /mindist/ and
+/minimax-dist/ which prune almost all branches of the tree.
+
+The signature is:
+
+: nearest-neighbor-search (point *tree* distance-function)
+
+where:
+
++ point =(list number*)= :: denotes a query point.
++ *tree* =spatial-tree= :: a spatial tree.
++ distance-function =(list number*), obj -> number= :: a function which
+     computes a distance between a point and an object stored in the
+     tree. This function can be generic so that it can take arbitrary shape
+     as its second argument.
+     
+

@@ -1,0 +1,42 @@
+language: lisp
+
+env:
+  matrix:
+    - LISP=allegro
+    - LISP=ccl
+    - LISP=ccl32
+    - LISP=cmucl
+    - LISP=ecl
+    - LISP=sbcl
+    - LISP=sbcl32
+
+matrix:
+  allow_failures:
+    - env: LISP=allegro
+    - env: LISP=cmucl
+
+notifications:
+  email:
+    on_success: change
+    on_failure: always
+  irc:
+    channels:
+      - "chat.freenode.net#iolib"
+    on_success: change
+    on_failure: always
+    use_notice: true
+    skip_join: true
+
+install:
+  - if [ "$LISP" = "allegro" ]; then sudo apt-get install libc6-dev-i386 libffi-dev:i386; fi
+  - curl -L https://github.com/sionescu/cl-travis/raw/master/install.sh | sh
+  - cl -e "(cl:in-package :cl-user)
+           (dolist (p '(:cffi :fiveam))
+             (ql:quickload p :verbose t))"
+
+script:
+  - cl -e "(cl:in-package :cl-user)
+           (ql:quickload :static-vectors/test :verbose t)
+           (uiop:quit (if (some (lambda (x) (typep x '5am::test-failure))
+                                (5am:run :static-vectors))
+                          1 0))"

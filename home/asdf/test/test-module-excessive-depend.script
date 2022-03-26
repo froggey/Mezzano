@@ -1,0 +1,84 @@
+;;; -*- Lisp -*-
+
+;;;---------------------------------------------------------------------------
+;;; Here's what we are trying to test.  Let us say we have a system X that
+;;; contains a file, "file1" and a module, "quux" that depends on file 1.  In
+;;; turn, "quux" contains "file2" which depends on loading another system, Y
+;;; (note that this dependency cannot be recorded using only the defsystem
+;;; grammar; we must use an ancillary method definition).  If we over-force
+;;; actions, then the recompiling of "file1" will force "quux" to be loaded,
+;;; forcing "file2" load and in turn forcing the reload and recompilation of Y.
+;;; If operations are done properly, a change to file1 will force recompilation
+;;; and reloading of "file2," but /not/ of system Y.
+;;;---------------------------------------------------------------------------
+
+(setf asdf::*asdf-session* (make-instance asdf::*asdf-session-class*))
+
+(def-test-system :test-module-excessive-depend
+  :components ((:file "file1")
+               (:module "quux"
+                :pathname ""
+                :depends-on ("file1")
+                :components ((:file "file2")))))
+
+(defun find-quux ()
+  (find-component :test-module-excessive-depend "quux"))
+
+(defun find-file2 ()
+  (find-component (find-quux) "file2"))
+
+(defmethod component-depends-on ((op load-op)
+                                 (c (eql (find-file2))))
+  (cons `(load-op ,(find-system "file3-only"))
+        (call-next-method)))
+
+(defmethod component-depends-on ((op compile-op)
+                                 (c (eql (find-file2))))
+  (cons `(load-op ,(find-system "file3-only"))
+        (call-next-method)))
+
+(DBG "loading test-module-excessive-depend"
+     (operate 'load-op 'test-module-excessive-depend))
+
+;; test that it compiled
+(defparameter file1 (test-fasl "file1"))
+(defparameter file2 (test-fasl "file2"))
+(defparameter file3 (test-fasl "file3"))
+(defparameter file1-date (file-write-date file1))
+(defparameter file2-date (file-write-date file2))
+(defparameter file3-date (file-write-date file3))
+(unless (and file1-date file2-date file3-date)
+  (error "Failed to compile one of the three files ~
+	     that should be compiled for this test: ~{~a~}"
+         (mapcar #'cdr
+                 (remove-if #'car
+                            (pairlis (list file1-date file2-date file3-date)
+                                     '("file1" "file2" "file3"))))))
+
+;; and loaded
+(assert (eval (find-symbol* '#:*file1* :test-package)))
+(assert (eval (find-symbol* '#:*file3* :test-package)))
+
+
+;; now touch file1 and check that file2 _is_ also recompiled
+;; but that file3 is _not_ recompiled.
+;; this will only work if the cross-module (intra-system)
+;; dependency bug is fixed and the excessive compilation bug is fixed.
+
+(defparameter before file3-date)
+(touch-file (test-source "file1.lisp") :timestamp (- before 60))
+(touch-file file1 :timestamp (- before 90))
+(touch-file (test-source "file2.lisp") :timestamp (- before 30))
+(touch-file file2 :timestamp (- before 15))
+
+(defparameter plan (traverse 'load-op 'test-module-excessive-depend))
+(defparameter file3c (find-component :file3-only "file3"))
+#|(format t "~%Operation plan is:~%")(pprint plan)(terpri)|#
+(when (loop :for (o . c) :in plan :thereis (and (eq c file3c) (typep o 'asdf:compile-op)))
+  (error "Excessive operations on file3-only system.  Bad propagation of dependencies."))
+(operate 'load-op 'test-module-excessive-depend)
+(assert-compare (>= (file-write-date file1) before))
+(assert-compare (>= (file-write-date file2) before))
+(unless (= (file-write-date file3)
+           file3-date)
+  (error "Excessive compilation of file3.lisp:  traverse bug."))

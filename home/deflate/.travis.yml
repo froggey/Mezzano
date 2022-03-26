@@ -1,0 +1,20 @@
+language: lisp
+sudo: required
+
+env:
+  matrix:
+    - LISP=abcl
+    - LISP=allegro
+    - LISP=sbcl
+    - LISP=sbcl32
+    - LISP=ccl
+    - LISP=ccl32
+    - LISP=clisp
+    - LISP=clisp32
+    - LISP=ecl
+
+install:
+  - curl -L https://github.com/luismbo/cl-travis/raw/master/install.sh | sh
+
+script:
+        - cl -e '(ql:quickload "deflate")'

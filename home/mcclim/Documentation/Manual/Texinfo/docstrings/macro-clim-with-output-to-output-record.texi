@@ -1,0 +1,13 @@
+@anchor{Macro clim:with-output-to-output-record}
+@deffn {Macro} {@symbol{with-output-to-output-record,clim}} (stream &optional record-type record &rest initargs) &body body
+Creates a new output record of type RECORD-TYPE and then captures
+the output of BODY into the new output record. The cursor position of
+STREAM is initially bound to (0,0)
+    If RECORD is supplied, it is the name of a variable that will be
+lexically bound to the new output record inside the body. INITARGS are
+CLOS initargs that are passed to MAKE-INSTANCE when the new output
+record is created.
+    It returns the created output record.
+    The STREAM argument is a symbol that is bound to an output
+recording stream. If it is @code{t}, *STANDARD-OUTPUT* is used.
+@end deffn

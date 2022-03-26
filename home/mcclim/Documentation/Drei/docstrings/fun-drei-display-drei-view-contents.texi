@@ -1,0 +1,23 @@
+@anchor{Generic-Function drei:display-drei-view-contents}
+@deffn {Generic Function} {drei:display-drei-view-contents} stream view
+@findex drei:display-drei-view-contents
+The purpose of this function is to display the
+contents of a Drei view to some output surface. @code{stream} is the
+CLIM output stream that redisplay should be performed on, @code{view}
+is the Drei view instance that is being displayed. Methods
+defined for this generic function can draw whatever they want,
+but they should not assume that they are the only user of
+@code{stream}, unless the @code{stream} argument has been specialized to
+some application-specific pane class that can guarantee this. For
+example, when accepting multiple values using the
+@code{accepting-values} macro, several Drei instances will be
+displayed simultaneously on the same stream. It is permitted to
+only specialise @code{stream} on @code{clim-stream-pane} and not
+@code{extended-output-stream}. When writing methods for this function,
+be aware that you cannot assume that the buffer will contain only
+characters, and that any subsequence of the buffer is coercable
+to a string. Drei buffers can contain arbitrary objects, and
+redisplay methods are required to handle this (though they are
+not required to handle it nicely, they can just ignore the
+object, or display the @code{princ}ed representation.)
+@end deffn

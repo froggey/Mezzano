@@ -1,0 +1,7 @@
+@anchor{Function drei-syntax:update-parse}
+@deffn {Function} {drei-syntax:update-parse} syntax &optional begin end
+@findex drei-syntax:update-parse
+Make sure the parse for @code{syntax} from offset @code{begin} to @code{end}
+is up to date. @code{begin} and @code{end} default to 0 and the size of the
+buffer of @code{syntax}, respectively.
+@end deffn

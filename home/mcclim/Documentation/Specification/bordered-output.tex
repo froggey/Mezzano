@@ -1,0 +1,81 @@
+% -*- Mode: LaTeX; Package: CLIM-USER -*-
+
+\chapter {Bordered Output}
+\label {bordered-output}
+
+CLIM provides a mechanism for surrounding arbitrary output with some kind of a
+border.  The programmer annotates some output-generating code with an advisory
+macro that describes the type of border to be drawn.  The following code
+produces the output shown in Figure~\ref{border-example}.
+
+For example, the following produces three pieces of output, surrounded by a
+rectangular, highlighted with a dropshadow, and underlined, respectively.
+
+\begin{verbatim}
+(defun border-test (stream)
+  (fresh-line stream)
+  (surrounding-output-with-border (stream :shape :rectangle)
+    (format stream "This is some output with a rectangular border"))
+  (terpri stream) (terpri stream)
+  (surrounding-output-with-border (stream :shape :drop-shadow)
+    (format stream "This has a drop-shadow under it"))
+  (terpri stream) (terpri stream)
+  (surrounding-output-with-border (stream :shape :underline)
+    (format stream "And this output is underlined")))
+\end{verbatim}
+
+\begin{figure}
+\centerline{\includegraphics{border-example}}
+\caption{\label{border-example} Examples of bordered output.}
+\end{figure}
+
+
+\Defmacro {surrounding-output-with-border} {(\optional stream
+                                             \rest drawing-options
+                                             \key shape (move-cursor \cl{t}))
+                                            \body body}
+
+Binds the local environment in such a way the output of \arg{body} will be
+surrounded by a border of the specified shape.  Every implementation must
+support the shapes \cl{:rectangle} (the default), \cl{:oval}, \cl{:drop-shadow},
+and \cl{:underline}.  \cl{:rectangle} draws a rectangle around the bounding
+rectangle of the output.  \cl{:oval} draws an oval around the bounding rectangle
+of the output.  \cl{:drop-shadow} draws a ``drop shadow'' around the lower right
+edge of the bounding rectangle of the output.  \cl{:underline} draws a thin line
+along the baseline of all of the text in the output, but does not draw anything
+underneath non-textual output.  \arg{drawing-options} is a list of drawing
+options that are passed to the function that draws the border.
+
+If the boolean \arg{move-cursor} is \term{true} (the default), then the text
+cursor will be moved so that it immediately follows the lower right corner of
+the bordered output.
+
+\arg{stream} is an output recording stream to which output will be done.
+The \arg{stream} argument is not evaluated, and must be a symbol that is
+bound to a stream.  If \arg{stream} is \cl{t} (the default),
+\cl{*standard-output*} is used.  \arg{body} may have zero or more
+declarations as its first forms.
+
+There are several strategies for implementing borders.  One strategy is to
+create a ``border output record'' that contains the output records produced by
+the output of \arg{body}, plus one or more output records that represent the
+border.  Another strategy might be to arrange to call the border drawer at the
+appropriate times without explicitly recording it.
+
+
+\Defmacro {define-border-type} {shape arglist \body body}
+
+Defines a new kind of border named \arg{shape}.  \arg{arglist} must be a subset
+of the ``canonical'' arglist, using \cl{string-equal} to do the
+comparison:
+\arg{(\key stream record left top right bottom)}
+
+
+\arg{arglist} may include other keyword arguments that serve as the drawing options.
+
+\arg{body} is the code that actually draws the border.  It has lexical access to
+\cl{stream}, \cl{record}, \cl{left}, \cl{top}, \cl{right}, and \cl{bottom},
+which are respectively, the stream being drawn on, the output record being
+surrounded, and the coordinates of the left, top, right, and bottom edges of the
+bounding rectangle of the record.  \arg{body} may have zero or more declarations
+as its first forms.

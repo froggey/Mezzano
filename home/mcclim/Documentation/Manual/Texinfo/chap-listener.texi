@@ -1,0 +1,222 @@
+@node Listener
+@section Listener
+@cindex Lisp Listener
+@cindex CLIM Listener
+@cindex Listener
+
+The @mcclim{} Listener provides an interactive toplevel with full access
+to the graphical capabilities of @clim{} and a set of built-in commands
+intended to be useful for Lisp development and experimentation. Present
+features include:
+
+@itemize
+
+@item
+Reading/evaluation of Lisp expressions
+
+@item
+Ability to run external programs, through the @command{Run} command or
+@t{#!} macro
+
+@item
+Commands for inspecting classes (superclasses/subclasses, slots, etc.)
+
+@item
+Navigation of the filesystem, including a directory stack
+
+@item
+Launching of external programs sensitive to file type (determined by
+@file{mailcap} and @file{mime.types} files)
+
+@end itemize
+
+@menu
+* Listener usage::
+* The #! macro character::
+* Calling commands from lisp::
+* Command output destinations::
+* Debugger integration::
+@end menu
+
+@node Listener usage
+@subsection Usage
+
+@menu
+* Listener quick start::
+* Commands::
+@end menu
+
+@node Listener quick start
+@subsubsection Quick start
+
+To get up and running quickly with the Listener:
+
+@enumerate
+
+@item
+Load the @t{clim-listener} system with @cl{(ql:quickload
+"clim-listener")}.  Alternatively, use @cl{(asdf:load-system
+"clim-listener")}, potentially after manually loading
+@file{mcclim/Apps/Listener/clim-listener.asd}.
+
+@item
+Once loaded, you can run the Listener using:
+@cl{(clim-listener:run-listener)}.  If you use a multithreaded Lisp
+implementation, you can also include the @cl{:new-process} keyword
+argument.  If it is true, then the Listener is started in a separate
+thread, causing the above call to return immediately.
+
+@end enumerate
+
+After starting the Listener, a typical Lisp prompt will be displayed,
+with the package name preceding the prompt.  You may type Lisp forms or
+commands to this prompt.  The @kbd{,} (comma) character starts a
+command, every other input will be treated by the Listener as a form to
+be evaluated.
+
+At the bottom of the window is a ``wholine'' which shows various things
+such as the username/hostname, package, current directory
+(@cl{*default-pathname-defaults*}), the depth of the directory stack (if
+not empty), and the current memory usage.  Some of these items will be
+sensitive to pointer gestures.
+
+@node Commands
+@subsubsection Commands
+
+The command @command{Help (with) Commands} will produce a list of
+available commands.
+
+@table @asis
+
+@item General Commands
+@table @command
+
+@item Help
+
+@item Clear Output History
+Clears the screen
+
+@item Exit
+@end table
+
+@item Basic Lisp Commands
+@table @command
+@item Apropos
+@item Describe
+@item Room
+@item Trace
+@item Untrace
+@item Eval
+@item Load File
+@item Compile File
+@item Compile and Load
+@end table
+
+@item CLOS Commands
+@table @command
+@item Show Class Superclasses
+@item Show Class Subclasses
+@item Show Class Slots
+@item Show Class Generic Functions
+@item Show Applicable Methods
+@end table
+
+@item Filesystem Commands
+@table @command
+@item Show Directory
+@item Up Directory
+
+@item Edit File
+Probably broken
+
+@item Show File
+Almost certainly broken
+@end table
+
+@item Directory Stack Commands
+@table @command
+@item Display Directory Stack
+@item Push Directory
+@item Pop Directory
+@item Swap Directory
+@item Drop Directory
+@end table
+
+@item Other Commands
+@table @command
+
+@item Run
+Run an external program
+
+@item Background Run
+As above, but don't wait for program to complete
+
+@end table
+
+@end table
+
+@node The #! macro character
+@subsection The #! macro character
+
+Although there are commands for running external programs, the #! macro
+character tries to provide a nicer interface. It allows you to run external
+programs as a lisp function call, and attempts to transform the arguments
+in some meaningful way. Several transformations are performed:
+
+@itemize
+
+@item
+Keywords are converted to options.  Single character keywords are turned
+into an option with a single dash (e.g., @cl{:v} becomes @t{-v}).
+Longer keywords become an option preceded by two dashes (e.g.,
+@cl{:verbose} becomes @t{--verbose})
+
+@item
+Sequences are flattened into separate arguments
+
+@item
+Wild pathnames are expanded (currently subject to brokenness in the
+@cl{directory} function of various CL environments)
+
+@end itemize
+
+My apologies to anyone doing something more useful with this macro character
+if I have clobbered your readtable.
+
+@node Calling commands from lisp
+@subsection Calling commands from lisp
+
+Calling @clim{} commands from Lisp is straightforward.  By convention,
+the pretty names used at the interactor map to a function name which
+implements the command body by upcasing the name, replacing spaces with
+hyphens, and prepending @t{COM-} (e.g., @command{Show Directory} becomes
+@t{COM-SHOW-DIRECTORY}).
+
+@node Command output destinations
+@subsection Command output destinations
+
+@mcclim{}'s implementation of the @fmacro{clim:define-command} macro
+accepts a @cl{:provide-output-destination-keyword} keyword argument
+which allows redirecting the output of the command from
+@cl{*standard-output*} to some other destination.  The Listener code
+supplies this argument for many of the defined commands.  As a result,
+many Listener commands can be invoked with the @cl{:output-destination}
+keyword, for example
+
+@lisp
+CLIM-USER> ,Show Class Superclasses (class) standard-class
+  (keywords) :output-destination
+  (output-destination) Postscript File
+  (destination file) /tmp/output.ps
+@end lisp
+
+will redirect the command's output to the file @file{/tmp/output.ps}.
+
+@node Debugger integration
+@subsection Debugger integration
+
+When a command executed in the Listener signals an error, the default
+behavior consists in invoking the @mcclim{} Debugger (@pxref{Debugger}).
+This behavior can be controlled by supplying a Boolean value for the
+@cl{:debugger} keyword argument when calling the
+@cl{clim-listener:run-listener} function.

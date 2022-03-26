@@ -1,0 +1,255 @@
+% -*- Mode: LaTeX -*-
+
+\newcounter{testpart}
+\newcounter{testchapter}
+
+\typeout{Enter "y" or "n" followed by <return> for all questions.}
+
+\def\querypart#1{Do you want to format all or some of Part \thetestpart: #1 ?}
+\def\querychapter#1{Do you want to format Chapter \thetestchapter: #1 ?}
+
+\setcounter{testpart}{1}
+\setcounter{testchapter}{1}
+\typein [\doOverviewAndConventions] {\querypart{Overview and Conventions}
+It includes Overview, Conventions.}
+\if\doOverviewAndConventions y
+ \typein [\doOverview] {\querychapter{Overview}}
+ \addtocounter{testchapter}{1}
+ \typein [\doConventions] {\querychapter{Conventions}}
+ \addtocounter{testchapter}{1}
+\else
+ \addtocounter{testchapter}{2}
+ \fi
+\addtocounter{testpart}{1}
+
+\typein [\doGeometrySubstrate] {\querypart{Geometry Substrate}
+It includes Geometry, Bounding Rectangles, Transformations.}
+\if\doGeometrySubstrate y
+ \typein [\doGeometry] {\querychapter{Geometry}}
+ \addtocounter{testchapter}{1}
+ \typein [\doBoundRect] {\querychapter{Bounding Rectangles}}
+ \addtocounter{testchapter}{1}
+ \typein [\doTransformations] {\querychapter{Transformations}}
+ \addtocounter{testchapter}{1}
+\else
+ \addtocounter{testchapter}{3}
+ \fi
+\addtocounter{testpart}{1}
+
+\typein [\doWindowingSubstrate] {\querypart{Windowing Substrate}}
+\addtocounter{testchapter}{5}
+\addtocounter{testpart}{1}
+
+\typein [\doBasicOutputFacilities] {\querypart{Basic Output Facilities}
+It includes Drawing Options, Text Styles, Graphics, Drawing in Color, Patterned Designs.}
+\if\doBasicOutputFacilities y
+ \typein [\doDrawingOptions] {\querychapter{Drawing Options}}
+ \addtocounter{testchapter}{1}
+ \typein [\doTextStyles] {\querychapter{Text Styles}}
+ \addtocounter{testchapter}{1}
+ \typein [\doGraphics] {\querychapter{Graphics}}
+ \addtocounter{testchapter}{1}
+ \typein [\doColor] {\querychapter{Drawing in Color}}
+ \addtocounter{testchapter}{1}
+ \typein [\doPatterns] {\querychapter{Patterned Designs}}
+ \addtocounter{testchapter}{1}
+\else
+ \addtocounter{testchapter}{5}
+ \fi
+\addtocounter{testpart}{1}
+
+\typein [\doBasicInputFacilities] {\querypart{Basic Input Facilities}}
+\addtocounter{testchapter}{1}
+\addtocounter{testpart}{1}
+
+\typein [\doBasicCharacterStreams] {\querypart{Basic Character Streams}}
+\addtocounter{testchapter}{1}
+\addtocounter{testpart}{1}
+
+\typein [\doExtendedOutputFacilities] {\querypart{Extended Output Facilities}
+It includes Extended Output, Output Recording, Table Formatting, Graph Formatting,
+Bordered Output, Incremental Redisplay.}
+\if\doExtendedOutputFacilities y
+ \typein [\doExtendedOutput] {\querychapter{Extended Output}}
+ \addtocounter{testchapter}{1}
+ \typein [\doOutputRecording] {\querychapter{Output Recording}}
+ \addtocounter{testchapter}{1}
+ \typein [\doTableFormatting] {\querychapter{Table Formatting}}
+ \addtocounter{testchapter}{1}
+ \typein [\doGraphFormatting] {\querychapter{Graph Formatting}}
+ \addtocounter{testchapter}{1}
+ \typein [\doBorderedOutput] {\querychapter{Bordered Output}}
+ \addtocounter{testchapter}{1}
+ \typein [\doIncrementalRedisplay] {\querychapter{Incremental Redisplay}}
+ \addtocounter{testchapter}{1}
+\else
+ \addtocounter{testchapter}{6}
+ \fi
+\addtocounter{testpart}{1}
+
+\typein [\doExtendedInputFacilities] {\querypart{Extended Input Facilities}
+It includes Extended Input, Presentation Types, Input Editing, Menus, Dialogs.}
+\if\doExtendedInputFacilities y
+ \typein [\doExtendedInput] {\querychapter{Extended Input}}
+ \addtocounter{testchapter}{1}
+ \typein [\doPresentationTypes] {\querychapter{Presentation Types}}
+ \addtocounter{testchapter}{1}
+ \typein [\doInputEditing] {\querychapter{Input Editing}}
+ \addtocounter{testchapter}{1}
+ \typein [\doMenus] {\querychapter{Menus}}
+ \addtocounter{testchapter}{1}
+ \typein [\doDialogs] {\querychapter{Dialogs}}
+ \addtocounter{testchapter}{1}
+\else
+ \addtocounter{testchapter}{5}
+ \fi
+\addtocounter{testpart}{1}
+
+\typein [\doBuildingApplications] {\querypart{Building Applications}
+It includes Command Processor, Frames, Panes, Using the Host Toolkit.}
+\if\doBuildingApplications y
+ \typein [\doCommandProcessor] {\querychapter{Command Processor}}
+ \addtocounter{testchapter}{1}
+ \typein [\doFrames] {\querychapter{Frames}}
+ \addtocounter{testchapter}{1}
+ \typein [\doPanes] {\querychapter{Panes}}
+ \addtocounter{testchapter}{1}
+ \typein [\doHostToolkit] {\querychapter{Using the Host Toolkit}}
+ \addtocounter{testchapter}{1}
+\else
+ \addtocounter{testchapter}{4}
+ \fi
+
+\def\blankpart#1{\addtocounter{part}{1} \typeout{Part \arabic{part} ``#1'' skipped.}}
+\def\blankchapter#1{\addtocounter{chapter}{1} \typeout{ Chapter \arabic{chapter} ``#1'' skipped.}}
+
+\documentstyle{report} 
+\pagestyle{headings}
+
+\title{Common Lisp Interface Manager \\
+       Release 1 Specification}
+
+\author{Working Draft \\
+	\\
+	Ramana Rao (rao@PARC.Xerox.COM) \\
+	Bill York (York@Chuck-Jones.ILA-West.Dialnet.Symbolics.COM) \\ 
+	John Aspinall (JGA@Riverside.SCRC.Symbolics.COM) \\
+	Scott McKay (SWM@Riverside.SCRC.Symbolics.COM) \\
+	Dave Moon (Moon@Riverside.SCRC.Symbolics.COM) \\
+	\\
+	{\bf **Draft -- Do not distribute**}}
+
+\date{\today}
+\markright{CLIM Specification -- **Do not distribute**}
+
+\input psfig+
+\include{spec-macros}
+
+\addtolength{\oddsidemargin}{-.5in}
+\addtolength{\evensidemargin}{-.5in}
+\addtolength{\textwidth}{1in}
+\addtolength{\topmargin}{-.5in}
+\addtolength{\textheight}{1.0in}
+
+\begin{document}
+
+\maketitle
+
+\parindent 0pc
+\parskip   1pc
+
+\pagebreak
+\tableofcontents
+
+\if\doOverviewAndConventions y
+ \part{Overview and Conventions}
+ \if\doOverview y \input{overview.tex} \else \blankchapter{Overview} \fi
+ \if\doConventions y \input{conventions.tex} \else \blankchapter{Conventions} \fi
+\else
+ \blankpart{Overview and Conventions}
+ \addtocounter{chapter}{2}
+ \fi
+
+\if\doGeometrySubstrate y
+ \part{Geometry Substrate}
+ \if\doGeometry y \input{geometry.tex} \else \blankchapter{Geometry} \fi
+ \if\doBoundRect y \input{bounding-rectangles.tex} \else \blankchapter{Bounding Rectangles} \fi
+ \if\doTransformations y \input{transformations.tex} \else \blankchapter{Transformations} \fi
+\else
+ \blankpart{Geometry Substrate}
+ \addtocounter{chapter}{3}
+ \fi
+
+\if\doWindowingSubstrate y
+ \part{Windowing Substrate}
+ \input{silica.tex}
+\else
+ \blankpart{Windowing Substrate}
+ \addtocounter{chapter}{5}
+ \fi
+
+\if\doBasicOutputFacilities y
+ \part{Basic Output Facilities}
+ \if\doDrawingOptions y \input{drawing-options.tex} \else \blankchapter{Drawing Options} \fi
+ \if\doTextStyles y \input{text-styles.tex} \else \blankchapter{Text Styles} \fi
+ \if\doGraphics y \input{graphics.tex} \else \blankchapter{Graphics} \fi
+ \if\doColor y \input{color.tex} \else \blankchapter{Drawing in Color} \fi
+ \if\doPatterns y \input{patterns.tex} \else \blankchapter{Patterned Designs} \fi
+\else
+ \blankpart{Basic Output Facilities}
+ \addtocounter{chapter}{5}
+ \fi
+
+\if\doBasicInputFacilities y
+ \part{Basic Input Facilities}
+ \input{input.tex}
+\else
+ \blankpart{Basic Input Facilities}
+ \addtocounter{chapter}{1}
+ \fi
+
+\if\doBasicCharacterStreams y
+ \part{Basic Character Streams}
+ \input{gray-streams.tex}
+\else
+ \blankpart{Basic Character Streams}
+ \addtocounter{chapter}{1}
+ \fi
+
+\if\doExtendedOutputFacilities y
+ \part{Extended Output Facilities}
+ \if\doExtendedOutput y \input{extended-output.tex} \else \blankchapter{Extended Output} \fi
+ \if\doOutputRecording y \input{output-recording.tex} \else \blankchapter{Output Recording} \fi
+ \if\doTableFormatting y \input{table-formatting.tex} \else \blankchapter{Table Formatting} \fi
+ \if\doGraphFormatting y \input{graph-formatting.tex} \else \blankchapter{Graph Formatting} \fi
+ \if\doBorderedOutput y \input{bordered-output.tex} \else \blankchapter{Bordered Output} \fi
+ \if\doIncrementalRedisplay y \input{incremental-redisplay.tex} \else \blankchapter{Incremental Redisplay} \fi
+\else
+ \blankpart{Extended Output Facilities}
+ \addtocounter{chapter}{6}
+ \fi
+
+\if\doExtendedInputFacilities y
+ \part{Extended Input Facilities}
+ \if\doExtendedInput y \input{extended-input.tex} \else \blankchapter{Extended Input} \fi
+ \if\doPresentationTypes y \input{presentation-types.tex} \else \blankchapter{Presentation Types} \fi
+ \if\doInputEditing y \input{input-editing.tex} \else \blankchapter{Input Editing} \fi
+ \if\doMenus y \input{menus.tex} \else \blankchapter{Menus} \fi
+ \if\doDialogs y \input{dialogs.tex} \else \blankchapter{Dialogs} \fi
+\else
+ \blankpart{Extended Input Facilities}
+ \addtocounter{chapter}{5}
+ \fi
+
+\if\doBuildingApplications y
+ \part{Building Applications}
+ \if\doCommandProcessor y \input{command-processor.tex} \else \blankchapter{Command Processor} \fi
+ \if\doFrames y \input{frame.tex} \else \blankchapter{Frames} \fi
+ \if\doPanes y \input{panes.tex} \else \blankchapter{Panes} \fi
+ \if\doHostToolkit y \input{host-tk.tex} \else \blankchapter{Using the Host Toolkit} \fi
+\else
+ \blankpart{Building Applications}
+ \addtocounter{chapter}{4}
+ \fi
+
+\end{document}

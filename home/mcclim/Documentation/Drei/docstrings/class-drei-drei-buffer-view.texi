@@ -1,0 +1,65 @@
+@anchor{Class drei:drei-buffer-view}
+@deftp {Class} {drei:drei-buffer-view}
+@tindex drei:drei-buffer-view
+Class precedence list: @code{@w{drei-buffer-view}, @w{drei-view}, @w{tabify-mixin}, @w{subscriptable-name-mixin}, @w{name-mixin}, @w{standard-object}, @w{slot-object}, @w{t}}
+
+Slots:
+@itemize
+@item @code{%buffer} --- initargs: @code{@w{:buffer}}
+
+The buffer that is observed by this
+buffer view.
+@item @code{%top} 
+
+The top of the displayed buffer, that
+is, the mark indicating the first visible object in the buffer.
+@item @code{%bot} 
+
+The bottom of the displayed buffer, that
+is, the mark indicating the last visible object in the buffer.
+@item @code{%cache-string} 
+
+A string used during redisplay
+to reduce consing. Instead of consing up a new string every time
+we need to pull out a buffer region, we put it in this
+string. The fill pointer is automatically set to zero whenever
+the string is accessed through the reader.
+@item @code{%displayed-lines} 
+
+An array of the
+@code{displayed-line} objects displayed by the view. Not all of these
+are live.
+@item @code{%displayed-lines-count} 
+
+The number of lines in
+the views @code{displayed-lines} array that are actually live, that
+is, used for display right now.
+@item @code{%max-line-width} 
+
+The width of the longest
+displayed line in device units.
+@item @code{%lines} 
+
+The lines of the buffer, stored in a
+format that makes it easy to retrieve information about them.
+@item @code{%lines-prefix} 
+
+The number of unchanged
+objects at the start of the buffer since the list of lines was
+last updated.
+@item @code{%lines-suffix} 
+
+The number of unchanged objects
+at the end of the buffer since since the list of lines was last
+updated.
+@item @code{%last-seen-buffer-size} 
+
+The buffer size the
+last time a change to the buffer was registered.
+@end itemize
+
+A view that contains a @code{drei-buffer}
+object. The buffer is displayed on a simple line-by-line basis,
+with top and bot marks delimiting the visible region. These marks
+are automatically set if applicable.
+@end deftp

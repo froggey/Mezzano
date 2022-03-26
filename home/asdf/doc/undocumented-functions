@@ -1,0 +1,45 @@
+#! /usr/bin/env perl
+
+use FindBin;
+use strict;
+
+my $funFile = $FindBin::RealBin . "/exported-functions";
+my $infoFile = $FindBin::RealBin . "/asdf.texinfo";
+my %exported;
+our %indexed;
+
+open(FUNFILE, $funFile) || die "Couldn't find list of functions in $funFile.";
+while (<FUNFILE>) {
+  chomp;
+  $exported{$_} = 1;
+}
+close FUNFILE;
+
+open INFOFILE, "< $infoFile" || die "couldn't find $infoFile";
+while (<INFOFILE>) {
+  chomp;
+  if (m|\@findex +([\*a-zA-Z\+][a-zA-Z\-\*\+]+)|) {
+    indexIt($1);
+  } elsif (m|\@defun +([\*a-zA-Z\+][a-zA-Z\-\*\+]+)|) {
+    indexIt($1);
+  } 
+}
+close INFOFILE;
+
+# print "\n\nINDEXED:\n";
+# foreach my $fun (sort(keys(%indexed))) {
+#   print "$fun\n";
+# }
+
+# exit 0;
+
+foreach my $fun (sort(keys(%exported))) {
+  print "$fun\n" unless $indexed{$fun};
+}
+
+sub indexIt ($) {
+  my $key = shift;
+  $key = uc $key;
+  $indexed{$key} = 1;
+  return;
+}

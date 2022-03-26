@@ -1,0 +1,126 @@
+;;; -*- Lisp -*-
+;;; ---------------------------------------------------------------------------
+;;; Test to make sure that an update to included files causes a reload
+;;; of the system definition.
+;;; ---------------------------------------------------------------------------
+
+(in-package :asdf-test)
+
+;; I don't know what this does or when it's necessary
+;; (setf asdf::*asdf-session* (make-instance asdf::*asdf-session-class*))
+(defparameter *tmp-directory* (subpathname *asdf-directory* "build/"))
+;;(defparameter *test-directory* (subpathname *asdf-directory* "test/"))
+(push *test-directory* *central-registry*)
+(defun under-tmp-directory (designator &optional (defaults *tmp-directory*))
+  (namestring (subpathname defaults designator)))
+(defun under-test-directory (designator &optional (defaults *test-directory*))
+  (namestring (subpathname defaults designator)))
+
+(defun copy-file-the-hard-way (source dest)
+  (with-open-file (sourcestr source)
+    (with-open-file (deststr dest :direction :output :if-exists :supersede)
+      (loop :for line = (read-line sourcestr nil nil)
+            :while line
+            :do (format deststr "~a~%" line))))
+  (values))
+
+(defparameter *version-file*
+  (under-tmp-directory "random-version.lisp-expr"))
+
+;; (trace asdf/component:additional-input-files asdf/parse-defsystem::record-additional-system-input-file)
+
+;;; write an initial version file
+(unwind-protect
+     (progn
+       (with-open-file (str *version-file* :direction :output
+                                           :if-exists :supersede)
+         (format str "\"1.0\"~%"))
+       (copy-file-the-hard-way (under-test-directory "test-include1.asd")
+                               (under-test-directory "test-include.asd"))
+       (DBG "Set up test-include system definition:"
+            (probe-file (under-test-directory "test-include.asd")))
+       (asdf:load-system "test-include")
+       (let ((system (asdf:find-system "test-include")))
+         (DBG "On initial load, the system version is" (component-version system))
+         (DBG "After initial load the input files for the define op are:"
+              (input-files (make-operation 'define-op) system))
+
+         ;; read the initial version information correctly...
+         (assert-equal (asdf:component-version system) "1.0"))
+       (DBG "*******Initial load successful*******")
+       (sleep 2)
+       (DBG "*******Reloading*******")
+       ;;(trace asdf/plan::action-up-to-date-p)
+       ;; (trace asdf/action::component-operation-time)
+       ;; #+allegro #+allegro
+       ;; (trace (asdf:input-files :inside asdf/plan::compute-action-stamp)
+       ;;        (asdf/plan::timestamp<= :inside asdf/plan::compute-action-stamp)
+       ;;        (asdf/plan::get-file-stamp :inside asdf/plan::compute-action-stamp))
+
+;;; bump the version
+       (with-open-file (str *version-file* :direction :output
+                                           :if-exists :supersede)
+         (format str "\"2.0\"~%"))
+       (asdf:load-system "test-include")
+       (let ((system (asdf:find-system "test-include")))
+         (DBG "After reload, system version is" (asdf:component-version system))
+         ;; read the initial version information correctly...
+         (assert-equal (asdf:component-version system) "2.0")))
+  (sleep 2)
+  (DBG "*******Using new input file*******")
+  (let ((version-file
+          (under-tmp-directory "random-version2.lisp-expr")))
+    (unwind-protect
+         ;; swap system definitions with different read file versions
+         (progn
+           (copy-file-the-hard-way
+            (under-test-directory "test-include2.asd")
+            (under-test-directory "test-include.asd"))
+           (with-open-file (str version-file :direction :output
+                                             :if-exists :supersede)
+             (format str "\"3.0\"~%"))
+           (DBG "Test-include ASDF file write date"
+                (uiop:safe-file-write-date (under-test-directory "test-include.asd")))
+           (DBG "version file write date"
+                (uiop:safe-file-write-date (under-tmp-directory "random-version2.lisp-expr")))
+
+           ;;; the following establishes that it is NOT the fault of
+           ;;; DEFINITION-DEPENDENCIES-UP-TO-DATE-P [2017/07/12:rpg]
+           #+allegro
+           (trace (asdf/find-system::definition-dependencies-up-to-date-p
+                   :inside asdf:find-system)
+                  (asdf/find-system::get-file-stamp
+                   :inside find-system)
+                  (asdf/find-system::timestamp<=
+                                    :inside find-system))
+           ;; AFAICT, the :WHEREIN in SBCL TRACE does not work
+           ;; properly.  In my copious free time, I should see if I
+           ;; can find a minimal test case. [2017/07/12:rpg]
+           #+sbcl
+           (trace asdf/find-system::definition-dependencies-up-to-date-p
+                  ;; :wherein asdf:find-system
+                  )
+
+           (DBG "operation time stamp for define-op before reload"
+                (asdf/action:component-operation-time
+                 (asdf:make-operation 'define-op)
+                 (asdf:find-system "test-include")))
+           ;; this is NOT why this is broken on ACL...
+           #+ignore
+           (DBG "ASDF thinks the operation is done?"
+                (asdf:operation-done-p (make-operation 'define-op)
+                                       (find-system "test-include")))
+           ;; (trace asdf/action:compute-action-stamp asdf:make-plan)
+           ;; (trace asdf/plan::perform-plan asdf/plan::action-already-done-p)
+           (asdf:load-system "test-include")
+           (let ((system (find-system "test-include")))
+             (assert-equal (asdf:component-version system) "3.0")
+             (assert-pathnames-equal (asdf:input-files
+                            (asdf:make-operation 'asdf:define-op)
+                            system)
+                           (mapcar 'parse-namestring
+                                   (list (under-test-directory "test-include.asd")
+                                         (under-tmp-directory "random-version2.lisp-expr"))))))
+      (uiop:delete-file-if-exists version-file)))
+  (uiop:delete-file-if-exists (under-test-directory "test-include.asd"))
+  (uiop:delete-file-if-exists *version-file*))

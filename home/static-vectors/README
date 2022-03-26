@@ -1,0 +1,15 @@
+                           A few use notes
+
+CAVEAT: On some implementations, the GC takes care of deallocating the
+arrays, while on others they need to be deallocated explicitly;
+therefore, in order to make sure that deallocation works on all
+implementations, you must use FREE-STATIC-VECTOR and make sure that
+all references to the array are destroyed.
+
+Furthermore, you can only allocate simple-arrays - not arrays of
+element-type T and not multidimensional arrays. For use in the latter case,
+you can displace a multidimensional array to a simple-array of element-type.
+
+This library is especially useful in cases when you need to share an
+array with a C/C++/Fortran library, as long as the allocation is done
+on the Lisp side: e.g. as buffer for an I/O stream, et cætera...

@@ -1,0 +1,4 @@
+@anchor{Generic-Function clim-extensions:font-family-port}
+@deffn {Generic Function} {@symbol{font-family-port,clim-extensions}} font-family
+Return the port this font family belongs to.
+@end deffn

@@ -1,0 +1,58 @@
+#| -*- Lisp -*-
+case "$LISP" in
+  # SBCL is our default on Unix, because while CCL has better support on Windows and MacOS,
+  # SBCL still runs decently on MacOS and CCL has a background thread that eats input
+  # (and still puts the tty in raw mode if using single-threaded-ccl) which defeats
+  # the purpose of `make load`. See: https://bugs.launchpad.net/asdf/+bug/1624909
+
+  allegro) ${ALLEGRO:-alisp} -qq -e "(setf *load-verbose* nil)" -L "$0" -- "$@" ;;
+
+  ccl) exec ${CCL:-ccl} --no-init --load "$0" -- "$@" ;;
+
+  ""|sbcl) exec ${SBCL:-sbcl} --noinform --no-userinit --no-sysinit --script "$0" "$@" ;;
+
+  # Let cl-launch choose its preferred Lisp
+  cl-launch) cl-launch -Q -sp asdf-tools -r entry-point -- "$@" ;;
+
+  # asdf-tools could actually run on any implementation, if you configured it above.
+  *) echo >&2 "Unknown Lisp $LISP" ; exit 2
+esac ; exit
+|#
+
+(in-package :cl-user) ;; That may be default, but let's make double sure and tell SLIME.
+
+;;; Ensure we load and configure this particular ASDF
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (unless (member :cl-launch *features*) ;; (not necessary if we're invoked via cl-launch)
+    (handler-bind ((warning #'muffle-warning)) ;; hush Allegro
+      (load (make-pathname
+	     :name "load-asdf" :type "lisp" :defaults
+	     (or *compile-file-truename* *load-truename*
+		 (truename *default-pathname-defaults*)))))))
+
+;;; ASDF3 is loaded, now use it!
+(in-package :asdf)
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  ;; For bootstrap purposes, avoid having to extract cl-launch.asd into ext/cl-launch/
+  (let* ((asdf-dir (pathname-parent-directory-pathname
+                    (ensure-absolute-pathname (current-lisp-file-pathname) 'getcwd)))
+         (cl-launch-dir (subpathname asdf-dir "ext/cl-launch/")))
+    (when (and (not (find-system "cl-launch/dispatch" nil))
+               (probe-file* (subpathname cl-launch-dir "dispatch.lisp")))
+      (eval `(defsystem "cl-launch/dispatch"
+               :class :package-inferred-system
+               :source-file nil
+               :pathname ,cl-launch-dir
+               :components ((cl-source-file "lisp" :pathname "dispatch"))))))
+  ;; Depending on whether Quicklisp was loaded or not, either use it or use regular load-system
+  (defun load-sys (system)
+    (if (featurep :quicklisp)
+        (let ((*standard-output* (make-broadcast-stream))) ;; be quiet
+          (symbol-call :ql :quickload system))
+        (load-system system :verbose nil)))
+  ;; Finally, load asdf-tools
+  (load-sys "asdf-tools"))
+
+;;; asdf-tools is loaded, now actually run it!
+(restore-image :entry-point 'asdf-tools::entry-point :lisp-interaction nil)

@@ -1,0 +1,9 @@
+;;; -*- Lisp -*-
+
+(DBG "Regression test: Test if dependencies on prebuilt libraries work.
+Should load from ecl-prebuilt-systems/")
+
+#+(and ecl (not ecl-bytecmp))
+(progn
+  (chdir (subpathname *test-directory* "ecl-prebuilt-systems/"))
+  (load "readme.lisp"))

@@ -1,0 +1,322 @@
+RELEASE NOTES FOR McCLIM 0.9.2, "Laetare Sunday":
+
+Compatibility
+=============
+
+This release works on CMUCL, SBCL, CLISP, OpenMCL, Allegro CL,
+LispWorks, and the Scieneer CL, using the CLX X Window bindings.
+
+Changes to the Install Process
+==============================
+
+Implementation-specific INSTALL.* files were removed. Generic and
+implementation-specific Installation instructions were improved and
+merged into the file INSTALL.
+
+This release requires the "spatial-trees" library by Christophe
+Rhodes. Get it via asdf-install or at http://cliki.net/spatial-trees.
+
+Changes to Backends
+===================
+
+Copy & Paste code in the CLX backend was improved and should now
+adhere more strictly to ICCCM.
+
+Support for connecting to a ssh-forwarded display was restored.
+
+Several unused parts (marked with #+unicode) of the CLX backend were
+removed, thus restoring buildability on installations of clisp that
+have the unicode feature turned on.
+
+Double buffering for panes was implemented. To use it, create panes
+with the :double-buffering t initarg.
+
+There is now rudimentary support for entering non-Ascii characters from
+X11 ports using SBCL CLX (a.k.a. telent CLX).
+
+McCLIM ships experimental support for TrueType font rendering using
+the FreeType libraries and the free Bitstream Vera fonts. To use it,
+link Experimental/freetype/mcclim-freetype.asd to one of your
+asdf:*central-registry* directories and load the "MCCLIM-FREETYPE"
+system.
+
+An experimental "Null" backend was added that should allow testing of
+CLIM functionality without requiring a GUI environment to run.
+
+Changes to the Documentation
+============================
+
+A new chapter on contributed applications was added.
+
+Several new figures and examples were added to the manual
+
+Clemens Fruhwirth added a CLIM tutorial paper called "A Guided Tour to
+CLIM". It is available in Doc/Guided-Tour/.
+
+Changes to Contributed Applications and Examples
+================================================
+
+New application: A CLIM Debugger (by Peter Mechlenborg). It resides in
+Apps/Debugger/.
+
+New application: Functional-Geometry by Frank Buss and Rainer
+Joswig. It resides in Apps/Functional-Geometry/.
+
+The Inspector now is now able to disassemble functions and inspect
+pathnames.
+
+The Listener can now produce vertically-aligned graphs.
+
+The Scigraph application now builds on SBCL again.
+
+A demo for drag-and-drop-translators was added.
+
+Further additions to McCLIM
+===========================
+
+There is now a test suite, located in Tests/. It contains tests for
+regions, bounding rectangles, transformations, commands, and the
+PostScript backend. With the addition of the Null backend, we hope to
+add several more tests for more chapters of the CLIM spec.
+
+New Extension "conditional-commands": allows activation/deactivation
+of commands when other commands are invoked. It resides in
+Extensions/conditional-commands/.
+
+Status of the CLIM 2 Spec Implementation
+========================================
+
+Here is a list of what we think works, organized by chapters and
+sections of the CLIM 2 specification.
+
+  Chapter 3 Regions
+
+    Mostly finished. There are some troublesome parts of the
+    specification that may not be implemented for all possible
+    regions, for instance region-contains-region-p. There may not
+    be an efficient way of implementing this function for all kinds
+    of regions.
+
+  Chapter 4, Bounding rectangles
+
+    Finished
+
+  Chapter 5, Affine transformations
+
+    Finished
+
+  Chapter 6, Overview of window facilities
+
+    Finished
+
+  Chapter 7, Properties of sheets
+
+    Finished, though the correct behavior of sheet transformations may
+    not have been tested.
+
+  Chapter 8, Sheet protocols
+
+    Finished
+
+  Chapter 9, Ports, Grafts, and Mirrored sheets
+
+    Finished
+
+  Chapter 10, Sheet and medium output facilities
+
+    Finished
+
+  Chapter 11, Text styles
+
+    Mostly complete.
+
+    There is now experimental support for device font text styles (via
+    make-device-font-text-style) for the CLX, PostScript, and
+    CLX+FreeType backends.
+
+  Chapter 12, Graphics
+
+    Finished
+
+  Chapter 13, Drawing in Color
+
+    I am note sure about the state of this. I thought we were doing
+    only full opacity and full transparency, but I see traces of more
+    general designs.
+
+  Chapter 14, General Designs 
+   
+    The composition of designs is not supported. We do support regions
+    as designs.
+
+  Chapter 15, Extended Stream Output
+
+    Extended output streams are fully supported.
+
+  Chapter 16, Output Recording
+
+    Output recording is mostly implemented.
+
+    This release ships with a standard-tree-output-record type for the
+    first time. The tree output record type speeds up point- and
+    region-based queries, but slows down insertion of output records
+    by a bit.
+
+    make-design-from-output-record is not implemented. *Note*: the
+    coordinates in output records are relative to the stream. This is
+    in conformance with the Spec, but not necessarily compatible with
+    other CLIM implementations.
+
+  Chapter 17, Table Formatting
+
+    Table formatting is completely implemented.
+
+  Chapter 18, Graph Formatting
+
+    Graph formatting is fully implemented. The :hash-table argument
+    to format-graph-from-roots is ignored.
+
+    Support for a :dag graph type was added, as was support for
+    vertically oriented graphs and support for the :arc-drawer
+    argument to format-graph-from-roots.
+
+  Chapter 19, Bordered Output 
+
+    Bordered output is fully supported.
+
+  Chapter 20, Text Formatting
+    
+    With the exception of the :after-line-break-initially argument to
+    filling-output, this chapter is fully implemented.
+
+  Chapter 21 Incremental Redisplay
+
+    The updating-output interface to incremental redisplay is
+    implemented. McCLIM makes no effort to move i.e., bitblit, output
+    records; they are always erased and redrawn if their position
+    changes. This is much more compatible with support for partial
+    transparency. The :x, :y, :parent-x and :parent-y arguments to
+    redisplay-output-record are ignored. McCLIM follows the spirit of
+    21.3 "Incremental Redisplay Protocol", but we have not tried very
+    hard to implement the vague description in the
+    Spec. augment-draw-set, note-output-record-child-changed and
+    propagate-output-record-changes-p are not implemented.
+
+    Incremental redisplay in McCLIM may still suffer from performance
+    problems, despite the presence of spatially-organized compound
+    output record types.
+
+  Chapter 22, Extended Stream Input
+
+    The implementation of extended input streams is quite
+    complete. (setf* pointer-position) is not implemented. There is no
+    stream numeric argument, so that slot of the accelerator-gesture
+    condition is always 1.
+
+  Chapter 23 Presentation Types
+
+    Most of the literal specification of this chapter is
+    implemented. Specific accept and present presentation methods for some
+    types are not implemented, so the default method may be
+    surprising.
+
+    The output record bounding rectangle is always used or highlighting
+    and pointer testing.
+
+    presentation-default-processor is not implemented.
+
+    The presentation method mechanism supports all method
+    combinations. The body of a presentation method is surrounded
+    with a block of the same name as the presentation method, not just
+    the magic internal name. The method by which presentation type
+    parameters and options are decoded for the method bodies is a bit
+    different from real CLIM. In particular, you cannot refer to the
+    type parameters and options in the lambda list of the method.
+
+    The NIL value of presentation-single-box is now supported.
+
+    Presentation type histories are now partially implemented. The
+    gesture C-M-y should recall the last entered presentation.
+
+    define-drag-and-drop-translator is now implemented.
+    
+  Chapter 24 Input Editing and Completion Facilities
+
+    with-input-editor-typeout is not implemented.
+
+    The noise strings produced by input-editor-format and the strings
+    produced by presentation-replace-input are not read-only. This
+    could lead to interesting "issues" if the user edits them.
+
+    Only a few of the suggested editing commands are implemented. An
+    additional command that is implemented is control-meta-B, which
+    drops into the debugger. add-input-editor-command is not
+    implemented.
+
+    with-accept-help is not implemented.
+
+  Chapter 25 Menu Facilities
+
+    The protocol is implemented, but McCLIM doesn't use it to draw
+    command table menus.
+
+  Chapter 26 Dialog Facilities
+
+    McCLIM contains a basic, somewhat buggy implementation of
+    accepting-values. There is little user feedback as to what has
+    been accepted in a dialog. The user has to press the "OK" button
+    to exit the dialog; there are no short cuts. There are no special
+    accept-present-default methods for member or subset presentation
+    types. Command-buttons are not implemented. There is no
+    gadget-based implementation of accepting-values.
+
+    The internal structure of accepting-values should be "culturally
+    compatible" with real CLIM; if you have some spiffy hack, check
+    the source.
+
+    :own-window is now supported in accepting-values.
+
+  Chapter 27 Command Processing
+
+    command-line-complete-input is not implemented (the
+    functionality does exist in the accept method for command-name).
+
+    display-command-table-menu and menu-choose-command-from-table are
+    not implemented. Menu-command-parser is not implemented, though the
+    functionality obviously is. Nothing is done about partial menu
+    commands. There is no support for numeric arguments.
+
+    The command-or-form presentation type is not implemented.
+
+
+  Chapter 28 Application Frames
+
+    raise-frame, bury-frame and notify-user are not implemented.
+
+    :accept-values panes are not implemented.
+
+    frame-maintain-presentation-histories is not implemented.
+
+    frame-drag-and-drop-feedback and frame-drag-and-drop-highlighting
+    are now implemented.
+
+    execute-frame-command ignores the possibility that frame and the
+    current frame might be different.
+
+    display-command-menu isn't implemented.
+
+  Chapter 29 Panes
+
+    Due to the way the space-allocation protocol is implemented, it is
+    not easy to create application-specific layout-panes. Client code
+    needs to know about :AROUND methods to compose-space, but they are
+    not mentioned in the spec.
+  
+    restraining-pane is partially implemented.
+
+  Chapter 30 Gadgets
+
+    This chapter is implemented.
+
+    with-output-as-gadget is not quite working yet, but it was
+    improved since the last release.

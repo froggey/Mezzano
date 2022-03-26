@@ -1,0 +1,130 @@
+(:author "Nathan Froyd"
+ :email "froydnj@gmail.com"
+ :package "nibbles"
+ :cl-package "NIBBLES"
+ :version #.(asdf:component-version (asdf:find-system :nibbles))
+ :homepage "http://www.method-combination.net/lisp/nibbles/"
+ :download "http://www.method-combination.net/lisp/files/nibbles.tar.gz")
+
+(:h1 ${package})
+
+(:p ${package} " is a library for accessing multibyte integers from
+octet arrays and streams.  While such accessors are straightforward to
+write, " ${package} " aims to centralize such facilities and also
+provide optimizations for them when appropriate.")
+
+(:h2 "Installation")
+
+(:p ${package} " can be downloaded at " (:url ${download} ${download})
+".  The latest version is " ${version} ".")
+
+(:p "It comes with an ASDF system definition, so " `(ASDF:OOS
+'ASDF:LOAD-OP :NIBBLES)` " should be all that you need to get started.")
+
+(:h2 "License")
+
+(:p ${package} " is released under a MIT-like license; you can do pretty
+much anything you want to with the code except claim that you wrote
+it.")
+
+(:h2 "Integer array accessors")
+
+(:describe :accessor (nibbles:ub16ref/le value)
+                     (nibbles:ub32ref/le value)
+                     (nibbles:ub64ref/le value))
+
+(:p "This family of functions accesses an unsigned 16-bit, 32-bit or
+64-bit value stored in little-endian order starting at " 'index' " in "
+'vector' ".  " 'vector' " must be a " `(VECTOR (UNSIGNED-BYTE 8))`
+". These functions are SETFable.  For instance:")
+
+(:pre "CL-USER> (nibbles:ub16ref/le (coerce #(42 53) '(vector (unsigned-byte 8))) 0)
+13610
+CL-USER> (format nil \"~X\" *)
+\"352A\"")
+
+(:describe :accessor (nibbles:ub16ref/be value)
+                     (nibbles:ub32ref/be value)
+                     (nibbles:ub64ref/be value))
+
+(:p "As the above, only the value is accessed in big-endian order.  For instance:")
+
+(:pre "CL-USER> (nibbles:ub16ref/be (coerce #(42 53) '(vector (unsigned-byte 8))) 0)
+10805
+CL-USER> (format nil \"~X\" *)
+\"2A35\"")
+
+(:describe :accessor (nibbles:sb16ref/le value)
+                     (nibbles:sb32ref/le value)
+                     (nibbles:sb64ref/le value))
+
+(:describe :accessor (nibbles:sb16ref/be value)
+                     (nibbles:sb32ref/be value)
+                     (nibbles:sb64ref/be value))
+
+(:p "As the above, only the value accessed is a signed value.  For instance:")
+
+(:pre "CL-USER> (nibbles:sb16ref/be (coerce #(81 92) '(vector (unsigned-byte 8))) 0)
+20828
+CL-USER> (nibbles:sb16ref/be (coerce #(129 135) '(vector (unsigned-byte 8))) 0)
+-32377
+CL-USER> (format nil \"~X ~X\" ** *)
+\"515C -7E79\"
+CL-USER> (nibbles:sb16ref/le (coerce #(81 92) '(vector (unsigned-byte 8))) 0)
+23633
+CL-USER> (nibbles:sb16ref/le (coerce #(129 135) '(vector (unsigned-byte 8))) 0)
+-30847
+CL-USER> (format nil \"~X ~X\" ** *)
+\"5C51 -787F\"")
+
+(:h2 "Stream readers")
+
+(:describe :function (nibbles:read-ub16/le value)
+	   	     (nibbles:read-ub32/le value)
+		     (nibbles:read-ub64/le value))
+
+(:p "This family of functions reads an unsigned 16-bit, 32-bit, or
+64-bit value from " 'stream' " in little-endian order.  " 'stream' "
+must have an element-type of " `(UNSIGNED-BYTE 8)` ".")
+
+(:describe :function (nibbles:read-ub16/be value)
+	   	     (nibbles:read-ub32/be value)
+		     (nibbles:read-ub64/be value))
+
+(:p "As the above, only the value is read in big-endian order.")
+
+(:describe :function (nibbles:read-sb16/le value)
+	   	     (nibbles:read-sb32/le value)
+		     (nibbles:read-sb64/le value))
+(:describe :function (nibbles:read-sb16/be value)
+	   	     (nibbles:read-sb32/be value)
+		     (nibbles:read-sb64/be value))
+
+(:p "As the above, only the value is signed, rather than unsigned.")
+
+(:h2 "Stream writers")
+
+(:describe :function (nibbles:write-ub16/le value)
+	   	     (nibbles:write-ub32/le value)
+		     (nibbles:write-ub64/le value))
+
+(:p "This family of functions writes an unsigned 16-bit, 32-bit, or
+64-bit " 'integer' " to " 'stream' " in little-endian order.  " 'stream' "
+must have an element-type of " `(UNSIGNED-BYTE 8)` ".  The value written
+is returned.")
+
+(:describe :function (nibbles:write-ub16/be value)
+	   	     (nibbles:write-ub32/be value)
+		     (nibbles:write-ub64/be value))
+
+(:p "As the above, only the value is read in big-endian order.")
+
+(:describe :function (nibbles:write-sb16/le value)
+	   	     (nibbles:write-sb32/le value)
+		     (nibbles:write-sb64/le value))
+(:describe :function (nibbles:write-sb16/be value)
+	   	     (nibbles:write-sb32/be value)
+		     (nibbles:write-sb64/be value))
+
+(:p "As the above, only the value is signed, rather than unsigned.")
+

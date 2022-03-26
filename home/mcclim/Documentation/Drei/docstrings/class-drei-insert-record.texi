@@ -1,0 +1,17 @@
+@anchor{Class drei:insert-record}
+@deftp {Class} {drei:insert-record}
+@tindex drei:insert-record
+Class precedence list: @code{@w{insert-record}, @w{simple-undo-record}, @w{drei-undo-record}, @w{standard-undo-record}, @w{undo-record}, @w{standard-object}, @w{slot-object}, @w{t}}
+
+Slots:
+@itemize
+@item @code{objects} --- initargs: @code{@w{:objects}}
+
+The sequence of objects that are to
+be inserted whenever flip-undo-record is called on an instance of
+insert-record.
+@end itemize
+
+Whenever objects are deleted, the sequence of
+objects is stored in an insert record containing a mark.
+@end deftp

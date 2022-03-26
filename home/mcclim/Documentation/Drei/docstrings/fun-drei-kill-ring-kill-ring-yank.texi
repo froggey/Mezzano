@@ -1,0 +1,9 @@
+@anchor{Generic-Function drei-kill-ring:kill-ring-yank}
+@deffn {Generic Function} {drei-kill-ring:kill-ring-yank} kr &optional reset
+@findex drei-kill-ring:kill-ring-yank
+Returns the vector of objects currently
+pointed to by the cursor.  If @code{reset} is @code{t}, a call to
+@code{reset-yank-position} is called before the object is yanked.  The
+default for reset is NIL.  If the kill ring is empty, a condition
+of type @code{empty-kill-ring} is signalled.
+@end deffn

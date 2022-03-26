@@ -1,0 +1,25 @@
+It is with great pleasure that we announce the release of ASDF 3.2.1. This new release brings increased stability to the 3.2 series with many fixes to small issues since ASDF 3.2.0 from last January. Note that we already have significant changes in the pipeline and are still intending to release a 3.3.0 "in a couple of months".
+
+We urge implementations that are currently bundling previous versions of ASDF to adopt 3.2.1 at their earliest convenience. Release 3.2.1 contains significant bug fixes on multiple platforms and implementations, and does not introduce any incompatibilities on public APIs. It builds on 3.2.0, that did contain cleanups and refactorings that broke some previously undocumented (and sometimes explicitly deprecated) internals. Those systems in Quicklisp that used or abused these internals have been fixed (notably including slime, asdf-system-connections, cffi, iolib, prove, cl-protobufs). Details on bugfixes can be found at https://launchpad.net/asdf and in the discussions in merged branches of https://gitlab.common-lisp.net/asdf/asdf
+
+Notable credits go to Robert P. Goldman for continued testing, François-René Rideau for general coding and fixing a few more bugs than he put in, to Dave Cooper for lending access to a Windows test server, and to Anton Vodonosov for repeatedly testing with cl-test-grid.
+
+Here is the changelog entry for 3.2.1, compared to 3.1.0:
+
+cl-asdf (2:3.2.1-1) unstable; urgency=low
+
+  New release:
+  * source-registry: resolve conflicts in a way compatible with Quicklisp.
+  * Upgrade: make the upgrade logic more robust, especially on CCL.
+  * Require-system: better normalize module vs system names on CMUCL MKCL SBCL.
+  * Logical pathnames: fix bad-system-name warning behavior when using LPNs.
+  * XDG: skip empty entries, for compatibility with Ubuntu
+  * Bundles: numerous fixes for bundles especially so for ECL and MKCL.
+    Don't try to combine .a's as it's not portable; only ever combine but .o's.
+    Getting rid of the *load-system-operation*, now it's always load-op.
+  * launch-program: more fixes, notably for ECL, clasp.
+  * Deprecation: fix issues with the deprecation schedule of some functions.
+  * Test and Release: fixes to the release process and to a few tests.
+  * Documentation: a document describing best practices when using ASDF.
+
+ -- Francois-Rene Rideau <fare@tunes.org>  Sun, 03 Avril 2017 14:49:29 +0100

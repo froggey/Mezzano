@@ -1,0 +1,12 @@
+@anchor{Generic-Function drei-undo:undo}
+@deffn {Generic Function} {drei-undo:undo} undo-tree &optional n
+@findex drei-undo:undo
+Move the current state @code{n} steps up the undo
+tree and call @code{flip-undo-record} on each step.  If the current
+state is at a level less than @code{n}, a @code{no-more-undo} condition is
+signaled and the current state is not moved (and no calls to
+@code{flip-undo-record} are made).
+
+As long as no new record are added to the tree, the undo module
+remembers which branch it was in before a sequence of calls to undo.
+@end deffn

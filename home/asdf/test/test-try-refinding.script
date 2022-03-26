@@ -1,0 +1,82 @@
+;;; -*- Lisp -*-
+
+;;; test retrying finding location of an ASDF system.
+
+(setf *asdf-session* nil)
+
+(in-package asdf-test)
+(defparameter *old-registry* asdf:*central-registry*)
+;;(defparameter *search-table* (hash-table->alist asdf::*source-registry*))
+;;(pprint *search-table*)
+;;(terpri)
+(assert (asdf:find-system "test-asdf/force1"))
+
+(defun clear-caches-and-search ()
+  (setf asdf:*central-registry* nil)
+  (clear-system "test-asdf")
+  (clear-system "test-asdf/force1"))
+
+(DBG "Clearing the caches and finding.")
+(clear-caches-and-search)
+(assert (not (asdf:find-system "test-asdf/force1" nil)))
+(DBG "Correctly failed to find system.")
+(defvar *attempts* 0)
+(assert
+ (with-asdf-session (:override t)
+   (handler-bind
+       ((asdf:missing-component
+         #'(lambda (c)
+             (DBG "Caught MISSING-COMPONENT condition (A)." *attempts*)
+             (if (zerop *attempts*)
+                 (let ((missing (asdf::missing-requires c)))
+                   (incf *attempts*)
+                   (assert (equal missing "test-asdf/force1"))
+                   (setf asdf:*central-registry* *old-registry*)
+                   (invoke-restart 'asdf:retry))
+                 ;; avoid infinite looping
+                 (leave-test 10 "Infinite loop while catching MISSING-COMPONENT")))))
+     (asdf:find-system "test-asdf/force1" t))))
+(assert-equal *attempts* 1)
+
+(DBG "Refinding test successful.")
+
+(DBG "Now trying LOAD-SYSTEM with refinding.")
+(clear-caches-and-search)
+
+(def-test-system test-missing-dependency
+  :depends-on ("test-asdf/force1")
+  :components ((:file "file2")))
+(setf *attempts* 0)
+(with-asdf-session (:override t)
+  (flet ((handle-missing (c)
+           (if (zerop *attempts*)
+               (let ((missing (asdf::missing-requires c)))
+                 (incf *attempts*)
+                 (assert (equal missing "test-asdf/force1"))
+                 (DBG "Trying to reset the central registry and retry.")
+                 (setf asdf:*central-registry* *old-registry*)
+                 (unless (find-restart 'asdf:clear-configuration-and-retry)
+                   (error "Expected CLEAR-CONFIGURATION-AND-RETRY restart not found."))
+                 (DBG "Before invoking restart, CENTRAL-REGISTRY is:"
+                      asdf:*central-registry*)
+                 (invoke-restart 'asdf:clear-configuration-and-retry)
+                 (DBG "After invoking restart, CENTRAL-REGISTRY is:"
+                      asdf:*central-registry*))
+               ;; avoid infinite looping
+               (leave-test "Infinite loop while catching MISSING-COMPONENT" 11))))
+    (handler-bind
+        ((asdf:missing-dependency-of-version
+          #'(lambda (c)
+              ;; Nothing Quicklisp can do to recover from this, so
+              ;; just resignal
+              (error c)))
+         (asdf:missing-dependency
+          #'(lambda (c)
+              (DBG "Catching MISSING-DEPENDENCY condition (B):" *attempts*)
+              (handle-missing c)))
+         (asdf:missing-component
+          #'(lambda (c)
+              (DBG "Catching MISSING-COMPONENT condition (C):" *attempts*)
+              (handle-missing c))))
+      (asdf:load-system "test-missing-dependency"))))
+(assert-equal *attempts* 1)

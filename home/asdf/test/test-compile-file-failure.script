@@ -1,0 +1,18 @@
+;;; -*- Lisp -*-
+(def-test-system test-compile-file-failure
+  :components ((:file "test-compile-file-failure")))
+
+(assert (handler-case
+	    (let ((*compile-file-failure-behaviour* :warn))
+	      (load-system 'test-compile-file-failure :force t)
+	      t)
+          (compile-file-error () nil)))
+
+(reset-session)
+
+(with-expected-failure (#+gcl "GCL failure to report compile-file error")
+  (assert (handler-case
+              (let ((*compile-file-failure-behaviour* :error))
+                (load-system 'test-compile-file-failure :force t)
+                nil)
+            (compile-file-error () t))))

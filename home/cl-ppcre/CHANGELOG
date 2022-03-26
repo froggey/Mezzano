@@ -1,0 +1,400 @@
+Version 2.1.1
+2019-04-07
+Version 2.0.11
+2015-08-26
+Fix for type checks in LispWorks 7 (Martin Simmons)
+
+Version 2.0.10
+2015-05-28
+Add :author/:license/:description fields to .asd files (Hans Huebner)
+Move inlined definitions before they are used. (Stas Boukarev)
+
+Version 2.0.9
+2014-11-28
+Merge branch 'master' of github.com:edicl/cl-ppcre (Hans Huebner)
+Merge pull request #20 from billitch/master (Hans Huebner)
+Typo in CREATE-SCANNER documentation. (Thomas de Grivel)
+
+Version 2.0.8
+2014-11-28
+Update support info (Hans Huebner)
+
+Version 2.0.7
+2014-01-23
+Doc: Update repository location, remove the darcs mirror. (Stas Boukarev)
+
+Version 2.0.6
+2015-01-05
+Fix failing tests and spurious compiler warnings
+
+Version 2.0.5
+2014-01-05
+Fix spurious test failures (Edi Weitz)
+
+Version 2.0.4
+2013-04-13
+Rewrite SEQ without using recursion (Stas Boukarev)
+:property and :invert-property scanning bug fix (Cyrus Harmon)
+Improve documentation (David Lindes)
+
+Version 2.0.3
+2009-10-28
+Use LW:SIMPLE-TEXT-STRING throughout for LispWorks
+
+Version 2.0.2
+2009-09-17
+Fixed typo in chartest.lisp (caught by Peter Seibel)
+Appease CCL (thanks to Hans Hübner)
+
+Version 2.0.1
+2008-09-02
+Fixed faulty declaration (caught by Brent Fulgham)
+
+Version 2.0.0
+2008-07-24
+Added named properties (\p{foo})
+Added Unicode support
+Introduced test functions for character classes
+Added optional test function optimization
+Cleaned up test suite, removed performance cruft
+Removed the various alternative system definitions (too much maintenance work)
+Exported PARSE-STRING
+Changed default value of *USE-BMH-MATCHERS*
+General cleanup
+Lots of documentation additions
+
+Version 1.4.1
+2008-07-03
+Skip non-characters in CREATE-RANGES-FROM-SET
+
+Version 1.4.0
+2008-07-03
+Replaced hash tables with charsets (by Nikodemus Siivola)
+Get rid of duplicates in REGEX-APROPOS(-LIST)
+
+Version 1.3.3
+2008-06-25
+Let the Lisp decide how it wants to enlarge its hash tables
+Fixed anchors for special variables in docs
+Fixed typo in docs (thanks to Jason S. Cornez)
+
+Version 1.3.2
+2007-09-13
+Updated docs and ChangeLog to be really in sync with 1.3.1 changes (thanks to Sébastien Saint-Sevin)
+
+Version 1.3.1
+2007-08-24
+Second return value for REGEX-REPLACE and REGEX-REPLACE-ALL (patch by Matthew Sachs)
+
+Version 1.3.0
+2007-03-24
+Optional support for named registers (patch by Ondrej Svitek)
+
+Version 1.2.19
+2007-01-16
+Fixed behaviour of look-behind in repeated scans (caught by RegexCoach user Hans Jud)
+
+Version 1.2.18
+2006-10-12
+Changed default element type for LispWorks
+Fixed documentation for REGEX-REPLACE-ALL
+
+Version 1.2.17
+2006-10-11
+Fixed bug in DO-SCANS which affected anchors (caught by RegexCoach user Laurent Taupiac)
+Update link for 'man perlre' (thanks to Ricardo Boccato Alves)
+
+Version 1.2.16
+2006-07-16
+Added :ELEMENT-TYPE to REGEX-REPLACE(-ALL)
+
+Version 1.2.15
+2006-07-03
+Added :REGEX tag to parse tree syntax (thanks to Frédéric Jolliton)
+
+Version 1.2.14
+2006-05-24
+Added missing </code> tag in docs (thanks to Wojciech Kaczmarek)
+Fixed IMPORT statement for LW
+
+Version 1.2.13
+2005-12-06
+Fixed bug involving *REAL-START-POS* (caught by "tichy")
+
+Version 1.2.12
+2005-11-01
+REGEX-APROPOS-AUX now also uses :INHERITED
+Fixed typo in parser.lisp (thanks to Derek Peschel)
+Fixed value of *REGEX-CHAR-CODE-LIMIT* in docs and test (thanks to Christophe Rhodes)
+
+Version 1.2.11
+2005-08-01
+Added external format for SBCL in ppcre-tests.lisp (thanks to Christophe Rhodes)
+
+Version 1.2.10
+2005-07-20
+Fixed bug in CHAR-SEARCHER-AUX (caught by Peter Schuller)
+Don't redefine what's already there (for LispWorks)
+
+Version 1.2.9
+2005-06-27
+Hide compiler macros from CCL (thanks to Karsten Poeck)
+
+Version 1.2.8
+2005-06-10
+Change EQ to EQL in REGEX-LENGTH for ANSI conformance and ABCL compatibility (thanks to Peter Graves)
+
+Version 1.2.7
+2005-05-16
+Added lispworks-defsystem.lisp (thanks to Wade Humeniuk)
+Fixed bug in WORD-BOUNDARY-P
+
+Version 1.2.6
+2005-04-13
+Added some DEFGENERICs to appease SBCL (thanks to Alan Shields)
+Removed wrong FTYPE declaration for STR (thanks to Alan Shields)
+
+Version 1.2.5
+2005-03-09
+Customizable optimize qualities (thanks to Damien Kick)
+
+Version 1.2.4
+2005-03-07
+Changed DEBUG optimize quality from 0 to 1
+
+Version 1.2.3
+2005-02-02
+Wrapped WITH-COMPILATION-UNIT around loop in load.lisp
+
+Version 1.2.2
+2005-02-02
+Fixed bug in hash table optimization (introduced in 1.1.0)
+
+Version 1.2.1
+2005-01-25
+There was a wrong read-time conditional in api.lisp, sorry
+
+Version 1.2.0
+2005-01-24
+AllegroCL compatibility mode
+Fixed broken load.lisp file (caught by Jim Prewett and Zach Beane)
+
+Version 1.1.0
+2005-01-23
+Cleaned up load.lisp and cl-ppcre.asd
+Make large hash tables smaller, if possible
+Correct treatment of constant regular expressions in DO-SCANS
+
+Version 1.0.0
+2004-12-22
+Special anniversary release... :)
+
+Version 0.9.4
+2004-12-18
+Fixed bug in NORMALIZE-VAR-LIST (caught by Dave Roberts)
+
+Version 0.9.3
+2004-12-09
+Fixed bug in CREATE-SCANNER-AUX (caught by Allan Ruttenberg and Gary Byers)
+
+Version 0.9.2
+2004-12-06
+More compiler macros (thanks to Allan Ruttenberg)
+
+Version 0.9.1
+2004-11-29
+Shortcuts for REGISTER-GROUPS-BIND and DO-REGISTER-GROUPS (suggested by Alexander Kjeldaas)
+
+Version 0.9.0
+2004-10-14
+Experimental support for "filters"
+Bugfix for standalone regular expressions (ACCUMULATE-START-P wasn't set to NIL)
+
+Version 0.8.1
+2004-09-30
+Patches for Genera 8.5 (thanks to Patrick O'Donnell)
+
+Version 0.8.0
+2004-09-16
+Added parse tree synonyms (thanks to Patrick O'Donnell)
+
+Version 0.7.9
+2004-07-13
+Fixed bug in DO-SCANS (caught by Jan Rychter)
+
+Version 0.7.8
+2004-07-13
+New SIMPLE-CALLS keyword argument for REGEX-REPLACE(-ALL)
+Added environment parameter to compiler macros (thanks to c.l.l article <aczhx5hj.fsf@ccs.neu.edu> by Joe Marshall)
+Added compiler macros for SCAN-TO-STRINGS and REGEX-REPLACE(-ALL) (they somehow got lost)
+
+Version 0.7.7
+2004-05-19
+Fixed bug in NEWLINE-SKIPPER (caught by RegexCoach user Thomas-Paz Hartman)
+Added doc strings for PPCRE-SYNTAX-ERROR and friends (after playing with slime-apropos-package)
+Added hyperdoc support
+
+Version 0.7.6
+2004-04-20
+The closures created by CREATE-BMH-MATCHER now cleanly cope with negative arguments (bug caught by Damien Kick)
+
+Version 0.7.5
+2004-04-19
+Fixed a bug with constant-length repetitions of . (dot) in single-line mode (caught by RegexCoach user Lee Gold)
+
+Version 0.7.4
+2004-02-16
+Fixed wrong call to SIGNAL-PPCRE-SIGNAL-ERROR in lexer.lisp (caught by Peter Graves)
+Added :CL-PPCRE to *FEATURES* (for CL-INTERPOL)
+Compiler macro for SPLIT
+
+Version 0.7.3
+2004-01-28
+Fixed bug in CURRENT-MIN-REST for lookaheads (reported by RegexCoach user Thomas-Paz Hartman)
+Added tests for this bug
+
+Version 0.7.2
+2004-01-27
+Fixed typo (SUBSEQ/NSUBSEQ) in SPLIT (thanks to Alan Ruttenberg)
+Updated docs with respect to ECL (thanks to Alex Mizrahi)
+Mention FreeBSD port in docs
+
+Version 0.7.1
+2003-10-24
+Fixed version numbers in docs (thanks to Sébastien Saint-Sevin)
+
+Version 0.7.0
+2003-10-23
+New macros REGISTER-GROUPS-BIND and DO-REGISTER-GROUPS
+Added SHAREP keyword argument to most API functions and macros
+Mention CL-INTERPOL in docs
+Partial code cleanup (using WITH-UNIQUE-NAMES and REBINDING)
+
+Version 0.6.1
+2003-10-11
+Added EXTERNAL-FORMAT keyword args to CL-PPCRE-TEST:TEST for some CLs (thanks to JP Massar and Scott D. Kalter)
+Fixed bug with REGEX-REPLACE and REGEX-REPLACE-ALL when (= START END) was true
+Added doc sections for quoting problems and backslash confusions (thanks to conversations with Peter Seibel)
+Disable quoting in definition of QUOTE-SECTIONS so you can always safely rebuild CL-PPCRE
+
+Version 0.6.0
+2003-10-07
+CL-PPCRE now has its own condition types
+Added support for Perl's \Q and \E (Peter Seibel convinced me to do it) - see QUOTE-META-CHARS and *ALLOW-QUOTING*
+Added tests for this new feature
+Threaded tests are more verbose now and use only keyword args
+
+Version 0.5.9
+2003-10-03
+Changed "^" optimizations with respect to constant end strings with offsets (bug caught by Yexuan Gui)
+Added tests for this bug
+Removed *.dos files from CL-PPCRE-TEST tests (thanks to JP Massar)
+Added threaded tests for SBCL (thanks to Christophe Rhodes)
+
+Version 0.5.8
+2003-09-17
+Optimizations for ".*" were too optimistic when look-behinds were involved
+Added tests for this bug
+Removed *.dos files
+
+Version 0.5.7
+2003-08-20
+Fixed (CL-PPCRE:SCAN "(.)X$" "ABCX" :START 4) bug (spotted by Tibor Simko)
+Forgot to export *REGEX-CHAR-CODE-LIMIT* in Corman version of DEFPACKAGE
+Removed Emacs local variables from source code (finally...)
+Mention Gentoo in docs
+
+Version 0.5.6
+2003-06-30
+Replaced wrong COPY-REGEX code for WORD-BOUNDARY objects (detected by Max Goldberg)
+Added info about possible TRUENAME problems with ACL in README (thanks to Kevin Layer for providing a patch for this)
+
+Version 0.5.5
+2003-06-09
+Patch for SBCL/Debian compatibility by Kevin Rosenberg
+Simpler version of compiler macro
+Availability through asdf-install
+
+Version 0.5.4
+2003-04-09
+Added DESTRUCTIVE keyword to CREATE-SCANNER
+
+Version 0.5.3
+2003-03-31
+Fixed bug in REGEX-REPLACE (replacement string couldn't contain literal backslash)
+Fixed bug in definition of CHAR-CLASS (since 0.5.0 the hash slot may be NIL - CMUCL's new PCL detects this)
+Micro-optimization in INSERT-CHAR-CLASS-TESTER: CHAR-NOT-GREATERP instead of CHAR-DOWNCASE
+
+Version 0.5.2
+2003-03-28
+Better compiler macro (thanks to Kent M. Pitman)
+
+Version 0.5.1
+2003-03-27
+Removed compiler macro
+
+Version 0.5.0
+2003-03-27
+Lexer, parser, and converter mostly re-written to reduce consing and increase speed
+Get rid of FIX-POS in lexer and parser, "ism" flags are handled after parsing now
+Smaller test suite (again) due to literal embedding of line breaks
+Seperate test files for DOS line endings
+Replaced constant +REGEX-CHAR-CODE-LIMIT+ with special variable *REGEX-CHAR-CODE-LIMIT*
+
+Version 0.4.1
+2003-03-19
+Added compiler macro for SCAN
+Changed test suite to be nicer to Corman Lisp and ECL (see docs for new syntax)
+Incorporated visual feedback (dots) in test suite (thanks to JP Massar)
+Added README file
+Replaced STRING-LIST-TO-SIMPLE-STRING with a much improved version by JP Massar
+
+Version 0.4.0
+2003-02-27
+Added *USE-BMH-MATCHER*
+
+Version 0.3.2
+2003-02-21
+Added load.lisp
+Various minor changes for Corman Lisp compatibility (thanks to Karsten Poeck and JP Massar)
+
+Version 0.3.1
+2003-01-18
+Bugfix in CREATE-SCANNER (didn't work if flags were given and arg was a parse-tree)
+
+Version 0.3.0
+2003-01-12
+Added new features to REGEX-REPLACE and REGEX-REPLACE-ALL
+
+Version 0.2.0
+2003-01-11
+Make SPLIT more Perl-compatible, including new keyword parameters
+
+Version 0.1.4
+2003-01-10
+Don't move "^" and "\A" while iterating with DO-SCANS
+Added link to Debian package
+
+Version 0.1.3
+2002-12-25
+More usable MK:DEFSYSTEM files (courtesy of Hannu Koivisto)
+Fixed typo in documentation
+
+Version 0.1.2
+2002-12-22
+Added version numbers for Debian packaging
+Be friendly to case-sensitive ACL images (courtesy of Kevin Rosenberg and Douglas Crosher)
+"Fixed" two cases where declarations came after docstrings (because of bugs in Corman Lisp and older CMUCL versions)
+Added #-cormanlisp to hide (INCF (THE FIXNUM POS)) from Corman Lisp
+Added file doc/benchmarks.2002-12-22.txt
+
+Version 0.1.1
+2002-12-21
+Added asdf system definitions by Marco Baringer
+Small additions to documentation
+Correct (Emacs) local variables list in closures.lisp and api.lisp
+Added this CHANGELOG
+
+Version 0.1.0
+2002-12-20
+Initial release

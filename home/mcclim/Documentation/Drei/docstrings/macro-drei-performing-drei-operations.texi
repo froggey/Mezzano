@@ -1,0 +1,13 @@
+@anchor{Macro drei:performing-drei-operations}
+@deffn {Macro} {drei:performing-drei-operations} (drei &rest args &key with-undo redisplay) &body body
+@findex drei:performing-drei-operations
+Provide various Drei maintenance services around the
+evaluation of @code{body}. This macro provides a convenient way to
+perform some operations on a Drei, and make sure that they are
+properly reflected in the undo tree, that the Drei is
+redisplayed, the syntax updated, etc. Exactly what is done can be
+controlled via the keyword arguments. Note that if @code{with-undo} is
+false, the *entire* undo history will be cleared after @code{body} has
+been evaluated. This macro expands into a call to
+@code{invoke-performing-drei-operations}.
+@end deffn

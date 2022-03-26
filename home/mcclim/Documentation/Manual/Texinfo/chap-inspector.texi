@@ -1,0 +1,798 @@
+@node Inspector
+@section Inspector
+@cindex inspector
+@cindex Clouseau
+
+``Clouseau'' is used for interactively inspecting Common Lisp objects.
+It lets you look inside objects, inspect slots, disassemble and trace
+functions, view keys and values in hash tables, and quite a few other
+things as well.  It can be extended to aid in debugging of specific
+programs, similar to the way the Lisp printer can be extended with
+@genfun{print-object}.  The inspector can be used as a standalone
+application or embedded into @clim{} applications.
+
+The inspector should be portable, but has only been tested in SBCL, CCL
+and ECL so far.  Some features of the inspector have to use non-standard
+features of implementations and are thus not available in all
+implementations.
+
+@menu
+* Usage::
+* Extending Clouseau::
+* API::
+@end menu
+
+@node Usage
+@subsection Usage
+
+@menu
+* Quick Start::
+* The Inspector Window::
+* Objects and Places::
+* Evaluating Forms::
+* Navigating::
+* Handling of Specific Object Types::
+* Updating the Inspected Object::
+@end menu
+
+@node Quick Start
+@subsubsection Quick Start
+
+To get up and running quickly with Clouseau:
+
+@enumerate
+@item
+Load the @t{clouseau} system with @cl{(ql:quickload
+"clouseau")}.  Alternatively, use @cl{(asdf:load-system "clouseau")},
+potentially after manually loading
+@file{mcclim/Apps/Clouseau/clouseau.asd}.
+
+@item
+Inspect an object with @cl{(@funref{clouseau:inspect} @var{object})} where
+@var{object} can be any Lisp object.  If you use a multithreaded Lisp
+implementation, you can also include the @cl{:new-process} keyword
+argument.  If it is true, then Clouseau is started in a separate thread,
+causing the above call to return immediately.
+
+For example, executing the following code
+
+@lisp
+(defclass foo () ((a :initarg :a) (b :initform #(1 2 3)) (c :initarg :c)))
+(@codefunref{clouseau:inspect} (make-instance 'foo :c (make-instance 'foo)))
+@end lisp
+
+@c screenshot with more going on:
+@c @code
+@c (clouseau:inspect
+@c  (make-array 4 :adjustable t
+@c                :fill-pointer 3
+@c                :initial-contents (list 1.5d0 #'numberp
+@c                                        (list (cons #\a "foo")
+@c                                              (cons :bar #P"baz"))
+@c                                        (alexandria:alist-hash-table
+@c                                         (list (cons #C(1 2)
+@c                                                     (find-class 'class)))))))
+@c @end code
+
+should cause a window similar to the one shown below to open:
+
+@center @image{figures/clouseau-startup-screenshot,8cm,,The initial Clouseau window}
+
+@item
+Interactively explore the object graph:
+@itemize
+@item
+Left-click an object to expand or collapse it.
+
+@item
+Middle-click an object to make it the new root (as in the SLIME
+inspector).
+
+@item
+Right-click an object to open a context menu containing other commands
+applicable to the object.
+@end itemize
+@end enumerate
+
+That's really all you need to know to get started.  The best way to
+learn how to use Clouseau is to start inspecting your own objects.
+
+@node The Inspector Window
+@subsubsection The Inspector Window
+
+After starting the inspector, a window similar to the one shown below
+should appear:
+
+@center @image{figures/clouseau-window-screenshot,8cm,,Parts of the Clouseau window}
+
+The central pane shows the tree of objects currently being inspected.
+In the above example, the root object is an instance of a class named
+@t{FOO} with three slots, @t{A}, @t{B} and @t{C}.  Commands can be
+issued by clicking on objects in the central pane or by typing command
+names into the pane below it.  The bottom pane shows available commands
+for the object under the mouse pointer and how to invoke them.
+
+By default, Clouseau will display a @clim{} interactor pane for typing
+named commands and printing command output.  The keyboard shortcut
+@kbd{C-i} (control key and "i" key pressed at the same time) toggles
+visibility of the interactor pane.
+
+@node Objects and Places
+@subsubsection Objects and Places
+
+Within the currently displayed object tree, each visible object is
+either @emph{collapsed}, meaning it is displayed compactly and objects
+contained in it are not displayed, or @emph{expanded}, meaning that it
+is displayed in more detail and objects immediately contained in it are
+displayed (those objects are initially collapsed but may be expanded).
+The collapsed representation of an object may be something like
+@t{#<STANDARD-CLASS SALAD-MIXIN>}.  To expand collapsed objects,
+left-click on them.  Left-click on them again and they will go back to a
+collapsed form.
+
+@indentedblock
+@b{Note:} When collapsing objects, make sure not to click on one of the
+object's children since that expands the child instead of collapsing the
+object.  The object that would be affected by a mouse click at the
+current pointer position is always indicated by surrounding it with a
+black rectangle that is updated as the pointer moves.  In addition, the
+pointer-documentation pane at the bottom of the window always describes
+the available actions for the object currently under the pointer.
+@end indentedblock
+
+An expanded object is related to its children through ``places''.  For
+example, an instance has a place for each of its slots and a child
+object for each of its @emph{bound} slots.  Other examples of places
+include:
+
+@itemize
+@item
+Elements of lists (including "key" and "value" places in association
+lists)
+
+@item
+Elements of arrays
+
+@item
+"Key" and "value" places in hash-tables
+
+@item
+Fill pointer and length of a vector
+@end itemize
+
+Places are generally visually represented as some kind of bullet or
+arrow symbol.  Examples include: •, ⁃ and →.  Immutable places (such as
+the length of a non-adjustable vector) are displayed in orange, mutable
+places (such as object slots, vector elements or the length of an
+adjustable array) are displayed in purple.
+
+@center @image{figures/clouseau-objects-and-places-screenshot,8cm,,Objects and places}
+
+Places provide their own commands which are to some extent independent
+of the respective objects they contain.  The applicable commands for a
+given place can be seen by right-clicking it.  Some common place
+commands are:
+
+@table @command
+@item Copy Place Value
+This command copies the value of the place into another place.  The
+source place must have a value (i.e. if it is a slot, it must be bound).
+The target place must be mutable and accept the type of object stored in
+the source place.  This command can be invoked by clicking the source
+place and dragging it onto the target place.
+
+@item Swap Place Values
+This command swaps the values of two places.  It is similar to
+@command{Copy Place Value} except that it requires the source place to
+be mutable as well.  It can be invoked via drag-and-drop by holding down
+the control key.
+
+@item Set Place
+This command sets the value of a place to the result of evaluating a
+form.  Only mutable places support this.  The command can be invoked by
+holding down the meta key and left-clicking the place.  It will ask for
+a form to evaluate, evaluate the specified form and attempt to set the
+place to the value produced by evaluating the form. @xref{Evaluating
+Forms}.
+
+@item Remove Place Value
+This command removes the value of a place.  Not all mutable places
+support this.  Here are some examples of places that do:
+
+@itemize
+@item
+If the place corresponds to an instance slot, the slot is made unbound.
+
+@item
+If the slot corresponds to the symbol function of a symbol, the symbol
+function is removed.
+
+@item
+List, array and hash-table elements can be removed as well.
+@end itemize
+
+@item Set Place To True
+Some places have specialized commands.  For example, if the type of a
+place is known to be Boolean and the current value is false, this
+command sets the value of the place to @t{t}.  Similarly, @command{Set
+Place To False} sets the value to @t{nil}.
+
+@item Increment Place
+If the value of a place is an integer @math{x}, this command replaces
+the value of the place with the integer @math{x + 1}.  Similarly,
+@command{Decrement Place} replaces the value with @math{x - 1}.  These
+commands will be particularly handy when it will become possible to bind
+them to mousewheel-up and mousewheel-down gestures.
+@end table
+
+@node Evaluating Forms
+@subsubsection Evaluating Forms
+
+The context menu of every object provides an @command{Evaluate a form in
+this context} command.  When invoked, this commands asks for a form in
+the interactor pane.  Any valid Common Lisp form can be entered.
+
+Generally, the commands @command{Set Place}, @command{Eval With
+Context}, @command{Eval Inspect} and @command{Eval} all read a form and
+evaluate it.  During the evaluation of the form, the special variable
+@cl{cl:**} is bound to the root object.  If the command has been invoked
+on an object or place, @cl{cl:*} is bound to that object or the current
+value of that place.
+
+@node Navigating
+@subsubsection Navigating
+
+There are two ways of navigating inspected objects:
+
+@table @asis
+@item Retaining the current object tree
+
+The basic and most used operation is expanding and collapsing objects
+(@xref{Objects and Places}).  Toggling an object between the collapsed
+and expanded states can be accomplished by clicking the left mouse
+button while the cursor is positioned over any part of the object that
+is not associated with a more specific command.
+
+Some types of objects provide additional display styles.  For example,
+the slots of instances can be displayed as a ``flat'' list or they can
+be grouped according to the superclass containing the direct slot.
+These additional display styles can be selected in the context menu of
+the object.
+
+@item Replacing the object tree
+
+The context menu for every object contains a @command{Select @dots{}}
+command. This command replaces the current tree of inspected objects
+with a new one rooted at the selected object. This is useful to focus on
+an object of interest after ``drilling down'' by expanding a number of
+irrelevant parent objects.
+
+Another way of replacing the object tree is the named command
+@command{Eval Inspect}. Typing @samp{Eval Inspect} in the interactor
+initiates the command which will ask for a form to evaluate and then
+replace the tree of inspected objects with a new one rooted at the
+object that is the result of evaluating the given form.
+@end table
+
+@node Handling of Specific Object Types
+@subsubsection Handling of Specific Object Types
+
+Clouseau can handle numerous object types in different ways. Here are
+some handy features you might miss if you don't know to look for them:
+
+@table @asis
+@item Standard Objects
+
+Standard objects have their slots shown, either grouped by superclass or
+as a ``flat'' list.  The @command{Change Class} command can be used to
+change the class of the inspected instance.
+
+@item Structures
+
+Structures are inspected the same way as standard objects except that
+the @command{Change Class} command is not available.
+
+@item Functions
+
+You can disassemble functions with the @command{Show Disassembly}
+command. If the disassembly is already shown, @command{Hide Disassembly}
+hides it.  Named functions can also be traced and untraced with the
+@command{Trace Function} and @command{Untrace Function} commands.
+
+@item Generic Functions
+
+In addition to everything possible with standard objects and functions,
+you can remove methods from generic functions with the @command{Remove
+Place Value} and @command{Remove all Methods} commands.
+
+@item Symbols
+
+The value, function and type ``slots'' of a symbol are mutable places
+and can thus be manipulated using the usual place
+commands@footnote{Unless the implementation supports package locks and
+the symbol's home package is locked}.
+
+@item Lists and Conses
+
+Lists and conses can be displayed in either the classic format (such as
+@cl{(1 3 (4 . 6) "Hello" 42)}), as a list, or a more graphical cons-cell
+diagram format.  The default is the classic format when collapsed and a
+list when expanded, but this can be toggled with the @command{Conses as
+List} and @command{Conses as Graph} commands.
+
+The graphical cons cell diagram looks like this:
+
+@center @image{figures/clouseau-list-as-graph-screenshot,8cm,,List presented as graph}
+@end table
+
+@node Updating the Inspected Object
+@subsubsection Updating the Inspected Object
+
+Sometimes the contents of inspected objects changes over time.  Consider
+an object corresponding to a rigid body in a dynamics simulation: its
+position, velocity and acceleration usually change with each simulation
+step.  In some cases, it is useful to have such changes automatically
+reflected in the inspector's display of the object.  Assuming the client
+has the ability to call the inspector after relevant changes have
+happened, the following pattern can be used:
+
+@enumerate
+@item
+Call @funref{clouseau:inspect} with @code{:new-process t} and hold on to
+the second return value which is the application frame of the inspector
+instance.
+
+@item
+At a suitable point in time, run @code{(setf (clouseau:root-object
+@var{frame} :run-hook-p t) @var{object})} where @var{object} can be the
+same root object as before.  This call causes the inspector to redisplay
+inspected objects using their state at the time of the call.
+@end enumerate
+
+Here is a complete example:
+
+@lisp
+(let* ((list  (list #C(1 0))) ; mutable object
+       (frame (nth-value 1 (@codefunref{clouseau:inspect}        ; make inspector, keep frame
+                            list :new-process t)))) ; runs in its own thread
+  ;; Now change the object by replacing the car of the cons cell, then
+  ;; notify the inspector. Repeat 30 times a second.
+  (loop :for i :from 0 :by 0.1
+        :do (setf (first list) (complex (* 1 (cos i)) (* 1 (sin i))))
+            (setf (clouseau:root-object frame :run-hook-p t) list)
+            (sleep 1/30)))
+@end lisp
+
+@node Extending Clouseau
+@subsection Extending Clouseau
+
+Sometimes Clouseau's built-in inspection abilities aren't enough, and
+you want to extend it to inspect one of your own classes in a special
+way. Clouseau supports this, and it's fairly simple and straightforward.
+
+@menu
+* Running Example::
+* State and Style of Presented Objects::
+* Defining Inspection Methods for Objects::
+@end menu
+
+@node Running Example
+@subsubsection Running Example
+
+Suppose that you're writing a statistics program and you want to
+specialize the inspector for your application. When you're looking at a
+sample of some characteristic of a population, you want to be able to
+inspect it and see some statistics about it, like the average. This is
+easy to do.
+
+We define a class for a statistical sample. We're keeping this very
+basic, so it'll just contain a list of numbers:
+
+@lisp
+(cl:in-package #:clim-user)
+
+(defclass sample ()
+  ((%data :initarg :data
+          :accessor data
+          :type list
+          :initform '()))
+  (:documentation "A statistical sample"))
+
+(defgeneric sample-size (sample)
+  (:documentation "Return the size of a statistical sample"))
+
+(defmethod sample-size ((sample sample))
+  (length (data sample)))
+@end lisp
+
+The @genfun{print-object} method we define will print samples
+unreadably, just showing their sample size.  For example, a sample with
+nine numbers will print as @t{#<SAMPLE n=9>}.  We create such a sample
+and call it @cl{*my-sample*}:
+
+@lisp
+(defmethod print-object ((object sample) stream)
+  (print-unreadable-object (object stream :type t)
+    (format stream "n=~D" (sample-size object))))
+
+(defparameter *my-sample*
+  (make-instance 'sample
+                 :data '(12.8 3.7 14.9 15.2 13.66
+                         8.97 9.81 7.0 23.092)))
+@end lisp
+
+We need some basic statistics functions. First, we'll do sum:
+
+@lisp
+(defgeneric sum (sample)
+  (:documentation "The sum of all numbers in a statistical
+sample"))
+
+(defmethod sum ((sample sample))
+  (reduce #'+ (data sample)))
+@end lisp
+
+Next, we want to be able to compute the mean. This is just the standard
+average that everyone learns: add up all the numbers and divide by how
+many of them there are. It's written @math{\overline {x}}.
+
+@lisp
+(defgeneric mean (sample)
+  (:documentation "The mean of the numbers in a statistical
+sample"))
+
+(defmethod mean ((sample sample))
+  (/ (sum sample) (sample-size sample)))
+@end lisp
+
+Finally, to be really fancy, we'll throw in a function to compute the
+standard deviation which is a measurement of how spread out or bunched
+together the numbers in the sample are. It's called @math{s}, and it's
+computed like this: @math{s = \sqrt{{1 \over N-1} \sum_{i=1}^N (x_i -
+\overline {x})^2}}.
+
+@lisp
+(defgeneric standard-deviation (sample)
+  (:documentation "Find the standard deviation of the numbers
+in a sample. This measures how spread out they are."))
+
+(defmethod standard-deviation ((sample sample))
+  (let ((mean (mean sample)))
+    (sqrt (/ (loop for x in (data sample)
+                   sum (expt (- x mean) 2))
+             (1- (sample-size sample))))))
+@end lisp
+
+This is all very nice, but when we inspect @cl{*my-sample*} all we see
+is its class and its single slot.  Since we just defined two methods for
+summarizing samples, there's a lot of potential being missed here.  How
+do we take advantage of it?
+
+@node State and Style of Presented Objects
+@subsubsection State and Style of Presented Objects
+
+Let us start by taking a closer look at how the inspector presents
+inspected objects.  Each occurrence of an inspected object on the screen
+@footnote{There can be more than one occurrence.  For example,
+@emph{the} class @class{class} occurs twice in the following
+@class{list}: @cl{(list (find-class 'class) (find-class 'class))}.} has
+an associated @emph{state} which in turn stores a presentation
+@emph{style} for the object.  The state and style control how an object
+is presented and which commands can be applied to it.  Object states and
+thus styles for each occurrence of an object are independent from those
+associated with other occurrences of the same object.
+
+The state characterizes the object and the class of the state can depend
+on the particular object.  State classes are generally subclasses of
+@class{clouseau:inspected-object}.  Objects are presented with
+@genfun{clim:present} using the state as the presentation type.  The
+class of the state therefore determines which commands are applicable to
+a given object.
+
+The style indicates how the object or certain parts of the object should
+@emph{currently} be presented.  The style is stored in the state and can
+be replaced with a different style via certain commands such as
+@command{Expand} and @command{Collapse}.  Clouseau comes with a basic
+hierarchy of styles:
+
+@c Code for creating the figure:
+@c (defmethod clouseau:inspect-object-using-state :around ((object t)
+@c                                                 (state  clouseau:inspected-object)
+@c                                                 (style  (eql :expanded-header))
+@c                                                 (stream t))
+@c   (surrounding-output-with-border (stream :ink (make-contrasting-inks 8 0)
+@c                                           :line-thickness 2)
+@c     (call-next-method)))
+@c
+@c (defmethod clouseau:inspect-object-using-state :around ((object t)
+@c                                                         (state  clouseau:inspected-object)
+@c                                                         (style  (eql :badges))
+@c                                                         (stream t))
+@c   (clouseau:with-preserved-cursor-y (stream)
+@c     (surrounding-output-with-border (stream :ink (make-contrasting-inks 8 1)
+@c                                             :line-thickness 2)
+@c       (call-next-method))))
+@c
+@c (defmethod clouseau:inspect-object-using-state :around ((object t)
+@c                                                         (state  clouseau:inspected-object)
+@c                                                         (style  (eql :object-identity))
+@c                                                         (stream t))
+@c   (surrounding-output-with-border (stream :ink (make-contrasting-inks 8 2)
+@c                                           :line-thickness 2)
+@c     (call-next-method)))
+@c
+@c (defmethod clouseau:inspect-object-using-state :around ((object t)
+@c                                                         (state  clouseau:inspected-object)
+@c                                                         (style  (eql :expanded-body))
+@c                                                         (stream t))
+@c   (surrounding-output-with-border (stream :ink (make-contrasting-inks 8 3)
+@c                                           :line-thickness 2)
+@c     (call-next-method)))
+@c
+@c (clim:with-room-for-graphics (*standard-output*)
+@c   (clim:format-graph-from-root
+@c    '(:style (:collapsed)
+@c             (:expanded (:expanded-header (:badges) (:object-identity))
+@c                        (:expanded-body (:element-list) (:graph))))
+@c    (lambda (object stream)
+@c      (clim:with-drawing-options (stream :ink
+@c                                  (case (first object)
+@c                                    (:expanded-header
+@c                                     (clim:make-contrasting-inks 8 0))
+@c                                    (:badges (clim:make-contrasting-inks 8 1))
+@c                                    (:object-identity
+@c                                     (clim:make-contrasting-inks 8 2))
+@c                                    (:expanded-body
+@c                                     (clim:make-contrasting-inks 8 3))
+@c                                    (t clim:+black+)))
+@c        (princ (first object) stream)))
+@c    #'rest :stream *standard-output*))
+@center @image{figures/clouseau-object-styles,8cm,,Included object presentations styles}
+
+@node Defining Inspection Methods for Objects
+@subsubsection Defining Inspection Methods for Objects
+
+We can define specialized inspection methods for our objects.  To do
+this, we define methods on
+@genfunref{clouseau:inspect-object-using-state} which expects the
+object, the associated state, the current style and a target stream as
+its arguments.  To change how @class{sample} objects are presented in
+the @t{:collapsed} and @t{:expanded} styles, we could define methods
+which are specialized to those styles.  However, because we defined
+@genfun{print-object} for the @class{sample} class to be as informative
+as we want the simple representation to be, we don't need to define a
+@genfunref{clouseau:inspect-object-using-state} method for the
+@t{:collapsed} style.  We will, define methods for the
+@t{:expanded-header} and @t{:expanded-body} styles, though:
+
+@lisp
+(defmethod @codegenfunref{clouseau:inspect-object-using-state}
+    ((object sample)
+     (state  clouseau:inspected-instance)
+     (style  (eql :expanded-header))
+     (stream t))
+  (format stream "SAMPLE n=~D" (sample-size object)))
+
+(defmethod @codegenfunref{clouseau:inspect-object-using-state}
+    ((object sample)
+     (state  clouseau:inspected-instance)
+     (style  (eql :expanded-body))
+     (stream t))
+  (@codemacroref{clouseau:formatting-place} (object 'clouseau:reader-place 'mean
+                              present-place present-object)
+    (write-string "mean" stream) ; label
+    (present-place stream)       ; place indicator for the "slot"
+    (present-object stream))     ; the value of the "slot" is the object
+  (fresh-line stream)
+  (@codemacroref{clouseau:formatting-place} (object 'clouseau:reader-place 'standard-deviation
+                              present-place present-object)
+    (write-string "std. dev." stream) ; label
+    (present-place stream)            ; place indicator for the "slot"
+    (present-object stream)))         ; the value of the "slot" is the object
+@end lisp
+
+With the above methods in place, our object is presented like this for
+the @t{:expanded} style:
+
+@center @image{figures/clouseau-inspect-object-1,5cm}
+
+This is already pretty functional: our statistical summaries are
+presented as a label, an immutable place and a value.  The places and
+values behave as expected with respect to presentation highlighting and
+available commands.
+
+Presenting the place indicators using the usual style would make their
+nature more obvious.  What we also want is something visually more
+closely adapted to our needs.  It would be nice if we could just have a
+table of things like @math{ \overline {x} = 12.125776 } and have them
+come out formatted nicely.  Before we attempt mathematical symbols,
+let's focus on getting the basic layout right.  For this, we can use
+@clim{}'s table formatting, Clouseau's convenience function
+@funref{clouseau:format-place-row} and the @class{clouseau:reader-place}
+place class:
+
+@lisp
+(defmethod @codegenfunref{clouseau:inspect-object-using-state}
+    ((object sample)
+     (state  clouseau:inspected-instance)
+     (style  (eql :expanded-body))
+     (stream t))
+  (formatting-table (stream)
+    (@codefunref{clouseau:format-place-row}
+     stream object 'clouseau:reader-place 'mean :label "mean")
+    (@codefunref{clouseau:format-place-row}
+     stream object 'clouseau:reader-place 'standard-deviation
+     :label "std. dev.")))
+@end lisp
+
+@funref{clouseau:format-place-row} creates one instance of
+@class{clouseau:reader-place} for each of our statistical functions
+@func{mean} and @func{standard-deviation}.  Each of these place
+instances together with the values returned by the respective function
+are then presented as a table row with three cells corresponding to the
+label, the place and the value.
+
+This refinement gets us most of the way towards the goal:
+
+@center @image{figures/clouseau-inspect-object-2,5cm}
+
+Finally, for our amusement and further practice, we'll try to get some
+mathematical symbols --- in this case we'll just need @math{\overline
+{x}}.  We can get this by printing an italic @math{x} and drawing a line
+over it:
+
+@lisp
+(defun xbar (stream)
+  "Draw an x with a bar over it"
+  (with-room-for-graphics (stream)
+    (with-text-face (stream :italic)
+      (princ #\x stream)
+      (draw-line* stream 0 0 (text-size stream #\x) 0))))
+
+(defmethod @codegenfunref{clouseau:inspect-object-using-state}
+    ((object sample)
+     (state  clouseau:inspected-instance)
+     (style  (eql :expanded-body))
+     (stream t))
+  (formatting-table (stream)
+    (@codefunref{clouseau:format-place-row}
+     stream object 'clouseau:reader-place 'mean
+     :label #'xbar)
+    (@codefunref{clouseau:format-place-row}
+     stream object 'clouseau:reader-place 'standard-deviation
+     :label #\S :label-style '(:text-face :italic))))
+@end lisp
+
+Finally, to illustrate the use of the @t{:expanded-header} style,
+suppose that we want the @samp{n=9} (or whatever the sample size
+@math{n} equals) part to have an italicized @math{n}:
+easily:
+
+@lisp
+(defmethod @codegenfunref{clouseau:inspect-object-using-state}
+    ((object sample)
+     (state  clouseau:inspected-instance)
+     (style  (eql :expanded-header))
+     (stream t))
+  (clouseau::inspect-class-as-name (class-of object) stream)
+  (write-char #\Space stream)
+  (with-drawing-options (stream :text-family :serif :text-face :italic)
+    (write-char #\n stream))
+  (format stream "=~D" (sample-size object)))
+@end lisp
+
+Our final version looks like this:
+
+@center @image{figures/clouseau-inspect-object-4,5cm}
+
+For more examples of how to extend the inspector, you can look at the
+files in the @file{Apps/Clouseau/src/objects/} directory.
+
+@node API
+@subsection API
+
+The following symbols are exported from the @cl{clouseau} package:
+
+@menu
+* Funtions for Invoking Clouseau::
+* Functions for Extending Clouseau::
+* Other Functions::
+* Deprecated Functions::
+@end menu
+
+@node Funtions for Invoking Clouseau
+@subsubsection Functions for Invoking Clouseau
+
+@include docstrings/fun-clouseau-inspect.texi
+
+@node Functions for Extending Clouseau
+@subsubsection Functions for Extending Clouseau
+
+The following functions and macro can be used to add support for custom
+object types to Clouseau:
+
+@include docstrings/fun-clouseau-inspect-object-using-state.texi
+
+@include docstrings/fun-clouseau-note-object-occurrence.texi
+
+@include docstrings/fun-clouseau-call-without-noting-object-occurrences.texi
+
+@include docstrings/macro-clouseau-without-noting-object-occurrences.texi
+
+@include docstrings/macro-clouseau-formatting-place.texi
+
+@include docstrings/fun-clouseau-format-place-cells.texi
+
+@include docstrings/fun-clouseau-format-place-row.texi
+
+@node Other Functions
+@subsubsection Other Functions
+
+It should normally not be necessary to directly call or define methods
+on the following generic functions:
+
+@include docstrings/fun-clouseau-inspect-place.texi
+
+@include docstrings/fun-clouseau-inspect-object.texi
+
+@node Deprecated Functions
+@subsubsection Deprecated Functions
+
+A previous version of Clouseau provided the following functions and
+macros which are now deprecated:
+
+@deffn {Generic Function} {@symbol{inspect-object-briefly,clouseau}} object pane
+
+A brief version of @genfun{inspect-object}. The output should be short,
+and should try to fit on one line.
+
+@cartouche
+@b{Deprecated}
+
+A method on @genfunref{clouseau:inspect-object-using-state} specialized
+to style @t{(eql :collapsed)} should be used instead
+@end cartouche
+@end deffn
+
+@deffn {Macro} {@symbol{inspector-table,clouseau}} (object pane) header \body body
+
+Present @cl{object} in tabular form on @cl{pane}, with @cl{header}
+evaluated to print a label in a box at the top. @cl{body} should output
+the rows of the table, possibly using @cl{inspector-table-row}.
+
+@cartouche
+@b{Deprecated}
+
+@fmacro{clim:formatting-table} should be used instead.
+@end cartouche
+@end deffn
+
+@deffn {Macro} {@symbol{inspector-table-row,clouseau}} (pane) left right
+
+Output a table row with two items, produced by evaluating @cl{left} and
+@cl{right}, on @cl{pane}. This should be used only within
+@cl{inspector-table}.
+
+When possible, you should try to use this and @cl{inspector-table} for
+consistency, and because they handle quite a bit of effort for you.
+
+@cartouche
+@b{Deprecated}
+
+@funref{clouseau:format-place-row} should be used instead.
+@end cartouche
+@end deffn
+
+@deffn {Generic Function} {@symbol{define-inspector-command,clouseau}} name args &rest body
+
+This is just an inspector-specific version of
+@genfun{define-command}. If you want to define an inspector command for
+some reason, use this.
+
+@cartouche
+@b{Deprecated}
+
+@fmacro{clim:define-command} with @cl{:command-table clouseau:inspector}
+should be used instead.
+@end cartouche
+@end deffn

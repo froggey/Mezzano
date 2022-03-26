@@ -1,0 +1,4 @@
+@anchor{Generic-Function clim:add-output-record}
+@deffn {Generic Function} {@symbol{add-output-record,clim}} child record
+Sets RECORD to be the parent of CHILD.
+@end deffn

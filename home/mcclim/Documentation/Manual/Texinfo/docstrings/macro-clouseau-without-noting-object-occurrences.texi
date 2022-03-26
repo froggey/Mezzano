@@ -1,0 +1,5 @@
+@anchor{Macro clouseau:without-noting-object-occurrences}
+@deffn {Macro} {@symbol{without-noting-object-occurrences,clouseau}} () &body
+Execute @var{body} with @genfunref{clouseau:note-object-occurrence}
+calls devoid of effects.
+@end deffn

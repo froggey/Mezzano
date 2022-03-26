@@ -1,0 +1,646 @@
+(unless (os-unix-p)
+  (leave-test "This test can only be run on UNIX" 0))
+
+(chdir *test-directory*)
+
+#+abcl
+(unless (version-satisfies
+         (second (split-string (implementation-identifier) :separator '(#\-)))
+         "1.4")
+  (leave-test
+   "This test is not meant to be run on versions of ABCL that predate 1.4" 0))
+
+#+clasp
+(leave-test "Clasp does not have a run-program function" 0)
+
+#+cmucl
+(let* ((v (first (uiop:split-string (lisp-implementation-version))))
+       (v-main (subseq v 0 2))
+       (v-sub (subseq v 2 3)))
+  (when (and (= 3 (length v)) ; cannot use length=n-p
+             (every #'digit-char-p v-main)
+             (every #'alpha-char-p v-sub))
+    (unless (or (version-satisfies v-main "22")
+                (and (version-satisfies v-main "21")
+                     (not (string-equal v-sub "a"))))
+      (leave-test
+       "This test is not meant to be run on versions of CMU CL that predate 21B" 0))))
+
+#+mkcl
+(unless (version-satisfies (lisp-implementation-version) "1.1.10")
+  (leave-test
+   "This test is not meant to be run on versions of MKCL that predate 1.1.10" 0))
+
+#-(or abcl allegro clasp clisp clozure cmucl ecl lispworks mkcl sbcl)
+(leave-test "This test has never been run on your lisp and would probably fail" 0)
+
+;;; Helpers
+(defvar *input-file*
+  (subpathname *build-directory*
+               (strcat (implementation-identifier) "-" "input")))
+(defvar *output-file*
+  (subpathname *build-directory*
+               (strcat (implementation-identifier) "-" "output")))
+(defvar *error-output-file*
+  (subpathname *build-directory*
+               (strcat (implementation-identifier) "-" "error-output")))
+
+;;; Test setup and execution
+
+(defvar *suite-number* -1)
+(defvar *test-number*)
+(defvar *suites* nil)
+(defvar *suites-reversed* t)
+(defvar *letters* "abcdefghijklmnopqrstuvwxyz")
+(defvar *number-of-failed-tests* 0)
+(defvar *number-of-skipped-tests* 0)
+(defvar *number-of-unsupported-tests* 0)
+(defvar *number-of-unimplemented-tests* 0)
+
+(defun new-test-suite (label)
+  (incf *suite-number*)
+  (setf *test-number* -1)
+  (push (list (format nil "~a  ~a" *suite-number* label)) *suites*))
+
+(defun push-test (test)
+  (push test (first *suites*)))
+
+(defun run-tests ()
+  (when *suites-reversed*
+    (setf *suites* (reverse (mapcar #'reverse *suites*)))
+    (setf *suites-reversed* nil)
+    (dolist (suite *suites*)
+      (format t "~a~%" (first suite))
+      (dolist (test (cdr suite))
+        (funcall test)
+        (dolist (file (list *input-file* *output-file* *error-output-file*))
+          (delete-file-if-exists file))))))
+
+
+;; Defines a test that is automatically numbered. Within its body, the
+;; following variables are available:
+;;  - output-string, error-string
+;;  - suite-number, test-number, test-letter
+;; The description string str should not contain more than 57 characters
+(defmacro define-test (str &body body)
+  `(progn
+     (incf *test-number*)
+     (push-test
+      (let ((suite-number *suite-number*)
+            (test-number *test-number*)
+            error-status
+            error-description)
+        #'(lambda ()
+            (let* ((test-letter (aref *letters* test-number))
+                   (output-string (format nil "output~a~a"
+                                          suite-number test-number))
+                   (error-string (format nil "error~a~a"
+                                         suite-number test-number)))
+              (declare (ignorable output-string error-string))
+              (format t " ~a ~a~%" test-letter ,str)
+              (block test-case
+                (handler-bind ((parameter-error
+                                #'(lambda (c)
+                                    (declare (ignore c))
+                                    (incf *number-of-unsupported-tests*)
+                                    (setf error-status 'unsupported)
+                                    (return-from test-case)))
+                               (not-implemented-error
+                                #'(lambda (c)
+                                    (declare (ignore c))
+                                    (incf *number-of-unimplemented-tests*)
+                                    (setf error-status 'not-implemented)
+                                    (return-from test-case)))
+                               (test-skipped
+                                #'(lambda (c)
+                                    (incf *number-of-skipped-tests*)
+                                    (setf error-status 'skipped)
+                                    (setf error-description (format nil "~a" c))
+                                    (return-from test-case)))
+                               (test-failure
+                                #'(lambda (c)
+                                    (declare (ignore c))
+                                    (incf *number-of-failed-tests*)
+                                    (setf error-status 'failed)
+                                    (return-from test-case)))
+                               (error
+                                #'(lambda (c)
+                                    (incf *number-of-failed-tests*)
+                                    (setf error-status 'general)
+                                    (setf error-description (format nil "~a" c))
+                                    (return-from test-case))))
+                  ,@body))
+              (case error-status
+                (failed (incf *number-of-failed-tests*))
+                (unsupported (report-result "" "NOT SUPPORTED"))
+                (not-implemented (report-result "" "NOT IMPLEMENTED"))
+                (skipped (report-result "" "SKIPPED")
+                         (format t "   Skipped for the following reason: ~a~%"
+                                 error-description))
+                (general (report-result "" "ERROR")
+                         (format t "   The following error was encountered: ~a~%"
+                                 (string-trim (list #\Space #\  #\Newline)
+                                              error-description))))))))))
+
+(define-condition test-skipped (error)
+  ((reason :initarg :reason))
+  (:report (lambda (condition stream)
+             (format stream "~a" (slot-value condition 'reason)))))
+(defun skip-test (reason)
+  (error 'test-skipped :reason reason))
+
+(define-condition test-failure (error)
+  ())
+
+;;; Testing utilities
+
+(defun file-contains-exactly (filename expected-content)
+  (let ((actual-content (read-file-string filename)))
+    (string= actual-content expected-content)))
+
+(defun report-result (description outcome)
+  (format t "   ~57,1,0,'.a ~a~%" description outcome))
+
+(defun handle-result (description passed-or-not)
+  (unless passed-or-not
+    (report-result description "FAIL")
+    (error 'test-failure)))
+
+(defun check-output (str)
+  (handle-result "output as expected?"
+                 (file-contains-exactly *output-file* str)))
+(defun check-error-output (str)
+  (handle-result "error-output as expected?"
+                 (file-contains-exactly *error-output-file* str)))
+(defun check-strings (str1 str2)
+  (handle-result "received what we sent?"
+                 (string= str1 str2)))
+
+(defun create-file-from-string (name string)
+  (with-open-file (output name :direction :output :if-exists :supersede)
+    (format output string)))
+
+;; Skips the test if terminate-process cannot be called
+(defun my-terminate-process (&rest rest)
+  #+ecl (unless (find-symbol* '#:terminate-process :ext nil)
+          (error 'test-skipped :reason "ext:terminate-process missing"))
+  (apply #'terminate-process rest))
+
+;;; The actual tests
+
+(new-test-suite "run-program/launch-program")
+
+(define-test
+    ":input/:output/:error-output nil (default)"
+    (run-program (format nil "./exiter.sh 0 ~a" output-string)
+                 :input nil :output nil))
+
+(define-test
+    ":error-output :interactive"
+    (run-program (format nil "./exiter.sh 0 ~a" output-string)
+                 :error-output :interactive))
+
+(define-test
+    ":error-output :output"
+    (run-program (format nil "./exiter.sh 0 ~a" output-string)
+                 :error-output :output))
+
+(define-test
+    ":output <file> (file e.)"
+    (progn
+      (create-file-from-string *output-file* "")
+      (run-program (format nil "./exiter.sh 0 ~a" output-string)
+                   :output *output-file*)
+      (check-output (format nil "~a~%" output-string))))
+
+(define-test
+    ":output <file> :error-output <file> (files e.)"
+    (progn
+      (create-file-from-string *output-file* "")
+      (create-file-from-string *error-output-file* "")
+      (run-program (format nil "./exiter.sh 0 ~a ~a"
+                           output-string error-string)
+                   :output *output-file*
+                   :error-output *error-output-file*)
+      (check-output (format nil "~a~%" output-string))
+      (check-error-output (format nil "~a~%" error-string))))
+
+(define-test
+    ":input <file> (file m.) :i-i-d-n-e :error"
+    (progn
+      (delete-file-if-exists *input-file*)
+      (with-expected-failure (t)
+        (run-program "cat" :input *input-file*
+                     :if-input-does-not-exist :error))))
+
+(define-test
+    ":input <file> (file m.) :i-i-d-n-e :create"
+    (progn
+      (delete-file-if-exists *input-file*)
+      (run-program "cat" :input *input-file*
+                   :if-input-does-not-exist :create)))
+
+(define-test
+    ":input <file> (file e.)"
+    (progn
+      (let ((in-string (format nil "A line.~%And another.~%")))
+        (create-file-from-string *input-file* in-string))
+      (run-program "cat" :input *input-file*
+                   :if-input-does-not-exist :create)))
+
+(define-test
+    ":input <file> (as pathname; file e.)"
+    (progn
+      (let ((in-string (format nil "A line.~%And another.~%")))
+        (create-file-from-string *input-file* in-string))
+      (run-program "cat" :input (truename *input-file*)
+                   :if-input-does-not-exist :create)))
+
+(define-test
+    ":input <file> :output <file> (files e.) :i-o-e :supersede"
+    (let ((in-string (format nil "A line.~%And another.~%")))
+      (create-file-from-string *input-file* in-string)
+      (create-file-from-string *output-file* "")
+      (run-program "cat" :input *input-file* :output *output-file*)
+      (check-output in-string)))
+
+(define-test
+    ":input <file> :output <file> (files e.) :i-o-e :error"
+    (progn
+      (let ((in-string1 (format nil "A line.~%"))
+            (in-string2 (format nil "And another.~%")))
+        (delete-file-if-exists *output-file*)
+        (create-file-from-string *input-file* in-string1)
+        (run-program "cat" :input *input-file*
+                     :output *output-file*)
+        (create-file-from-string *input-file* in-string2)
+        (with-expected-failure (t)
+          (run-program "cat" :input *input-file*
+                       :output *output-file* :if-output-exists :error))
+        (check-output in-string1))))
+
+(define-test
+    ":input <file> :output <file> (files e.) :i-o-e :append"
+    (progn
+      (let ((in-string1 (format nil "A line.~%"))
+            (in-string2 (format nil "And another.~%")))
+        (delete-file-if-exists *output-file*)
+        (create-file-from-string *input-file* in-string1)
+        (run-program "cat" :input *input-file*
+                     :output *output-file*)
+        (create-file-from-string *input-file* in-string2)
+        (run-program "cat" :input *input-file*
+                     :output *output-file*
+                     :if-output-exists :append)
+        (check-output (concatenate 'string in-string1 in-string2)))))
+
+(define-test
+    ":input <file> :output <file> (files e./m.) :i-o-e :supersede"
+    (let ((in-string (format nil "A line.~%And another.~%")))
+      (create-file-from-string *input-file* in-string)
+      (delete-file-if-exists *output-file*)
+      (run-program "cat" :input *input-file*
+                   :output *output-file*)
+      (check-output in-string)))
+
+(define-test
+    ":input <file> :error-output <file> (files e.), :i-e-o-e :error"
+    (progn
+      (let ((in-string1 (format nil "A line.~%"))
+            (in-string2 (format nil "And another.~%")))
+        (delete-file-if-exists *output-file*)
+        (create-file-from-string *input-file* in-string1)
+        (run-program "./cat-to-stderr.sh" :input *input-file*
+                     :error-output *error-output-file*)
+        (create-file-from-string *input-file* in-string2)
+        (with-expected-failure (t)
+          (run-program "./cat-to-stderr.sh" :input *input-file*
+                       :error-output *error-output-file*
+                       :if-error-output-exists :error))
+        (check-error-output in-string1))))
+
+(define-test
+    ":input <file> :error-output <file> (files e.), :i-e-o-e :append"
+    (progn
+      (let ((in-string1 (format nil "A line.~%"))
+            (in-string2 (format nil "And another.~%")))
+        (delete-file-if-exists *output-file*)
+        (create-file-from-string *input-file* in-string1)
+        (run-program "./cat-to-stderr.sh" :input *input-file*
+                     :error-output *error-output-file*)
+        (create-file-from-string *input-file* in-string2)
+        (run-program "./cat-to-stderr.sh" :input *input-file*
+                     :error-output *error-output-file*
+                     :if-error-output-exists :append)
+        (check-error-output (concatenate 'string in-string1 in-string2)))))
+
+(define-test
+    ":output <fstream> :error-output <fstream>"
+    (progn
+      (with-open-file (output *output-file* :direction :output
+                              :if-exists :supersede
+                              #+clozure :sharing #+clozure :lock)
+        (with-open-file (error-output *error-output-file* :direction :output
+                                      :if-exists :supersede
+                                      #+clozure :sharing #+clozure :lock)
+          (run-program (format nil "./exiter.sh 0 ~a ~a"
+                               output-string error-string)
+                       :output output :error-output error-output)))
+      (check-output (format nil "~a~%" output-string))
+      (check-error-output (format nil "~a~%" error-string))))
+
+(define-test
+    ":input <file> :output <sstream>"
+    (let ((in-string (format nil "A line.~%And another.~%")))
+      (create-file-from-string *input-file* in-string)
+      (with-output-to-string (out-stream)
+        (run-program "cat" :input *input-file* :output out-stream)
+        (check-strings in-string (get-output-stream-string out-stream)))))
+
+(define-test
+    ":input <sstream> :output <sstream>"
+    (let ((in-string (format nil "A line.~%And another.~%")))
+      (with-output-to-string (out-stream nil)
+        (with-input-from-string (in-stream in-string)
+          (run-program "cat" :input in-stream :output out-stream))
+        (check-strings in-string (get-output-stream-string out-stream)))))
+
+(define-test
+    ":input <file> :output :stream :wait nil"
+    (let ((in-string (format nil "A line.~%And another.~%")))
+      (with-open-file (input *input-file* :direction :output
+                             :if-exists :supersede)
+        (format input in-string))
+      (let* ((process (launch-program "cat" :input *input-file*
+                                       :output :stream))
+             (output (process-info-output process))
+             (out-string (make-string (length in-string))))
+        (wait-process process)
+        (read-sequence out-string output)
+        (check-strings in-string out-string)
+        (close-streams process))))
+
+(defvar *dynamic-input*)
+
+(define-test
+    ":input <fstream-synonym> :output <file>"
+    (let ((in-string (format nil "A line.~%And another.~%")))
+      (with-open-file (input *input-file* :direction :output
+                             :if-exists :supersede)
+        (format input in-string))
+      (create-file-from-string *output-file* "")
+      (with-open-file (input *input-file* :direction :input
+                             :if-does-not-exist :error)
+        (let* ((*dynamic-input* input)
+               (input-synonym (make-synonym-stream '*dynamic-input*)))
+          (run-program "cat"
+                       :input input-synonym
+                       :output *output-file*))
+        (check-output in-string))))
+
+(define-test
+    ":input <sstream-synonym> :output <file>"
+    (progn
+      (create-file-from-string *output-file* "")
+      (let ((in-string (format nil "A line.~%And another.~%")))
+        (with-input-from-string (input in-string)
+          (let* ((*dynamic-input* input)
+                 (input-synonym (make-synonym-stream '*dynamic-input*)))
+            (run-program "cat"
+                         :input input-synonym
+                         :output *output-file*)))
+        (check-output in-string))))
+
+(define-test
+    ":directory"
+    (let* ((in-string (format nil "A line.~%And another.~%"))
+           (temporary-directory
+            (subpathname *build-directory*
+                         (format nil "test-run-program-unix/~a"
+                                 (implementation-identifier))
+                         :type :directory))
+           (relative-filename "input")
+           (temporary-file (subpathname temporary-directory relative-filename)))
+      (ensure-directories-exist temporary-directory)
+      (create-file-from-string temporary-file in-string)
+
+      (delete-file-if-exists *output-file*)
+      (run-program (format nil "cat ~a" relative-filename)
+                   :output *output-file* :directory temporary-directory)
+      (check-output in-string)))
+
+(new-test-suite "process-info-pid")
+
+(define-test
+    "basic functionality"
+    (let* ((process-info (launch-program "./sleeper.sh 12 1"))
+           (pid (process-info-pid process-info)))
+      (handle-result "obtainable and plausible?"
+                     (and (numberp pid) (plusp pid)))
+      (wait-process process-info)))
+
+(new-test-suite "wait-process")
+
+(define-test
+    "exit code after exit: synchronous"
+    (let ((exit-code (nth-value 2 (run-program "./exiter.sh 12"
+                                               :ignore-error-status t))))
+      (handle-result "exit code matches?" (equal 12 exit-code))))
+
+(define-test
+    "exit code after exit: asynchronous (repeated)"
+    (let ((process-info (launch-program "./sleeper.sh 12 1")))
+      (handle-result "exit code matches?"
+                     (equal 12 (wait-process process-info)))
+      (handle-result "exit code matches? (no. 2)"
+                     (equal 12 (wait-process process-info)))))
+
+(define-test
+    "exit code after signal: synchronous"
+    #+(and lispworks (not lispworks7+))
+    (skip-test "Known to fail")
+    (let ((exit-code (nth-value 2 (run-program "./killer.sh"
+                                               :ignore-error-status t))))
+      (handle-result "exit code matches?" (equal (+ 128 15) exit-code))))
+
+(define-test
+    "exit code after signal: asynchronous (repeated)"
+    #+(and lispworks (not lispworks7+))
+    (skip-test "Known to fail")
+    (let ((process-info (launch-program "./killer.sh")))
+      (handle-result "exit code matches?"
+                     (equal (+ 128 15) (wait-process process-info)))
+      (handle-result "exit code matches? (no. 2)"
+                     (equal (+ 128 15) (wait-process process-info)))))
+
+(new-test-suite "process-alive-p / terminate-process")
+
+(define-test
+    "not alive (we slept)"
+    (let ((process-info (launch-program "./sleeper.sh 12 1")))
+      (handle-result "alive?"
+                     (process-alive-p process-info))
+      (sleep 2)
+      (handle-result "dead?"
+                     (not (process-alive-p process-info)))
+      (wait-process process-info)))
+
+
+(define-test
+    "not alive (we waited)"
+    (let ((process-info (launch-program "./sleeper.sh 12 1")))
+      (handle-result "alive?"
+                     (process-alive-p process-info))
+      (wait-process process-info)
+      (handle-result "dead?"
+                     (not (process-alive-p
+                           process-info)))))
+
+(define-test
+    "not alive (we terminated it)"
+    (let ((process-info (launch-program "./sleeper.sh 12 2")))
+      (handle-result "alive?"
+                     (process-alive-p process-info))
+      (my-terminate-process process-info :urgent t)
+      (sleep 1)
+      (handle-result "dead?"
+                     (not (process-alive-p process-info)))
+      (wait-process process-info)))
+
+(define-test
+    "not alive (we terminated it repeatedly)"
+    (let ((process-info (launch-program "./sleeper.sh 12 3")))
+      (handle-result "alive?"
+                     (process-alive-p process-info))
+      (my-terminate-process process-info :urgent t)
+      (sleep 1)
+      (my-terminate-process process-info :urgent t)
+      (sleep 1)
+      (handle-result "dead?"
+                     (not (process-alive-p process-info)))
+      (wait-process process-info)))
+
+(define-test
+    "multiple processes: proper exit sequence"
+    (let ((process-info1 (launch-program "./sleeper.sh 12 1"))
+          (process-info2 (launch-program "./sleeper.sh 12 2")))
+      (handle-result "#1 alive?"
+                     (process-alive-p process-info1))
+      (handle-result "#2 alive?"
+                     (process-alive-p process-info2))
+      (wait-process process-info1)
+      (handle-result "#1 dead?"
+                     (not (process-alive-p
+                           process-info1)))
+      (handle-result "#2 still alive?"
+                     (process-alive-p process-info2))
+      (wait-process process-info2)
+      (handle-result "#1 still dead?"
+                     (not (process-alive-p
+                           process-info1)))
+      (handle-result "#2 dead?"
+                     (not (process-alive-p
+                           process-info2)))))
+
+(new-test-suite "%process-status / terminate-process")
+
+(defun process-status (process-info)
+  (uiop/launch-program::%process-status process-info))
+
+(define-test
+    ":exited (we slept; repeated query)"
+    (let* ((process-info (launch-program "./sleeper.sh 12 1"))
+           (status (process-status process-info)))
+      (handle-result "running?" (equal :running status))
+      (sleep 2)
+      (multiple-value-bind (status exit-code)
+          (process-status process-info)
+        (handle-result "exited?" (equal :exited status))
+        (handle-result "proper exit status?" (equal 12 exit-code)))
+      (multiple-value-bind (status exit-code)
+          (process-status process-info)
+        (handle-result "exited? (no. 2)" (equal :exited status))
+        (handle-result "proper exit status? (no. 2)" (equal 12 exit-code)))
+      (wait-process process-info)))
+
+(define-test
+    ":exited/:signaled (it killed itself; repeated query)"
+    #+(and lispworks (not lispworks7+))
+    (skip-test "Known to fail")
+    (let* ((process-info (launch-program "./killer.sh")))
+      (sleep 1)
+      (multiple-value-bind (status code)
+          (process-status process-info)
+        (handle-result "exited or signaled?"
+                       (member status '(:exited :signaled)))
+        (handle-result "signal/exit code as expected?"
+                       (or (and (eq status :exited) (eql code 143))
+                           (and (eq status :signaled) (eql code 15)))))
+      (multiple-value-bind (status code)
+          (process-status process-info)
+        (handle-result "exited or signaled? (no. 2)"
+                       (member status '(:exited :signaled)))
+        (handle-result "signal/exit code as expected? (no. 2)"
+                       (or (and (eq status :exited) (eql code 143))
+                           (and (eq status :signaled) (eql code 15)))))
+      (wait-process process-info)))
+
+(define-test
+    ":exited (it exited >128; repeated query)"
+    (let* ((process-info (launch-program "./killercontainer.sh")))
+      (sleep 1)
+      (multiple-value-bind (status code)
+          (process-status process-info)
+        (handle-result "exited?" (eq status :exited))
+        (handle-result "proper exit status?" (eql code (+ 128 15))))
+      (multiple-value-bind (status code)
+          (process-status process-info)
+        (handle-result "exited (no. 2)?" (eq status :exited))
+        (handle-result "proper exit status? (no. 2)?" (eql code (+ 128 15))))
+      (wait-process process-info)))
+
+(define-test
+    ":signaled (we terminated it; repeated query)"
+    #+(and lispworks (not lispworks7+))
+    (skip-test "Known to fail")
+    (let* ((process-info (launch-program "./sleeper.sh 12 2"))
+           (status (process-status process-info)))
+      (handle-result "running?" (equal :running status))
+      (my-terminate-process process-info :urgent t)
+      (sleep 1)
+      (multiple-value-bind (status code)
+          (process-status process-info)
+        (handle-result "signaled?" (eq status :signaled))
+        (handle-result "signal as expected?" (member code '(9 15))))
+      (multiple-value-bind (status code)
+          (process-status process-info)
+        (handle-result "signaled (no. 2)?" (eq status :signaled))
+        (handle-result "signal as expected (no. 2)?" (member code '(9 15))))
+      (wait-process process-info)))
+
+(fresh-line)
+(run-tests)
+
+(write-line "")
+(when (plusp *number-of-failed-tests*)
+  (format t "~2@a sub-tests failed.~%" *number-of-failed-tests*))
+(when (plusp *number-of-skipped-tests*)
+  (format t "~2@a sub-tests skipped because of known errors.~%"
+          *number-of-skipped-tests*))
+(when (plusp *number-of-unsupported-tests*)
+  (format t "~2@a sub-tests could not be run on this platform (not supported).~%"
+          *number-of-unsupported-tests*))
+(when (plusp *number-of-unimplemented-tests*)
+  (format t "~2@a sub-tests could not be run on this platform (not implemented).~%"
+          *number-of-unimplemented-tests*))
+
+(when (plusp *number-of-failed-tests*)
+  (format *error-output*
+          "Exiting with non-zero code because of unexpected test failures.~%")
+  (exit-lisp 1))
+
+(exit-lisp 0)
+
+;; Local Variables:
+;; mode:common-lisp
+;; End:

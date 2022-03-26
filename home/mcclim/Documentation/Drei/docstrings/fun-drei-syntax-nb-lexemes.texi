@@ -1,0 +1,5 @@
+@anchor{Generic-Function drei-syntax:nb-lexemes}
+@deffn {Generic Function} {drei-syntax:nb-lexemes} lexer
+@findex drei-syntax:nb-lexemes
+Return the number of lexemes in the lexer.
+@end deffn

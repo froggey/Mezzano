@@ -1,0 +1,3 @@
+To use this package, in your Common Lisp program, invoke:
+  (require 'cl-jpeg)
+to load the compiled code.

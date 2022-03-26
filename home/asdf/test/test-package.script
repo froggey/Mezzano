@@ -1,0 +1,9 @@
+;;; -*- Lisp -*-
+;;; Testing that defclass module doesn't interfere with use of :module in defsystem.
+
+(in-package :cl-user)
+
+(defun module () 1)
+(asdf::load-asd (asdf-test:test-source "test-package.asd"))
+(defclass module () ())
+(asdf::load-asd (asdf-test:test-source "test-package.asd"))

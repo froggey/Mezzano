@@ -1,0 +1,5 @@
+(in-package :test-package)
+(assert *file1*)
+(defparameter *file2* t)
+(defvar *f2c* 0)
+(incf *f2c*)

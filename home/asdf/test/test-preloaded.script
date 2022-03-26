@@ -1,0 +1,35 @@
+;;; -*- Lisp -*-
+(in-package :asdf-test)
+
+(reset-session)
+
+(DBG "Consider a system that does not exist. Loading it fails.")
+(assert (null (find-system :this-system-does-not-exist nil)))
+(errors missing-component (load-system :this-system-does-not-exist))
+
+(DBG "Now let's register it as preloaded. Loading it will work!")
+(register-preloaded-system :this-system-does-not-exist :version "3.14")
+;; Eagerly registered since 3.1.7.20. See gitlab merge request 13 for the full story.
+(assert (registered-system :this-system-does-not-exist))
+(load-system :this-system-does-not-exist) ;; We can load it indeed, though it's a NOP.
+
+
+(DBG "Now let's load a simple system. It should create a package.")
+(load-system :test-asdf/1)
+(assert (find-package :test-package))
+
+(DBG "Destroy the package, clear the system and load it again. The package should be back.")
+(delete-package :test-package) (clear-system :test-asdf/1)
+(load-system :test-asdf/1)
+(assert (find-package :test-package))
+
+(DBG "Destroy the package, clear the system, and register it as immutable. Try loading it again.")
+(DBG "The package should NOT be back, because it's immutable thus it's NOT going to be loaded.")
+(delete-package :test-package) (clear-system :test-asdf/1)
+(assert (null (registered-system :test-asdf/1))) ;; not registered as loaded
+(register-immutable-system :test-asdf/1)
+(assert (registered-system :test-asdf/1)) ;; now it's registered as loaded
+(load-system :test-asdf/1)
+(assert (registered-system :test-asdf/1)) ;; and it is "loaded" indeed!
+(assert (null (find-package :test-package))) ;; but the source code wasn't loaded
+

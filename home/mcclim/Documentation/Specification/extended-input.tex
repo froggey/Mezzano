@@ -1,0 +1,754 @@
+% -*- Mode: LaTeX; Package: CLIM-USER -*-
+
+\chapter {Extended Stream Input}
+\label {extended-input}
+
+CLIM provides a stream-oriented input layer that is implemented on top of the
+sheet input architecture.  The basic CLIM input stream protocol is based on the
+character input stream protocol proposal submitted to the ANSI Common Lisp
+committee by David Gray.  This proposal was not approved by the committee, but
+has been implemented by most Lisp vendors.
+
+\section {Basic Input Streams}
+
+CLIM provides an implementation of the basic input stream facilities (described
+in more detail in Appendix~\ref{gray-streams}), either by directly using the
+underlying Lisp implementation, or by implementing the facilities itself.
+
+\Defclass {standard-input-stream}
+
+This class provides an implementation of the CLIM's basic input stream protocol
+based on CLIM's input kernel.  It defines a \cl{handle-event} method for
+keystroke events and queues the resulting characters in a per-stream input
+buffer.
+\Mutable
+
+\Defgeneric {stream-read-char} {stream}
+
+Returns the next character available in the \term{input stream} \arg{stream}, or
+\cl{:eof} if the stream is at end-of-file.  If no character is available this
+function will wait until one becomes available.
+
+\Defgeneric {stream-read-char-no-hang} {stream}
+
+Like \cl{stream-read-char}, except that if no character is available the
+function returns \term{false}.
+
+\Defgeneric {stream-unread-char} {stream character}
+
+Places the character \arg{character} back into the \term{input stream}
+\arg{stream}'s input buffer.  The next call to \cl{read-char} on \arg{stream}
+will return the unread character.  The character supplied must be the most
+recent character read from the stream.
+
+\Defgeneric {stream-peek-char} {stream}
+
+Returns the next character available in the \term{input stream} \arg{stream}.
+The character is not removed from the input buffer.  Thus, the same character
+will be returned by a subsequent call to \cl{stream-read-char}.
+
+\Defgeneric {stream-listen} {stream}
+
+Returns \term{true} if there is input available on the \term{input stream}
+\arg{stream}, \term{false} if not.
+
+\Defgeneric {stream-read-line} {stream}
+
+Reads and returns a string containing a line of text from the \term{input
+stream} \arg{stream}, delimited by the \verb+#\Newline+ character.
+
+\Defgeneric {stream-clear-input} {stream}
+
+Clears any buffered input associated with the \term{input stream} \arg{stream},
+and returns \term{false}.
+
+
+\section {Extended Input Streams}
+
+In addition to the basic input stream protocol, CLIM defines an extended input
+stream protocol.  This protocol extends the stream model to allow manipulation
+of non-character user gestures, such as pointer button presses.  The extended
+input protocol provides the programmer with more control over input processing,
+including the options of specifying input wait timeouts and auxiliary input test
+functions.
+
+\Defprotoclass {extended-input-stream}
+
+The protocol class for CLIM extended input streams.  This is a subclass of
+\cl{input-stream}.
+\IfYouWantClass {an} {extended input stream} {extended-input-stream}
+
+\Defpredicate {extended-input-stream-p} {object}
+
+Returns \term{true} if \arg{object} is a CLIM \term{extended input stream},
+otherwise returns \term{false}.
+
+\definitarg {:input-buffer}
+\definitarg {:pointer}
+\Definitarg {:text-cursor}
+
+All subclasses of \cl{extended-input-stream} must handle these initargs, which
+are used to specify, respectively, the input buffer, pointer, and text cursor
+for the extended input stream.
+
+\Defclass {standard-extended-input-stream}
+
+This class provides an implementation of the CLIM extended input stream protocol
+based on CLIM's input kernel.  The extended input stream maintains the state of
+the display's pointing devices (such as a mouse) in pointer objects associated
+with the stream.  It defines a \cl{handle-event} methods for keystroke and
+pointer motion and button press events and updates the pointer object state and
+queues the resulting events in a per-stream input buffer.
+
+\Mutable
+
+
+\subsection {The Extended Input Stream Protocol}
+
+The following generic functions comprise the extended input stream protocol.
+All extended input streams must implement methods for these generic functions.
+
+\Defgeneric {stream-input-buffer} {stream}
+\Defgeneric {(setf stream-input-buffer)} {buffer stream}
+
+The functions provide access to the stream's input buffer.  Normally programs do
+not need to manipulate the input buffer directly.  It is sometimes useful to
+cause several streams to share the same input buffer so that input that comes in
+on one of them is available to an input call on any of the streams.  The input
+buffer must be vector with a fill pointer capable of holding general input
+gesture objects (such as characters and event objects).
+
+\Defgeneric {stream-pointer-position} {stream \key pointer}
+
+Returns the current position of the pointing device \arg{pointer} for the
+\term{extended input stream} \arg{stream} as two values, the $x$ and $y$
+positions in the stream's drawing surface coordinate system.  If \arg{pointer}
+is not supplied, it defaults to \cl{port-pointer} of the stream's port.
+
+\Defgeneric {(setf* stream-pointer-position)} {x y stream \key pointer}
+
+Sets the position of the pointing device for the \term{extended input stream}
+\arg{stream} to \arg{x} and \arg{y}, which are integers.  \arg{pointer} is as
+for \cl{stream-pointer-position}.
+
+For CLIM implementations that do not support \cl{setf*}, the ``setter'' function
+for this is \cl{stream-set-pointer-position}.
+
+\Defgeneric {stream-set-input-focus} {stream}
+
+Sets the ``input focus'' to the \term{extended input stream} \arg{stream} by
+changing the value of \cl{port-keyboard-input-focus} and returns the old input
+focus as its value.
+
+\Defmacro {with-input-focus} {(stream) \body body}
+
+Temporarily gives the keyboard input focus to the \term{extended input stream}
+\arg{stream}.  By default, an application frame gives the input focus to the
+window associated with \cl{frame-query-io}.
+
+The \arg{stream} argument is not evaluated, and must be a symbol that is bound
+to a stream.  If \arg{stream} is \cl{t}, \cl{*standard-input*} is used.
+\arg{body} may have zero or more declarations as its first forms.
+
+
+\defvar {*input-wait-test*}
+\defvar {*input-wait-handler*}
+\Defvar {*pointer-button-press-handler*}
+
+These three variables are used to hold the default values for the current input
+wait test, wait handler, and pointer button press handler.  These variables are
+globally bound to \cl{nil}.
+
+
+\Defun {read-gesture} {\key (stream \cl{*standard-input*})
+                            timeout peek-p 
+                            (input-wait-test \cl{*input-wait-test*})
+                            (input-wait-handler \cl{*input-wait-handler*})
+                            (pointer-button-press-handler \cl{*pointer-button-press-handler*})}
+
+Calls \cl{stream-read-gesture} on the \term{extended input stream} \arg{stream}
+and all of the other keyword arguments.  These arguments are the same as for
+\cl{stream-read-gesture}.
+
+\Defgeneric {stream-read-gesture} {stream
+                                   \key timeout peek-p 
+                                        (input-wait-test \cl{*input-wait-test*})
+                                        (input-wait-handler \cl{*input-wait-handler*})
+                                        (pointer-button-press-handler \cl{*pointer-button-press-handler*})}
+
+Returns the next gesture available in the \term{extended input stream}
+\arg{stream}; the gesture will be either a character or an event (such as a
+pointer button event).  The input is not echoed.
+
+If the user types an abort gesture (that is, a gesture that matches any of the
+gesture names in \cl{*abort-gestures*}), then the \cl{abort-gesture} condition
+will be signalled.
+
+If the user types an accelerator gesture (that is, a gesture that matches any of
+the gesture names in \cl{*accelerator-gestures*}), then the \cl{accelerator-gesture}
+condition will be signalled.
+
+\cl{stream-read-gesture} works by invoking \cl{stream-input-wait} on
+\arg{stream}, \arg{input-wait-test}, and \arg{timeout}, and then processing the
+input, if there is any.  \cl{:around} methods on this generic function can be
+used to implement some sort of a gesture preprocessing mechanism on every
+gesture; CLIM's input editor will typically be implemented this way.
+
+\arg{timeout} is either \cl{nil} or an integer that specifies the number of
+seconds that \cl{stream-read-gesture} will wait for input to become available.
+If no input is available, \cl{stream-read-gesture} will return two values,
+\cl{nil} and \cl{:timeout}.
+
+If the boolean \arg{peek-p} is \term{true}, then the returned gesture will be
+left in the stream's input buffer.
+
+\arg{input-wait-test} is a function of one argument, the stream.  The function
+should return \term{true} when there is input to process, otherwise it should
+return \term{false}.  This argument will be passed on to \cl{stream-input-wait}.
+\cl{stream-read-gesture} will bind \cl{*input-wait-test*} to \arg{input-wait-test}.
+
+\arg{input-wait-handler} is a function of one argument, the stream.  It is
+called when \cl{stream-input-wait} returns \term{false} (that is, no input is
+available).  This option can be used in conjunction with \arg{input-wait-test}
+to handle conditions other than keyboard gestures, or to provide some sort of
+interactive behavior (such as highlighting applicable presentations).
+\cl{stream-read-gesture} will bind \cl{*input-wait-handler*} to
+\arg{input-wait-handler}.
+
+\arg{pointer-button-press-handler} is a function of two arguments, the stream
+and a pointer button press event.  It is called when the user clicks a pointer
+button.  \cl{stream-read-gesture} will bind \cl{*pointer-button-press-handler*}
+to \arg{pointer-button-press-handler}.
+
+
+\arg{input-wait-test}, \arg{input-wait-handler}, and
+\arg{pointer-button-press-handler} have dynamic extent.
+
+
+\Defgeneric {stream-input-wait} {stream \key timeout input-wait-test}
+
+Waits for input to become available on the \term{extended input stream}
+\arg{stream}.  \arg{timeout} and \arg{input-wait-test} are as for
+\cl{stream-read-gesture}.
+
+
+\Defun {unread-gesture} {gesture \key (stream \cl{*standard-input*})}
+
+Calls \cl{stream-unread-gesture} on \arg{gesture} and \arg{stream}.  These
+arguments are the same as for \cl{stream-unread-gesture}.
+
+\Defgeneric {stream-unread-gesture} {stream gesture}
+
+Places \arg{gesture} back into the \term{extended input stream} \arg{stream}'s
+input buffer.  The next call to \cl{stream-read-gesture} request will return the
+unread gesture.  The gesture supplied must be the most recent gesture read from
+the stream via \cl{read-gesture}.
+
+
+\subsection {Extended Input Stream Conditions}
+
+\Defvar {*abort-gestures*}
+
+A list of all of the gesture names that correspond to abort gestures.  The
+exact global set of standard abort gestures is unspecified, but must include
+the \cl{:abort} gesture name.
+
+\Defcondition {abort-gesture}
+
+This condition is signalled by \cl{read-gesture} whenever an abort gesture (one
+of the gestures in \cl{*abort-gestures*} is read from the user.  This condition
+will handle the \cl{:event} initarg, which is used to supply the event
+corresponding to the abort gesture.
+
+\Defgeneric {abort-gesture-event} {condition}
+
+Returns the event that cause the abort gesture condition to be signalled.
+\cl{condition} is an object of type \cl{abort-gesture}.
+
+\Defvar {*accelerator-gestures*}
+
+A list of all of the gesture names that correspond to keystroke accelerators.
+The global value for this is \cl{nil}.
+
+\Defcondition {accelerator-gesture}
+
+This condition is signalled by \cl{read-gesture} whenever an keystroke
+accelerator gesture (one of the gestures in \cl{*accelerator-gestures*} is read
+from the user.  This condition will handle the \cl{:event} and the
+\cl{:numeric-argument} initargs, which are used to supply the event
+corresponding to the abort gesture and the accumulated numeric argument (which
+defaults to 1).
+
+\Defgeneric {accelerator-gesture-event} {condition}
+
+Returns the event that caused the accelerator gesture condition to be signalled.
+\cl{condition} is an object of type \cl{accelerator-gesture}.
+
+\Defgeneric {accelerator-gesture-numeric-argument} {condition}
+
+Returns the accumulated numeric argument (maintained by the input editor) at the
+time the accelerator gesture condition was signalled.  \cl{condition} is an
+object of type \cl{accelerator-gesture}.
+
+
+\section {Gestures and Gesture Names\label{gesture-names}}
+
+A \concept{gesture} is some sort of input action by the user, such as typing a
+character or clicking a pointer button.  A \concept{keyboard gesture} refers to
+those gestures that are input by typing something on the keyboard.  A
+\concept{pointer gesture} refers to those gestures that are input by doing
+something with the pointer, such as clicking a button.
+
+A \concept{gesture name} is a symbol that gives a name to a set of similar
+gestures.  Gesture names are used in order to provide a level of abstraction
+above raw device events; greater portability can thus be achieved by avoiding
+referring directly to platform-dependent constructs, such as character objects
+that refer to a particular key on the keyboard.  For example, the \cl{:complete}
+gesture is used to name the gesture that causes the \cl{complete-input} complete
+the current input string; on Genera, this may correspond to the Complete key on
+the keyboard (which generates a \verb+#\Complete+ character), but on a Unix
+workstation, it may correspond to some other key.  Another example is
+\cl{:select}, which is commonly used to indicate a left button click on the
+pointer.
+
+Note that gesture names participate in a one-to-many mapping, that is, a single
+gesture name can name a group of physical gestures.  For example, an \cl{:edit}
+might include both a pointer button click and a key press.
+
+CLIM uses \term{event} objects to represent user gestures.  Some of the more
+common events are those of the class \cl{pointer-button-event}.  Event objects
+store the sheet associated with the event, a timestamp, and the modifier key
+state (a quantity that indicates which modifier keys were held down on the
+keyboard at the time the event occurred).  Pointer button event objects also
+store the pointer object, the button that was clicked on the pointer, the window
+the pointer was over and the $x$ and $y$ position within that window.  Keyboard
+gestures store the key name.
+
+In some contexts, the object used to represent a user gesture is referred to as
+an \concept{gesture object}.  An gesture object might be exactly the same as an
+event object, or might contain less information.  For example, for a keyboard
+gesture that corresponds to a standard printing character, it may be enough to
+represent the gesture object as a character.
+
+
+\Defmacro {define-gesture-name} {name type gesture-spec \key (unique \cl{t})} 
+
+Defines a new gesture named by the symbol \arg{name}.  \arg{type} is the type of
+gesture being created, and must be one of the symbols described below.
+\arg{gesture-spec} specifies the physical gesture that corresponds to the named
+gesture; its syntax depends on the value of \arg{type}.
+\cl{define-gesture-name} must expand into a call to \cl{add-gesture-name}.
+
+If \arg{unique} is \term{true}, all old gestures named by \arg{name} are first
+removed.  \arg{unique} defaults to \cl{t}.
+
+None of the arguments to \cl{define-gesture-name} are evaluated.
+
+\Defun {add-gesture-name} {name type gesture-spec \key unique}
+
+Adds a gesture named by the symbol \arg{name} to the set of gesture names.
+\arg{type} is the type of gesture being created, and must be one of the symbols
+described below.  \arg{gesture-spec} specifies the physical gesture that
+corresponds to the named gesture; its syntax depends on the value of \arg{type}.
+
+If \arg{unique} is \term{true}, all old gestures named by \arg{name} are first
+removed.  \arg{unique} defaults to \cl{nil}.
+
+When \arg{type} is \cl{:keyboard}, \arg{gesture-spec} is a list of the form
+\arg{(key-name . modifier-key-names)}.  \arg{key-name} is the name of a
+non-modifier key on the keyboard (see below).  \arg{modifier-key-names} is a
+(possibly empty) list of modifier key names (\cl{:shift}, \cl{:control},
+\cl{:meta}, \cl{:super}, and \cl{:hyper}).
+
+For the standard Common Lisp characters (the 95 ASCII printing characters
+including \verb+#\Space+), \arg{key-name} is the character object itself.  For
+the other ``semi-standard'' characters, \arg{key-name} is a keyword symbol
+naming the character (\cl{:newline}, \cl{:linefeed}, \cl{:return}, \cl{:tab},
+\cl{:backspace}, \cl{:page}, and \cl{:rubout}).  CLIM implementations may extend
+the set of key names on a per-port basic, but should choose a port-specific
+package.  For example, the Genera port might such gestures as include
+\cl{genera-clim:help} and \cl{genera-clim:complete}.
+
+The names of the modifier keys have been chosen to be uniform across all
+platforms, even though not all platforms will have keys on the keyboard with
+these names.  The per-port part of a CLIM implementation must simply choose a
+sensible mapping from the modifier key names to the names of the keys on the
+keyboard.  For example, a CLIM implementation on the Macintosh might map
+\cl{:meta} to the Command shift key, and \cl{:super} to the Option shift key.
+
+When \arg{type} is \cl{:pointer-button}, \cl{:pointer-button-press}, or
+\cl{:pointer-button-release}, \arg{gesture-spec} is a list of the form
+\arg{(button-name . modifier-key-names)}.  \arg{button} is the name of a pointer
+button (\cl{:left}, \cl{:middle}, or \cl{:right}), and \arg{modifier-key-names}
+is as above.
+
+CLIM implementations are permitted to have other values of \arg{type} as an
+extension, such as \cl{:pointer-motion} or \cl{:timer}.
+
+As an example, the \cl{:edit} gesture name above could be defined as follows
+using \cl{define-gesture-name}:
+
+\begin{verbatim}
+(define-gesture-name :edit :pointer-button (:left :meta))
+(define-gesture-name :edit :keyboard (#\E :control))
+\end{verbatim}
+
+\Defun {delete-gesture-name} {name}
+
+Removes the gesture named by the symbol \arg{name}.
+
+
+\Defun {event-matches-gesture-name-p} {event gesture-name}
+
+Returns \term{true} if the device event \arg{event} ``matches'' the gesture
+named by \arg{gesture-name}.
+
+For pointer button events, the event matches the gesture name when the pointer
+button from the event matches the name of the pointer button one of the gesture
+specifications named by \arg{gesture-name}, and the modifier key state from the
+event matches the names of the modifier keys in that same gesture specification.
+
+For keyboard events, the event matches the gesture name when the key name from
+the event matches the key name of one of the gesture specifications named by
+\arg{gesture-name}, and the modifier key state from the event matches the names
+of the modifier keys in that same gesture specification.
+
+\Defun {modifier-state-matches-gesture-name-p} {modifier-state gesture-name}
+
+Returns \term{true} if the modifier key state from the device event \arg{event}
+matches the names of the modifier keys in one of the gesture specifications
+named by \arg{gesture-name}.
+
+\issue {SWM} {Note that none of the functions above take a port argument.  This
+is because CLIM implicitly assumes that the canonical set of gesture names is
+the same on every port, and only the mappings differ from port to port.  Some
+ports may define additional gesture names, but they will simply not be mapped on
+other ports.  Is this a reasonable assumption?}
+
+\Defun {make-modifier-state} {\rest modifiers}
+
+Given a list of modifier state names, this creates an integer that serves as a
+modifier key state.  The legal modifier state names are \cl{:shift},
+\cl{:control}, \cl{:meta}, \cl{:super}, and \cl{:hyper}.
+
+
+\subsection {Standard Gesture Names}
+
+Every CLIM implementation must provide a standard set of gesture names that
+correspond to a common set of gestures.  These gesture names must have a
+meaningful mapping for every port type.
+
+Here are the required, standard keyboard gesture names:
+
+\begin{itemize}
+\item \cl{:abort}---corresponds to gestures that cause the currently running
+application to be aborted back to top-level.  On Genera, this will match the
+\verb+#\Abort+ character.  On other systems, this may match the event
+corresponding to typing {\tt Control-C}.
+
+\item \cl{:clear-input}---corresponds to gestures that cause the current input
+buffer to be cleared.  On Genera, this will match the \verb+#\Clear-Input+
+character.  On other systems, this may match the event corresponding to typing
+{\tt Control-U}.
+
+\item \cl{:complete}---corresponds to the gestures that tell the completion
+facility to complete the current input.  On most systems, this will typically
+match the \verb+#\Tab+ or \verb+#\Escape+ character.  On Genera, this will match
+the \verb+#\Complete+ character as well.
+
+\item \cl{:help}---corresponds to the gestures that tell \cl{accept} and the
+completion facility to display a help message.  On most systems, this will
+typically match the event corresponding to typing {\tt Control-/}.  On Genera,
+this will match the \verb+#\Help+ character as well.
+
+\item \cl{:possibilities}---corresponds to the gestures that tell the completion
+facility to display the current set of possible completions.  On most systems,
+this will typically match the event corresponding to typing {\tt Control-?}.
+\end{itemize}
+
+Here are the required, standard pointer gesture names:
+
+\begin{itemize}
+\item{\cl{:select}}---corresponds to the gesture that is used to ``select'' the
+object being pointed to with the pointer.  Typically, this will correspond to
+the left button on the pointer.
+
+\item{\cl{:describe}}---corresponds to the gesture that is used to ``describe''
+or display some sort of documentation on the object being pointed to with the
+pointer.  Typically, this will correspond to the middle button on the pointer.
+
+\item{\cl{:menu}}---corresponds to the gesture that is used to display a menu of
+all possible operation on the object being pointed to with the pointer.
+Typically, this will correspond to the right button on the pointer.
+
+\item{\cl{:edit}}---corresponds to the gesture that is used to ``edit'' the
+object being pointed to with the pointer.  Typically, this will correspond to
+the left button on the pointer with some modifier key held down (such as the
+\cl{:meta} key).
+
+\item{\cl{:delete}}---corresponds to the gesture that is used to ``delete'' the
+object being pointed to with the pointer.  Typically, this will correspond to
+the middle button on the pointer with some modifier key held down (such as the
+\cl{:shift} key).
+\end{itemize}
+
+
+\section {The Pointer Protocol}
+
+\Defprotoclass {pointer}
+
+The protocol class that corresponds to a pointing device.
+\IfYouWantClass {a} {pointer} {pointer}
+\Mutable
+
+\Defpredicate {pointerp} {object}
+
+Returns \term{true} if \arg{object} is a \term{pointer}, otherwise returns
+\term{false}.
+
+\Definitarg {:port}
+
+The \cl{:port} initarg is used to specify the port with which the pointer is
+associated.
+
+\Defclass {standard-pointer}
+
+The instantiable class that implements a pointer.
+
+\defgeneric {pointer-sheet} {pointer}
+\Defgeneric {(setf pointer-sheet)} {sheet pointer}
+
+Returns (or sets) the sheet over which the \term{pointer} \arg{pointer} is located.
+
+\Defgeneric {pointer-button-state} {pointer}
+
+Returns the current state of the buttons of the \term{pointer} \arg{pointer} as
+an integer.  This will be a mask consisting of the \cl{logior} of
+\cl{+pointer-left-button+}, \cl{+pointer-middle-button+}, and
+\cl{+pointer-right-button+}.
+
+\Defgeneric {pointer-position} {pointer}
+
+Returns the $x$ and $y$ position of the \term{pointer} \arg{pointer} as two
+values.
+
+\Defgeneric {(setf* pointer-position)} {x y pointer}
+
+Sets the $x$ and $y$ position of the \term{pointer} \arg{pointer} to the
+specified position.
+
+For CLIM implementations that do not support \cl{setf*}, the ``setter'' function
+for this is \cl{pointer-set-position}.
+
+\defgeneric {pointer-cursor} {pointer}
+\Defgeneric {(setf pointer-cursor)} {cursor pointer}
+
+A pointer object usually has a visible cursor associated with it.  These
+functions return (or set) the cursor associated with the \term{pointer}
+\arg{pointer}.
+
+\Defmethod {port} {(pointer \cl{standard-pointer})}
+
+Returns the port with which \arg{pointer} is associated.
+
+
+\section {Pointer Tracking}
+
+\Defmacro {tracking-pointer} {(sheet \key pointer multiple-window
+                                          transformp context-type highlight)
+                              \body body}
+
+The \cl{tracking-pointer} macro provides a general means for running code while
+following the position of a pointing device, and monitoring for other input
+events.  The programmer supplies code (the clauses in \arg{body}) to be run upon
+the occurrence of any of the following types of events:
+
+\begin{itemize}
+\item Motion of the pointer
+
+\item Motion of the pointer over a presentation
+
+\item Clicking or releasing a pointer button
+
+\item Clicking or releasing a pointer button while the pointer is over a presentation
+
+\item Keyboard event (typing a character)
+\end{itemize}
+
+The \arg{sheet} argument is not evaluated, and must be a symbol that is bound to
+an input sheet or stream.  If \arg{sheet} is \cl{t}, \cl{*standard-output*} is
+used.  \arg{body} may have zero or more declarations as its first forms.
+
+The \arg{pointer} argument specifies a pointer to track.  It defaults to
+the primary pointer for the sheet, \cl{(port-pointer (port \arg{sheet}))}.
+
+When the boolean \arg{multiple-windows} is \term{true}, then the pointer will be
+tracked across multiple windows, otherwise is will be tracked only in the window
+corresponding to \arg{sheet}.
+
+When the boolean \arg{transformp} is \term{true}, then the coordinates supplied
+to the \cl{:pointer-motion} clause will be in the ``user'' coordinate system
+rather than in stream coordinates, that is, the medium's transformation will be
+applied to the coordinates.
+
+\arg{context-type} is used to specify the presentation type of presentations
+that will be ``visible'' to the tracking code for purposes of highlighting and
+for the \cl{:presentation}, \cl{:presentation-button-press}, and
+\cl{:presentation-button-release} clauses.  Supplying \arg{context-type} is only
+useful when \arg{sheet} is an output recording stream.  \arg{context-type}
+defaults to \cl{t}, meaning that all presentations are visible.
+
+When \arg{highlight} is \term{true}, \cl{tracking-pointer} will highlight
+applicable presentations as the pointer is positioned over them.  {highlight}
+defaults to \term{true} when any of the \cl{:presentation},
+\cl{:presentation-button-press}, or \cl{:presentation-button-release} clauses is
+supplied, otherwise it defaults to \term{false}.  See
+Chapter~\ref{output-recording} for a complete discussion of presentations.
+
+The body of \cl{tracking-pointer} consists of a list of clauses.  Each clause is
+of the form
+\\
+\arg{(clause-keyword arglist . clause-body)}
+\\
+and defines a local function to be run upon occurrence of each type of event.
+The possible values for \arg{clause-keyword} and the associated \arg{arglist}
+are:
+
+\begin{itemize}
+\item {\cl{:pointer-motion} \arg{(\key window x y)}} \\
+Defines a clause to run whenever the pointer moves.  In the clause, \arg{window}
+is bound to the window in which the motion occurred, and \arg{x} and \arg{y} to
+the coordinates of the pointer. (See the keyword argument \cl{:transformp} below
+for a description of the coordinate system in which \arg{x} and \arg{y} are
+expressed.)
+
+\item {\cl{:presentation} \arg{(\key presentation window x y)}} \\
+Defines a clause to run whenever the pointer moves over a presentation of the
+desired type.  (See the keyword argument \cl{:context-type} above for a
+description of how to specify the desired type.)  In the clause,
+\arg{presentation} is bound to the presentation, \arg{window} to the window in
+which the motion occurred, and \arg{x} and \arg{y} to the coordinates of the
+pointer.  (See the keyword argument \cl{:transformp} above for a description of
+the coordinate system in which \arg{x} and \arg{y} are expressed.)
+
+When both \cl{:presentation} and \cl{:pointer-motion} clauses are provided, the
+two clauses are mutually exclusive.  The \cl{:presentation} clause will run only
+if the pointer is over an applicable presentation, otherwise the
+\cl{:pointer-motion} clause will run.
+
+\item {\cl{:pointer-button-press} \arg{(\key event x y)}} \\
+Defines a clause to run whenever a pointer button is pressed. In the clause,
+\arg{event} is bound to the pointer button press event. (The window and the
+coordinates of the pointer are part of \arg{event}.)
+
+\arg{x} and \arg{y} are the transformed $x$ and $y$ positions of the pointer.
+These will be different from \cl{pointer-event-x} and \cl{pointer-event-y} if
+the user transformation is not the identity transformation.
+
+\item {\cl{:presentation-button-press} \arg{(\key presentation event x y)}} \\
+Defines a clause to run whenever the pointer button is pressed while the pointer
+is over a presentation of the desired type. (See the keyword argument
+\cl{:context-type} below for a description of how to specify the desired type.)
+In the clause, \arg{presentation} is bound to the presentation, and \arg{event}
+to the pointer button press event.  (The window and the stream coordinates of
+the pointer are part of \arg{event}.)  \arg{x} and \arg{y} are as for the
+\cl{:pointer-button-press} clause.
+
+When both \cl{:presentation-button-press} and \cl{:pointer-button-press} clauses
+are provided, the two clauses are mutually exclusive.  The
+\cl{:presentation-button-press} clause will run only if the pointer is over an
+applicable presentation, otherwise the \cl{:pointer-button-press} clause will
+run.
+
+\item {\cl{:pointer-button-release} \arg{(\key event x y)}} \\
+Defines a clause to run whenever a pointer button is released. In the clause,
+\arg{event} is bound to the pointer button release event. (The window and the
+coordinates of the pointer are part of \arg{event}.)
+
+\arg{x} and \arg{y} are the transformed $x$ and $y$ positions of the pointer.
+These will be different from \cl{pointer-event-x} and \cl{pointer-event-y} if
+the user transformation is not the identity transformation.
+
+\item {\cl{:presentation-button-release} \arg{(\key presentation event x y)}} \\
+Defines a clause to run whenever a pointer button is released while the pointer
+is over a presentation of the desired type. (See the keyword argument
+\cl{:context-type} below for a description of how to specify the desired type.)
+In the clause, \arg{presentation} is bound to the presentation, and \arg{event}
+to the pointer button release event.  (The window and the stream coordinates of
+the pointer are part of \arg{event}.)  \arg{x} and \arg{y} are as for the
+\cl{:pointer-button-release} clause.
+
+When both \cl{:presentation-button-release} and \cl{:pointer-button-release}
+clauses are provided, the two clauses are mutually exclusive.  The
+\cl{:presentation-button-release} clause will run only if the pointer is over an
+applicable presentation, otherwise the \cl{:pointer-button-release} clause will
+run.
+
+\item {\cl{:keyboard} \arg{(\key gesture)}} \\
+Defines a clause to run whenever a character is typed on the keyboard.  In the
+clause, \arg{gesture} is bound to the keyboard gesture corresponding to the
+character typed.
+\end{itemize}
+
+
+\Defgeneric {drag-output-record} {stream output-record
+                                  \key repaint erase feedback finish-on-release
+                                       multiple-window}
+
+Enters an interaction mode in which the user moves the pointer and
+\arg{output-record} ``follows'' the pointer by being dragged on the \term{output
+recording stream} \arg{stream}.  By default, the dragging is accomplished by
+erasing the output record from its previous position and redrawing at the new
+position.  \arg{output-record} remains in the output history of \arg{stream} at
+its final position.
+
+The returned values are the final $x$ and $y$ position of the pointer.
+
+The boolean \arg{repaint} allows the programmer to control the appearance of
+windows as the pointer is dragged.  If \arg{repaint} is \term{true} (the
+default), displayed contents of windows are not disturbed as the output record
+is dragged over them (that is, those regions of the screen are repainted).  If
+it is \term{false}, then no repainting is done as the output record is dragged.
+
+\arg{erase} allows the programmer to identify a function that will be called to
+erase the output record as it is dragged.  It must be a function of two
+arguments, the output record to erase and the stream; it has dynamic extent.
+The default is \cl{erase-output-record}.
+
+\arg{feedback} allows the programmer to identify a ``feedback'' function.
+\arg{feedback} must be a is a function of seven arguments: the output record,
+the stream, the initial $x$ and $y$ position of the pointer, the current $x$ and
+$y$ position of the pointer, and a drawing argument (either \cl{:erase} or
+\cl{:draw}).  It has dynamic extent.  The default is \cl{nil}, meaning that the
+feedback behavior will be for the output record to track the pointer.  (The
+\arg{feedback} argument is used when the programmer desires more complex
+feedback behavior, such as drawing a ``rubber band'' line as the user moves the
+mouse.)  Note that if \arg{feedback} is supplied, \arg{erase} is ignored.
+
+If the boolean \arg{finish-on-release} is \term{false} (the default),
+\cl{drag-output-record} is exited when the user presses a pointer button.  When
+it is \term{true}, \cl{drag-output-record} is exited when the user releases the
+pointer button currently being held down.
+
+\arg{multiple-window} is as for \cl{tracking-pointer}.
+
+
+\Defmacro {dragging-output} {(\optional stream 
+                              \key repaint finish-on-release multiple-window)
+                             \body body}
+
+Evaluates \arg{body} inside of \cl{with-output-to-output-record} to produce an
+output record for the stream \arg{stream}, and then invokes
+\cl{drag-output-record} on the record in order to drag the output.  The output
+record is not inserted into \arg{stream}'s output history.
+
+The returned values are the final $x$ and $y$ position of the pointer.
+
+The \arg{stream} argument is not evaluated, and must be a symbol that is bound
+to an \term{output recording stream} stream.  If \arg{stream} is \cl{t} (the
+default), \cl{*standard-output*} is used.  \arg{body} may have zero or more
+declarations as its first forms.
+
+\arg{repaint}, \arg{finish-on-release}, and \arg{multiple-window} are as for
+\cl{drag-output-record}.
+

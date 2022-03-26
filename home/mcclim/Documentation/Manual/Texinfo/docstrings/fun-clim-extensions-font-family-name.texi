@@ -1,0 +1,6 @@
+@anchor{Generic-Function clim-extensions:font-family-name}
+@deffn {Generic Function} {@symbol{font-family-name,clim-extensions}} font-family
+Return the font family's name.  This name is meant for user display,
+and does not, at the time of this writing, necessarily the same string
+used as the text style family for this port.
+@end deffn

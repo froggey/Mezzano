@@ -1,0 +1,9 @@
+@anchor{Condition drei-undo:no-more-undo}
+@deftp {Condition} {drei-undo:no-more-undo}
+@tindex drei-undo:no-more-undo
+Class precedence list: @code{@w{no-more-undo}, @w{error}, @w{serious-condition}, @w{condition}, @w{slot-object}, @w{t}}
+
+A condition of this type is signaled whenever
+an attempt is made to call undo when the application is in its
+initial state.
+@end deftp

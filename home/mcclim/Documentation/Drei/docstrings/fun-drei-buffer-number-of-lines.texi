@@ -1,0 +1,6 @@
+@anchor{Generic-Function drei-buffer:number-of-lines}
+@deffn {Generic Function} {drei-buffer:number-of-lines} buffer
+@findex drei-buffer:number-of-lines
+Return the number of lines of the buffer, or really the number of
+newline characters.
+@end deffn

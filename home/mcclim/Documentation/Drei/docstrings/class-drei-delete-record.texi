@@ -1,0 +1,18 @@
+@anchor{Class drei:delete-record}
+@deftp {Class} {drei:delete-record}
+@tindex drei:delete-record
+Class precedence list: @code{@w{delete-record}, @w{simple-undo-record}, @w{drei-undo-record}, @w{standard-undo-record}, @w{undo-record}, @w{standard-object}, @w{slot-object}, @w{t}}
+
+Slots:
+@itemize
+@item @code{length} --- initargs: @code{@w{:length}}
+
+The length of the sequence of objects
+to be deleted whenever @code{flip-undo-record} is called on an
+instance of @code{delete-record}.
+@end itemize
+
+Whenever objects are inserted, a
+@code{delete-record} containing a mark is created and added to the
+undo tree.
+@end deftp

@@ -1,0 +1,6 @@
+@anchor{Generic-Function drei-buffer:beginning-of-buffer-p}
+@deffn {Generic Function} {drei-buffer:beginning-of-buffer-p} mark
+@findex drei-buffer:beginning-of-buffer-p
+Return @code{t} if the mark is at the beginning of
+the buffer, nil otherwise.
+@end deffn

@@ -1,0 +1,9 @@
+@anchor{Generic-Function drei-kill-ring:rotate-yank-position}
+@deffn {Generic Function} {drei-kill-ring:rotate-yank-position} kr &optional times
+@findex drei-kill-ring:rotate-yank-position
+Moves the yank point associated with a
+kill-ring one or times many positions away from the start of ring
+position.  If times is greater than the current length then the
+cursor will wrap to the start of ring position and continue
+rotating.
+@end deffn

@@ -1,0 +1,34 @@
+======================================
+LIST OF IDEAS AND TODO ITEMS FOR BABEL
+
+  * VERY IMPORTANT: given that we steal a lot of code from OpenMCL we
+    probably to license those files under the LLGPL (or is it the
+    whole library?)  Figure this out ASAP.
+
+  * Many more tests needed.
+      - test invalid sequences.
+      - use more interesting test files.
+      - test with big strings that when converted would need a array
+        with more than array-index-limit elements.
+
+  * Add support for ennforcing endiannes for multi-byte encodings like
+    UTF-16 and UTF-32.
+
+  * Implement more encodings. (ISO-8859-*, windows, CJK encodings, etc)
+
+  * null-termination, bom-markers.  Add to string-to-octets.
+
+  * Unicode normalization routines?
+
+  * Allow for non-fixnum indexes?
+
+  * Documentation.
+
+  * Address the various XXX and TODO items in the source.
+
+  * Should we start adding a lot of encodings, a load-on-demand scheme
+    might come in handy. It would also help with debugging.
+
+  * Make the test suite reusable, very much like mappings are reusable.
+
+  * Make the whole thing easier to debug.

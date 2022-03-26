@@ -1,0 +1,304 @@
+body {
+	line-height: 130%;
+  margin-left: 2cm;
+  margin-right: 2cm;
+}
+
+/* @group anchors */
+
+a.none {
+	text-decoration: none;
+	color:black }
+
+a.none:visited { text-decoration: none; color:black }
+
+a.none:active { text-decoration: none; color:black }
+
+a.none:hover { text-decoration: none; color:black }
+
+a {
+	text-decoration: none;
+	}
+
+a:visited {
+	text-decoration: none;
+}
+
+a:active {
+	text-decoration: underline;
+}
+
+a:hover {
+	text-decoration: underline;
+}
+
+/* @end */
+
+/* @group toc */
+
+.table-of-contents {
+	font-size: 90%;
+	margin-bottom: 1em;
+	padding-bottom: 1em;
+}
+
+.table-of-contents h2, h3, h4 {
+	padding-top: 0;
+	padding-bottom: 0;
+	margin-top: 0;
+	margin-bottom: 1px;
+}
+
+.table-of-contents h2 {
+	font-size: inherit;
+	font-style: inherit;
+	position: relative;
+	left: 2em;
+}
+
+.table-of-contents h3 {
+	font-size: inherit;
+	font-style: inherit;
+	position: relative;
+	left: 4em;
+}
+
+.table-of-contents h4 {
+	font-size: inherit;
+	font-style: inherit;
+	position: relative;
+	left: 6em;
+}
+
+.table-of-contents h5 {
+	font-size: inherit;
+	font-style: inherit;
+	position: relative;
+	left: 8px;
+}
+
+/* @end */
+
+/* @group header-footer */
+
+.header {
+		position:relative; /* Position is declared "relative" to gain control of stacking order (z-index). */
+		width:auto;
+		min-width:120px;
+	font-size: medium;
+	background-color: #3aa244;
+	color:#ffffff;
+	border: solid #417b39 4px;
+	padding: 1mm 1mm 1mm 1em;
+}
+
+#footer {
+	font-size: small;
+	font-style: italic;
+	background-color: #346632;
+    border-top: 2px solid;
+    border-bottom: 2px solid;
+	border-color: #417b39;
+	padding-top: 2mm;
+	padding-bottom: 2mm;
+	float: left;
+	width: 100%;
+	height: 04mm;
+}
+
+#footer #timestamp {
+	float: right;
+}
+
+#footer .copyright {
+	display: block;
+	padding-top: 0.1em;
+	margin-top: 0.1em;
+}
+
+#footer a:link {
+	font-weight:bold;
+	text-decoration:underline;
+}
+
+#footer a:visited {
+	font-weight:bold;
+	text-decoration:underline;
+}
+
+#footer a:hover {
+	font-weight:bold;
+	color:#002244;
+	text-decoration:underline;
+}
+
+.header h2 {
+	padding-top: 0px;
+	margin-top: 0.2em;
+	margin-bottom: 0.6em;
+}
+
+.header h4 {
+	padding-top: 0px;
+	margin-top: 0.2em;
+	margin-bottom: 0.6em;
+}
+
+.logo {
+	float: right;
+	text-align: right;
+	right: 2em;
+}
+
+
+
+/* @end */
+
+/* @group documentation */
+
+.hidden {
+	visibility: hidden;
+}
+
+.documentation {
+	margin-right: 1em;
+	margin-left: 1em;
+	clear: both;
+}
+
+.function {
+
+}
+
+.documentation pre {
+	margin-left: 0em;
+	margin-right: 0em;
+}
+
+.documentation.header {
+	display: block;
+	position: relative;
+	border: none white 0px;
+	border-top: thin;
+	border-top-style: solid;
+	border-top-width: 1pt;
+	padding-top: 4px;
+	margin-top: 2em;
+	font-size: inherit;
+	background-color: transparent;
+	color: black;
+}
+
+.documentation .name-and-args {
+	width: 80%;
+	float: left;
+}
+
+.documentation.contents {
+	top: 10px;
+	position: relative;
+	margin-bottom: 1.8em;
+	margin-left: 4em;
+	margin-right: 4em;
+	clear: both;
+}
+
+.documentation-name {
+	font-weight: bold;
+	float: left;
+	padding-right: 10px;
+	width: 125px;
+}
+
+.documentation-kind {
+	float: right;
+	font-style: italic;
+	color: gray;
+	padding-left: 10px;
+}
+
+.documentation-arguments {
+	float: left;
+	font-style: italic;
+}
+
+.documentation p {
+	clear: both;
+}
+
+
+
+/* @end */
+
+.system-links {
+	width: 14%;
+	text-align: left;
+	padding-right: 1em;
+	padding-top: 1.5em;
+	float: right;
+	font-size: 80%;
+}
+
+.system-links li {
+	padding-top: 10px;
+	font-family: Arial, Helvetica, sans-serif;
+}
+
+.contents {
+        // width: 90%;
+	padding-left: 2em;
+	padding-right: 2em;
+        padding-top: 2em;
+        padding-bottom: 1.5em;
+}
+
+.check {font-size: x-small;
+	text-align:right;}
+
+.check a:link { font-weight:bold;
+		color:#a0a0ff;
+		text-decoration:underline; }
+
+.check a:visited { font-weight:bold;
+		   color:#a0a0ff;
+		   text-decoration:underline; }
+
+.check a:hover { font-weight:bold;
+		 color:#000000;
+		 text-decoration:underline; }
+
+.changelog {
+	font-size: 75%;
+	padding: 1em 2em 2em;
+     vertical-align: top;
+	color: #686868;
+}
+
+.changelog-author {
+	text-align: right;
+	color: #686868;
+}
+
+.changelog-description {
+	padding-left: 2em;
+	color: #000000;
+	padding-bottom: 1em;
+	font-size: 120%;
+	padding-right: 2em;
+}
+
+.nav {
+	padding-left: 1em;
+	vertical-align: middle;
+}
+
+pre {
+	font: 90% Courier New, Courier, mono;
+	color: #000000;
+	background: #daefe9;
+	overflow: auto;
+	border: 1px solid #995f04;
+	padding: 0.25em 0.5em;
+	margin-left: 4em;
+	margin-right: 4em;
+}

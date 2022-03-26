@@ -1,0 +1,86 @@
+/*
+Copyright 2006,2007 Greg Pfeil
+
+Distributed under the MIT license (see LICENSE file)
+*/
+
+tbody {
+    border-top: thin dotted black;
+}
+
+.failure {
+    background-color: #ff0;
+}
+
+.nonexistant {
+    background-color: #ccc;
+}
+
+.perfect {
+    background-color: #0f0;
+}
+
+.error {
+    background-color: #f00;
+}
+
+.header {
+	font-size: medium;
+	background-color:#336699;
+	color:#ffffff;
+	border-style:solid;
+	border-width: 5px;
+	border-color:#002244;
+	padding: 1mm 1mm 1mm 5mm;
+}
+
+.footer {
+	font-size: small;
+	font-style: italic;
+	text-align: right;
+	background-color:#336699;
+	color:#ffffff;
+	border-style:solid;
+	border-width: 2px;
+	border-color:#002244;
+	padding: 1mm 1mm 1mm 1mm;
+}
+
+.footer a:link {
+	font-weight:bold;
+	color:#ffffff;
+	background-color: #336699;
+	text-decoration:underline;
+}
+
+.footer a:visited {
+	font-weight:bold;
+	color:#ffffff; 
+	background-color: #336699;
+	text-decoration:underline;
+}
+
+.footer a:hover { 
+	font-weight:bold; 
+	color:#002244; 
+	background-color: #336699;
+	text-decoration:underline; }
+
+.check {font-size: x-small;
+	text-align:right;}
+
+.check a:link { font-weight:bold;
+		color:#a0a0ff;
+        	background-color: #FFFFFF;
+		text-decoration:underline; }
+
+.check a:visited { font-weight:bold;
+		   color:#a0a0ff;
+                   background-color: #FFFFFF;
+		   text-decoration:underline; }
+
+.check a:hover { font-weight:bold;
+		 color:#000000;
+                 background-color: #FFFFFF;
+		 text-decoration:underline; }
+

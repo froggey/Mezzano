@@ -1,0 +1,323 @@
+@node Extensions
+@chapter Extensions
+
+@menu
+* Frame and sheet names::
+* Text editor substrate::
+* Extended text formatting::
+* Tab Layout::
+* Fonts and Extended Text Styles::
+* Raster Images::
+@end menu
+
+@node Frame and sheet names
+@section Frame and sheet names
+
+According to the @clim specification, a frame has a name and a pretty
+name the latter of which can be changed. @mcclim extends this design to
+top-level sheets in form of the following protocol:
+
+@include docstrings/fun-clim-extensions-sheet-name.texi
+@include docstrings/fun-clim-extensions-sheet-pretty-name.texi
+@include docstrings/fun-clim-extensions-setf-sheet-pretty-name.texi
+
+The class @code{clim-extensions:top-level-sheet-mixin} can be added as a
+superclass to sheet classes that implement the above protocol. Otherwise
+default methods on @code{clim-extensions:sheet-name} and
+@code{clim-extensions:sheet-pretty-name} return @t{nil} and @t{"(Unnamed
+sheet)"} respectively.
+
+Furthermore @mcclim provides a way for clients to be notified when the
+pretty name of frame changes:
+
+@include docstrings/fun-clim-extensions-note-frame-pretty-name-changed.texi
+
+@node Text editor substrate
+@section Text editor substrate
+@cindex drei
+@cindex input-editor
+@cindex text-editor
+@cindex text-field
+
+For brievity only basic topics common to all substrates are covered in
+the manual. Drei documentation is provided as a separate document.
+
+@menu
+* Text field gadget::
+* Text editor pane::
+@end menu
+
+@node Text field gadget
+@node Text editor pane
+
+@node Extended text formatting
+@section Extended text formatting
+
+@code{standard-extended-output-stream} has been extended by protocols
+complementary to already defined ones. Some were clearly missing given
+how it is specified - like margins and word wrap. Some are useful in
+contemporary text displaying applications like text direction and
+alignment.
+
+@subsection Page abstraction
+
+@anchor{Function clime:page-initial-position}
+@anchor{Function clime:page-final-position}
+@deffn {Function} {@symbol{page-initial-position,clime}} stream
+@deffnx {Function} {@symbol{page-final-position,clime}} stream
+Both functions return two values, x and y coordinates of the respective
+position.  Initial position is where the cursor is placed on a fresh
+page, and the final position is where the cursor is placed right before
+the page ends.  Coordinates depend on current margins and text
+alignment.
+@end deffn
+
+@anchor{Function clime:stream-page-region}
+@deffn {Function} {@symbol{stream-page-region,clime}} stream
+This function returns a region which corresponds to the stream page
+format.  This region corresponds the stream margins.
+@end deffn
+
+@anchor{Macro clime:with-temporary-margins}
+@deffn {Macro} {@symbol{with-temporary-margins,clime}} (stream &key (move-cursor t) left right top bottom) &body body
+Execute @var{body} in a dynamic environment where @var{stream}'s
+margins are augmented with @var{left}, @var{right}, @var{top} and
+@var{bottom}.  Not all margins have to be specified.  If they are not
+current margin values are taken as defaults.
+
+Each margin must be in one of following formats: @code{(:relative
+@var{space})} or @code{(:absolute @var{space})}.  @var{space} may be
+specified as for @code{:x-spacing} and @code{:y-spacing} for horizontal
+and vertical margins accordingly.  If a margin is ``absolute'' then it
+corresponds to its exact placement in stream coordinates.  ``relative''
+margins are relative to the stream viewport region.
+
+If the Boolean @var{move-cursor} is @code{T} then the cursor is left
+where it was placed after the last operation.  Otherwise upon completion
+of @var{body}, the cursor position is restored to its previous value.
+
+Programmers using @code{clime:with-temporary-margins} should begin
+@var{body} with a call to the function
+@code{clim:stream-set-cursor-position} which will set the cursor to
+@code{clime:page-initial-position}.
+@end deffn
+
+@subsection FILLING-OUTPUT extension
+
+The macro @code{clim:filling-output} behaves the same as before with a
+few additions:
+
+@code{:after-line-break-subsequent} is complementary to
+@code{:after-line-break-initially}, it decides whether
+@code{:after-line-break} is printed for lines after the first
+break.  It defaults to @code{T}.
+
+@code{:after-line-break-composed} decides whether
+@code{after-line-break} from the external @code{filling-output} should
+be called as well (defaults to @code{T}).
+
+@code{:after-line-break} may be a string or a function accepting two
+arguments: a stream and a flag indicating whether it is a soft newline
+or not.  The function will be executed conditionally depending on values
+of @code{:after-line-break-initially} and
+@code{:after-line-break-subsequent} flags.
+
+The macro preserves a @code{text-style}, @code{ink} and indentation from
+state in which it was invoked.  That means in particular that
+@code{indenting-output} may be called from inside @code{filling-output}
+and @code{after-line-break} will be printed without this indent.
+
+@node Tab Layout
+@section Tab Layout
+
+The tab layout is a composite pane arranging its children so that
+exactly one child is visible at any time, with a row of buttons
+allowing the user to choose between them.
+
+See also the @file{tabdemo.lisp} example code located under
+@file{Examples} in the @mcclim distribution.  It can be started using
+@code{(clim-demo:demodemo)}.
+
+@include class-clim-tab-layout-tab-layout.texi
+@include class-clim-tab-layout-tab-layout-pane.texi
+@include class-clim-tab-layout-tab-page.texi
+@include macro-clim-tab-layout-with-tab-layout.texi
+
+@include fun-clim-tab-layout-tab-layout-pages.texi
+
+@include fun-clim-tab-layout-tab-page-tab-layout.texi
+@include fun-clim-tab-layout-tab-page-title.texi
+@include fun-clim-tab-layout-tab-page-pane.texi
+@include fun-clim-tab-layout-tab-page-presentation-type.texi
+@include fun-clim-tab-layout-tab-page-drawing-options.texi
+
+@include fun-clim-tab-layout-add-page.texi
+@include fun-clim-tab-layout-remove-page.texi
+@include fun-clim-tab-layout-tab-layout-enabled-page.texi
+@include fun-clim-tab-layout-sheet-to-page.texi
+@include fun-clim-tab-layout-find-tab-page-named.texi
+@include fun-clim-tab-layout-switch-to-page.texi
+@include fun-clim-tab-layout-remove-page-named.texi
+
+@include fun-clim-tab-layout-note-tab-page-changed.texi
+
+@c com-switch-to-tab-page
+@c com-remove-tab-page
+
+@node Fonts and Extended Text Styles
+@section Fonts and Extended Text Styles
+
+@menu
+* Extended Text Styles::
+* Listing Fonts::
+@end menu
+
+@node Extended Text Styles
+@subsection Extended Text Styles
+
+@mcclim extends the legal values for the @cl{family} and @cl{face}
+arguments to @cl{make-text-style} to include strings (in additional to
+the portable keyword symbols), as permitted by the @clim spec, section
+11.1.
+
+Each backend defines its own specific syntax for these family and face
+names.
+
+The CLX backend maps the text style family to the X font's
+@emph{foundry} and @emph{family} values, separated by a dash.  The
+face is mapped to @emph{weight} and @emph{slant} in the same way.  For
+example, the following form creates a text style for
+@emph{-misc-fixed-bold-r-*-*-18-*-*-*-*-*-*-*}:
+
+@lisp
+(make-text-style "misc-fixed" "bold-r" 18)
+@end lisp
+
+In the GTK backend, the text style family and face are used directly
+as the Pango font family and face name.  Please refer to Pango
+documentation for details on the syntax of face names.  Example:
+
+@lisp
+(make-text-style "Bitstream Vera Sans" "Bold Oblique" 54)
+@end lisp
+
+@node Listing Fonts
+@subsection Listing Fonts
+
+@mcclim's font listing functions allow applications to list all
+available fonts available on a @class{port} and create text style
+instances for them.
+
+Example:
+
+@lisp
+* (find "Bitstream Vera Sans Mono"
+        (clim-extensions:port-all-font-families (clim:find-port))
+        :key #'clim-extensions:font-family-name
+        :test #'equal)
+#<CLIM-GTKAIRO::PANGO-FONT-FAMILY Bitstream Vera Sans Mono>
+
+* (clim-extensions:font-family-all-faces *)
+(#<CLIM-GTKAIRO::PANGO-FONT-FACE Bitstream Vera Sans Mono, Bold>
+ #<CLIM-GTKAIRO::PANGO-FONT-FACE Bitstream Vera Sans Mono, Bold Oblique>
+ #<CLIM-GTKAIRO::PANGO-FONT-FACE Bitstream Vera Sans Mono, Oblique>
+ #<CLIM-GTKAIRO::PANGO-FONT-FACE Bitstream Vera Sans Mono, Roman>)
+
+* (clim-extensions:font-face-scalable-p (car *))
+T
+
+* (clim-extensions:font-face-text-style (car **) 50)
+#<CLIM:STANDARD-TEXT-STYLE "Bitstream Vera Sans Mono" "Bold" 50>
+@end lisp
+
+@include class-clim-extensions-font-family.texi
+@include class-clim-extensions-font-face.texi
+
+@include fun-clim-extensions-port-all-font-families.texi
+
+@include fun-clim-extensions-font-family-name.texi
+@include fun-clim-extensions-font-family-port.texi
+@include fun-clim-extensions-font-family-all-faces.texi
+
+@include fun-clim-extensions-font-face-name.texi
+@include fun-clim-extensions-font-face-family.texi
+@include fun-clim-extensions-font-face-all-sizes.texi
+@include fun-clim-extensions-font-face-text-style.texi
+
+@node Raster Images
+@section Raster Images
+
+This extension has the goal to provide a fast and flexible way to
+display images in the screen. An image is a rectangular object and is
+represented as a rectangular pattern and follows pattern
+protocol. Pixel values are represented as 32-bit RGBA numbers.
+
+collapse-pattern
+make-pattern-from-bitmap-file
+
+define-bitmap-file-reader
+define-bitmap-file-writer
+bitmap-format-supported-p
+bitmap-output-supported-p
+read-bitmap-file
+write-bitmap-file
+
+Images are read with @code{read-bitmap-file}.
+Images are wrote with @code{write-bitmap-file}.
+
+Images are created with @code{make-image}.
+Images are cloned with @code{clone-image}.
+Images are copied with @code{copy-image}.
+Images are blended with @code{blend-image}.
+Images are filled with @code{fill-image}.
+
+Operations having source and destination image as arguments may use
+the same image without copying it.
+
+To draw an image use @code{draw-pattern*} or @code{draw-design}. Image
+may be also used as an ink in other drawing functions.
+
+@section Raster image as a medium
+
+Raster image backend includes a medium that implements:
+@itemize @bullet
+@item @clim's medium protocol,
+@item @clim's output stream protocol, and
+@item @clim's Pixmap protocol.
+@end itemize
+
+@anchor{Macro clime:with-output-to-image-stream}
+@deffn {Macro} {@symbol{with-output-to-image-stream,clime}} (stream-var file-stream format &rest options) &body body
+@end deffn
+
+@anchor{Macro clime:with-output-to-rgba-pattern}
+@deffn {Macro} {@symbol{with-output-to-rgba-pattern,clime}} (stream-var image &rest options) &body body
+@end deffn
+
+Within @code{body}, @code{stream-var} is bound to a stream that produces
+a raster image.  This stream is suitable as a stream or medium argument
+to any @clim output utility, such as @code{draw-line*} or
+@code{write-string}.
+
+The value of @code{options} is a list consisting of alternating keyword and value
+pairs.  These are the supported keywords:
+@itemize @bullet
+@item
+  @code{:width} --- specifies the width of the image. Its default value is 1000.
+@item
+  @code{:height} --- specifies the height of the image. Its default value is 1000.
+@end itemize
+
+@defmac {@symbol{with-output-to-raster-image-stream,clime}}
+An image describing the output to the @code{stream-var} stream will be
+written to the stream @code{file-stream} using the format
+@code{format}. @code{format} is a symbol that names the type of the
+image. Valid values are @code{:png}, @code{:jpg}, @code{:jpeg},
+@code{tiff}, @code{tif}, @code{gif}, @code{pbm}, @code{pgm}, and
+@code{ppm}. Its default value is @code{:png}.
+@end defmac
+
+@defmac {@symbol{with-output-to-rgba-pattern,clime}}
+An image describing the output to the @code{stream-var} stream will be
+returned as an rgba pattern (of class @code{clime:image-pattern}).
+@end defmac

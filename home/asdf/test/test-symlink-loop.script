@@ -1,0 +1,61 @@
+;;; -*- Lisp -*-
+
+;;;---------------------------------------------------------------------------
+;;; This checks a fix to bug 1533766 where a search of the
+;;; registry can be caused to loop forever if symlinks introduce a circularity
+;;; into the file tree.
+;;; ---------------------------------------------------------------------------
+(in-package :asdf-test)
+;; since symlinks only somewhat exist on Windows, we don't test there.
+(when (uiop:os-windows-p)
+  (exit-lisp 0))
+
+(let ((scratch-dir (namestring (make-sub-pathname :directory '(:relative "looping-scratch")
+                                                  :defaults *test-directory*))))
+  (unwind-protect
+       (progn
+         ;; set up pathological directory structure
+         (uiop:run-program (format nil "mkdir ~a" scratch-dir))
+         (uiop:run-program (format nil "mkdir ~a/subdirs" scratch-dir))
+         (uiop:run-program (format nil "mkdir ~a/subdirs/subdir" scratch-dir))
+         (uiop:run-program (format nil "mkdir ~a/subdirs/subdir2" scratch-dir))
+         (uiop:run-program (format nil "cd ~a/subdirs/subdir ; ln -s .. ln-subdir"
+                                   scratch-dir))
+         (uiop:run-program (format nil "cd ~a/subdirs/subdir2 ; ln -s .. ln-subdir"
+                                   scratch-dir))
+         (uiop:copy-file (format nil "~a" (namestring (make-sub-pathname :name "loop"
+                                                                         :type "asd"
+                                                                         :defaults *test-directory*)))
+                         (format nil "~a" (namestring (make-sub-pathname :name "loop"
+                                                                         :type "asd"
+                                                                         :defaults scratch-dir))))
+         (DBG "Testing search for asdf system definitions.")
+         (assert-equal (list "loop")
+                       (let ((asds nil))
+                         (declare (special asds))
+                         (asdf/source-registry:collect-sub*directories-asd-files
+                          scratch-dir
+                          :collect
+                          #'(lambda (asd)
+                              (let* ((name (pathname-name asd))
+                                     (name (if (typep asd 'logical-pathname)
+                                               ;; logical pathnames are upper-case,
+                                               ;; at least in the CLHS and on SBCL,
+                                               ;; yet (coerce-name :foo) is lower-case.
+                                               ;; won't work well with (load-system "Foo")
+                                               ;; instead of (load-system 'foo)
+                                               (string-downcase name)
+                                               name)))
+                                (push name asds))))
+                         asds))
+         (DBG "Resetting source registry.")
+         (initialize-source-registry
+          `(:source-registry (:tree ,scratch-dir) :ignore-inherited-configuration))
+         (DBG "Looking for the LOOP system")
+         (assert (asdf:find-system :loop)))
+    ;; clean up
+    (DBG "Cleaning up")
+    (uiop:run-program (format nil "rm -r ~a" scratch-dir))))
+
+(DBG "Exiting")
+(exit-lisp 0)

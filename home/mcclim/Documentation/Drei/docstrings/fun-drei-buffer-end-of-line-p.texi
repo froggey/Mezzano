@@ -1,0 +1,8 @@
+@anchor{Generic-Function drei-buffer:end-of-line-p}
+@deffn {Generic Function} {drei-buffer:end-of-line-p} mark
+@findex drei-buffer:end-of-line-p
+Return @code{t} if the mark is at the end of the
+line (i.e., if the character following the mark is a newline
+character, or if the mark is at the end of the buffer), NIL
+otherwise.
+@end deffn

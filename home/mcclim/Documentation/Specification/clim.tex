@@ -1,0 +1,157 @@
+% -*- Mode: LaTeX -*-
+
+\documentclass{report}          % tried to use [twoside] to no avail
+                                % --SWM
+\pagestyle{headings}
+\usepackage{makeidx}
+% replaced with using graphics package [2007/01/05:rpg]
+%\usepackage{epsfig}
+\usepackage{graphicx}
+
+\makeatletter
+\renewenvironment{theindex}%
+  {\chapter{\indexname}
+  \begin{small}
+  \parindent 0pt
+  \parskip 0pt plus .3 pt
+  \relax
+  \let\item\@idxitem}
+  {\end{small}\clearpage}
+\makeatother
+
+%% added to try to make nice bookmarks in PDF... [2005/04/12:rpg]
+\ifx\pdfoutput\undefined \csname newcount\endcsname\pdfoutput \fi 
+\ifcase\pdfoutput  \else 
+\usepackage[pdftex]{hyperref}
+\fi
+
+%% added to try to make nice bookmarks in PDF... [2005/04/12:rpg]
+\ifx\pdfoutput\undefined \csname newcount\endcsname\pdfoutput \fi 
+\ifcase\pdfoutput \DeclareGraphicsExtensions{.epsi}\DeclareGraphicsRule{epsi}{eps}{*}{}
+\fi
+
+% \DeclareGraphicsExtensions{.pdf,.epsi}
+% % \DeclareGraphicsRule{epsi}{eps}{*}{}
+
+% \DeclareGraphicsRule{epsi}{eps}{*}{}
+
+%\usepackage{times}
+
+%% For PDF
+%\renewcommand{\rmdefault}{phv}
+%\renewcommand{\sfdefault}{phv}
+%\renewcommand{\ttdefault}{pcr}
+%\usepackage[ps2pdf,hyperindex,hypertex,
+%  pdftitle={CLIM II Specification},
+%  pdfauthor={various},
+%  colorlinks=true,linkcolor=blue,pagecolor=blue,
+%  pdfstartview=FitBV,pdfview=FitBV]{hyperref}
+%% end PDF
+
+
+\title{Common Lisp Interface Manager \\
+       CLIM II Specification}
+
+\author{Scott McKay ({\tt SWM@Symbolics.COM}) \\
+        William York ({\tt York@Lucid.COM}) \\ 
+        {\it with contributions by} \\
+        {\rm John Aspinall ({\tt JGA@Symbolics.COM})} \\
+        {\rm Dennis Doughty ({\tt Doughty@ILeaf.COM})} \\
+        {\rm Charles Hornig ({\tt Hornig@ODI.COM})} \\
+        {\rm Richard Lamson ({\tt RLamson\%UMAB.BitNet@MITVMA.MIT.EDU})} \\
+        {\rm David Linden ({\tt Linden@CRL.DEC.COM})} \\
+        {\rm David Moon ({\tt Moon@Cambridge.Apple.COM})} \\
+        {\rm Ramana Rao ({\tt rao@PARC.Xerox.COM})} \\
+        {\rm Chris Richardson ({\tt cer@Franz.COM})}}
+
+\date{Printed \today}
+\markright{CLIM II Specification}
+
+\makeindex
+
+\input psfig+
+\include{spec-macros}
+
+%% Initialize it to \psfigtrue if your DVI to PostScript converter works
+\newif \ifpsfig \psfigfalse
+
+\addtolength{\oddsidemargin}{-.5in}
+\addtolength{\evensidemargin}{-.5in}
+\addtolength{\textwidth}{1in}
+\addtolength{\topmargin}{-.5in}
+\addtolength{\textheight}{1.0in}
+
+\begin{document}
+
+\maketitle
+
+\parindent 0pc
+\parskip   1pc
+
+%% Roman-numbered pages...
+\renewcommand{\thepage}{\roman{page}}
+
+\pagebreak
+\tableofcontents
+
+\pagebreak
+\input{acknowledgments.tex}
+
+\pagebreak
+\setcounter{page}{1}
+\renewcommand{\thepage}{\arabic{page}}
+
+%% Now the document proper...
+\part{Overview and Conventions}
+\input{overview.tex}
+\input{conventions.tex}
+
+\part{Geometry Substrate}
+\input{regions.tex}
+\input{bboxes.tex}
+\input{transforms.tex}
+
+\part{Windowing Substrate}
+\input{silica.tex}
+
+\part{Sheet and Medium Output Facilities}
+\input{drawing-options.tex}
+\input{text-styles.tex}
+\input{graphics.tex}
+\input{colors.tex}
+\input{designs.tex}
+
+\part{Extended Stream Output Facilities}
+\input{extended-output.tex}
+\input{output-recording.tex}
+\input{table-formatting.tex}
+\input{graph-formatting.tex}
+\input{bordered-output.tex}
+\input{text-formatting.tex}
+\input{redisplay.tex}
+
+\part{Extended Stream Input Facilities}
+\input{extended-input.tex}
+\input{presentation-types.tex}
+\input{input-editing.tex}
+\input{menus.tex}
+\input{dialogs.tex}
+
+\part{Building Applications}
+\input{commands.tex}
+\input{frames.tex}
+\input{panes.tex}
+\input{gadgets.tex}
+
+\part{Appendices}
+\appendix
+\input{glossary.tex}
+\input{clim-sys.tex}
+\input{encapsulating-streams.tex}
+\input{gray-streams.tex}
+\input{extensions.tex}
+\input{changes.tex}
+
+\part{Index}
+\printindex
+\end{document}

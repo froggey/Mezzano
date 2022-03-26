@@ -1,0 +1,208 @@
+\input texinfo   @c -*-texinfo-*-
+@c %**start of header
+@setfilename uiop.info
+@settitle UIOP Manual
+@c %**end of header
+
+@c for install-info
+@dircategory Software development
+@direntry
+* uiop: (uiop).         Utilities for Implementation and OS Portability (for Common Lisp)
+@end direntry
+
+@copying
+UIOP is a part of @uref{https://common-lisp.net/project/asdf/, ASDF},
+which is released under an MIT style License:
+
+@quotation
+  Copyright @copyright{} 2001-2019 Daniel Barlow and contributors.
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy of
+  this software and associated documentation files (the "Software"), to deal in
+  the Software without restriction, including without limitation the rights to
+  use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+  the Software, and to permit persons to whom the Software is furnished to do so,
+  subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in all
+  copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+  FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+  COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+  IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+  CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+@end quotation
+@end copying
+
+@titlepage
+
+@title UIOP Manual
+
+@c The following two commands start the copyright page.
+@page
+@vskip 0pt plus 1filll
+@insertcopying
+
+@end titlepage
+
+@contents
+
+@include include/ifnottex.texinfo
+
+@ifnottex
+
+@node Top
+@comment  node-name,  next,  previous,  up
+@top UIOP
+
+@insertcopying
+
+@menu
+* Introduction::
+* UIOP/PACKAGE::
+* UIOP/COMMON-LISP::
+* UIOP/UTILITY::
+* UIOP/VERSION::
+* UIOP/OS::
+* UIOP/PATHNAME::
+* UIOP/FILESYSTEM::
+* UIOP/STREAM::
+* UIOP/IMAGE::
+* UIOP/LISP-BUILD::
+* UIOP/LAUNCH-PROGRAM::
+* UIOP/RUN-PROGRAM::
+* UIOP/CONFIGURATION::
+* UIOP/BACKWARD-DRIVER::
+* UIOP/DRIVER::
+
+@end menu
+
+@end ifnottex
+
+@node Introduction
+@comment  node-name,  next,  previous,  up
+@chapter Introduction
+
+UIOP is the portability layer of ASDF. It provides utilities that
+abstract over discrepancies between implementations, between operating
+systems, and between what the standard provides and what programmers
+actually need, to write portable Common Lisp programs.
+
+It is organized by topic in many files, each of which defines its own package
+according to its topic: e.g @file{pathname.lisp}
+will define package @code{uiop/pathname} and contain utilities related to
+the handling of pathname objects.
+All exported symbols are reexported in a convenience package @code{uiop},
+except for those from @code{uiop/common-lisp}.
+We recommend package @code{uiop} be used to access all the symbols.
+
+The following API reference is auto-generated from the docstrings in
+the code. The chapters are arranged in dependency order.
+
+@node UIOP/PACKAGE
+@comment  node-name,  next,  previous,  up
+@chapter UIOP/PACKAGE
+
+@c REPLACE_ME_WITH UIOP/PACKAGE
+
+@node UIOP/COMMON-LISP
+@comment  node-name,  next,  previous,  up
+@chapter UIOP/COMMON-LISP
+
+@code{uiop/common-lisp} lets you paper over various sub-standard
+implementations.
+
+This package reexports all the symbols in @code{common-lisp} package.
+
+@node UIOP/UTILITY
+@comment  node-name,  next,  previous,  up
+@chapter UIOP/UTILITY
+
+@c REPLACE_ME_WITH UIOP/UTILITY
+
+@node UIOP/VERSION
+@comment  node-name,  next,  previous,  up
+@chapter UIOP/VERSION
+
+@c REPLACE_ME_WITH UIOP/VERSION
+
+@node UIOP/OS
+@comment  node-name,  next,  previous,  up
+@chapter UIOP/OS
+
+@c REPLACE_ME_WITH UIOP/OS
+
+@node UIOP/PATHNAME
+@comment  node-name,  next,  previous,  up
+@chapter UIOP/PATHNAME
+
+@c REPLACE_ME_WITH UIOP/PATHNAME
+
+@node UIOP/FILESYSTEM
+@comment  node-name,  next,  previous,  up
+@chapter UIOP/FILESYSTEM
+
+@c REPLACE_ME_WITH UIOP/FILESYSTEM
+
+@node UIOP/STREAM
+@comment  node-name,  next,  previous,  up
+@chapter UIOP/STREAM
+
+@c REPLACE_ME_WITH UIOP/STREAM
+
+@node UIOP/IMAGE
+@comment  node-name,  next,  previous,  up
+@chapter UIOP/IMAGE
+
+@c REPLACE_ME_WITH UIOP/IMAGE
+
+@node UIOP/LISP-BUILD
+@comment  node-name,  next,  previous,  up
+@chapter UIOP/LISP-BUILD
+
+@c REPLACE_ME_WITH UIOP/LISP-BUILD
+
+@node UIOP/LAUNCH-PROGRAM
+@comment  node-name,  next,  previous,  up
+@chapter UIOP/LAUNCH-PROGRAM
+
+@code{uiop/launch-program} semi-portably launches a program as an
+asynchronous external subprocess. Available functionality may depend
+on the underlying implementation.
+
+@c REPLACE_ME_WITH UIOP/LAUNCH-PROGRAM
+
+@node UIOP/RUN-PROGRAM
+@comment  node-name,  next,  previous,  up
+@chapter UIOP/RUN-PROGRAM
+
+@code{uiop/run-program} fully portably runs a program as a synchronous
+external subprocess.
+
+@c REPLACE_ME_WITH UIOP/RUN-PROGRAM
+
+@node UIOP/CONFIGURATION
+@comment  node-name,  next,  previous,  up
+@chapter UIOP/CONFIGURATION
+
+@c REPLACE_ME_WITH UIOP/CONFIGURATION
+
+@node UIOP/BACKWARD-DRIVER
+@comment  node-name,  next,  previous,  up
+@chapter UIOP/BACKWARD-DRIVER
+
+@code{uiop/backward-driver} provides backward-compatibility with
+earlier incarnations of this library.
+
+@c REPLACE_ME_WITH UIOP/BACKWARD-DRIVER
+
+@node UIOP/DRIVER
+@comment  node-name,  next,  previous,  up
+@chapter UIOP/DRIVER
+
+@code{uiop/driver} doesn't export any new symbols. It just exists to
+reexport all the utilities in a single package @code{uiop}.
+
+@bye

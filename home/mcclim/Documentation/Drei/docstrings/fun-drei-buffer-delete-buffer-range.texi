@@ -1,0 +1,8 @@
+@anchor{Generic-Function drei-buffer:delete-buffer-range}
+@deffn {Generic Function} {drei-buffer:delete-buffer-range} buffer offset n
+@findex drei-buffer:delete-buffer-range
+Delete n objects from the buffer starting at
+the offset.  If @code{offset} is negative or @code{offset}+@code{n} is greater
+than the size of the buffer, a @code{no-such-offset} condition is
+signaled.
+@end deffn

@@ -1,0 +1,16 @@
+@anchor{Class drei:compound-record}
+@deftp {Class} {drei:compound-record}
+@tindex drei:compound-record
+Class precedence list: @code{@w{compound-record}, @w{drei-undo-record}, @w{standard-undo-record}, @w{undo-record}, @w{standard-object}, @w{slot-object}, @w{t}}
+
+Slots:
+@itemize
+@item @code{records} --- initargs: @code{@w{:records}}
+
+The undo records contained by this
+compound record.
+@end itemize
+
+This record simply contains a list of other
+records.
+@end deftp

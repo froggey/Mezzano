@@ -1,0 +1,962 @@
+<head>
+<title>SKIPPY - Read and write GIF files with Common Lisp</title>
+<style type="text/css">
+  a, a:visited { text-decoration: none }
+  a[href]:hover { text-decoration: underline }
+  pre { background: #DDD; padding: 0.25em }
+  p.download { color: red }
+  .transparent { background-image: url(background.gif) }
+  #content { 
+  max-width: 50em; margin-left: auto;  margin-right: auto;
+  font-family: sans-serif; 
+  line-height: 1.4em;
+  background-color: white;
+  padding: 0.25em 1em 0.25em 1em;
+  }
+  body {
+  background-color: #f4eecf;
+  }
+</style>
+</head>
+
+<body>
+<div id="content">
+
+
+<h2>SKIPPY - Read and write GIF files with Common Lisp</h2>
+
+<blockquote class='abstract'>
+<h3>Abstract</h3>
+
+<p>GIF is a widely-supported indexed color image file format. SKIPPY
+is a Common Lisp library that supports reading GIF87a and GIF89a files
+and writing GIF89a files. SKIPPY supports images with animations,
+transparency, comments, and other GIF features. SKIPPY is written
+fully in Common Lisp and does not use an external library to read or
+write image files. It is available under a BSD-like license. 
+
+The latest version is 1.3.12, released on March 12th, 2015.
+
+<p>The canonical location for SKIPPY
+is <a href="http://www.xach.com/lisp/skippy/">http://www.xach.com/lisp/skippy/</a>. Development
+is on <a href="https://github.com/xach/skippy/">github</a>.
+
+<p>SKIPPY is used by <a href="http://wigflip.com/">wigflip</a>.
+
+<p><font color=red>Download shortcut:</font> 
+<a
+href="http://www.xach.com/lisp/skippy.tgz">http://www.xach.com/lisp/skippy.tgz</a>
+
+
+
+</blockquote>
+
+
+<h3>Contents</h3>
+
+<ol>
+<li> <a href='#sect-limitations'>Limitations</a>
+<li> <a href='#sect-concepts'>Concepts</a>
+<li> <a href='#sect-examples'>Examples</a>
+<li> <a href='#sect-dictionary'>Dictionary</a>
+
+<ul>
+   <li> <a href='#sect-color-tables'>Color Tables</a>
+
+    <ul>
+     <li> <a href='#rgb-color'><tt>rgb-color</tt></a>
+     <li> <a href='#color-rgb'><tt>color-rgb</tt></a>
+     <li> <a href='#make-color-table'><tt>make-color-table</tt></a>
+     <li> <a href="#add-color"><tt>add-color</tt></a>
+     <li> <a href='#find-color'><tt>find-color</tt></a>
+     <li> <a href='#ensure-color'><tt>ensure-color</tt></a>
+     <li> <a href='#color-table-size'><tt>color-table-size</tt></a>
+     <li> <a href='#color-table-entry'><tt>color-table-entry</tt></a>
+     <li> <a href='#copy-color-table'><tt>copy-color-table</tt></a>
+    </ul>
+
+   <li> <a href='#sect-data-streams'>Data Streams</a>
+
+    <ul>
+     <li> <a href='#make-data-stream'><tt>make-data-stream</tt></a>
+     <li> <a href='#add-image'><tt>add-image</tt></a>
+     <li> <a href='#output-data-stream'><tt>output-data-stream</tt></a>
+     <li> <a href='#write-data-stream'><tt>write-data-stream</tt></a>
+     <li> <a href='#load-data-stream'><tt>load-data-stream</tt></a>
+     <li> <a href='#read-data-stream'><tt>read-data-stream</tt></a>
+     <li> <a href='#images'><tt>images</tt></a>
+     <li> <a href='#data-stream-dimensions'><tt>width</tt></a>
+     <li> <a href='#data-stream-dimensions'><tt>height</tt></a>
+     <li> <a href='#data-stream-accessors'><tt>color-table</tt></a>
+     <li> <a href='#data-stream-accessors'><tt>loopingp</tt></a>
+     <li> <a href='#data-stream-accessors'><tt>comment</tt></a>
+     <li> <a href='#last-image'><tt>last-image</tt></a>
+     <li> <a href='#add-delay'><tt>add-delay</tt></a>
+   </ul>
+
+   <li> <a href='#sect-images'>Images</a>
+
+    <ul>
+     <li><a href='#*default-delay-time*'><tt>*default-delay-time*</tt></a>
+     <li><a href='#make-image'><tt>make-image</tt></a>
+     <li><a href='#image-dimensions'><tt>width</tt></a>
+     <li><a href='#image-dimensions'><tt>height</tt></a>
+     <li><a href='#image-accessors'><tt>image-data</tt></a>
+     <li><a href='#image-accessors'><tt>top-position</tt></a>
+     <li><a href='#image-accessors'><tt>left-position</tt></a>
+     <li><a href='#image-accessors'><tt>color-table</tt></a>
+     <li><a href='#image-accessors'><tt>interlacedp</tt></a>
+     <li><a href='#image-accessors'><tt>disposal-method</tt></a>
+     <li><a href='#image-accessors'><tt>delay-time</tt></a>
+     <li><a href='#make-image-data'><tt>make-image-data</tt></a>
+    </ul>
+
+   <li> <a href='#sect-canvases'>Canvases</a>
+
+    <ul>
+     <li><a href='#make-canvas'><tt>make-canvas</tt></a>
+     <li><a href='#canvas-dimensions'><tt>width</tt></a>
+     <li><a href='#canvas-dimensions'><tt>height</tt></a>
+     <li><a href='#canvas-image'><tt>canvas-image</tt></a>
+     <li><a href='#canvas-dimensions'><tt>width</tt></a>
+     <li><a href='#canvas-dimensions'><tt>height</tt></a>
+     <li><a href='#pixel-ref'><tt>pixel-ref</tt></a>
+     <li><a href='#composite'><tt>composite</tt></a>
+     <li><a href='#fill-canvas'><tt>fill-canvas</tt></a>
+     <li><a href='#clone'><tt>clone</tt></a>
+     <li><a href='#rotate-180'><tt>rotate-180</tt></a>
+     <li><a href='#flip-horizontal'><tt>flip-horizontal</tt></a>
+     <li><a href='#flip-vertical'><tt>flip-vertical</tt></a>
+     <li><a href='#scale'><tt>scale</tt></a>
+     <li><a href='#fill-area'><tt>fill-area</tt></a>
+    </ul>
+
+   <li> <a href='#sect-warnings-and-conditions'>Warnings and
+   Conditions</a>
+
+    <ul>
+     <li> <a href='#skippy-warning'><tt>skippy-warning</tt></a>
+     <li> <a href='#skippy-error'><tt>skippy-error</tt></a>
+     <li> <a href='#lzw-error'><tt>lzw-error</tt></a>
+     <li> <a href='#unexpected-value'><tt>unexpected-value</tt></a>
+     <li> <a href='#missing-color-table'><tt>missing-color-table</tt></a>
+     <li> <a href='#color-table-full'><tt>color-table-full</tt></a>
+     <li> <a href='#signature-error'><tt>signature-error</tt></a>
+    </ul>
+
+
+ </ul>
+
+<li><a href='#sect-feedback'>Feedback</a>
+
+</ol>
+
+
+<a name='sect-limitations'><h3>Limitations</h3></a>
+
+<p>
+
+<ul>
+
+<li> Raster data is represented very simply, with a limited number of
+pre-defined operations on it
+
+<li> No interface available for writing out files incrementally; they
+must be completely defined in memory, and then written
+
+</ul>
+
+<p>Alternatives:
+
+<ul>
+
+<li> <a href="http://weitz.de/cl-gd/">CL-GD</a> is a Common Lisp
+interface to Thomas Boutell's <a href="http://www.boutell.com/gd/">GD
+graphics library</a>. It includes a high-level interface to loading,
+creating, and manipulating images.
+
+<li> <a href="http://common-lisp.net/project/imago/">IMAGO</a> is an
+image manipulation library in Common Lisp. It supports compositing,
+several types of drawing, scaling, filters, and more.
+
+<li> <a
+href="http://cyrusharmon.org/cl/projects/ch-image/">ch-image</a> is an
+image representation and processing library.
+
+<li> <a href="http://ygingras.net/poly-pen">Poly-pen</a> is a graphics
+library with high-level operations and multiple backends.
+
+</ul>
+
+<a name='sect-concepts'><h3>Concepts</h3></a>
+
+<p>A GIF89a file consists of a <i>data stream</i> which contains zero
+or more
+<i>images</i> (although zero images wouldn't be very useful). In
+addition to images, the data stream contains metadata such as the
+logical dimensions of the overall image and an optional global color
+table. Images contain the actual raster data that is displayed in a
+graphics viewer, and may also be associated with metadata such as a
+transparent color index, a local color table, and animation control
+information.
+
+<p>For more information about the GIF89a file format, see <a
+href="http://www.w3.org/Graphics/GIF/spec-gif89a.txt">the GIF89a
+Specification</a>.
+
+<p>Creating a GIF file with SKIPPY is a three-part process:
+
+<ol>
+<li> Create a data stream
+<li> Add zero or more images to the data stream
+<li> Write the data stream out to a file
+</ol>
+
+
+<a name='sect-examples'><h3>Examples</h3></a>
+
+<pre>
+<img align=right src='example1.gif' border=1
+>;;; Create an image filled with horizontal red stripes
+
+(use-package '#:skippy)
+
+(defun example1 ()
+  (let* ((height 100)
+         (width 100)
+         (data-stream (<a href="#make-data-stream">make-data-stream</a> :height height
+                                        :width width
+                                        :color-table t))
+         (image (<a href="#make-image">make-image</a> :height height :width width))
+         (red (<a href="#ensure-color">ensure-color</a> (<a href="#rgb-color">rgb-color</a> #xFF #x00 #x00)
+                            (<a href="#color-table">color-table</a> data-stream)))
+         (white (<a href="#ensure-color">ensure-color</a> (<a href="#rgb-color">rgb-color</a> #xFF #xFF #xFF)
+                              (<a href="#color-table">color-table</a> data-stream))))
+    (<a href="#add-image">add-image</a> image data-stream)
+    (fill (<a href="#image-data">image-data</a> image) white)
+    (dotimes (i (truncate height 2))
+      (let* ((start (* i width 2))
+             (end (+ start width)))
+        (fill (<a href="#image-data">image-data</a> image) red :start start :end end)))
+    (<a href="#output-data-stream">output-data-stream</a> data-stream #p"example1.gif")))
+</pre>
+
+<p><pre>
+<img align=right src='example2.gif' border=1
+>;;; Make a small "sprite" move across an image
+
+(use-package '#:skippy)
+
+(defun example2 ()
+  (let* ((height 9)
+         (width 99)
+         (color-table (<a href="#make-color-table">make-color-table</a>))
+         (data-stream (<a href="#make-data-stream">make-data-stream</a> :height height
+                                        :width width
+                                        :color-table color-table))
+         (gray (<a href="#ensure-color">ensure-color</a> #xCCCCCC color-table))
+         (white (<a href="#ensure-color">ensure-color</a> #xFFFFFF color-table))
+         (black (<a href="#ensure-color">ensure-color</a> #x000000 color-table))
+         (bg (<a href="#make-image">make-image</a> :data-stream data-stream
+                         :width width :height height
+                         :image-data (<a href="#make-image-data">make-image-data</a> height width
+                                                      :initial-element gray)))
+         (sprite-data (<a href="#make-image-data">make-image-data</a> 3 3)))
+    (flet ((hatch-data (data color1 color2)
+             (dotimes (i (length data))
+               (setf (aref data i) (if (zerop (mod i 2)) color1 color2)))))
+      (hatch-data sprite-data white black)
+      (hatch-data (image-data bg) white gray)
+      (dotimes (i 96)
+        (let ((image (<a href="#make-image">make-image</a> :height 3
+                                 :width 3
+                                 :image-data sprite-data
+                                 :delay-time 10
+                                 :disposal-method :restore-previous
+                                 :transparency-index white
+                                 :top-position 3
+                                 :left-position i)))
+          (<a href="#add-image">add-image</a> image data-stream)))
+      (setf (<a href="#loopingp">loopingp</a> data-stream) t)
+      (<a href="#output-data-stream">output-data-stream</a> data-stream #p"example2.gif"))))
+</pre>
+
+<p><pre>
+<img border=1 align=right src='example3.gif'
+>;;; Overlapping rectangles of random colors
+
+(use-package '#:skippy)
+
+(defun example3 ()
+  (let* ((height 100)
+         (width 100)
+         (color-count 256)
+         (color-table (<a href="#make-color-table">make-color-table</a>))
+         (data-stream (<a href="#make-data-stream">make-data-stream</a> :color-table color-table
+                                        :loopingp t
+                                        :height height
+                                        :width width)))
+    (dotimes (i color-count)
+      (<a href="#add-color">add-color</a> (<a href="#rgb-color">rgb-color</a> (random 256) (random 256) (random 256))
+                 color-table))
+    (dotimes (i color-count)
+      (let* ((top (random height))
+             (left (random width))
+             (h (1+ (random (- height top))))
+             (w (1+ (random (- width left))))
+             (image (<a href="#make-image">make-image</a> :height h
+                                :width w
+                                :data-stream data-stream
+                                :top-position top
+                                :left-position left
+                                :image-data (make-image-data w h
+                                                             :initial-element (random color-count))
+                                :delay-time 5)))
+        (<a href="#add-image">add-image</a> image data-stream)))
+    (<a href="#output-data-stream">output-data-stream</a> data-stream #p"example3.gif")))
+</pre>
+
+
+<a name='sect-dictionary'><h3>Dictionary</h3></a>
+
+<p>The following symbols are exported from the <tt>SKIPPY</tt>
+package.
+
+
+
+
+<a name='sect-color-tables'><h4>Color Tables</h4></a>
+
+<p>Color tables are used to store a mapping between a small (&lt;256)
+numerical index and the actual the color used when displaying an
+image. There may be one global color table stored in the data
+stream. Each image may also have its own local color table. If an
+image does not have a local color table, the global color table must
+be present for the GIF file to be written.
+
+<p>In SKIPPY, colors are designated by 24-bit unsigned integers. The
+top 8 bits represent the red component, the middle 8 bits represent
+the blue component, and the bottom 8 bits represent the green
+component. For example, interpreted as a color, the Lisp literal 
+#x<font color=red>FF</font><font color=green>FF</font><font
+color=blue>FF</font> has a red component of #xFF or 255, a green
+component of #xFF, and a blue component of #xFF. Together, these three
+components make white.
+
+<p>The function <a href='#rgb-color'><tt>RGB-COLOR</tt></a> makes it
+easy to construct colors from their individual components.
+
+
+<p><a name='rgb-color'>[Function]</a><Br>
+<b>rgb-color</b> <i>red</i> <i>green</i> <i>blue</i> => <i>color</i>
+
+<blockquote>
+Returns a 24-bit number representing the color with the numeric color
+components <i>red</i>, <i>green</i>, and <i>blue</i>.
+</blockquote>
+
+<p><a name='color-rgb'>[Function]</a><br>
+<b>color-rgb</b> <i>color</i> => <i>red</i>, <i>green</i>, <i>blue</i>
+
+<blockquote>
+Returns the RGB color components of <i>color</i> as multiple values
+</blockquote>
+
+
+
+<p><a name='make-color-table'>[Function]</a><br>
+<b>make-color-table</b> <tt>&key</tt> <i>initial-contents</i> 
+=> <i>color-table</i>
+
+<blockquote>
+Creates and returns a new color table. The colors in the list
+<i>initial-contents</i>, if any, are added to the table in order as if
+with <a href='#add-color'><tt>ADD-COLOR</tt></a>.
+</blockquote>
+
+
+<p><a name='add-color'>[Function]</a><br>
+<b>add-color</b> <i>color</i> <i>color-table</i> => <i>index</i>
+
+<blockquote>
+Adds <i>color</i> to <i>color-table</i> and returns the new color's
+index. Indexes start at 0 and increase sequentially. If the color
+table already has the maximum number of entries (256), an error is
+signaled.
+</blockquote>
+
+<p><a name='find-color'>[Function]</a><br>
+<b>find-color</b> <i>color</i> <i>color-table</i> => <i>index</i>
+
+<blockquote>
+If <i>color</i> is present in <i>color-table</i>, returns its index,
+otherwise returns nil.
+</blockquote>
+
+
+<p><a name='ensure-color'>[Function]</a><br>
+<b>ensure-color</b> <i>color</i> <i>color-table</i> => <i>index</i>
+
+<blockquote>
+If <i>color</i> is present in <i>color-table</i>, returns its existing
+index, otherwise adds <i>color</i> and returns the new
+index. Essentially a combination of <a
+href="#find-color"><tt>FIND-COLOR</tt></a> and, if necessary, <a
+href="#add-color"><tt>ADD-COLOR</tt></a>.
+</blockquote>
+
+<p><a name='color-table-size'>[Function]</a><br>
+<b>color-table-size</b> <i>color-table</i> => <i>size</i>
+
+<blockquote>
+Returns the number of entries in <i>color-table</i>.
+</blockquote>
+
+
+<p><a name='color-table-entry'>[Accessor]</a><br>
+<b>color-table-entry</b> <i>color-table</i> <i>index</i> =>
+<i>color</i><br>
+(setf (<b>color-table-entry</b> <i>color-table</i> <i>index</i>)
+<i>color</i>) => <i>color</i>
+
+<blockquote>
+Gets or sets the color at <i>index</i> in <i>color-table</i>.
+</blockquote>
+
+
+<p><a name='copy-color-table'>[Function]</a><br>
+<b>copy-color-table</b> <i>color-table</i> => <i>new-color-table</i>
+
+<blockquote>
+Returns a copy of <i>color-table</i>.
+</blockquote>
+
+
+<a name="sect-data-streams"><h4>Data Streams</h4></a>
+
+<p>Data streams are the containers for images and other metadata. 
+
+<p>The height and width of the data stream should be as large as or
+larger than the height and width of any image it contains; some
+software will not display the resulting images otherwise.
+
+<p><a name='make-data-stream'>[Function]</a><br>
+<b>make-data-stream</b> <tt>&amp;key</tt>
+<i>height</i> <i>width</i>
+<i>color-table</i> <i>loopingp</i>
+<i>comment</i> <i>initial-images</i>
+=> <i>data-stream</i>
+
+<blockquote>
+Creates and returns a new data stream object. 
+
+<p><i>height</i> and <i>width</i> are required and represent the
+logical dimensions of the displayed image.
+
+<p><i>color-table</i> represents the global color table, and may be one
+of: NIL, meaning that there is no global color table; <tt>T</tt>,
+designating an automatically created new color table; or an existing
+color table object.
+
+<p>If <i>loopingp</i> is non-NIL, the frames in the image will
+redisplay from the beginning after reaching the end.
+
+<p>If <i>comment</i> is non-NIL, it should be a string to be used as
+an embedded comment in the output file.
+
+<p>All images in the list <i>initial-images</i> are added to the new
+data stream as if with <a href="#add-image"><tt>ADD-IMAGE</tt></a>.
+
+</blockquote>
+
+
+<p><a name='add-image'>[Function]</a><br>
+<b>add-image</b> <i>image</i> <i>data-stream</i> => |
+
+<blockquote>
+Adds <i>image</i> to <i>data-stream</i>.
+</blockquote>
+
+
+<p><a name='output-data-stream'>[Function]</a><br>
+<b>output-data-stream</b> <i>data-stream</i> <i>file</i>
+<tt>&amp;key</tt> <i>(if-exists <tt>:supersede</tt>)</i> =>
+<i>pathname</i>
+
+<blockquote>
+Writes <i>data-stream</i> in GIF89a format to <i>file</i> and returns
+the truename of
+<i>file</i>. <i>if-exists</i> may be any of the values accepted by the <tt>:IF-EXISTS</tt> argument to <tt>CL:OPEN</tt>.
+
+</blockquote>
+
+
+<p><a name='write-data-stream'>[Function]</a><br>
+<b>write-data-stream</b> <i>data-stream</i> <i>stream</i> => |
+
+<blockquote>
+Writes <i>data-stream</i> in GIF89a format to <i>stream</i> and
+returns no value. The stream should accept
+<tt>(UNSIGNED-BYTE&nbsp;8)</tt> data via <tt>CL:WRITE-BYTE</tt> and
+<tt>CL:WRITE-SEQUENCE</tt>.
+</blockquote>
+
+
+<p><a name='load-data-stream'>[Function]</a><br>
+<b>load-data-stream</b> <i>file</i> => <i>data-stream</i>
+
+<blockquote>
+
+Reads GIF data from <i>file</i> and returns a SKIPPY data stream
+object. Some caveats apply:
+
+<ul>
+
+<li> If multiple comments are present in the file, only the last
+comment is saved in the resulting data stream
+
+<li> All GIF Plain Text Extension blocks are silently ignored
+(however, no software actually supports the Plain Text Extension
+anyway)
+
+</ul>
+
+<p>
+
+</blockquote>
+
+
+<p><a name='read-data-stream'>[Function]</a><br>
+<b>read-data-stream</b> <i>stream</i> => <i>data-stream</i>
+
+<blockquote>
+Reads a GIF89a or GIF87a data stream from <i>stream</i> and returns it
+as a SKIPPY data stream object. The stream should be compatible with
+reading <tt>(UNSIGNED-BYTE&nbsp;8)</tt> data via <tt>CL:READ-BYTE</tt>
+and <tt>CL:READ-SEQUENCE</tt>.
+</blockquote>
+
+
+<p><a name='images'>[Function]</a><br>
+<b>images</b> <i>data-stream</i> => <i>image-vector</i>
+
+<blockquote>
+Returns a vector containing the images present in <i>data-stream</i>.
+</blockquote>
+
+
+<p><a name='data-stream-dimensions'>[Functions]</a><br>
+<b>width</b> <i>data-stream</i> => <i>width</i><br>
+<b>height</b> <i>data-stream</i> => <i>height</i>
+
+
+<blockquote>
+Returns the width and height of <i>data-stream</i>, respectively.
+</blockquote>
+
+
+<p><a name='data-stream-accessors'>[Accessors]</a><br>
+<b>color-table</b> <i>data-stream</i> => <i>color-table</i><br>
+<b>loopingp</b> <i>data-stream</i> => <i>boolean</i><br>
+<b>comment</b> <i>data-stream</i> => <i>string</i>
+
+<blockquote>
+Accessors; get or set the respective properties of
+<i>data-stream</i>. See <a
+href='#make-data-stream'><tt>MAKE-DATA-STREAM</tt></a> for more
+details.
+
+</blockquote>
+
+
+<p><a name='last-image'>[Function]</a><br>
+<b>last-image</b> <i>data-stream</i> => <i>image</i>
+
+<blockquote>
+Returns the last image of <i>data-stream</i>, or NIL if the data
+stream does not have any images.
+</blockquote>
+
+
+<p><a name='add-delay'>[Function]</a><br>
+<b>add-delay</b> <i>delay</i> <i>data-stream</i> => <i>new-delay</i>
+
+<blockquote>
+Increments the <a href="#image-accessors"><tt>DELAY-TIME</tt></a> of the
+last image in <i>data-stream</i> by <i>delay</i> hundredths of a
+second, and returns the new value.
+
+<p>This has the effect of adding a pause to the current point in the
+animation.
+
+<p>If there are no images in <i>data-stream</i>, returns NIL and has
+no effect.
+
+</blockquote>
+
+
+<a name='sect-images'><h4>Images</h4></a>
+
+<p>Images contain the actual raster data that is displayed when
+viewing a GIF. If there is more than one image in a data stream, they
+are displayed in sequence as an animation.
+
+<p>Images may be smaller than the logical dimensions of the data
+stream. They may also be placed at arbitrary offsets from the top and
+left of the logical screen.
+
+<p>Image data is stored as a one-dimensional vector of color table
+indexes. The first element in the vector corresponds to the upper-left
+corner of the image, and the last element in the vector corresponds to
+the lower-right corner of the image. The <a href='#sect-canvases'>canvas
+functions</a> make it easier to treat an image as a two-dimensional
+array of pixels.
+
+
+<p><a name='*default-delay-time*'>[Special variable]</a><br>
+<b>*default-delay-time*</b> => 100
+
+<blockquote>
+The default value for the <a
+href="#image-accessors"><tt>DELAY-TIME</tt></a> of an image, in
+hundredths of a second. The initial value is 100.
+</blockquote>
+
+
+<p><a name='make-image'>[Function]</a><br>
+<b>make-image</b> <tt>&amp;key</tt>
+<i>height</i> <i>width</i>
+<i>image-data</i>
+<i>data-stream</i> 
+<i>top-position</i> <i>left-position</i>
+<i>color-table</i>
+<i>interlacedp</i>
+<i>delay-time</i>
+<i>transparency-index</i>
+<i>disposal-method</i> => <i>image</i>
+
+<blockquote>
+Creates and returns a new image object.
+
+<p><i>height</i> and <i>width</i> represent the dimensions of the
+image.
+
+<p><i>image-data</i>, if supplied, should be a vector with <tt>(*
+width height)</tt> elements of type <tt>(unsigned-byte 8)</tt>. If
+<i>image-data</i> is not supplied, a new vector of the appropriate
+size and type is created for the image automatically.
+
+<p><i>data-stream</i>, if supplied, is the data stream which contains
+the image.
+
+<p><i>top-position</i> and <i>left-position</i>, if supplied, are the
+offsets from the top and left of the logical screen at which this
+image is displayed. If not provided, a default of 0 is used.
+
+<p><i>color-table</i> represents the local color table, and may be one
+of: NIL, meaning that there is no local color table; <tt>T</tt>,
+designating an automatically created new color table; or an existing
+color table object.
+
+<p>If <i>interlacedp</i> is non-NIL, the image data will be written
+out with the rows interlaced. See Appendix E of <a
+href="http://www.w3.org/Graphics/GIF/spec-gif89a.txt">the GIF89a
+specification</a> for more information.
+
+<p><i>delay-time</i> is the time, in hundredths of a second, to
+display this image before displaying the next image in the data
+stream. If not provided, the value of <a
+href='#*default-delay-time*'><tt>*DEFAULT-DELAY-TIME*</tt></a> is used.
+
+<p>If specified, the color at <i>transparency-index</i> will not be
+displayed if it is present in the image raster data; instead, any
+pixel with that index will be transparent.
+
+<p><i>disposal-method</i> is the way the image is updated when the
+next image in the data stream is to be displayed. Possible values are:
+
+<ul>
+
+<li> <tt>:UNSPECIFIED</tt> - Do not erase the image from the display
+when displaying the next frame. This is the default value if
+<i>disposal-method</i> is not supplied.
+
+<li> <tt>:NONE</tt> - Do not erase the image.
+
+<li> <tt>:RESTORE-BACKGROUND</tt> - The image is removed and the
+background is made visible.
+
+<li> <tt>:RESTORE-PREVIOUS</tt> - The image is removed and the
+previous state of the logical image is restored.
+
+</ul>
+
+</blockquote>
+
+
+<p><a name='image-dimensions'>[Functions]</a><br>
+<b>width</b> <i>image</i> => <i>width</i><br>
+<b>height</b> <i>image</i> => <i>height</i>
+
+
+<blockquote>
+Returns the width and height of <i>image</i>, respectively.
+</blockquote>
+
+
+<p><a name='image-accessors'>[Accessors]</a><br>
+<b>image-data</b> <i>image</i> => <i>image-data</i><br>
+<b>top-position</b> <i>image</i> => <i>top-position</i><br>
+<b>left-position</b> <i>image</i> => <i>left-position</i><br>
+<b>color-table</b> <i>image</i> => <i>color-table</i><br>
+<b>interlacedp</b> <i>image</i> => <i>boolean</i><br>
+<b>disposal-method</b> <i>image</i> => <i>disposal-method</i><br>
+<b>delay-time</b> <i>image</i> => <i>delay-time</i><br>
+<b>transparency-index</b> <i>image</i> => <i>index</i>
+
+<blockquote>
+Accessors; get or set the respective properties of <i>image</i>. See
+<a href='#make-image'><tt>MAKE-IMAGE</tt></a> for more details.
+</blockquote>
+
+
+<p><a name='make-image-data'>[Function]</a><br>
+<b>make-image-data</b> <i>width</i> <i>height</i>
+<tt>&amp;key</tt> <i>(initial-element 0)</i> <i>initial-contents</i>
+=> <i>image-data</i>
+
+<blockquote>
+Returns a vector suitable for use as an image's image-data.
+</blockquote>
+
+
+<a name='sect-canvases'><h4>Canvases</h4></a>
+
+<p>Canvases are similar to images, but they do not have GIF-specific
+metadata. They contain only information about their dimensions and a
+vector of raster data.
+
+<p>Most functions that operate on canvases also operate on images.
+
+
+<p><a name='make-canvas'>[Function]</a><br>
+<b>make-canvas</b> <tt>&amp;key</tt> <i>height</i> <i>width</i>
+ <i>image-data</i> => <i>canvas</i>
+
+<blockquote>
+Creates and returns a new canvas object. 
+
+<p><i>height</i> and <i>width</i> are required. 
+
+<p><i>image-data</i>, if supplied, should be a vector with <tt>(*
+width height)</tt> elements of type <tt>(unsigned-byte 8)</tt>. If
+<i>image-data</i> is not supplied, a new vector of the appropriate
+size and type is created for the canvas automatically.
+</blockquote>
+
+<p><a name='canvas-dimensions'>[Functions]</a><br>
+<b>width</b> <i>canvas</i> => <i>width</i><br>
+<b>height</b> <i>canvas</i> => <i>height</i>
+
+<blockquote>
+Returns the width and height of <i>canvas</i>, respectively.
+</blockquote>
+
+<p><a name='pixel-ref'>[Accessor]</a><br>
+<b>pixel-ref</b> <i>canvas</i> <i>x</i> <i>y</i> => <i>index</i><br>
+(setf (<b>pixel-ref</b> <i>canvas</i> <i>x</i> <i>y</i>) <i>index</i>) => <i>index</i>
+
+<blockquote>
+Gets or sets the color table index at position <i>x</i>,<i>y</i> in
+<i>canvas</i>.
+</blockquote>
+
+<p><a name='canvas-image'>[Function]</a><br>
+<b>canvas-image</b> <i>canvas</i> => <i>image</i>
+
+<blockquote>
+Creates an image object that has the same dimensions as <i>canvas</i>
+and which <b>shares</b> the canvas's image-data. That is, any updates
+to the image-data of <i>image</i> or <i>canvas</i> will operate on the
+same data.
+</blockquote>
+
+
+<p><a name='composite'>[Function]</a><br>
+<b>composite</b> <i>source</i> <i>dest</i>
+<tt>&amp;key</tt>
+<i>(sx 0)</i> <i>(sy 0)</i>
+<i>(dx 0)</i> <i>(dy 0)</i>
+<i>width</i> <i>height</i> =>
+
+<blockquote>
+Copies the region of <i>source</i> starting at position
+<i>sx</i>,<i>sy</i> to <i>dest</i> at position <i>dx</i>,<i>dy</i>. 
+
+<p>If <i>width</i> and <i>height</i> are given, they place a bounds on
+the total size of the copied region. They default to the width and
+height of the source image.
+
+<p>Compositing will do the necessary clipping to ensure that the right
+portion of <i>source</i> ends up in <i>dest</i>. This includes
+compositing into negative destination positions and from negative
+source positions.
+</blockquote>
+
+
+<p><a name='fill-canvas'>[Function]</a><br>
+<b>fill-canvas</b> <i>canvas</i> <i>index</i> =>
+
+<blockquote>
+Fills the entire area of <i>canvas</i> with the color index
+<i>index</i>.
+</blockquote>
+
+<p><a name='clone'>[Function]</a><br>
+<b>clone</b> <i>canvas</i> => <i>new-canvas</i>
+
+<blockquote>
+Creates a copy of <i>canvas</i> with the same dimensions and a copy of
+the image data.
+</blockquote>
+
+
+<p><a name='rotate-180'>[Function]</a><br>
+<b>rotate-180</b> <i>canvas</i> => <i>canvas</i>
+
+<blockquote>
+Destructively performs a 180-degree rotation of the image data of
+<i>canvas</i>.
+</blockquote>
+
+
+<p><a name='flip-horizontal'>[Function]</a><br>
+<b>flip-horizontal</b> <i>canvas</i> => <i>canvas</i>
+
+<blockquote>
+Destructively horizontally mirrors the image data of <i>canvas</i>.
+</blockquote>
+
+
+<p><a name='flip-vertical'>[Function]</a><br>
+<b>flip-vertical</b> <i>canvas</i> => <i>canvas</i>
+
+<blockquote>
+Destructively vertically mirrors the image data of <i>canvas</i>.
+</blockquote>
+
+
+<p><a name='scale'>[Function]</a><br>
+<b>scale</b> <i>canvas</i> <i>scale-factor</i> => <i>new-canvas</i>
+
+<blockquote>
+Scales <i>canvas</i> by the integer <i>scale-factor</i> and returns
+the result as a new canvas.
+
+<p>Does <b>not</b> work on image objects.
+</blockquote>
+
+
+<p><a name='fill-area'>[Function]</a><br>
+<b>fill-area</b> <i>canvas</i> <i>index</i>
+<tt>&amp;key</tt>
+<i>(x 0)</i> <i>(y 0)</i>
+<i>width</i> <i>height</i> =>
+
+<blockquote>
+Fills an area of <i>canvas</i> starting at position
+<i>x</i>,<i>y</i>.
+</blockquote>
+
+
+<a name='sect-warnings-and-conditions'><h4>Warnings and Conditions</h4></a>
+
+<p><a name='skippy-warning'>[Condition type]</a><br>
+<b>skippy-warning</b>
+
+<blockquote>
+This condition type is a subtype of <tt>CL:WARNING</tt>. All warnings
+signaled by Skippy are a subtype of this type.
+</blockquote>
+
+
+<p><a name='skippy-error'>[Condition type]</a><br>
+<b>skippy-error</b>
+
+<blockquote>
+This condition type is a subtype of <tt>CL:ERROR</tt>. All errors
+signaled by Skippy are a subtype of this type.
+</blockquote>
+
+
+<p><a name='lzw-error'>[Condition type]</a><br>
+<b>lzw-error</b>
+
+<blockquote>
+An error of this type is signaled from <a
+href='#load-data-stream'><tt>LOAD-DATA-STREAM</tt></a> or <a
+href='#read-data-stream'><tt>READ-DATA-STREAM</tt></a> when the LZW data is
+corrupted in some way.
+</blockquote>
+
+
+<p><a name='unexpected-value'>[Condition type]</a><br>
+<b>unexpected-value</b>
+
+<blockquote>
+An error of this type is signaled from <a
+href='#load-data-stream'><tt>LOAD-DATA-STREAM</tt></a> or <a
+href='#read-data-stream'><tt>READ-DATA-STREAM</tt></a> when an
+unexpected value is encountered.
+</blockquote>
+
+
+<p><a name='missing-color-table'>[Condition type]</a><br>
+<b>missing-color-table</b>
+
+<blockquote>
+An error of this type is signaled from <a
+href='#output-data-stream'><tt>OUTPUT-DATA-STREAM</tt></a> or <a
+href='#write-data-stream'><tt>WRITE-DATA-STREAM</tt></a> when an image
+being compressed has neither a local color table nor a global color table.
+</blockquote>
+
+<p><a name='color-table-full'>[Condition type]</a><br>
+<b>color-table-full</b>
+
+<blockquote>
+An error of this type is signaled from <a
+href='#add-color'><tt>ADD-COLOR</tt></a> or <a
+href='#ensure-color'><tt>ENSURE-COLOR</tt></a> when a new color must be added
+but the color table already has the maximum number of entries (256).
+</blockquote>
+
+
+<p><a name='signature-error'>[Condition type]</a><br>
+<b>signature-error</b>
+
+<blockquote>
+All GIF files start with the ASCII strings "GIF87a" or "GIF89a". An
+error of type <tt>signature-error</tt> is signaled from <a
+href='#load-data-stream'><tt>LOAD-DATA-STREAM</tt></a> or <a
+href='#read-data-stream'><tt>READ-DATA-STREAM</tt></a> when no
+signature is present or the octets in the input stream do not match
+either signature.
+
+</blockquote>
+
+
+
+<a name='sect-feedback'><h3>Feedback</h3></a>
+
+
+<p>Please send bug reports, patches, questions, and any other feedback
+to <a href="mailto:xach@xach.com">Zachary Beane</a>.
+
+<p>Thanks to Eric Marsden for finding and sharing unsupported, bogus,
+and corrupted GIFs so I could make Skippy handle them.
+
+<p>Thanks to Martin Rydstr&ouml;m and Ignas Mikalajunas for reviewing
+this documentation and offering helpful advice.
+
+</div>

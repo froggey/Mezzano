@@ -1,0 +1,11 @@
+@anchor{Generic-Function drei-buffer:region-to-sequence}
+@deffn {Generic Function} {drei-buffer:region-to-sequence} mark1 mark2
+@findex drei-buffer:region-to-sequence
+Return a freshly allocated sequence of the
+objects after @code{mark1} and before @code{mark2}.  An error is signaled
+if the two marks are positioned in different buffers.  If mark1
+is positioned at an offset equal to or greater than that of
+@code{mark2}, an empty sequence is returned.  It is acceptable to pass
+an offset in place of one of the marks. This function calls
+@code{buffer-sequence} with the appropriate arguments.
+@end deffn

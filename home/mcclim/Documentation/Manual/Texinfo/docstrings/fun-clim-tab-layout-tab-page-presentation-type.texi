@@ -1,0 +1,6 @@
+@anchor{Generic-Function clim-tab-layout:tab-page-presentation-type}
+@deffn {Generic Function} {@symbol{tab-page-presentation-type,clim-tab-layout}} tab-page
+Return the type of the presentation used when this
+page's header gets clicked.  Use the @code{setf} function of the same name to
+set the presentation type dynamically.  The default is @code{tab-page}.
+@end deffn

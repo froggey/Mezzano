@@ -1,0 +1,2070 @@
+% Fix ``.'' spacing in lists
+\documentstyle[12pt,aimemo]{article}
+
+\setlength{\textwidth}{6.0in}
+\setlength{\oddsidemargin}{0.25in}
+\setlength{\evensidemargin}{0.25in}
+\setlength{\topmargin}{0pt}
+\setlength{\headsep}{24pt}
+\setlength{\textheight}{8.5in}
+
+\let\origpar=\par
+
+% somehow, LaTex fucks with things so that the plain Tex \obeyspaces
+% doesn't work.  This is the same, except we use an mbox containing
+% a space instead of just a space.
+
+\newcommand{\spc}{\mbox{ }}
+\newcommand{\tAb}{\mbox{        }}
+\def\obspaces{\catcode`\ =\active\catcode`\^^I=\active}
+{\obspaces \global\let =\spc\global\let^^I=\tAb}
+
+\newenvironment{program}{\medskip\samepage\tt\obeylines\obspaces}{\medskip}
+
+% use | for \tt
+\catcode`\|=13
+\newif\ifvbar
+\def|{\ifvbar
+         \endgroup\vbarfalse
+      \else 
+         \begingroup\tt\vbartrue 
+      \fi}
+
+
+
+\newcommand{\lisp}{\tt}
+\newcommand{\iter}{|iterate|}
+\newcommand{\iterpg}{|iterate-pg|}
+\newcommand{\setf}{|setf|}
+\newcommand{\nil}{|nil|}
+\newcommand{\nonnil}{non-\nil}
+\newcommand{\opt}{{\lisp \&optional}}
+\newcommand{\yields}{$\Rightarrow$}
+
+
+
+\newbox\Dots
+\setbox\Dots=\hbox{\small ...}
+\renewcommand{\dots}{\copy\Dots}
+
+% Here's a way to define an environment which will treat all
+% paragraphs inside it in the same manner.  It's, as near as I can
+% figure, the way that Latex does things.  Using \everypar won't work;
+% apparently Latex resets that a lot.  What you have to do is: at the
+% top of the file do \let\origpar=\par.  In the
+% begin part of the environment, do the parshape (or whatever), then say
+% \def\par{{\origpar}}.  The extra braces are necessary.   That's all
+% you have to do; at the end of the environment things will return to
+% normal automatically.  Why does this all work?  I have no idea.
+% Another important thing: there should be a blank line (i.e. a \par)
+% between the end of the last paragraph and the \end{environment}.
+
+\newlength{\clindent}
+\setlength{\clindent}{0.5in}
+\newlength{\clparindent}
+\setlength{\clparindent}{\parindent}
+
+\newenvironment{clauses}{\advance\linewidth -\parindent
+                        \hangindent\clindent\relax
+                         \hangafter=0
+                          \parindent=0pt
+                          \def\par{{\origpar}}}{}
+
+\newcommand{\cpar}{\hspace \clparindent}
+
+\newcommand{\startitem}{\bigskip\pagebreak[3]}
+\newcommand{\finishitem}{\smallskip}
+
+\newcommand{\clause}[1]{\startitem\Clause{#1}\finishitem}
+\newcommand{\Clause}[1]{\hbox{#1}}
+\newcommand{\clindex}[1]{\index{{\lisp #1}}}
+\newcommand{\clindexx}[2]{\index{{\lisp #1\dots #2}}}
+\newcommand{\clindexxx}[3]{\index{{\lisp #1\dots #2\dots #3}}}
+\newcommand{\clausex}[2]{\startitem\Clausex{#1}{#2}\finishitem}
+\newcommand{\Clausex}[2]{\Clause{|#1| #2}\clindex{#1}}
+
+\newcommand{\defvar}[1]{\startitem\deff{#1}{}{Variable}\finishitem}
+\newcommand{\defunexpvar}[1]{\startitem\deffnoindex{iterate::#1}{}{Variable}
+                                        \lispindex{#1}\finishitem}
+\newcommand{\defun}[2]{\startitem\deff{#1}{#2}{Function}\finishitem}
+\newcommand{\defmacro}[2]{\startitem\deff{#1}{#2}{Macro}\finishitem}
+\newcommand{\defunx}[3]{\startitem\deffx{#1}{#2}{#3}{Function}\finishitem}
+\newcommand{\defmacrox}[3]{\startitem\deffx{#1}{#2}{#3}{Macro}\finishitem}
+\newcommand{\defunxx}[4]{\startitem\deffxx{#1}{#2}{#3}{#4}{Function}\finishitem}
+\newcommand{\defmacroxx}[4]{\startitem\deffxx{#1}{#2}{#3}{#4}{Macro}\finishitem}
+
+\newcommand{\deff}[3]{\deffnoindex{#1}{#2}{#3}\lispindex{#1}}
+\newcommand{\deffnoindex}[3]{\hbox to \hsize{{\tt #1} {\it #2}\hfill [{\it #3}]}}
+\newcommand{\deffx}[4]{\deff{#1}{#2}{#4}\moreargs{#1}{#3}}
+\newcommand{\deffxx}[5]{\deffx{#1}{#2}{#3}{#5}\moreargs{#1}{#4}}
+
+\newcommand{\moreargs}[2]{\hbox to \hsize{\phantom{\lisp #1} {\it #2}\hfill}}
+
+\newcommand{\lispindex}[1]{\index{{\lisp #1}}}
+
+ \newenvironment{note}[1]{\pagebreak[2]\bigskip
+                          \hrule\smallskip\small
+                         {\setlength{\parindent}{0pt}
+                           \par{\bf #1:}}}{\smallskip\hrule\bigskip}
+
+
+
+\makeindex
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%\thispagestyle{empty}
+
+%\vspace*{2in}
+
+%\title{The |Iterate| Manual}
+%\author{Jonathan Amsterdam}
+
+%\maketitle
+
+%\thispagestyle{empty}
+
+%\begin{center}
+%\Large *** DRAFT ***
+%\end{center}
+%This manual is in beta-test. It will become an AI Memo in a couple of
+%months.  I would appreciate any comments or
+%corrections.  You can reach me at email address |jba@ai.ai.mit.edu|.
+
+\begin{document}
+
+\def\writtenby{Jonathan Amsterdam}
+\def\contractno{This report describes research done at the Artificial
+Intelligence Laboratory of the Massachusetts Institute of Technology.
+Support for the laboratory's artificial intelligence research is
+provided in part by the Advanced Research Projects Agency of the
+Department of Defense under Office
+of Naval Research contract N00014-85-K-0124.}
+
+\AIMEMO{1236}{\Large The Iterate Manual \\[1in]}
+{This is the manual for version 1.4 of \iter, a powerful iteration
+macro for Common  
+Lisp. \iter\ is similar to {\tt loop} but provides numerous additional
+features, is well integrated with Lisp, and is extensible. 
+\vfill }
+
+
+% use ~ for \em
+\catcode`\~=13
+\newif\ifem
+\def~{\ifem
+         \/\endgroup\emfalse
+      \else 
+         \begingroup\em\emtrue 
+      \fi}
+
+
+
+%\pagebreak
+%\setcounter{page}{1}
+
+%\thispagestyle{empty}
+
+
+\tableofcontents
+
+\pagebreak
+\pagestyle{headings}
+
+\section{Introduction}
+
+\begin{sloppypar}
+This manual describes
+\iter, a powerful iteration facility for Common Lisp.
+\iter\ provides abstractions for many common iteration
+patterns and allows for the definition of additional patterns.  \iter\ is
+a macro that expands into ordinary Lisp at
+compile-time, so it is more efficient than higher-order
+functions like |map| and |reduce.|  
+While it is similar to |loop|, \iter\ offers a more Lisp-like syntax
+and enhanced extensibility.
+(For a more complete
+comparison of \iter\ with other iteration constructs, see MIT AI Lab Working
+Paper No. 324, ~Don't Loop, Iterate.~)
+\end{sloppypar}
+
+An \iter\ form consists of the symbol |iter|\footnote{You can also use
+|iterate|, but |iter| is preferred because it avoids potential conflicts with
+possible future additions to Common Lisp, and because it saves
+horizontal space when writing code.}
+followed by one or more
+forms, some of which may be \iter\ 
+~clauses.~  Here is a simple example of \iter\ which collects the
+numbers from 1 to 10 into a list, and returns the list.  The return
+value is shown following the arrow.
+\begin{program}
+(iter (for i from 1 to 10)
+      (collect i))          \yields (1 2 3 4 5 6 7 8 9 10)
+\end{program}
+This form contains two clauses: a |for| clause that steps the
+variable |i| over the integers from 1 to 10, and a |collect|
+clause that accumulates its argument into a list.  With a few
+exceptions, all \iter\ clauses have the same format: alternating
+symbols (called ~keywords~) and expressions (called
+~arguments~).  The syntax and terminology are those of Common
+Lisp's keyword lambda lists.  One difference is that \iter's keywords
+do not have to begin with a colon---though they may, except for the
+first symbol of a clause.  So you can also write  |(for i :from
+1 :to 10)| if you prefer.
+
+Any Lisp form can appear in the body of an \iter, where it will have
+its usual meaning.  \iter\ walks the entire body, expanding macros,
+and recognizing clauses at any level.  This example collects all the
+odd numbers in a list:
+\begin{program}
+(iter (for el in list)
+      (if (and (numberp el) (oddp el))
+          (collect el)))
+\end{program}
+
+There are clauses for iterating over numbers, lists, arrays and other
+objects, and for
+collecting, summing, counting, maximizing and other useful operations.
+\iter\ also supports the creation of new variable bindings, stepping
+over multiple sequences at once, destructuring, and compiler
+declarations of variable types.  The following example illustrates
+some of these features: 
+\begin{program}
+(iter (for (key . item) in alist)
+         (for i from 0)
+         (declare (fixnum i))
+         (collect (cons i key)))
+\end{program}
+
+This loop takes the keys of an alist and returns a new alist
+associating the keys with their positions in the original list. The
+compiler declaration for |i| will appear in the generated code
+in the appropriate place.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Clauses}
+
+Most of \iter's clauses will be familiar to |loop| programmers.  
+(|loop| is an iteration macro that has been incorporated into Common
+Lisp.  Seen Guy Steele's {\em Common Lisp, 2nd Edition}.)
+In
+nearly all cases they behave the same as their |loop| counterparts, so
+a |loop| user can switch to \iter\ with little pain (and much gain).
+
+All clauses with the standard keyword-argument syntax consist of two
+parts: a ~required~ part, 
+containing keywords that must be present and in the right order; and
+an ~optional~ part, containing keywords that may be omitted and,
+if present, may occur in any order.  In the descriptions below, the
+parts are separated by the Lisp lambda-list keyword \opt.
+
+
+\subsection{Drivers}
+
+An iteration-driving clause
+conceptually causes the iteration to go forward.  Driver clauses in
+\iter\ allow iteration over numbers, lists, vectors, hashtables, packages,
+files and streams.  Iteration-driving clauses must
+appear at the top level of an \iter\ form; they cannot be nested
+inside another clause.  The driver variable is updated at the point
+where the driver clause occurs.  Before the clause is executed for the
+first time, the value of the variable is undefined.
+
+%Also, regardless of where the driver clause
+%appears in the body, the driver variable is stepped at the top of the
+%loop; hence it is stylistically preferable, though
+%not required, to place driver clauses at the beginning of the \iter.
+
+Multiple drivers may appear in a single \iter\ form, in which case all
+of the driver variables are updated each time through the loop, in the
+order in which the clauses appear.  The first driver to terminate will
+terminate the entire loop.
+
+In all cases, the value of the driver variable on exit from the loop,
+including within the epilogue code (see the |finally| clause), is
+undefined.
+
+All the parameters of a driver clause are evaluated once, before the
+loop begins.  Hence it is not possible to change the bounds or other
+properties of an iteration by side-effect from within the loop.
+
+With one exception, driver clauses begin with the word |for| (or
+the synonym |as|) and mention an iteration variable, which is
+given a binding within the \iter\ form.
+The exception is |repeat|, which just executes a loop a
+specified number of times:
+
+\begin{clauses}
+
+\clausex{repeat}{~n~}
+Repeats the loop ~n~ times.  For example:
+\begin{program}
+(iter (repeat 100)
+      (print "I will not talk in class."))
+\end{program}
+\cpar If $n \leq 0$, the
+loop will never be executed.  If ~n~ is not an integer, the
+actual number of executions will be $\lceil n \rceil$.
+
+\end{clauses}
+
+\pagebreak[3]
+
+\subsubsection{Numerical Iteration}
+
+\begin{clauses}
+\clausex{for}{~var~ |\&sequence|} 
+The general form for iterating over a sequence of numbers requires a
+variable and, optionally, one or more keywords that provide the bounds
+and step size of the iteration. The |\&sequence|
+lambda-list keyword is a shorthand for these sequence keywords.  They are:
+|from|, |upfrom|, |downfrom|, |to|, |downto|, |above|, |below| and |by|.
+|from| provides the starting value for ~var~
+and defaults to zero. |to| provides a final value and implies that the
+successive values of ~var~ will be increasing; |downto| implies that
+they will be decreasing.  The loop terminates when ~var~ passes
+the final value (i.e. becomes smaller or larger than it, depending on
+the direction of iteration); in other  words, the loop body
+will never be 
+executed for values of ~var~ past the final value.
+|below| and |above| are similar to |to| and
+|downto|, except that the loop terminates when ~var~ equals or passes
+the final value.
+
+\cpar If no final value is specified, the variable will be stepped
+forever.  Using |from| or |upfrom| will result in increasing
+values, while |downfrom| will give decreasing values.
+
+\cpar On each iteration,
+~var~ is incremented or decremented by the value of the sequence
+keyword |by|, which defaults to 1.  It should always be a positive
+number, even for downward iterations.
+
+\cpar In the following examples, the sequence of numbers generated is shown
+next to the clause.
+
+\begin{program}
+(for i upfrom 0) \yields\ 0 1 2 \ldots
+(for i from 5)   \yields\ 5 6 7 \ldots    ; either from or upfrom is okay
+(for i downfrom 0) \yields\ 0 -1 -2 \ldots
+(for i from 1 to 3) \yields\ 1 2 3
+(for i from 1 below 3) \yields\ 1 2
+(for i from 1 to 3 by 2) \yields\ 1 3
+(for i from 1 below 3 by 2) \yields\ 1
+(for i from 5 downto 3) \yields\ 5 4 3
+\end{program}
+
+\end{clauses}
+
+\subsubsection{Sequence Iteration}
+
+There are a number of clauses for iterating over sequences.  In all of
+them, the argument following |for| may be a list instead of a
+symbol, in which case destructuring is performed.  See section
+\ref{destructuring}. 
+
+\begin{clauses}
+
+\clause{|for| ~var~ |in| ~list~ \opt\ |by| ~step-function~}
+\clindexx{for}{in}
+~var~ is set to successive elements of list.  
+~step-function,~ which 
+defaults to |cdr|, is used to obtain the next sublist. 
+
+\clause{|for| ~var~ |on| ~list~ \opt\ |by| ~step-function~}
+\clindexx{for}{on}
+~var~ is set to successive sublists of list. 
+~step-function~ (default |cdr|) is used as in |for\dots in|.
+
+\end{clauses}
+
+\medskip
+
+These two clauses use |atom| to test for the end
+of a list.  Hence, given a list whose final |cdr| is not \nil,
+they will silently ignore the last |cdr|.  Other choices are
+|endp|,  which would signal an error, and |null|, which
+would probably result in an error somewhere else.  If you wish to use
+an end-test other than |atom|, set the variable
+|iterate::*list-end-test*|\lispindex{*list-end-test*} to the name of
+the desired function. 
+
+\begin{clauses}
+\clause{|for| ~var~ |in-vector| ~vector~ |\&sequence|}
+\clindexx{for}{in-vector}
+~var~ takes on successive elements from ~vector.~   The vector's
+fill-pointer is observed.  Here and in subsequent clauses, the |\&sequence|
+keywords include |with-index|, which takes a symbol as argument
+and uses it for the index variable instead of an internally generated
+symbol.  The other |\&sequence| keywords behave as in numerical
+iteration, except that the default iteration bounds are the bounds of
+the vector.  E.g. in |(for i in-vector v downto 3)|,
+|i| will start off being bound to the last element in |v|,
+and will  
+be set to preceding elements down to and including the element with
+index 3.
+
+\clause{|for| ~var~ |in-sequence| ~seq~ |\&sequence|}
+\clindexx{for}{in-sequence}
+This uses Common Lisp's generalized sequence functions, |elt|
+and |length|, to obtain elements and determine the length of
+~seq.~   Hence it will work for any sequence, including lists, and will
+observe the fill-pointers of vectors.
+
+\clause{|for| ~var~ |in-string| ~string~ |\&sequence|}
+\clindexx{for}{in-string}
+~var~ is set to successive characters of ~string.~
+
+\startitem
+\Clause{|for| ~var~ |index-of-vector| ~vector~ |\&sequence|}
+\clindexx{for}{index-of-vector}
+\Clause{|for| ~var~ |index-of-sequence| ~sequence~ |\&sequence|}
+\clindexx{for}{index-of-sequence}
+\Clause{|for| ~var~ |index-of-string| ~string~ |\&sequence|}
+\clindexx{for}{index-of-string}
+\finishitem
+~var~ is set to successive indices of the sequence.
+These clauses avoid the overhead of accessing the sequence elements
+for those applications where they do not need to be examined, or are
+examined rarely.  They admit all the optional keywords of the other
+sequence drivers except the (redundant) |with-index| keyword.
+
+\clause{|for| ~(key value)~ |in-hashtable| ~table~}
+\clindexx{for}{in-hashtable}
+
+~key~ and ~value,~ which must appear as shown in a list
+and may be destructuring templates, are set to the keys and values of
+~table~.  If ~key~ is |nil|, then the hashtable's keys will be ignored;
+similarly for ~value~.
+The order in which 
+elements of ~table~ will be retrieved is unpredictable.
+
+\clause{|for| ~var~ |in-package| ~package~ \opt\ |external-only| ~ext~}
+\clindexx{for}{in-package}
+Iterates over all the symbols in ~package,~ or over only the
+external symbols if ~ext~ is specified and non-|nil|.  ~ext~ is not
+evaluated.  The same symbol may appear more than once.
+
+\clause{|for| ~var~ |in-packages| ~packages~ \opt\ |having-access| ~symbol-types~}
+\clindexx{for}{in-packages}
+Iterates over all the symbols from the list of packages denoted by the
+descriptor ~packages~ and having accessibility (or visibility) given by
+~symbol-types~.  This defaults to the list |(:external :internal :inherited)|
+and is not evaluated.  ~var~ must be a list of up to three variables: in each
+iteration, these will be set to a symbol, its access-type and package (as per
+|with-package-iterator| in ANSI-CL).  The same symbol may appear more than
+once.
+
+\end{clauses}
+
+\begin{clauses}
+
+\clause{|for| ~var~ |in-file| ~name~ \opt\ |using| ~reader~}
+\clindexx{for}{in-file}
+Opens the file ~name~ (which may be a string or pathname) for input,
+and iterates 
+over its contents. ~reader~ defaults to |read|, so by default ~var~
+will be bound to the successive forms in the file.  The \iter\ body is
+wrapped in an unwind-protect to ensure that the file is closed no
+matter how the \iter\ is exited.
+
+\clause{|for| ~var~ |in-stream| ~stream~ \opt\ |using| ~reader~}
+\clindexx{for}{in-stream}
+Like |for\dots in-file|, except that ~stream~ should be an existing
+stream object that supports input operations.
+
+\end{clauses}
+
+\subsubsection{Generalized Drivers}
+
+These are primarily useful for writing drivers that can also be used
+as generators (see section \ref{generators}, below).
+ 
+\begin{clauses}
+
+\clause{|for| ~var~ |next| ~expr~}
+\clindexx{for}{next}
+
+~var~ is set to ~expr~ each time through the loop.  Destructuring is
+performed.  When the clause is used as a generator, ~expr~ is the code
+that is executed when |(next ~var~)| is 
+encountered (see section \ref{generators}, below).
+~expr~ should compute the first value for ~var~, as well
+as all subsequent values, and is responsible for terminating the loop.
+For compatibility with future versions of \iter, this termination
+should be done with |terminate|\clindex{terminate}, which can be
+considered a synonym for |finish| (see section \ref{control-flow}).
+
+\cpar As an example, the following clauses are equivalent to |(for
+i from 1 to 10)|:
+\begin{program}
+(initially (setq i 0))
+(for i next (if (> i 10) (terminate) (incf i)))
+\end{program}
+
+\clause{|for| ~var~ |do-next| ~form~}
+\clindexx{for}{do-next}
+~form~ is evaluated each time through the loop.  Its value is ~not~
+set to ~var~; that is ~form's~ job. ~var~ is only present so that
+\iter\ knows it is a driver variable.  \linebreak |(for ~var~ next
+~expr~)| is equivalent to |(for ~var~ do-next (dsetq ~var~ ~expr~))|.
+(See section \ref{destructuring} for an explanation of |dsetq|.) 
+
+\end{clauses}
+
+\subsubsection{Generators}
+\label{generators}
+
+In all of the above clauses, the driver variable is updated on each
+iteration.
+Sometimes it is desirable to have greater control over updating.  
+For instance, consider the problem of associating numbers, in
+increasing order and with no gaps, with the
+\nonnil\ elements of a list.  One obvious first pass at writing this is:
+
+\begin{program}
+(iter (for el in list)
+      (for i upfrom 1)
+      (if el (collect (cons el i))))
+\end{program}
+But on the list |(a b nil c)| this produces |((a . 1) (b . 2) (c .
+4))| instead of the desired |((a . 1) (b . 2) (c . 3))|.  The problem
+is that |i| is incremented each time through the loop, even when |el|
+is |nil|.  
+
+The problem could be solved elegantly if we could step |i| only when
+we wished to.  This
+can be accomplished for any \iter\ driver by writing |generate| (or
+its synonym |generating|)
+instead of |for|.  Doing so produces a ~generator~---a driver whose
+values are yielded explicitly.  To obtain the next value of a
+generator variable ~v~, write \linebreak |(next ~v~)|.  The value of a |next|
+form is the next value of ~v~, as determined by its associated driver
+clause.  |next| also has the side-effect of updating ~v~ to that
+value.  If there is no next value, |next| will terminate the loop,
+just as with a normal driver.
+
+
+Using generators, we can now write our example like this:
+\begin{program}
+(iter (for el in list)
+      (generate i upfrom 1)
+      (if el (collect (cons el (next i)))))
+\end{program}
+Now |i| is updated only when |(next i)| is executed, and this occurs
+only when |el| is \nonnil.
+
+To better understand the relationship between ordinary drivers and
+generators, observe that we can rewrite an ordinary driver using its
+generator form immediately followed by |next|, as this example shows:
+\begin{program}
+(iter (generating i from 1 to 10)
+      (next i)
+      ...)
+\end{program}
+Provided that the loop body contains no |(next i)| forms, this will
+behave just as if we had written |(for i from 1 to 10)|.
+
+We can still refer to a driver variable ~v~ without using |next|; in
+this case, its value is that given to it by the last evaluation of
+|(next ~v~)|.  Before |(next ~v~)| has been called the first time, the
+value of ~v~ is undefined.  
+
+This semantics is more flexible than
+one in which ~v~ begins the loop bound to its first value and calls
+of |next| supply subsequent values, because it means the loop will not
+terminate too soon if the generator's sequence is empty.  For
+instance, consider the following code, which tags \nonnil\ elements of
+a list using a list of tags, and also counts the null elements.
+(We assume there are at least as many tags as \nonnil\ elements.)
+\begin{program}
+(let* ((counter 0)
+       (tagged-list (iter (for el in list)
+                          (generating tag in tag-list) 
+                          (if (null el)
+                              (incf counter)
+                              (collect (cons el (next tag)))))))
+  ...)
+\end{program}
+It may be that there are just as many tags as non-null elements of
+|list|.  If all the elements of |list| are null, we still want the
+counting to proceed, even though |tag-list| is \nil.  If |tag| had to be
+assigned its first value before the loop begins, we would have had to
+terminate the loop before the first iteration, since when |tag-list|
+is \nil, |tag| 
+has no first value.  With the existing semantics, however, |(next
+tag)| will never execute, so the iteration will cover all the elements of
+|list|. 
+        
+When the ``variable'' of a driver clause is actually a destructuring
+template containing several variables, all the variables are eligible
+for use with |next|.  As before, |(next ~v~)| evaluates to ~v's~ next
+value; but the effect is to update all of the template's variables.
+For instance, the following code will return the list |(a 2 c)|.
+\begin{program}
+(iter (generating (key . item) in '((a . 1) (b . 2) (c . 3)))
+      (collect (next key))
+      (collect (next item)))
+\end{program}
+
+Only driver clauses with variables can be made into generators.  This
+includes all clauses mentioned so far except for |repeat|.  It does
+~not~ include |for\dots previous|, |for\dots =|,
+|for\dots initially\dots then| or |for\dots first\dots then| (see
+below). 
+
+\subsubsection{Previous Values of Driver Variables}
+
+Often one would like to access the value of a variable on a previous
+iteration.  \iter\ provides a special clause for accomplishing this.
+
+\begin{clauses}
+
+\clause{|for| ~pvar~ |previous| ~var~ \opt\ |initially| ~init~
+|back| ~n~}
+\clindexx{for}{previous}
+Sets ~pvar~ to the previous value of ~var,~ which should be a driver
+variable, a variable from another |for\dots previous| clause, or a
+variable established by a |for\dots =|, 
+|for\dots initially\dots then| or |for\dots first\dots then| clause
+(see section \ref{setting}).
+Initially, ~pvar~ is given the value ~init~ (which defaults to \nil).  
+The ~init~ expression will be moved outside the loop body, so it
+should not depend on anything computed within the loop.
+~pvar~ retains the value of ~init~ until ~var~ is set to its second
+value, at which point ~pvar~ is set to ~var's~ first value; and so on.  
+
+\cpar The
+argument ~n~ to |back| must be a constant, positive integer, and
+defaults to 1.  It determines how many iterations back ~pvar~ should
+track ~var~.  For example, when ~n~ is 2, then ~pvar~ will be assigned
+~var's~ first value when ~var~ is set to its third value.
+
+\cpar A |for\dots previous| clause may occur after or before its
+associated driver clause. |for\dots previous| works with generators as
+well as ordinary drivers.
+
+\pagebreak[3]
+
+\cpar Example:
+\begin{program}
+(iter (for el in '(1 2 3 4))
+      (for p-el previous el)
+      (for pp-el previous p-el initially 0)
+      (collect pp-el))
+\end{program}
+This evaluates to |(0 0 1 2)|.  It could have been written more
+economically as 
+\begin{program}
+(iter (for el in '(1 2 3 4))
+      (for pp-el previous el back 2 initially 0)
+      (collect pp-el))
+\end{program}
+
+
+\end{clauses}
+
+\subsection{Variable Binding and Setting}
+\label{setting}
+
+Several clauses exist for establishing new variable bindings or for
+setting variables in the loop.  They all support destructuring.
+
+\begin{clauses}
+
+\clausex{with}{~var~ \opt\ |=| ~value~}
+Causes ~var~ to be bound to value before the loop body is entered.
+If ~value~ is not supplied, ~var~ assumes a default
+binding, which will be 
+\nil\ in the absence of declarations.  Also, if ~value~ is not
+supplied, no destructuring is performed; instead, ~var~ may be a list of
+symbols, all of which are given default 
+bindings.  If ~value~ is supplied, ~var~ is bound to it, with
+destructuring.  
+
+\cpar Because |with|
+creates bindings whose scope includes the entire \iter\ form, it is
+good style to put all |with| clauses at the beginning.
+
+\cpar Successive occurrences of |with| result in sequential
+bindings (as with 
+|let*|).  There is no way to obtain parallel bindings; see
+section \ref{bindings} for a rationale.  
+
+
+\clause{|for| ~var~ |=| ~expr~}
+\clindexx{for}{=}
+On each iteration, ~expr~ is evaluated and ~var~ is set
+to its value. 
+
+\cpar This clause may appear to do the same thing as |for\dots next|.
+In fact, they are quite different.  |for\dots =| provides only three
+services: it sets up a binding for ~var~, sets it to ~expr~ on each
+iteration, and makes it possible to use |for\dots previous| with
+~var~.  |for\dots next| provides these services in addition to the
+ability to turn the driver into a generator.
+%Also, the code which sets ~var~ appears in the loop body in the same
+%place as the |for\dots =| clause; the code for |for\dots next| appears
+%at the top of the loop, as with other drivers (except when being used
+%as a generator).
+
+\clause{|for| ~var~ |initially| ~init-expr~ |then| ~then-expr~}
+\clindexxx{for}{initially}{then}
+Before the loop begins, ~var~ is set to ~init-expr;~ on all
+iterations after the first it is set to ~then-expr.~  This clause
+must occur at top-level.  ~init-expr~ will be moved outside the loop
+body and ~then-expr~ will be moved to the end of the loop body, so
+they are subject to code motion problems (see section
+\ref{code-movement}). 
+
+\cpar This clause may appear to be similar to |for\dots next|, but in
+fact they differ significantly.  |for\dots initially\dots then| is
+typically used to give ~var~ its first value before the loop begins,
+and subsequent values on following iterations.  This is incompatible
+with generators, whose first value and subsequent values must all be
+computed by |(next ~var~)|.  Also, the update of ~var~ in 
+|for\dots initially\dots then| does not occur at the location of the
+clause. 
+Use |for\dots initially\dots then| for
+one-shot computations where its idiom is more convenient, but use
+|for\dots next| for extending \iter\ with new drivers (see section
+\ref{extend}).
+
+\clause{|for| ~var~ |first| ~first-expr~ |then| ~then-expr~}
+\clindexxx{for}{first}{then}
+The first time through the loop, ~var~ is set to ~first-expr;~ on
+subsequent iterations, it is set to ~then-expr.~  This differs from
+|for\dots initially| in that ~var~ is set to ~first-expr~
+inside the loop body, 
+so ~first-expr~ may depend on the results of other clauses.  For
+instance, 
+\begin{program}
+(iter (for num in list)
+      (for i first num then (1+ i))
+      ...)
+\end{program}
+will set |i| to the first element of |list| on the first
+iteration, whereas 
+\begin{program}
+(iter (for num in list)
+      (for i initially num then (1+ i))
+      ...)
+\end{program}
+is probably erroneous; |i| will be bound to |num|'s
+default binding (usually \nil) for the first iteration.
+
+\end{clauses}
+
+\begin{note}{Compatibility note}
+|loop|'s |for\dots =| works like \iter's, but |loop| used the syntax
+|for\dots =\dots then| to mean |for\dots initially\dots then|.  It was
+felt that these two operations were sufficiently different to warrant
+different keywords.
+
+Also, the |for| in the above three clauses is misleading,
+since none is true driver (e.g. none has a corresponding |generate|
+form).  |setting| would have been a better choice, but |for| was used
+to retain some compatibility with |loop|.  
+\end{note}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\subsection{Gathering Clauses}
+Many of \iter's clauses accumulate values into a variable, or set a
+variable under certain conditions.  At the end of the loop, this
+variable contains the desired result.  All these clauses have an
+optional |into| keyword, whose argument should be a symbol.  If the
+|into| keyword is not supplied, the accumulation variable will be
+internally generated and its value will be returned at the end of the
+loop; if a variable is specified, that variable is used for the
+accumulation, and is not returned as a result---it is up to the user
+to return it explicitly, in the loop's epilogue code (see |finally|).
+It is safe to examine the accumulation variable during the loop, but
+it should not be modified.
+
+These clauses all begin with a verb.  When the verb does
+not conflict with an existing Common Lisp function, then it may be
+used in either its infinitival or present-participle form (e.g. |sum|,
+|summing|).  However, when there is a conflict with Common Lisp, only
+the present-participle form may be used (e.g. |unioning|).  This is to
+prevent \iter\ clauses from clashing with Common Lisp
+functions. 
+
+%although these clauses are described as ``producing a value,'' it is a
+%mistake to think of the lisp list representing the clause as a
+%value-producing form in the usual way.  clauses may legally be written
+%where a value is expected, e.g. |(setq x (sum i))|, but the
+%lisp value of a clause in such a context is undefined.
+
+\subsubsection{Reductions}
+
+~Reduction~ is an extremely common iteration pattern in which
+the results of successive applications of a
+binary operation are accumulated.
+For example, a loop that computes the sum of the
+elements of a list is performing a reduction with the addition
+operation.  This could be written in Common Lisp as  |(reduce \#'+
+list)| or with \iter\ as
+\begin{program}
+(iter (for el in list)
+      (sum el))
+\end{program}
+
+\begin{clauses}
+
+\clausex{sum}{~expr~ \opt\ |into| ~var~}
+Each time through the loop, ~expr~ is evaluated and added to a
+variable, which is bound initially to zero.  If ~expr~ has a type,
+it is ~not~ used as the type of the sum variable, which is always
+|number|.  To get the result variable to be of a more specific
+type, use an explicit variable, as in
+\begin{program}
+(iter (for el in number-list)
+      (sum el into x)
+      (declare (fixnum x))
+      (finally (return x)))
+\end{program}
+
+\clausex{multiply}{~expr~ \opt\ |into| ~var~}
+Like |sum|, but the initial value of the result variable is $1$,
+and the variable is updated by multiplying ~expr~ into it.
+
+\clausex{counting}{~expr~ \opt\ |into| ~var~}
+~expr~ is evaluated on each iteration.  If it is \nonnil, the
+accumulation variable, initially zero, is incremented.
+
+\startitem
+\Clausex{maximize}{~expr~ \opt\ |into| ~var~}
+\Clausex{minimize}{~expr~ \opt\ |into| ~var~}
+\finishitem
+~expr~ is evaluated on each iteration and its extremum (maximum or
+minimum) is stored in the accumulation variable.  If ~expr~ is never
+evaluated, then the result is \nil\ (if the accumulation variable is
+untyped) or $0$ (if it has a numeric type).
+
+\clausex{reducing}{~expr~ |by| ~func~ \opt\ |initial-value| ~init-val~ |into| ~var~}
+This is a general way to perform reductions. ~func~ should be a
+function of two arguments, the first of which will be the value
+computed so far and
+the second of which will be the value of ~expr~.  It should return the
+new value.
+|reducing| is roughly equivalent to the
+Common Lisp |(reduce ~func~ ~sequence~ :key ~expr-function~)|, where
+~expr-function~ is used to derive values from the successive elements
+of ~sequence~.
+
+\cpar If the |reducing| clause is never executed, the result is
+undefined.
+
+\cpar It is not necessary to provide an
+initial value, but better code can be generated if one is supplied.
+Regardless of its location in the \iter\ body, ~init-val~ will be
+evaluated before the loop is entered, so it should not depend on any
+value computed inside the \iter\ form.  
+
+%\cpar if a ~var~ is not specified, you can get \iter\ to declare the
+%type of the internal variable by putting a |the| expression around
+%~func.~  see section \ref{types}.
+
+\end{clauses}
+
+%\begin{note}{implementation note}
+%in principle, |maximize| and |minimize| can be thought of
+%as reductions where the initial value is the smallest (or largest)
+%value that the accumulation variable can assume.  because lisp's
+%bignums can represent arbitrary integers, these clauses cannot be
+%implemented as reductions in general.  if, however, the type of 
+%~expr~ or ~var~ can be determined to be a fixnum
+%or a float, \iter\ will implement the clause as a true reduction,
+%using one of the constants |most-negative-fixnum|, |%most-positive-fixnum|, 
+%|most-negative-short-float|, etc. as appropriate.
+%\end{note}
+
+\subsubsection{Accumulations}
+
+All the predefined accumulation clauses add values to a sequence.  If
+the sequence is a list, they all 
+have the property that the partial list is kept in the correct order
+and available for inspection at any point in the loop.
+
+\begin{clauses}
+
+\clausex{collect}{~expr~ \opt\ |into| ~var~ |at| ~place~ |result-type| ~type~}
+Produces a sequence of the values of ~expr~ on each iteration. ~place~
+indicates where the next value of ~expr~ is added to the list and may
+be one of the symbols |start|, |beginning| (a synonym for |start|) or
+|end|.  The symbol may be quoted, but need not be.  The default is
+|end|.  For example,
+\begin{program}
+(iter (for i from 1 to 5)
+      (collect i))
+\end{program}
+produces |(1 2 3 4 5)|, whereas
+\begin{program}
+(iter (for i from 1 to 5)
+      (collect i at beginning))
+\end{program}
+produces |(5 4 3 2 1)| (and is likely to be faster in most Common Lisp
+implementations).
+
+\cpar If ~type~ is provided, it should be a subtype of |sequence|.
+The default is |list|.  Specifying a type other than |list| will
+result in |collect| returning a sequence of that type.  ~However,~ the
+type of the sequence being constructed when inside the loop body is
+undefined when a non-|list| type is specified.  (As with ~place~,
+quoting ~type~ is optional.)
+
+\clausex{adjoining}{~expr~ \opt\ |into| ~var~ |test| ~test~ |at| ~place~ |result-type| ~type~}
+Like |collect|, but only adds the value of ~expr~ if it is not
+already present.  ~test,~ which defaults to |\#'eql|, is
+the test to be used with |member|.
+
+\startitem
+\Clausex{appending}{~expr~ \opt\ |into| ~var~ |at| ~place~}
+\Clausex{nconcing}{\ ~expr~ \opt\ |into| ~var~ |at| ~place~}
+\Clausex{unioning}{\ ~expr~ \opt\ |into| ~var~ |test| ~test~ |at| ~place~}
+\Clausex{nunioning}{~expr~ \opt\ |into| ~var~ |test| ~test~ |at| ~place~}
+\finishitem
+These are like |collect|, but behave like the Common Lisp functions
+|append|, |nconc|, |union| or |nunion|.  
+As in Common Lisp, they work only on lists.  Also as in Common Lisp,
+|unioning| and |nunioning| assume that the value of ~expr~ contains no
+duplicates. 
+
+\clausex{accumulate}{~expr~ |by| ~func~ \opt\ |initial-value| ~init-val~ |into| ~var~}
+This is a general-purpose accumulation clause. ~func~ should be a
+function of two arguments, the value of ~expr~ and the value
+accumulated so far in the iteration, and it should return the updated
+value.  If no initial value is supplied, \nil\ is used.  
+
+%\cpar If a ~var~ is not specified, you can get \iter\ to declare the
+%type of the internal variable by putting a |the| expression around
+%~func.~  see section \ref{types}.
+
+\cpar The differences between |accumulate| and |reducing| are slight.
+One difference is that the functions take their arguments in a
+different order.  Another is that in the absence of ~init-val~,
+|accumulate| will use \nil, whereas |reducing| will generate different
+code that avoids any dependence on the initial value.
+The reason for having both clauses is that one usually
+thinks of reductions (like |sum|) and accumulations (like |collect|)
+as different beasts.
+
+\end{clauses}
+
+
+\subsubsection{Finders}
+
+A ~finder~ is a clause whose value is an expression that meets some
+condition.
+
+\begin{clauses}
+
+\clause{|finding| ~expr~ |such-that| ~test~ \opt\ |into| ~var~ |on-failure| ~failure-value~}
+\clindexx{finding}{such-that}
+If ~test~ (which is an expression) ever evaluates to \nonnil, the loop
+is terminated, the 
+epilogue code is run and the value of ~expr~ is returned.  Otherwise,
+\nil\ (or ~failure-value,~ if provided) is returned.  If ~var~ is
+provided, it will have either the \nonnil\ value of ~expr~ or
+~failure-value~ when the epilogue code is run.
+
+\cpar As a special case, if the ~test~ expression is a sharp-quoted
+function, then it is applied to ~expr~ instead of being simply
+evaluated.  E.g. |(finding x such-that \#'evenp)| is equivalent to
+|(finding x such-that (evenp x))|.  
+
+%\cpar although ~test~ need have nothing to do with ~%expr~ as in
+%|(finding j such-that (> i 3))|, it usually 
+%will: |(finding (length el) such-that (oddp (length el)))|.  to
+%avoid performing the |length| computation twice, you could write
+%|(finding (length el) such-that \#'oddp)| or |(finding (length
+%el) such-that 'oddp)|; for these cases, \iter\ generates code that
+%executes ~expr~ only once.  the code for |\#'oddp|
+%is slightly different from that for {\lisp 'oddp}; see the discussion
+%under {\lisp for\dots in} and {\lisp for\dots on}.
+
+\cpar |On-failure| is a misnomer. Because it is always evaluated, it behaves
+more like the default third argument to the |gethash| function. As a result,
+|on-failure (error "Not found")| makes no sense. Instead, the clauses |leave|
+or |thereis| can be used in conjunction with |finally| as follows:
+\begin{program}
+(iter (for x in '(1 2 3))
+      (if (evenp x) (leave x))
+      (finally (error "not found")))
+\end{program}
+
+\cpar This clause may appear multiple times when all defaults are
+identical. It can also be used together with either |always|/|never| or
+|thereis| if their defaults match. More specifically, |on-failure nil| is
+compatible with |thereis|, while |on-failure t| is compatible with |always|
+and |never| clauses.
+\begin{program}
+(iter (for i in '(7 -4 2 -3))
+      (if (plusp i)
+	  (finding    i  such-that (evenp i))
+          (finding (- i) such-that (oddp i))))
+\end{program}
+
+\startitem
+\Clause{|finding| ~expr~ |maximizing| ~m-expr~ \opt\ |into| ~var~}
+\clindexx{finding}{maximizing}
+\Clause{|finding| ~expr~ |minimizing| ~m-expr~ \opt\ |into| ~var~}
+\clindexx{finding}{minimizing}
+\finishitem
+Computes the extremum (maximum or minimum) value of ~m-expr~ over all
+iterations, and returns the value of ~expr~ corresponding to the
+extremum.  ~expr~ is evaluated inside the loop at the time the new
+extremum is established.  If ~m-expr~ is never evaluated (due to, for
+example, being embedded in a conditional clause), then the returned
+value depends on the type, if any, of ~expr~ (or ~var,~ if
+one is supplied).  If there is no type, the returned
+value will be \nil; if the type is numeric, the returned value will be
+zero.
+
+\cpar For these two clauses, ~var~ may be a list of two
+symbols; in that case, the first is used to record ~expr~ and
+the second, ~m-expr.~  
+
+\cpar As with |finding\dots such-that|, if ~m-expr~ is a sharp-quoted
+function, then it is called on ~expr~ instead of being evaluated.
+
+\end{clauses}
+
+\subsubsection{Boolean Tests}
+
+\begin{clauses}
+
+\clausex{first-iteration-p}{}
+Returns |t| in the first cycle of the loop, otherwise \nil.
+
+\clausex{first-time-p}{}
+Returns |t| the first time the expression is evaluated, and then \nil\ forever.
+This clause comes handy when printing (optional) elements separated
+by a comma:
+
+\begin{program}
+(iter (for el in '(nil 1 2 nil 3))
+      (when el
+        (unless (first-time-p)
+          (princ ", "))
+        (princ el)))
+\end{program}
+produces |"1, 2, 3"|.
+
+\end{clauses}
+
+\subsubsection{Aggregated Boolean Tests}
+
+\begin{clauses}
+
+\clausex{always}{~expr~}
+If ~expr~ ever evaluates to
+\nil, then \nil\ is immediately returned; the epilogue code is not
+executed.  If ~expr~ never evaluates to \nil, the epilogue code
+is executed and the last value of ~expr~ (or |t| if ~expr~ was never
+evaluated) is returned (whereas |loop| would constantly return |t|).
+
+% mention last evaluated clause when multiple always clauses?
+
+\clausex{never}{~expr~}
+Like |(always (not ~expr~))|, except it does not influence the last
+value returned by a possible other |always| clause. That is,
+\begin{program}
+(iter (repeat 2)
+      (always 2)
+      (never nil)) \yields 2 ; not t
+\end{program}
+
+\clausex{thereis}{~expr~}
+If ~expr~ is ever \nonnil,
+its value is immediately returned without running epilogue code.
+Otherwise, the epilogue code is performed and \nil\ is returned.
+
+This clause cannot be used together with |always| or |never|, because their
+defaults are opposed (similarly, |(loop always 3 thereis nil)| refuses to
+compile in some implementations of |loop|).
+
+\end{clauses}
+
+
+\subsection{Control Flow}
+\label{control-flow}
+Several clauses can be used to alter the usual flow of control in a loop.
+
+Note: the clauses of this and subsequent sections don't adhere to \iter's
+usual syntax, but instead use standard Common Lisp syntax.  Hence the
+format for describing syntax subsequently is
+like the standard format used in the Common Lisp manual, not like the
+descriptions of clauses above.
+
+\begin{clauses}
+
+\clausex{finish}{}
+Stops the loop and runs the epilogue code.
+
+%for example:
+%
+%\begin{program}
+%(iter (with answer = nil)
+%         (initially (make-a-mess))
+%         (for i from 1 to 10)
+%         (when (correct? i)
+%           (setq answer i)
+%           (finish))
+%         (finally (cleanup)))
+%\end{program}
+%
+%this code will execute |cleanup| whether or not the test |(correct?
+%i)| ever succeeds. 
+%the (more elegant) formulation,
+%\begin{program}
+%(iter (initially (make-a-mess))
+%         (for i from 1 to 10)
+%         (finding i such-that (correct? i))
+%         (finally (cleanup)))
+%\end{program}
+%would not execute |cleanup| if |(correct? i)| succeeded; it
+%would do an immediate return.
+
+\clausex{leave}{\opt\ ~value~}
+Immediately returns ~value~ (default \nil) from the current \iter\
+form, skipping the epilogue code.  Equivalent to using |return-from|.
+
+\clausex{next-iteration}{}
+Skips the remainder of the loop body and begins the next iteration of
+the loop.
+
+\clausex{while}{~expr~}
+If ~expr~ ever evaluates to \nil, the loop is terminated and the
+epilogue code executed.  Equivalent to |(if (not ~expr~) (finish))|.
+
+\clausex{until}{~expr~}
+Equivalent to |(if ~expr~ (finish))|.
+
+\clausex{if-first-time}{~then~ \opt\ ~else~}
+If this clause is being executed for the first time in this invocation
+of the \iter\ form, then the ~then~ code is evaluated; otherwise the
+~else~ code is evaluated.
+
+\cpar |(for ~var~ first ~expr1~ then ~expr2~)| is almost equivalent to
+\begin{program}
+(if-first-time (dsetq ~var~ ~expr1~)
+               (dsetq ~var~ ~expr2~))
+\end{program}
+The only difference is that the |for| version makes ~var~ available
+for use with |for\dots previous|.
+
+\end{clauses}
+
+\subsection{Code Placement}
+When fine control is desired over where code appears in a loop
+generated by \iter, the following special clauses may be useful.
+They are all subject to code-motion problems (see section
+\ref{code-movement}).  
+
+\begin{clauses}
+
+\clausex{initially}{|\&rest| ~forms~}
+The lisp ~forms~ are placed in the prologue section of the loop, where
+they are executed once, before the loop body is entered.
+
+\clausex{after-each}{|\&rest| ~forms~}
+The ~forms~ are placed at the end of the loop body, where they
+are executed after each iteration.  Unlike the other clauses in this
+section, ~forms~ may contain \iter\ clauses.
+
+\clausex{else}{|\&rest| ~forms~}
+The lisp ~forms~ are placed in the epilogue section of the loop, where they
+are executed if this |else| clause is never met during execution of the
+loop and the loop terminates normally.
+
+\clausex{finally}{|\&rest| ~forms~}
+The lisp ~forms~ are placed in the epilogue section of the loop, where
+they are executed after the loop has terminated normally.
+
+\clausex{finally-protected}{|\&rest| ~forms~}
+The lisp ~forms~ are placed in the second form of an unwind-protect
+outside the loop.  They are always executed after the loop has
+terminated, regardless of how the termination occurred.
+
+\end{clauses}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Other Features}
+
+\subsection{Multiple Accumulations}
+\label{multiple}
+
+\begin{sloppypar}
+It is permitted to have more than one clause accumulate into the same
+variable, as in the following:
+\begin{program}
+(iter (for i from 1 to 10)
+      (collect i into nums)
+      (collect (sqrt i) into nums)
+      (finally (return nums)))
+\end{program}
+Clauses can only accumulate into the same variable if they are
+compatible.  |collect|, |adjoining|, |appending|, |nconcing|,
+|unioning| and |nunioning| are compatible with each other; |sum|,
+|multiply| and |counting| are compatible; |always| and |never| are compatible;
+|finding| \dots |such-that| is compatible with either |thereis| or |always|
+and |never| when their defaults match; and |maximize| and |minimize| clauses
+are compatible only with other |maximize| and |minimize| clauses,
+respectively.
+
+%note that the same variable ~cannot~ be both an accumulation
+%variable and an ordinary variable; there can be only one variable with
+%a given name within an \iter\ form. 
+\end{sloppypar}
+
+\subsection{Named Blocks}
+
+Like Common Lisp |block|s, \iter\ forms can be given names.  The
+name should be a single symbol, and it must be the first form in the
+\iter.  The generated code behaves exactly like a named block; in
+particular, |(return-from ~name~)| can be used to exit it:
+\begin{program}
+(iter fred
+      (for i from 1 to 10)
+      (iter barney
+            (for j from i to 10)
+            (if (> (* i j) 17)
+                (return-from fred j))))
+\end{program}
+An \iter\ form that is not given a name is implicitly named \nil.
+
+Sometimes one would like to write an expression in an inner \iter\ form,
+but have it processed by an outer \iter\ form.  This is possible with
+the |in| clause.  
+
+\begin{clauses}
+
+\clausex{in}{~name~ |\&rest| ~forms~}
+Evaluates ~forms~ as if they were part of the \iter\ form named
+~name~.  In other words, \iter\ clauses are processed by the \iter\
+form named ~name,~ and not by any \iter\ forms that occur inside ~name.~
+
+\cpar As an example, consider the problem of collecting a list of the
+elements in a two-dimensional array.  The naive solution,
+\begin{program}
+(iter (for i below (array-dimension ar 0))
+      (iter (for j below (array-dimension ar 1))
+            (collect (aref ar i j))))
+\end{program}
+\noindent is wrong because the list created by the inner \iter\ is simply
+ignored by the outer one.  But using |in| we can write:
+\begin{program}
+(iter outer (for i below (array-dimension ar 0))
+      (iter (for j below (array-dimension ar 1))
+            (in outer (collect (aref ar i j)))))
+\end{program}
+\noindent which has the desired result.
+
+\end{clauses}
+
+\subsection{Destructuring}
+\label{destructuring}
+
+In many places within \iter\ clauses where a variable is expected, a
+list can be written instead.  In these cases, the value to be assigned
+is ~destructured~ according to the pattern
+described by the list.  As a simple example, the clause
+\begin{program}
+(for (key . item) in alist)
+\end{program}
+\noindent will result in |key| being set to the |car| of
+each element in |alist|, and |item| being set to the |cdr|.  The
+pattern list may be nested to arbitrary depth, and (as the example
+shows) need not be terminated with \nil; the only requirement is that
+each leaf be a bindable symbol (or \nil, in which case no binding is
+generated for that piece of the structure).
+
+Sometimes, you might like to do the equivalent of a
+|multiple-value-setq| in a clause.  This 
+``multiple-value destructuring'' can be expressed by writing 
+\linebreak |(values $pat_1$ $pat_2 \ldots$)| for a destructuring
+pattern, as in 
+\begin{program}
+(for (values (a . b) c d) = (three-valued-function ...))
+\end{program}
+\begin{sloppypar}
+Note that the $pat_i$ can themselves be destructuring patterns (though
+not multiple-value destructuring patterns).  You can't do multiple-value
+destructuring in a |with| clause; instead wrap the whole \iter\
+form in a |multiple-value-bind|.
+\end{sloppypar}
+
+\begin{note}{Rationale}
+There are subtle interactions between variable declarations and
+evaluation order that make the correct implementation of
+multiple-value destructuring in a |with| somewhat tricky.
+\end{note}
+
+The destructuring feature of \iter\ is available as a separate
+mechanism, using the |dsetq| macro:
+
+\begin{clauses}
+\defmacro{dsetq}{template expr}
+Performs destructuring of ~expr~ using ~template~.   May be used
+outside of an \iter\ form. Yields the primary value of ~expr~.
+
+\end{clauses}
+
+\subsection{On-line Help}
+
+\begin{sloppypar}
+There is a limited facility for on-line help, in the form of the 
+|display-iterate-clauses| function.
+\end{sloppypar}
+
+\begin{clauses}
+
+\defun{display-iterate-clauses}{\opt\ clause-spec}
+Displays a list of \iter\ clauses.  If ~clause-spec~ is not
+provided, all clauses are shown; if it is a symbol, all clauses
+beginning with that symbol are shown; and if it is a list of symbols,
+all clauses for which ~clause-spec~ is a prefix are shown.
+
+\end{clauses}
+
+\subsection{Parallel Binding and Stepping}
+\label{bindings}
+
+The parallel binding and stepping of variables is a feature that
+\iter\ does ~not~ have.  This section attempts to provide a rationale.
+
+We say that two variables are bound ~in parallel~ if neither
+binding shadows the other.  This is the usual semantics of |let|
+(as opposed to |let*|).  Similarly, we can say that iteration
+variables are stepped in parallel if neither variable is updated
+before the other, conceptually speaking; in other words, if the code
+to update each variable can reference the old values of both variables.
+
+|loop| allows parallel binding of variables and parallel stepping of
+driver variables.  My view is that if you are depending on the 
+serial/parallel distinction, you are doing something obscure.  If you
+need to bind 
+variables in parallel using |with|, then you must be using a
+variable name that shadows a name in the existing lexical environment.
+Don't do that.  The most common use for parallel stepping is to track
+the values of variables on the previous iteration, but in fact this
+does not require parallel stepping at all; the following will work:
+\begin{program}
+(iter (for current in list)
+      (for prev previous current)
+      ...)
+\end{program}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Types and Declarations}
+\label{types}
+
+\subsection{Discussion}
+
+Sometimes efficiency dictates that the types of variables be declared.
+This type information needs to be communicated to \iter\ so it can
+bind variables to appropriate values.  Furthermore, \iter\ must often
+generate internal variables invisible to the user; there needs to be a
+way for these to be declared.
+
+As an example, consider this code, which will return the number of
+odd elements in |number-list|:
+\begin{program}
+(iter (for el in number-list)
+      (count (oddp el)))
+\end{program}
+In processing this form,
+\iter\ will create an internal variable, let us call it |list17|, to
+hold the successive |cdr|s of |number-list|, and  
+will bind the variable to |number-list|.  It will also generate a
+default binding for |el|; only inside the body of the loop will |el|
+be set to the |car| of |list17|.  Finally, \iter\ will generate a
+variable, call it |result|, to hold the result of the count, and will
+bind it to zero.
+
+When dealing with type declarations, \iter\ observes one simple rule:
+~it will never generate a declaration unless requested to do so.~  The
+reason is that such declarations might mask errors in compiled code by
+avoiding error-checks; the resulting problems would be doubly hard to
+track down because the declarations would be hidden from the
+programmer.  Of course, a compiler might omit error-checks even in the
+absence of declarations, though this behavior can usually be avoided,
+e.g. by saying |(declaim (optimize (safety 3)))|.
+
+So, the above \iter\ form will generate code with no declarations.
+But say we wish to declare the types of |el| and the internal
+variables |list17| and |result|.  How is this done?
+
+Declaring the type of |el| is easy, since the programmer knows
+the variable's name:
+\begin{program}
+(iter (for el in number-list)
+      (declare (fixnum el))
+      (counting (oddp el)))
+\end{program}
+\iter\ can read variable type declarations like this one.  Before
+processing any clauses, it scans the entire top-level form for type
+declarations 
+and records the types, so that variable bindings can be performed
+correctly.  In this case, |el| will be bound to zero
+instead of \nil.  Also, \iter\ collects all the top-level declarations
+and puts them at the begining of the generated code, so it is not
+necessary to place all declarations at the beginning of an \iter\
+form; instead, they can be written near the variables whose types they
+declare.  
+
+Since \iter\ is not part of the compiler, it will not know
+about declarations that occur outside an \iter\ form; these
+declarations must be repeated inside the form.
+
+Here is another way we could have declared the type of |el|:
+\begin{program}
+(iter (for (the fixnum el) in number-list)
+      (counting (oddp el)))
+\end{program}
+\iter\ extends the Common Lisp |the|\lispindex{the}
+form to apply to variables as well as value-producing forms; anywhere
+a variable is allowed---in a |with| clause, as the iteration
+variable in a driver clause, as the |into| argument of an
+accumulation clause, even inside a destructuring template---you can
+write |(the ~type~ ~symbol~)| instead.
+
+There is one crucial difference between using a |the| form and
+actually declaring the variable: explicit declarations are always
+placed in the generated code, but type information from a |the|
+form is not turned into an actual declaration unless you tell \iter\
+to do so using |iterate:declare-variables|.  See below.
+
+\begin{sloppypar}
+Declaring the types of internal variables is harder than declaring the
+types of explicitly mentioned variables, since their names
+are unknown.  You do it by declaring |iterate:declare-variables|
+somewhere inside the top level of the \iter\ form.  (This will also
+generate declarations for variables declared using |the|.)
+\iter\ does not provide much selectivity here: it's all or none. 
+And unfortunately, since \iter\ is not privy to compiler information
+but instead reads declarations itself, it will not hear if you
+|(declaim (iterate:declare-variables))|.  Instead, set the variable 
+|iterate::*always-declare-variables*| to |t| at
+compile-time, using |eval-when|.
+\end{sloppypar}
+
+To determine the appropriate types for internal variables, \iter\ uses
+three sources of information:
+
+\begin{itemize}
+
+\item Often, the particular clause dictates a certain type for a
+variable; \iter\ will use this information when available.  In the
+current example, the variable |list17| will be given the type
+|list|, since that is the only type that makes sense; and the
+variable |result| will be given the type |fixnum|, on the
+assumption that you will not be counting high enough to need bignums.
+You can override this assumption only by using and explicitly declaring a
+variable: 
+\begin{verbatim}
+(iter (declare (iterate:declare-variables))
+      (for el in number-list)
+      (count (oddp el) into my-result)
+      (declare (integer my-result))
+      (finally (return my-result)))
+\end{verbatim}
+
+\begin{sloppypar}
+Other examples of the type assumptions that \iter\ makes are: type
+|list| for |into| variables of collection clauses; type |list| for
+expressions that are to be destructured; type |vector| for the
+variable holding the vector in a |for\dots in-vector| clause, and
+similarly for |string| and the |for\dots in-string| clause;
+and the implementation-dependent type
+|(type-of array-dimension-limit)| for the index and limit
+variables generated by sequence iteration drivers like |for\dots
+in-vector| and |for\dots in-string| (but not |for\dots in-sequence|,
+because it may be used to iterate over a list). 
+\end{sloppypar}
+
+\item Sometimes, \iter\ will examine expressions and try to determine
+their types in a simple-minded way.  If the expression is
+self-evaluating (like a number, for instance), \iter\ knows that the
+expression's type is the same as the type of the value it denotes, so
+it can use that type.  If the expression is of the form |(the ~type~
+~expr~)|, \iter\ is smart enough to extract ~type~ and use it.
+However, the current version of \iter\ does not  
+examine declarations of function result types or do any type
+inference.  It will not determine, for 
+example, that the type of |(+ 3 4)| is |fixnum|, or even
+|number|.
+
+\item In some cases, the type of an internal variable should match the
+type of some other variable.  For instance, \iter\ generates an
+internal variable for |(f x)| in the
+clause |(for i from 1 to (f x))|, and in the absence of other
+information will give it the same type as |i|.  If, however, the
+expression had been written |(the fixnum (f x))|, then \iter\
+would have given the internal variable the type |fixnum|
+regardless of |i|'s type.  The type incompatibility errors that
+could arise in this situation are not checked for.
+
+\end{itemize}
+
+Note that if you do declare |iterate:declare-variables|, then
+\iter\ may declare user variables as well as internal ones if they do
+not already have declarations, though only for variables that it
+binds.  For instance, in this code:
+
+\begin{program}
+(iter (declare (iterate:declare-variables))
+      (for i from 1 to 10)
+      (collect i into var))
+\end{program}
+the variable |var| will be declared to be of type |list|.
+
+
+\subsection{Summary}
+
+\iter\ understands standard Common Lisp variable type declarations
+that occur within an \iter\ form and
+will pass them through to the generated code.  If the declaration
+|(iterate:declare-variables)|\lispindex{declare-variables}
+appears at the top level of an 
+\iter\ form, or if 
+|iterate::*always-declare-variables*|\lispindex{*always-declare-variables*} 
+is \nonnil, then \iter\ will use the type information gleaned from user
+declarations, self-evaluating expressions and |the| expressions,
+combined with reasonable assumptions, to determine variable
+types and declare them.
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Problems with Code Movement}
+\label{code-movement}
+
+Some \iter\ clauses, or parts of clauses, result in code being
+moved from the location of the clause to other parts of the loop.
+Drivers behave this way, as do code-placement clauses like |initially|
+and |finally|.  When using these clauses, there is a danger of writing
+an expression that makes sense in its apparent location but will be
+invalid or have a different meaning in another location.  For example:
+\begin{program}
+(iter (for i from 1 to 10)
+      (let ((x 3))
+        (initially (setq x 4))))
+\end{program}
+While it may appear that the |x| of |(initially (setq x 4))| is the
+same as the |x| of |(let ((x 3)) \dots|, in fact they are not:
+|initially| moves its code outside the loop body, so |x| would refer
+to a global variable.  Here is another example of the same problem:
+\begin{program}
+(iter (for i from 1 to 10)
+      (let ((x 3))
+        (collect i into x)))
+\end{program}
+If this code were executed, |collect| would create a binding for its
+|x| at the top level of the \iter\ form that the |let| will shadow.
+
+Happily, \iter\ is smart enough to catch these errors; it
+walks all problematical code to ensure that free variables are not
+bound inside the loop body, and checks all variables it binds for the
+same problem.
+
+However, some errors cannot be caught:
+
+\begin{program}
+(iter (with x = 3)
+      (for el in list)
+      (setq x 1)
+      (reducing el by \#'+ initial-value x))
+\end{program}
+|reducing| moves its |initial-value| argument to the initialization
+part of the loop in order to produce more efficient code.  Since
+\iter\ does not perform data-flow analysis, it cannot determine that
+|x| is changed inside the loop; all it can establish is that |x| is
+not bound internally.  Hence this code will not signal an
+error and will use $3$ as the initial value of the reduction.
+
+The following list summarizes all cases that are subject to these code
+motion and variable-shadowing problems.
+\begin{itemize}
+\item Any variable for which \iter\ creates a binding, including those
+used in |with| and the |into| keyword of many clauses.
+
+\begin{sloppypar}
+\item The special clauses which place code: |initially|, |after-each|, |else|,
+|finally| and |finally-protected|. 
+\end{sloppypar}
+
+\item The variables of a |next| or |do-next| form.
+
+\item The |initially| arguments of |for\dots initially\dots then| and
+|for\dots previous|. 
+
+\item The |then| argument of |for\dots initially\dots then|.
+
+\item The |initial-value| arguments of |reducing| and |accumulate|.
+
+\item The |on-failure| argument of |finding\dots such-that|.
+\end{itemize}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Differences Between {\tt Iterate} and {\tt Loop}}
+|loop| contains a great deal of complexity which \iter\ tries to
+avoid.  Hence many esoteric features of |loop| don't exist in \iter.
+Other features have been carried over, but in a cleaned-up form.  
+And of course, many new features have been added; they are not
+mentioned in this list.
+
+\begin{itemize}
+
+\item \iter's syntax is more Lisp-like than |loop|'s, having a higher
+density of parens.
+
+\item The current implementation of \iter, unlike the current version
+of  |loop| (as documented in {\em Common Lisp, 2nd Ed.\/}), is
+extensible (see section \ref{extend}).  
+
+\item |loop| puts the updates of all driver variables at the top of
+the loop; \iter\ leaves them where the driver clauses appear.
+
+\item While for the most part \iter\ clauses that resemble |loop| clauses
+behave similarly, there are some differences.  For instance, there is
+no |for\dots =\dots then| in \iter; instead use 
+|for\dots initially\dots then|.  
+
+\item |loop| binds the variable |it| at certain times
+to allow pseudo-English expressions like |when ~expr~ return it|. 
+In \iter, you must bind ~expr~ to a variable yourself.  Note that
+|when ~expr~ return it| is like |thereis ~expr~| except that the latter is an
+accumulation clause and therefore competes with other accumulations
+(remember section \ref{multiple} above).
+
+% repeat different behaviour of |always| clause here?
+
+\item |loop| has a special |return| clause, illustrated in the
+previous item.  \iter\ doesn't need one,  since an ordinary Lisp
+|return| has the same effect.
+
+\item |loop| allows for parallel binding and stepping of iteration
+variables.  \iter\ does not.  (See section \ref{bindings}.)
+
+\item |loop| and \iter\ handle variable type declarations very
+differently.  |loop| provides a special syntax for declaring variable
+types, and does not examine declarations.  Moreover, the standard
+implementation of |loop| will
+generate declarations when none are requested.
+\iter\ parses standard Common Lisp type declarations, and will never
+declare a variable itself unless declarations are 
+specifically requested.
+
+\end{itemize}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Rolling Your Own}
+\label{extend}
+
+\subsection{Introduction}
+
+\iter\ is extensible---you can write new clauses that embody new
+iteration patterns.  You might want to write a new driver clause for a
+data structure of your own, or you might want to write a clause that
+collects or manipulates elements in a way not provided by \iter. 
+
+This section describes how to write clauses for \iter.  Writing a
+clause is like writing a macro.  In fact, writing a clause ~is~
+writing a macro: since \iter\ code-walks its body and macroexpands,
+you can add new abstractions to \iter\ with good old |defmacro|.
+
+Actually, there are two extensions you can make to \iter\ that are
+even easier than writing a macro.  They are adding a synonym for an
+existing clause and defining a driver clause for an indexable
+sequence.  These can be done with |defsynonym| and
+|defclause-sequence|, respectively.  See section \ref{aids}, below.
+
+The rest of this section explains how to write macros that expand into
+\iter\ clauses.
+Here's how you could add a simplified version of \iter's |multiply|
+clause, if \iter\ didn't already have one:
+\begin{program}
+(defmacro multiply (expr)
+  `(reducing ,expr by \#'* initial-value 1))
+\end{program}
+
+If you found yourself summing the square of an expression often, you
+might want to write a macro for that.  A first cut might be
+\begin{program}
+(defmacro sum-of-squares (expr)
+  `(sum (* ,expr ,expr)))
+\end{program}
+but if you are an experienced macro writer, you will realize that this
+code will evaluate ~expr~ twice, which is probably a bad idea.  A
+better version would use a temporary:
+\begin{program}
+(defmacro sum-of-squares (expr)
+  (let ((temp (gensym)))
+    `(let ((,temp ,expr))
+       (sum (* ,temp ,temp)))))
+\end{program}
+Although this may seem complex, it is just the sort of thing you'd
+have to go through to write any macro, which illustrates the point of
+this section: if you can write macros, you can extend \iter.
+
+Our macros don't use \iter's keyword-argument
+syntax.  We could just use keywords with |defmacro|, but we would
+still not be using \iter's clause indexing mechanism.  Unlike Lisp,
+which uses just the first symbol of a form to determine what function
+to call, \iter\ individuates clauses by the list of required keywords.
+For instance, |for\dots in| and |for\dots in-vector| are different clauses
+implemented by distinct Lisp functions.  
+
+To buy into this indexing scheme, as well as the keyword-argument
+syntax, use |defmacro-clause|:
+
+\begin{clauses}
+
+\defmacro{defmacro-clause}{arglist |\&body| body}
+Defines a new \iter\ clause.  ~arglist~ is a list of symbols which are
+alternating keywords and arguments.  \opt\ may be used, and the list
+may be terminated by |\&sequence|.  ~body~ is an ordinary macro body,
+as with |defmacro|.  If the first form of ~body~ is a string, it is
+considered a documentation string and will be shown by
+|display-iterate-clauses|. |defmacro-clause| will signal an error if 
+defining the clause would result in an ambiguity.  E.g. you cannot
+define the clause |for\dots from| because there would be no way to
+distinguish it from a use of the |for| clause with optional keyword |from|.
+
+\end{clauses}
+
+\medskip
+
+Here is |multiply| using |defmacro-clause|.  The keywords are capitalized
+for readability.
+\begin{program}
+(defmacro-clause (MULTIPLY expr \opt\ INTO var)
+  `(reducing ,expr by \#'* into ,var initial-value 1))
+\end{program}
+You don't have to worry about the case when |var| is not supplied; for
+any clause with an |into| keyword, saying |into nil| is equivalent to
+omitting the |into| entirely.
+
+As another, more extended example, consider the fairly common
+iteration pattern that 
+involves finding the sequence element that maximizes (or minimizes) some
+function.  \iter\ provides this as |finding\dots maximizing|, but it's
+instructive to see how to write it.
+Here, in pseudocode, is how you might write such a loop for
+maximizing a function F:
+
+\begin{quote}
+\begin{tabbing}
+set variable MAX-VAL to NIL; \\
+set variable WINNER to NIL; \\
+for\=\ each element EL in the sequence \\
+\>  if\=\ MAX-VAL\=\ is NIL or F(EL) $>$ MAX-VAL then \\
+\>\>    set MAX-VAL to F(EL); \\
+\>\>    set WINNER to EL; \\
+\>  end if; \\
+end for; \\
+return WINNER.
+\end{tabbing}
+\end{quote}
+
+Here is the macro:
+\begin{program}
+(defmacro-clause (FINDING expr MAXIMIZING func \opt\ INTO var)
+  (let ((max-val (gensym))
+        (temp1 (gensym))
+        (temp2 (gensym))
+        (winner (or var iterate::*result-var*)))
+    `(progn 
+       (with ,max-val = nil)
+       (with ,winner = nil)
+       (cond 
+        ((null ,max-val)
+         (setq ,winner ,expr)
+         (setq ,max-val (funcall ,func ,winner))
+        (t
+         (let* ((,temp1 ,expr)
+                (,temp2 (funcall ,func ,temp1)))
+           (when (> ,temp2 ,max-val)
+             (setq ,max-val ,temp2)
+             (setq ,winner ,temp1))))))
+       (finally (leave ,winner)))))
+\end{program}
+Note that if no |into| variable is supplied, we use
+|iterate::*result-var*|, which contains the internal variable into
+which all clauses place their results.  If this variable is bound by
+some clause, then \iter\ will return its value automatically;
+otherwise, \nil\ will be returned.  
+
+\subsection{Writing Drivers}
+
+In principle, drivers can be implemented just as easily as other
+\iter\ clauses.  In practice, they are a little harder to get right. 
+As an example, consider writing a driver that
+iterates over all the 
+elements of a vector, ignoring its fill-pointer.  |for\dots in-vector|
+won't work for this, because it observes the fill-pointer.  It's necessary to
+use |array-dimension| instead of |length| to obtain the size of the
+vector.  Here is one approach:
+
+\begin{program}
+(defmacro-clause (FOR var IN-WHOLE-VECTOR v)
+  "All the elements of a vector (disregards fill-pointer)"
+  (let ((vect (gensym))
+        (index (gensym)))
+    `(progn
+       (with ,vect = ,v)
+       (for ,index from 0 below (array-dimension ,vect 0))
+       (for ,var = (aref ,vect ,index)))))
+\end{program}
+Note that we immediately put |v| in a variable, in case it is an
+expression.  Again, this is just good Lisp macrology.  It also has a
+subtle effect on the semantics of the driver: |v| is evaluated only
+once, at the beginning of the loop, so changes to |v| in the loop have
+no effect on the driver.  Similarly, the bounds for numerical iteration
+e.g. the above |array-dimension| are also evaluated once only.  This is how
+all of \iter's drivers work.
+
+
+There is an important point concerning the |progn| in this code.  We
+need the |progn|, of course, because we are returning several forms,
+one of which is a driver.  But \iter\ drivers must occur at top-level.
+Is this code in error?  No, because ~top-level~ is defined in \iter\
+to include forms inside a |progn|.  This is just the definition of
+top-level that Common Lisp uses, and for the same reason: to allow
+macros to return multiple forms at top-level.
+
+While our |for\dots in-whole-vector| clause will work, it is not
+ideal.  In particular, it does not support generating.  Do do so, we
+need to use |for\dots next| or |for\dots do-next|.  The job is
+simplified by the |defmacro-driver| macro.
+
+\begin{clauses}
+
+\defmacro{defmacro-driver}{arglist |\&body| body}
+Defines a driver clause in
+both the |for| and |generate| forms, and provides a parameter
+|generate| which ~body~ can examine to determine how it was invoked.
+~arglist~ is as in |defmacro-clause|, and should begin with the symbol
+|for|. 
+
+\end{clauses}
+
+With |defmacro-driver|, our driver looks like this:
+\begin{program}
+(defmacro-driver (FOR var IN-WHOLE-VECTOR v)
+  "All the elements of a vector (disregards fill-pointer)"
+   (let ((vect (gensym))
+         (end (gensym))
+         (index (gensym))
+         (kwd (if generate 'generate 'for)))
+     `(progn
+        (with ,vect = ,v)
+        (with ,end = (array-dimension ,vect 0))
+        (with ,index = -1)
+        (,kwd ,var next (progn (incf ,index)
+                               (if (>= ,index ,end) (terminate))
+                               (aref ,vect ,index))))))
+\end{program}
+
+
+We are still missing one thing: the |\&sequence| keywords.  
+We can get them easily enough, by writing 
+\begin{program}
+(defmacro-driver (FOR var IN-WHOLE-VECTOR v \&sequence) 
+  ...)
+\end{program}
+We can now refer to parameters |from|, |to|, |by|, etc. which contain
+either the values for the corresponding keyword, or \nil\ if the
+keyword was not supplied.  Implementing the right code for these
+keywords is cumbersome but not difficult; it is left as an exercise.
+But before you begin, see |defclause-sequence| below for an easier way.
+       
+\subsection{Extensibility Aids}
+\label{aids}
+
+This section documents assorted features that may be of use in
+extending \iter.
+
+\begin{clauses}
+
+\defunexpvar{*result-var*}
+Holds the variable that is used to return a value as a result of the
+\iter\ form.  You may examine this and use it in a |with| clause, but
+you should not change it.
+
+\defmacro{defsynonym}{syn word}
+ Makes ~syn~ a synonym for the existing \iter\ keyword ~word.~  Only
+the first word in each clause can have synonyms. 
+
+\defmacroxx{defclause-sequence}{element-name index-name}{|\&key|
+access-fn size-fn sequence-type}{element-type
+element-doc-string index-doc-string}  
+Provides
+a simple way to define sequence clauses.  Generates two
+clauses, one for iterating over the sequence's elements, the other
+for iterating over its indices.  The first symbol of both
+clauses will have print-name |for|.
+~element-name~  and ~index-name~ should be symbols.
+~element-name~ is the second keyword of the element iterator (typically of
+the form 
+|in-~sequence-type~|), and ~index-name~ is the second keyword
+of the index-iterator (typically of the form
+|index-of-~sequence-type~|).  Either name may be 
+\nil, in which case the corresponding clause is not defined.  If both
+symbols are supplied, they should be in the same package.  The |for|
+that begins the clauses will be in this package.
+
+\cpar ~access-fn~ is the function to be used to
+access elements of the sequence in the element iterator.  The function
+should take two 
+arguments, a sequence and an index, and return the appropriate element.
+~size-fn~ should denote a function of one argument, a sequence, that
+returns its size.  Both ~access-fn~ and ~size-fn~ are required for the
+element iterator, but only ~size-fn~ is needed for the index iterator.
+
+\cpar The ~sequence-type~ and ~element-type~ keywords are used to
+suggest types for the variables 
+used to hold the sequence and the
+sequence elements, respectively.  The usual rules about \iter's
+treatment of variable type declarations apply (see section \ref{types}).
+
+\cpar ~element-doc-string~ and ~index-doc-string~ are
+the documentation strings, for use with |display-iterate-clauses|. 
+
+\cpar The generated element-iterator performs destructuring on the
+element variable.
+
+\cpar As an example, the above |for\dots in-whole-vector| example
+could have been written:
+\begin{program}
+(defclause-sequence IN-WHOLE-VECTOR INDEX-OF-WHOLE-VECTOR
+  :access-fn 'aref
+  :size-fn \#'(lambda (v) (array-dimension v 0))
+  :sequence-type 'vector
+  :element-type t
+  :element-doc-string 
+     "Elements of a vector, disregarding fill-pointer"
+  :index-doc-string 
+     "Indices of vector, disregarding fill-pointer")
+\end{program}
+
+\end{clauses}
+
+\subsection{Subtleties}
+
+There are some subtleties to be aware of when writing \iter\ clauses.
+First, the code returned by your macros may be |nconc|'ed into a list,
+so you should always returned freshly consed lists, rather than
+constants.  Second, \iter\ matches clauses by using |eq| on the first
+symbol and |string=| on the subsequent ones, so the package of the
+first symbol of a clause is relevant.  All of the clauses in this manual
+have their first word in the \iter\ package.  
+You can use the package system in the usual way to shadow
+\iter\ clauses without replacing them.
+
+%%% say more here, about the badness that only the first word of a
+%%% clause is packagey.
+
+\section{Non-portable Extensions to Iterate (Contribs)}
+\label{contribs}
+
+Currently, there is only one non-portable extension to iterate in the
+distribution: iterate-pg. If you have made an extension that depends
+on non-portable features, feel free to send them to |asf@boinkor.net|
+for inclusion in the iterate distribution.
+
+\subsection{An SQL query driver for iterate}
+
+The pg package by Eric Marsden (see |http://cliki.net/pg|) provides an
+interface to the PostgreSQL database. Using the \iterpg\ extension, it
+is possible to handle the results of SQL queries using \iter.
+
+This usage example should give you an idea of how to use it:
+
+\begin{program}
+(pg:with-pg-connection (c "somedb" "someuser")
+  (iter (for (impl version date) in-relation "select * from version"
+                                 on-connection *dbconn*)
+        (collect version)))
+\end{program}
+
+To use the extension via |ASDF|, simply make your system depend on the
+|iterate-pg| system instead of the |iterate| system. To load it
+manually, use:
+
+\begin{program}
+  (asdf:oos 'asdf:load-op :iterate-pg)
+\end{program}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Obtaining {\tt Iterate}}
+
+\begin{sloppypar}
+The information in this chapter is obsolete but included for
+completeness's sake; Currently, the most up-to-date information on
+\iter\ can be found at |http://boinkor.net/iterate.html|.
+\end{sloppypar}
+
+\begin{sloppypar}
+\iter\ currently runs on Lisp Machines, and on
+HP's, Sun3's and Sparcstations under Lucid.  
+\iter\ source and binaries are available at the MIT AI Lab in the
+subdirectories of |/src/local/lisplib/|.  The source file,
+|iterate.lisp|, is also available for anonymous FTP in the directory
+|/com/fpt/pub/| on the machine |TRIX.AI.MIT.EDU| (Internet number
+128.52.32.6).  If you are unable to obtain |iterate| in one of these
+ways, send mail to |jba@ai.mit.edu| and I will send you the source
+file. 
+\end{sloppypar}
+
+\begin{sloppypar}
+\iter\ resides in the |iterate| package (nickname |iter|).  Just say
+\linebreak |(use-package :iterate)| to make all the necessary symbols
+available. 
+If a symbol is not exported, it appears in this manual with an
+``|iterate::|'' prefix.
+\end{sloppypar}
+
+Send bug reports to |bug-iterate@ai.mit.edu|.  The |info-iterate|
+mailing list will have notices of changes and problems; to have
+yourself added, send mail to |info-iterate-request@ai.mit.edu|.
+
+
+\medskip
+
+\begin{flushleft}
+ \bf Acknowledgements
+\end{flushleft}
+\smallskip
+
+Richard Waters provided invaluable criticism which spurred me to improve
+\iter\ greatly.  As early users, David Clemens, Oren Etzioni and Jeff
+Siskind helped ferret out many bugs.
+
+%\begin{theindex}
+% The index files must be generated with the genindex program
+% or from makeindex iterate-manual.idx which creates iterate-manual.ind.
+
+%\baselineskip\normalbaselineskip
+%\advance\baselineskip by -2pt
+
+\input{iterate-manual.ind}
+
+%\underline{Clauses}
+%\input{iterate-manual.clindex}
+%
+%\indexspace
+%\underline{Lisp}
+%\input{iterate-manual.lispindex}
+
+%\end{theindex}
+
+
+\end{document}
+
+
+% arch-tag: "c0f871a6-313c-11d8-abb9-000c76244c24"

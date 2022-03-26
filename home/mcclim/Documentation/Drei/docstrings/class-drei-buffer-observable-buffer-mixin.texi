@@ -1,0 +1,11 @@
+@anchor{Class drei-buffer:observable-buffer-mixin}
+@deftp {Class} {drei-buffer:observable-buffer-mixin}
+@tindex drei-buffer:observable-buffer-mixin
+Class precedence list: @code{@w{observable-buffer-mixin}, @w{observable-mixin}, @w{standard-object}, @w{slot-object}, @w{t}}
+
+A mixin class that will make a subclass buffer
+notify observers when it is changed through the buffer
+protocol. When an observer of the buffer is notified of changes,
+the provided data will be a cons of two values, offsets into the
+buffer denoting the region that has been modified.
+@end deftp

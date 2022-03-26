@@ -1,0 +1,42 @@
+;;; -*- Lisp -*-
+
+;;; test system def reloading if touched
+;;; system that can be found using *system-definition-search-functions*
+
+(setf asdf::*asdf-session* (make-instance asdf::*asdf-session-class*))
+
+(defun system-registered-time (name)
+  (asdf::component-operation-time
+   'asdf::define-op
+   (registered-system (primary-system-name name))))
+(setf (asdf-upgraded-p *asdf-session*) t)
+
+(defparameter test1.asd (nth-value 2 (locate-system :test1)))
+(assert-pathname-equal test1.asd (test-source "test1.asd"))
+(defparameter file1.lisp (test-source "file1.lisp"))
+(defparameter file2.lisp (test-source "file2.lisp"))
+(defparameter file1.fasl (test-fasl "file1.lisp"))
+(defparameter file2.fasl (test-fasl "file2.lisp"))
+(defparameter date1 (get-file-stamp test1.asd))
+(defparameter date2 (- date1 600))
+(defparameter date3 (- date1 300))
+
+(clear-system :test1)
+(touch-file test1.asd :timestamp date2)
+(touch-file file1.lisp :timestamp date3)
+(touch-file file2.lisp :timestamp date3)
+(assert-equal nil (system-registered-time :test1))
+(load-system :test1)
+(defparameter date4 (get-file-stamp file2.fasl))
+(defparameter date5 (system-registered-time :test1))
+(DBG :blah date1 date2 date3 date4 date5)
+(assert-equal date2 date5)
+(assert-equal date2 date5)
+(assert-compare (>= date4 date3))
+(sleep 1)
+
+(clear-system :test1)
+(touch-file test1.asd :timestamp date4 :offset 600)
+(find-system :test1)
+(defparameter date6 (system-registered-time :test1))
+(assert-compare (> date6 date4))

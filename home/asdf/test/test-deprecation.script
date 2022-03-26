@@ -1,0 +1,68 @@
+;;-*- Lisp -*-
+
+(setf asdf::*asdf-version* "6.7.8")
+
+(DBG "Check still-valid code")
+(asdf::with-asdf-deprecation (:style-warning "7.0")
+  (defun still-valid () t))
+(does-not-signal deprecated-function-condition (eval '(still-valid)))
+(does-not-signal deprecated-function-condition (compile () '(lambda () (still-valid))))
+
+(defmacro check-deprecation (condition name body)
+  `(let ((c (signals ,condition (eval ',body))))
+     (assert-equal (deprecated-function-name c) ',name)))
+
+(defmacro check-deprecation-warning (condition name body)
+  `(progn
+     (check-deprecation ,condition ,name ,body)
+     (nest #+(or abcl (and ecl ecl-bytecmp) mkcl) (does-not-signal condition)
+           #+ccl (signals ccl::compiler-warning)
+           #-(or abcl ccl (and ecl ecl-bytecmp) mkcl)
+           (check-deprecation ,condition ,name)
+           (compile () '(lambda () ,body)))))
+
+(defmacro check-deprecation-error (condition name body)
+  `(progn
+     (check-deprecation ,condition ,name ,body)
+     (nest #+allegro (signals style-warning)
+           #+(or cmucl (and ecl (not ecl-bytecmp))) (signals c::compiler-error)
+           #+(or (and ecl ecl-bytecmp) mkcl) (does-not-signal condition)
+           #+sbcl (signals simple-warning)
+           #-(or allegro cmucl ecl mkcl sbcl)
+           (check-deprecation ,condition ,name)
+           (compile () '(lambda () ,body)))))
+
+(defmacro check-deprecation-delete (condition name body)
+  `(progn
+     (check-deprecation ,condition ,name ,body)
+     (nest #+(or cmucl (and ecl (not ecl-bytecmp))) (signals c::compiler-error)
+           #+mkcl (errors compiler:compiler-error)
+           #+sbcl (signals sb-c:compiler-error)
+           #-(or cmucl (and ecl (not ecl-bytecmp)) mkcl sbcl)
+           (check-deprecation ,condition ,name)
+           (compile () '(lambda () ,body)))))
+
+(DBG "Check style-warning")
+(asdf::with-asdf-deprecation (:style-warning "6")
+  (defun should-style-warn () t))
+(check-deprecation-warning deprecated-function-style-warning should-style-warn (should-style-warn))
+
+(DBG "Check warning")
+(asdf::with-asdf-deprecation (:style-warning "5") ;; next-version 6 is warning...
+  (defun should-warn () t))
+(check-deprecation-warning deprecated-function-warning should-warn (should-warn))
+
+(DBG "Check warning")
+(asdf::with-asdf-deprecation (:style-warning "6.5") ;; next- next-version 6.7 is error!
+  (defun should-error () t))
+(check-deprecation-error deprecated-function-error should-error (should-error))
+
+(DBG "Check delete")
+(check-deprecation-delete
+ deprecated-function-should-be-deleted (past-due-f past-due-m)
+ (asdf::with-asdf-deprecation (:style-warning "6.7.1")
+   ;; next- next- next-version 6.7.4 is delete!
+   (defun past-due-f () t)
+   (progn (foo))
+   (defgeneric past-due-gf ())
+   (defmethod past-due-m ())))

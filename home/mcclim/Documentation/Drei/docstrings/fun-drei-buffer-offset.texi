@@ -1,0 +1,5 @@
+@anchor{Generic-Function drei-buffer:offset}
+@deffn {Generic Function} {drei-buffer:offset} mark
+@findex drei-buffer:offset
+Return the offset of the mark into the buffer.
+@end deffn

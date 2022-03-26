@@ -1,0 +1,4 @@
+The reference files in this directory were created/converted using a
+mixture of GNU recode and the native internationalization facilities
+of LispWorks and AllegroCL, i.e. we're not testing FLEXI-STREAMS
+against files created by itself (which would be kind of useless).

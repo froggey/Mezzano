@@ -1,0 +1,73 @@
+RELEASE NOTES FOR McCLIM 0.9.3, "All Souls' Day":
+
+Compatibility
+=============
+
+This release was tested and found to work on the following
+implementations:
+
+ * SBCL
+ * OpenMCL
+ * Allegro Common Lisp 8.0 in ANSI Mode
+ * The Scieneer Common Lisp in ANSI Mode
+
+In our tests, this release of McCLIM did not work on the following
+implementations:
+
+ * CLISP (there are some problems with CLISP at the moment, but it is
+   possible to run McCLIM there; a HOWTO will be posted to
+   http://planet.lisp.org).
+ * CMUCL (at the time of this release, the released CMUCL has a bug
+   that prevents successful loading of McCLIM; CMUCL 19d + patch 1 and
+   the 2006-12 snapshot or later contain a fix for this problem)
+ * LispWorks (no known workaround)
+
+Also, McCLIM currently does not support lisps with case-sensitive
+readers (ACL "modern mode" and lower-case SCL).
+
+Changes in mcclim-0.9.3 "All Souls' Day" relative to 0.9.2:
+===========================================================
+
+From the NEWS file:
+
+ * backend improvement: The Null backend now registers itself in the
+   server search path
+ * improvement: with-output-as-gadget now sets the correct cursor
+   position when incremental redisplay is active.
+ * specification compliance: INVOKE-WITH-NEW-OUTPUT-RECORD's argument
+   list now is the same as the one in the Franz CLIM user guide.
+ * improvement: The text field cursor is now a solid block again.
+ * backend improvement: the PostScript backend now outputs correct EPS
+ * improvement: Graph nodes can now be dragged
+ * improvement: Possibilities when reading from
+   COMPLETE-FROM-GENERATOR are now sorted alphabetically.
+ * new experimental backend: gtkairo (loads on SBCL, CMUCL and SCL):
+   Uses GTK+ for gadgets and cairo for rendering graphics.
+ * Bug fix: incremental-redisplay does no longer leak memory
+ * improvement: incremental-redisplay is now a little faster
+ * Bug fix: Invisible text cursors no longer leave a dangling space
+   behind the text output record
+ * improvement: commands whose names are shadowed in child command
+   tables are now suggested in preference to their parents.
+ * Bug fix: (setf stream-cursor-position) and output record replay on
+   encapsulating streams work now.
+ * Bug fix: Invoking command menu items in frames with no interactor
+   works now.
+ * Bug fix: DESTROY-PORT removes the port even if an error occurs
+   while closing the port
+ * Bug fix: make-process now sets the process name on SBCL
+ * specification compliance: MENU-CHOOSE now supports almost all
+   features demanded in the CLIM 2.0 specification.
+ * improvement: new and improved ACCEPT presentation method for
+   expressions on interactive streams.
+ * specification compliance: LOOKUP-KEYSTROKE-ITEM no longer accepts
+   the :errorp argument.
+ * Bug fix: incremental redisplay no longer breaks on output records
+   that had no children.
+ * Bug fix: arrow head sizes are now transformed along with the line thickness.
+ * improvement: resizing a viewport's child will now move the viewport's focus.
+ * improvement: loading mcclim.asd no longer shows a code deletion note on SBCL.
+ * new demo: logic-cube
+ * compatibility: Add support for post-1.0 openmcl, and for Allegro
+   Common Lisp 8.0 (ansi mode).
+ * new example application showing use of CLIM views.

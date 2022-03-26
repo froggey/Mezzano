@@ -1,0 +1,8 @@
+@anchor{Condition drei-buffer:motion-before-beginning}
+@deftp {Condition} {drei-buffer:motion-before-beginning}
+@tindex drei-buffer:motion-before-beginning
+Class precedence list: @code{@w{motion-before-beginning}, @w{invalid-motion}, @w{error}, @w{serious-condition}, @w{condition}, @w{slot-object}, @w{t}}
+
+This condition is signaled whenever an attempt is
+made to move a mark before the beginning of the buffer.
+@end deftp

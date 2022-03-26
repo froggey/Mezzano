@@ -1,0 +1,35 @@
+We would like to announce the release of ASDF 3.1.5, much later than expected, but also much more solid.  As usual many thanks are due to Faré for many bug fixes, clean ups, explanations, etc.  Thanks are also owed to Dave Cooper, for testing on the Windows platform, enabling the maintainers to test on Windows, and identifying many uncaught bugs. Thanks to Anton Vodonosov for testing the release candidate against Quicklisp on cl-test-grid.  Finally, thanks to all who found bugs, provided patches, and used prerelease candidates.
+
+Although ASDF 3.1.5 is primarily a bug fix release, it does add *experimental* support for immutable systems.  Immutable systems will be loaded once, and then never updated, even if their definition changes.  Immutable systems help support application delivery for Common Lisp, allowing programmers to bundle a version of a required library that will not be subject to change based on the environment into which it is installed.  Thanks to Dave Cooper for the idea.
+
+One thing that we have cleaned up that might affect some users is the treatment of the XDG directories.  If you are using Windows and taking advantage of the default search path for the configuration and/or source-registry, then you will find that this path has just changed in incompatible ways. If you have configuration files, you may have to move or copy them from $LOCALAPPDATA/common-lisp/config/ to $LOCALAPPDATA/config/common-lisp/. Meanwhile your cache will be moved from $LOCALAPPDATA/common-lisp/cache/ to $LOCALAPPDATA/cache/common-lisp/. However, you should not have to move your source code, still in subdirectories of $LOCALAPPDATA/common-lisp/source/
+
+We urge implementations that are currently bundling previous versions of ASDF to adopt 3.1.5.  3.1.5 does not introduce any API incompatibilities that we know of, and contains significant bug fixes on multiple platforms and implementations.  See the Changelog (attached) for a list of the major bug fixes.  Details on minor bugfixes can be found at launchpad.net/asdf
+
+We hope that 3.1.5 will be the last 3.1.x release.  We will now move to developing ASDF 3.2, which we expect will add new features.
+
+Here is the changelog entry  for 3.1.5:
+
+cl-asdf (2:3.1.5-1) unstable; urgency=low
+
+  Bug fix and portability release:
+  * Add immutable-system support (thanks to Dave Cooper).  This support
+    should be regarded as preliminary and subject to change.
+  * Substantially improved operation on Windows: many bugfixes and improve-
+    ments to UIOP functions that interface with the operating system.
+  * Add CLASP support.
+  * Many miscellaneous fixes for issues on individual implementations,
+    notably UIOP incompatibility introduced by SBCL 1.2.12, support for
+    LispWorks 7 character types, fixes to chdir on ABCL, improvements
+    to run-program on Windows.
+  * Added OS-COND to UIOP to paper over some incompatibilities about when
+    and how operating system can be detected on different implementations.
+    Made OS predicates run test at runtime so you can bind *features* from
+    a target system and determine its OS.
+  * Fixes to XDG configuration directory handling.  Try to stick to the
+    XDG spec, rather than guessing what it should be on different platforms.
+    To recognize this, change UIOP functions about XDG files to "XDG-"
+    prefixes.
+  * Documentation improvements.
+
+ -- François-René Rideau <fare@tunes.org>  Sat, 18 Jul 2015 16:51:50 -0500

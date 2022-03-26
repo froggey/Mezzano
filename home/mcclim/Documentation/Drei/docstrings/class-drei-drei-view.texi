@@ -1,0 +1,46 @@
+@anchor{Class drei:drei-view}
+@deftp {Class} {drei:drei-view}
+@tindex drei:drei-view
+Class precedence list: @code{@w{drei-view}, @w{tabify-mixin}, @w{subscriptable-name-mixin}, @w{name-mixin}, @w{standard-object}, @w{slot-object}, @w{t}}
+
+Slots:
+@itemize
+@item @code{%active} --- initargs: @code{@w{:active}}
+
+A boolean value indicating whether
+the view is "active". This should control highlighting when
+redisplaying.
+@item @code{%modified-p} --- initargs: @code{@w{:modified-p}}
+
+This value is true if the view
+contents have been modified since the last time this value was
+set to false.
+@item @code{%no-cursors} --- initargs: @code{@w{:no-cursors}}
+
+True if the view does not display
+cursors.
+@item @code{%full-redisplay-p} 
+
+True if the view should be
+fully redisplayed the next time it is redisplayed.
+@item @code{%use-editor-commands} --- initargs: @code{@w{:use-editor-commands}}
+
+If the view is supposed
+to support standard editor commands (for inserting objects,
+moving cursor, etc), this will be true. If you want your view to
+support standard editor commands, you should *not* inherit from
+@code{editor-table} @code{-} the command tables containing the editor
+commands will be added automatically, as long as this value is
+true.
+@item @code{%extend-pane-bottom} --- initargs: @code{@w{:extend-pane-bottom}}
+
+Resize the output pane
+vertically during redisplay (using @code{change-space-requirements}),
+in order to fit the whole buffer. If this value is false,
+redisplay will stop when the bottom of the pane is reached.
+@end itemize
+
+The base class for all Drei views. A view
+observes some other object and provides a visual representation
+for Drei.
+@end deftp

@@ -1,0 +1,6 @@
+@anchor{Function drei:point}
+@deffn {Function} {drei:point} &optional object
+@findex drei:point
+Return the point of the provided object. If no object is
+provided, the current view will be used.
+@end deffn

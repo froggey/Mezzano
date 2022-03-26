@@ -1,0 +1,5 @@
+@anchor{Generic-Function drei-buffer:size}
+@deffn {Generic Function} {drei-buffer:size} buffer
+@findex drei-buffer:size
+Return the number of objects in the buffer.
+@end deffn

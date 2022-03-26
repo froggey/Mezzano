@@ -1,0 +1,37 @@
+\chapter{Using command tables}
+\label{using-command-tables}
+
+A \emph{command table} is an object that is used to determine what
+commands are available in a particular context and the ways in which
+commands can be executed.
+
+Simple applications do not manage command tables explicitly.  A
+default command table is created as a result of a call to the macro
+\texttt{define-application-frame} and that command table has the same
+name as the application frame.
+
+Each command table has a \emph{name} and that CLIM manages a global
+\emph{namespace} for command tables.
+
+\Defun {find-command-table} {name \key (errorp t)}
+
+This function returns the command table with the name \textit{name}.
+If there is no command table with that name, then what happens depends
+on the value of \textit{errorp}.  If \textit{errorp} is \emph{true},
+then an error of type \texttt{command-table-not-found} is signaled. 
+If \textit{errorp} is \emph{false}, otherwise \texttt{nil} is
+returned.
+
+\Defmacro {define-command-table} {name \key inherit-from menu
+  inherit-menu}
+
+\Defun {make-command-table} {\\name \key inherit-from menu
+  inherit-menu (errorp t)}
+
+By default command tables inherit from
+\texttt{global-command-table}. According to the CLIM~2.0
+specification, a command table inherits from no command table if
+\texttt{nil} is passed as an explicit argument to
+\textit{inherit-from}. In revision~2.2 all command tables must inherit
+from \texttt{global-command-table}. McCLIM treats a \texttt{nil} value
+of \textit{inherit-from} as specifying \texttt{'(global-command-table)}.

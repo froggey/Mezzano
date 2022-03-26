@@ -1,0 +1,28 @@
+@macro glossentry{ENTRY}
+@b{\ENTRY\}
+@cindex \ENTRY\
+@end macro
+
+@macro func{FUN}
+@b{\FUN\}
+@end macro
+
+@macro fmacro{MACRO}
+@b{\MACRO\}
+@end macro
+
+@macro genfun{FUN}
+@b{\FUN\}
+@end macro
+
+@alias gloss = i
+@alias func = code
+@alias class = code
+@alias package = code
+@alias gadget = code
+@alias pane = code
+@alias methcomp = t
+@alias slot = code
+@alias longref = t
+@alias cl = code
+@alias initarg = code

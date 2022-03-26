@@ -1,0 +1,122 @@
+Prerequisites:
+==============
+
+ASDF - The ASDF system definition facility. Many implementations come
+with it and (require :asdf) is all that is needed. If yours doesn't,
+see http://www.cliki.net/asdf.
+
+
+
+Installing McCLIM using mcclim.asd
+==================================
+
+To tell ASDF about the wherabouts of McCLIM and to compile it for the
+first time, perform these steps:
+
+ 1. Symlink mcclim.asd to a directory in your
+    asdf:*central-registry* list. E.g., for SBCL, that would be:
+
+      $ ln -sf /path/to/mcclim.asd ~/.sbcl/systems/
+
+ 2. If you are using a Lisp implementation that requires a separate
+    CLX to be installed, do this now and symlink the clx's .asd file
+    to your asdf:*central-registry*, as above. If your
+    implementation's CLX doesn't come with a clx.asd file, you will
+    have to load CLX via (require :clx) or a similar mechanism
+    yourself.
+
+ 3. You need to install the spatial-trees library (available at
+    http://cliki.net/spatial-trees). The preferred method for that is
+    via asdf-install. see http://cliki.net/asdf-install for an
+    introduction to that method.
+    
+ 4. On your Lisp's REPL (with ASDF loaded), type
+
+     (asdf:oos 'asdf:load-op :mcclim)
+     ; compilation messages should zip past
+
+After step 4, McCLIM and the CLX backend should be loaded and
+you are good to go.
+
+When you restart your lisp image, you will need to perform step 4 to
+load McCLIM again.
+
+Installing mcclim.asd if you were using ASDF & system.lisp before
+=================================================================
+
+Make sure to remove all symlinks in your asdf:*central-registry* to
+system.lisp and replace them with symlinks to mcclim.asd. Keeping the
+old links around will break loading the McCLIM system in subtle ways.
+
+After replacing the symlinks, follow the "Installing McCLIM..."
+section above, beginning at step 1 - the symlink mcclim.asd itself is
+required, too.
+
+Writing a system that depends on McCLIM
+=======================================
+
+In an ASDF system that depends on a loaded CLIM, use the following
+code to declare a dependency on McCLIM:
+
+(defsystem :your-clim-using-system
+           :depends-on (:mcclim #| other dependencies |#)
+           :components (#| components |#)
+           )
+
+The dependency on the McCLIM system will also load a suitable display
+backend on implementations where it can determine one.
+
+Running the demos
+=================
+
+McCLIM comes with some interesting demo programs and applications:
+    address-book - The classic CLIM demo:        (asdf:oos 'asdf:load-op :clim-examples)    (in-package :clim-demo)    (run-frame-top-level (make-application-frame 'address-book))     The Examples directory includes other demo programs that might be    of interest. Many of these are quite old and were written before    large parts of the CLIM specification were implemented; for good
+   examples of CLIM style it is best to look elsewhere.
+
+
+   clim-listener - a Lisp 'listener' or top-level loop with many
+   goodies for examining directories, CLOS classes, etc. Printed
+   results are mouse-sensitive and in supported implementations    (currently OpenMCL) can be used directly as arguments in Lisp expressions:     (asdf:oos 'asdf:load-op :clim-listener)    (clim-listener:run-listener)         functional-geometry - Frank Buss' and Rainer Joswig's functional
+   geometry explorer, implemented on top of clim-listener:     (load "Apps/Functional-Geometry/functional-geometry.asd")    (asdf:oos 'asdf:load-op :functional-geometry)    (functional-geometry::run-functional-geometry)   Installation Notes for Implementations
+======================================
+
+Notes about bugs or gotchas in specific Common Lisp implementations
+appear in the release notes found in the ReleaseNotes directory.
+
+Franz Allegro Common Lisp
+=========================
+
+McCLIM has been tested with the ANSI Common Lisp image alisp. It
+doesn't currently work in with "modern Lisp" but support is on the way.
+
+
+OpenMCL
+=======
+
+McCLIM has been tested with openmcl-1.0. It is recommended that you
+download CLX from ftp://clozure.com/pub/CLX.
+
+
+CLISP
+=====
+
+1. Get clisp-20041218 or newer. Build it with option --with-module=clx/mit-clx.
+
+2. Get a copy of the ASDF package. Compile it:
+     $ clisp -c $ASDF/asdf.lisp
+
+3. Start
+     $ clisp -K full -i $ASDF/asdf.fas
+
+and continue as above.
+
+
+CMUCL
+=====
+
+McCLIM has been tested with version 19.c.
+
+SBCL
+====
+
+McCLIM has been tested with version 0.9.8 and later.

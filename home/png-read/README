@@ -1,0 +1,43 @@
+Portable Network Graphics (PNG) decoder (more or less) for Common Lisp.
+
+All critical chunks are implemented.  Most ancillary chunks  are. It should be able to read back any
+file produced by ZPNG. Interlaced files can be read, but without progressive loading.
+
+Usage: read-png-file (file)  and read-png-datastream (stream), both return a  png-state object and a
+boolean to  indicate if CRC  was successful,  which most interesting  property is image-data,  a two
+(grayscale) or  three dimensional array containing  image data. Other properties  are width, height,
+bit-depth and  colour-type. If file was loaded by read-png-file slot png-file contains pathname used.
+
+Dynamic variable *crc-fail-behaviour* can  be set to one of :error, :warn  or :no-action (default is :error),  and   controls  what   happens  on   checksum  failure.   Error   signalled  is   of  type png-read:crc-failure, and restart png-read:ignore-crc-failure is established.
+
+For indexed  images slot index-data  contains an  array with indices  in pallete (stored  in pallete
+slot), and image-data contains decoded colors.
+
+The library  loads all files from  http://www.schaik.com/pngsuite/ , but  I did not check  whether it
+does so correctly.
+
+Note that ancillary chunks are mostly untested. They never modify primary image data array directly,
+but provide additional  information in slots of png-state object. Of  the ancillary chunks specified
+in http://www.w3.org/TR/2003/REC-PNG-20031110/  missing are: cHRM,  iCCP and sPLT. gAMA  is present,
+but using it is responsibility of library user.
+
+Dynamic variable *warn-missing-ancillaries* controls whether library warns on encountering unknown
+ancillary chunk.
+
+Ancillary chunks: 
+  tRNS - if present, additional alpha map is stored in slot transparency 
+  gAMA - if  present, image gamma is stored in slot gamma 
+  sBIT - if present, the original number of significant bits is stored 
+         in slot significant-bits as a property list
+  sRGB - if present, rendering intent is storen in slot rendering-intent as a keyword symbol
+  tEXt - if present, text strings are collected in slot textual-data as an association list of keyword 
+         and string
+  zTXt - if present, text strings are collected in slot textual-data as an association list of keyword 
+         and string
+  iTXt - if present, text strings are collected in slot texttual-data as an association list of keyword 
+         and a list of language tag, translated keyword and translated text
+  bKGD - if present, preferred background is stored in slot preferred-background as an array of color 
+         components (RGB), greyscale datum or palette index
+  hIST - if present, image histogram is stored in slot image-histogram as an array
+  pHYS - if present, intended pixel size is stored in slot physical-dimensions as a property list
+  tIME - if present, last modification time is stored in slot last-modification as an universal time

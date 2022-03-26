@@ -1,0 +1,25 @@
+@anchor{Class drei:undo-mixin}
+@deftp {Class} {drei:undo-mixin}
+@tindex drei:undo-mixin
+Class precedence list: @code{@w{undo-mixin}, @w{standard-object}, @w{slot-object}, @w{t}}
+
+Slots:
+@itemize
+@item @code{tree} 
+
+Returns the undo-tree of the buffer.
+@item @code{undo-accumulate} 
+
+The undo records created
+since the start of the undo context.
+@item @code{performing-undo} 
+
+True if we are currently
+performing undo, false otherwise.
+@end itemize
+
+This is a mixin class that buffer classes can
+inherit from. It contains an undo tree, an undo accumulator and a
+flag specifyng whether or not it is currently performing
+undo. The undo tree and undo accumulators are initially empty.
+@end deftp

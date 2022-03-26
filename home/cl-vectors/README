@@ -1,0 +1,64 @@
+cl-vectors
+==========
+
+This library is released under the MIT license. See the MIT-LICENSE
+file which should be included in the present distribution.
+
+The project homepage can be found at the following URL:
+
+  http://projects.tuxee.net/cl-vectors/
+
+The latest sources can be found on GitHub:
+
+  https://github.com/fjolliton/cl-vectors
+
+Changes
+-------
+
+ version 0.1.5 - 2013-02-13
+
+  - the project is now released under the MIT license.  It was
+    previously offered under the LLGPL license.
+
+ version 0.1.4b - 2010-09-25
+
+  - added doc.lisp which contains the code used to generate the images
+    for the documentation. The `show-annotated-path' can be useful to
+    experiment with cl-vectors.
+
+  - added paths:path-transform-as-marker (see documentation)
+
+ version 0.1.3 - 2007-03-14
+
+  - fixed paths:filter-distinct to better choose knots to keep (really
+    eliminating zero length interpolation.)
+
+  - extended cl-aa protocol to provide a way to sweep only a
+    rectangular zone of the resulting state. (New functions are
+    freeze-state, scanline-sweep, scanline-y and
+    cells-sweep/rectangle.)
+
+  - added a version of cl-aa specialized for rendering non-antialiased
+    polygon, named aa-bin and included in the cl-aa system definition.
+
+ version 0.1.2 - 2007-03-08
+
+  - fixed make-circle-path. A bug prevented circle creation with non
+    positive coordinates. Also, the circle path doesn't include the
+    zero-length straight line anymore (it was here for historical
+    reason.)
+
+  - fixed dash transformation when processing arcs. The resultings
+    chunk of arcs were not correctly specified for the :large-arc-flag
+    attribute (it was false all the time.)
+
+  - vectors:update-state now accept either a path or a list of paths.
+
+ version 0.1.1 - 2007-03-06
+
+  - fixed cl-aa.asd system definition ("cl-aa" -> "aa").
+    Thanks to Ivan Toshkov.
+
+ version 0.1 - 2007-03-06
+
+  - Initial release.

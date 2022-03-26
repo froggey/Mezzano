@@ -1,0 +1,10 @@
+@anchor{Class drei-buffer:left-sticky-mark}
+@deftp {Class} {drei-buffer:left-sticky-mark}
+@tindex drei-buffer:left-sticky-mark
+Class precedence list: @code{@w{left-sticky-mark}, @w{mark}, @w{standard-object}, @w{slot-object}, @w{t}}
+
+A subclass of mark.  A mark of this type will
+"stick" to the left of an object, i.e. when an object is
+inserted at this mark, the mark will be positioned to the left of
+the object.
+@end deftp

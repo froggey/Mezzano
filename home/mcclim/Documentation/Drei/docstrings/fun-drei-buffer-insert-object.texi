@@ -1,0 +1,7 @@
+@anchor{Generic-Function drei-buffer:insert-object}
+@deffn {Generic Function} {drei-buffer:insert-object} mark object
+@findex drei-buffer:insert-object
+Insert the object at the mark.  This function
+simply calls insert-buffer-object with the buffer and the
+position of the mark.
+@end deffn

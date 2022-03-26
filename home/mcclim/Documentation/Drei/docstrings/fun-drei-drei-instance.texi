@@ -1,0 +1,6 @@
+@anchor{Function drei:drei-instance}
+@deffn {Function} {drei:drei-instance} &optional object
+@findex drei:drei-instance
+Return the Drei instance of @code{object}. If @code{object} is not
+provided, the currently running Drei instance will be returned.
+@end deffn

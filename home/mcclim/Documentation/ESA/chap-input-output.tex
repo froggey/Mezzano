@@ -1,0 +1,151 @@
+\chapter{Functions for input and output}
+
+The \sysname{} library provides facilities for loading a buffer from a
+file, and saving a buffer to a file.  The \package{esa-io} package
+contains symbols related to this functionality.
+
+\Defcommandtable {esa-io:esa-io-table}
+
+This command table contains a number of commands and related key
+bindings related to input/output.  Typically, an application that
+needs such i/o would inherit from this command table when creating its
+global command table.
+
+\Defcommand {com-find-file} {((file-name \texttt{pathname}))}
+
+This command is similar to the \emacs{} command with the same name.
+
+If no argument is given, this command prompts for a file-name to load
+into a fresh buffer which then becomes the current buffer.
+
+If a buffer is already visiting that file, it instead switches to that
+buffer.
+
+If the file-name given does not name an existing file, a fresh buffer
+is created that is associated with the file-name given, but no file is
+created.
+
+This command is bound to the keyboard shortcut \kbd{C-x C-f}.
+
+\Defgeneric {esa-io:frame-find-file} {(application-frame pathname)}
+
+This generic function is called by the command
+\command{com-find-file}, passing the current application frame and the
+pathname that it received as an argument.
+
+If a buffer with the file-name \textit{pathname} associated with it
+already exists, then that buffer is returned.  Otherwise, if a file
+with the name \textit{pathname} exists, a fresh buffer created from
+the file is returned.  Otherwise, a new empty buffer having the
+associated file name is returned.
+
+Client code may override this method or provide auxiliary methods on
+it.
+
+\Defcommand {com-find-file-read-only} {((file-name \texttt{pathname}))}
+
+This command is similar to \command{find-file}, except that after
+reading the contents of the file into a buffer, it sets the read-only
+flag of the buffer to \emph{true}.
+
+If no argument is given, this command prompts for a file-name to load
+into a fresh buffer which then becomes the current buffer.
+
+If a buffer is already visiting that file, it instead switches to that
+buffer.
+
+If the file-name given does not name an existing file, an error is
+signaled.
+
+This command is bound to the keyboard shortcut \kbd{C-x C-r}.
+
+\Defgeneric {esa-io:frame-find-file-read-only} {(application-frame pathname)}
+
+This generic function is called by the command
+\command{com-find-file-read-only}, passing the current application
+frame and the pathname that it received as an argument.
+
+\Defcommand {com-read-only} {()}
+
+This command toggles the read-only flag of the current buffer.
+
+This command is bound to the keyboard shortcut \kbd{C-x C-q}.
+
+\Defcommand {com-set-visited-file-name} {((file-name
+  \texttt{pathname}))}
+
+This commands sets the file-name associated with the current buffer.
+
+If no argument is given, this command prompts for a file-name to
+associate with the current buffer.
+
+This command is not bound to any keyboard shortcut.  It is only
+available as an extended command.
+
+\Defcommand {com-save-buffer} {((file-name \texttt{pathname}))}
+
+If the current buffer has a file-name associated with it, then this
+command writes the contents of the current buffer to the file with
+that name.  If not, and if no argument is given, this command prompts
+for a file-name to save the buffer contents to.
+
+This command is bound to the keyboard shortcut \kbd{C-x C-s}.
+
+\Defcommand {com-write-buffer} {((file-name \texttt{pathname}))}
+
+This command writes the contents of the current buffer to the file
+whose name is given by the argument.
+
+If no argument is given, this command prompts for a file-name to
+write the contents of the current buffer to.
+
+The file-name associated with the current buffer is changed to the
+file name given by the argument, or to the prompt.
+
+This command is bound to the keyboard shortcut \kbd{C-x C-w}.
+
+These commands handle prompting for file names, searching for existing
+buffers with the file name given, Emacs-style file versioning, and
+more.  The only thing they need help from the application with is for
+saving a buffer to a stream, and for creating a buffer from a stream.
+For that, the \sysname{} library calls the generic functions described
+below.
+
+\Defgeneric {{esa-buffer:frame-save-buffer-to-stream}}\\
+{(application-frame buffer stream)}
+
+This generic function is called by the commands that write the
+contents of a buffer to a file.
+
+Client code that uses the \sysname{} input/output facility must supply
+a method on this generic function, and that method must be specialized
+to the application-specific class of its application-frame.
+
+\Defgeneric {{esa-buffer:frame-make-buffer-from-stream}}\\
+{(application-frame stream)}
+
+This generic function is called by the commands that read the
+contents of a file into a new buffer.
+
+Client code that uses the \sysname{} input/output facility must supply
+a method on this generic function, and that method must be specialized
+to the application-specific class of its application-frame.
+
+Applications should also provide a method on
+\function{esa-buffer:frame-make-new-buffer} so that the \sysname{}
+library can create a new buffer whenever a non-existing file name is
+given.
+
+To implement the i/o functions, the \sysname{} i/o facility calls the
+generic functions described below:
+
+\Defgeneric {esa-io:frame-set-visited-file-name}\\
+{(application-frame pathname buffer)}
+
+\Defgeneric {esa-io:frame-save-buffer} {(application-frame buffer)}
+
+\Defgeneric {esa-io:frame-write-buffer}\\
+{(application-frame pathname buffer)}
+
+Applications can override these methods, or provide auxiliary methods
+on them in order to customize their behavior.

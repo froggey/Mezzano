@@ -1,0 +1,7 @@
+@anchor{Generic-Function drei:undo-tree}
+@deffn {Generic Function} {drei:undo-tree} buffer
+@findex drei:undo-tree
+The undo-tree object associated with the
+buffer. This usually contains a record of every change that has
+been made to the buffer since it was created.
+@end deffn

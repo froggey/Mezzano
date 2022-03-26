@@ -1,0 +1,7 @@
+@anchor{Function clim-tab-layout:remove-page-named}
+@deffn {Function} {@symbol{remove-page-named,clim-tab-layout}} title tab-layout
+Remove the tab page with the specified @code{title} from @code{tab-layout}.
+Note that uniqueness of titles is not enforced; the first page found will
+be removed.  This is a convenience wrapper, you can also use
+FIND-TAB-PAGE-NAMED to find and the remove a page yourself.
+@end deffn

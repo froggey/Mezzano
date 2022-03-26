@@ -1,0 +1,6 @@
+@anchor{Generic-Function drei-buffer:line-number}
+@deffn {Generic Function} {drei-buffer:line-number} mark
+@findex drei-buffer:line-number
+Return the line number of the mark.  Lines are
+numbered from zero.
+@end deffn

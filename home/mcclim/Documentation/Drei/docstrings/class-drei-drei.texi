@@ -1,0 +1,54 @@
+@anchor{Class drei:drei}
+@deftp {Class} {drei:drei}
+@tindex drei:drei
+Class precedence list: @code{@w{drei}, @w{standard-object}, @w{slot-object}, @w{t}}
+
+Slots:
+@itemize
+@item @code{%view} --- initargs: @code{@w{:view}}
+
+The CLIM view that will be used
+whenever this Drei is being displayed. During redisplay, the
+@code{stream-default-view} of the output stream will be temporarily
+bound to this value.
+@item @code{%previous-command} 
+
+The previous CLIM command
+executed by this Drei instance. May be NIL if no command has been
+executed.
+@item @code{%editor-pane} --- initargs: @code{@w{:editor-pane}}
+
+The stream or pane that the Drei
+instance will perform output to.
+@item @code{%minibuffer} --- initargs: @code{@w{:minibuffer}}
+
+The minibuffer pane (or null)
+associated with the Drei instance. This may be NIL.
+@item @code{%command-table} --- initargs: @code{@w{:command-table}}
+
+The command table used for
+looking up commands for the Drei instance. Has a sensible
+default, don't override it unless you know what you are doing.
+@item @code{%cursors} 
+
+A list of which cursors are
+associated with the Drei instance. During redisplay,
+@code{display-drei-view-cursor} is called on each element of this
+list.
+@item @code{%point-cursor} 
+
+The cursor object that is
+considered the primary user-oriented cursor, most probably the
+cursor for the editor point. Note that this cursor is also in the
+cursors-list.
+@item @code{%cursors-visible} --- initargs: @code{@w{:cursors-visible}}
+
+If true, the cursors of this
+Drei instance will be visible. If false, they will not.
+@end itemize
+
+The abstract Drei class that maintains
+standard Drei editor state. It should not be directly
+instantiated, a subclass implementing specific behavior (a Drei
+variant) should be used instead.
+@end deftp

@@ -1,0 +1,6 @@
+;;; -*- Lisp -*-
+
+(signals formatted-system-definition-error
+ (def-test-system "foo" :perform ((test-op (o c)))))
+
+(leave-test "correctly detected ill-formed system definition." 0)

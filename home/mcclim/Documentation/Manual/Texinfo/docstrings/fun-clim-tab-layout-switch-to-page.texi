@@ -1,0 +1,6 @@
+@anchor{Function clim-tab-layout:switch-to-page}
+@deffn {Function} {@symbol{switch-to-page,clim-tab-layout}} page
+Move the focus in page's tab layout to this page.  This function
+is a one-argument convenience version of (@code{setf} TAB-LAYOUT-ENABLED-PAGE), which
+can also be called directly.
+@end deffn

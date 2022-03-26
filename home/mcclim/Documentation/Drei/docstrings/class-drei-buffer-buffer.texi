@@ -1,0 +1,10 @@
+@anchor{Class drei-buffer:buffer}
+@deftp {Class} {drei-buffer:buffer}
+@tindex drei-buffer:buffer
+Class precedence list: @code{@w{buffer}, @w{standard-object}, @w{slot-object}, @w{t}}
+
+The base class for all buffers. A buffer
+conceptually contains a large array of arbitrary objects.  Lines
+of objects are separated by newline characters.  The last object
+of the buffer is not necessarily a newline character.
+@end deftp

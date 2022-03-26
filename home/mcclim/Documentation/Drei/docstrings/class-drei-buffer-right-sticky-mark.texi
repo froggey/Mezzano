@@ -1,0 +1,10 @@
+@anchor{Class drei-buffer:right-sticky-mark}
+@deftp {Class} {drei-buffer:right-sticky-mark}
+@tindex drei-buffer:right-sticky-mark
+Class precedence list: @code{@w{right-sticky-mark}, @w{mark}, @w{standard-object}, @w{slot-object}, @w{t}}
+
+A subclass of mark.  A mark of this type will
+"stick" to the right of an object, i.e. when an object is
+inserted at this mark, the mark will be positioned to the right
+of the object.
+@end deftp

@@ -1,0 +1,82 @@
+;;; -*- Lisp -*-
+
+;;;---------------------------------------------------------------------------
+;;; Test that we can successfully create new subclasses of OPERATION and that we
+;;; can detect bad subclasses of OPERATION.
+;;;---------------------------------------------------------------------------
+
+
+(in-package :asdf)
+(use-package :asdf-test)
+
+(defparameter *good-classes*
+  '(build-op
+    compile-bundle-op
+    compile-concatenated-source-op
+    compile-op
+    concatenate-source-op
+    deliver-asd-op
+    dll-op
+    image-op
+    lib-op
+    load-bundle-op
+    load-compiled-concatenated-source-op
+    load-concatenated-source-op
+    load-op
+    load-source-op
+    monolithic-compile-concatenated-source-op
+    monolithic-concatenate-source-op
+    monolithic-deliver-asd-op
+    monolithic-dll-op
+    monolithic-lib-op
+    monolithic-load-compiled-concatenated-source-op
+    monolithic-load-concatenated-source-op
+    prepare-bundle-op
+    prepare-op
+    prepare-source-op
+    program-op
+    test-op)
+  "All of these classes should be instantiable without error.")
+
+(defclass my-unupdated-operation (operation)
+  ())
+
+(defclass my-good-operation (downward-operation)
+  ())
+
+(defclass my-incoherent-operation (downward-operation non-propagating-operation)
+  ())
+
+(dolist (class *good-classes*) (assert (make-operation class)))
+
+(signals operation-definition-warning
+         (make-operation 'my-unupdated-operation))
+
+(with-expected-failure (#+gcl "GCL has trouble with CLOS?")
+  (signals operation-definition-error
+           (make-operation 'my-incoherent-operation)))
+
+(assert (make-operation 'my-good-operation))
+
+
+;; This test exercises the backward-compatibility mechanism of operation,
+;; whereby traditional unqualified operations are implicitly downward and sideward
+(defclass trivial-operation (operation) ())
+
+(assert-equal
+ (loop :for (o . c) :in (traverse 'trivial-operation '(:test-asdf/test-module-depend "quux"))
+       :collect (cons (type-of o) (component-find-path c)))
+ '((trivial-operation "test-asdf/test-module-depend" "file1")
+   (trivial-operation "test-asdf/test-module-depend" "quux" "file2")
+   (trivial-operation "test-asdf/test-module-depend" "quux" "file3mod" "file3")
+   (trivial-operation "test-asdf/test-module-depend" "quux" "file3mod")
+   (trivial-operation "test-asdf/test-module-depend" "quux")))
+
+(operate 'trivial-operation 'test-asdf/test-module-depend)
+;;; this test intended to catch a bug in operate :around method in operate.lisp,
+;;; thanks to Jan Moringen [2014/08/10:rpg]
+(operate (make-operation 'trivial-operation) 'test-asdf/test-module-depend)
+
+;;; operations should only be made by MAKE-OPERATION, and now we enforce this.
+(signals system-definition-error
+    (make-instance 'load-op))

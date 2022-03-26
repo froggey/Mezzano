@@ -1,0 +1,536 @@
+% -*- Mode: LaTeX; Package: CLIM-USER -*-
+
+\chapter {Incremental Redisplay}
+\label {incremental-redisplay}
+
+\section {Overview of Incremental Redisplay}
+
+CLIM's incremental redisplay facility to allows the programmer to change the
+output in an output history (and hence, on the screen or other output device) in
+an incremental fashion.  It allows the programmer to redisplay individual pieces
+of the existing output differently, under program control.  It is
+``incremental'' in the sense that CLIM will try to minimize the changes to the
+existing output on a display device when displaying new output.
+
+There are two different ways to do incremental redisplay.
+
+The first is to call \cl{redisplay} on an output record.  In essence, this tells
+CLIM to recompute the output of that output record over from scratch.  CLIM
+compares the new results with the existing output and tries to do minimal
+redisplay.  The \cl{updating-output} form allows the programmer to assist CLIM
+by informing it that entire branches of the output history are known not to have
+changed.  \cl{updating-output} also allows the programmer to communicate the
+fact that a piece of the output record hierarchy has moved, either by having an
+output record change its parent, or by having an output record change its
+position.
+
+The second way to do incremental redisplay is for the programmer to manually do the
+updates to the output history, and then call \cl{note-output-record-child-changed}
+on an output record.  This causes CLIM to propagate the changes up the output
+record tree and allows parent output records to re-adjust themselves to account for
+the changes.
+
+Each style is appropriate under different circumstances.  \cl{redisplay} is
+often easier to use, especially when there might be large numbers of changes
+between two passes, or when the programmer has only a poor idea as to what the
+changes might be.  \cl{note-output-record-child-changed} can be more efficient
+for small changes at the bottom of the output record hierarchy, or in cases
+where the programmer is well informed as to the specific changes necessary and
+can help CLIM out.
+
+
+\subsection {Examples of Incremental Redisplay}
+
+The usual technique of incremental redisplay is to use \cl{updating-output} to
+inform CLIM what output has changed, and use \cl{redisplay} to recompute and
+redisplay that output.
+
+The outermost call to \cl{updating-output} identifies a program fragment that
+produces incrementally redisplayable output.  A nested call to
+\cl{updating-output} (that is, a call to \cl{updating-output} that occurs during
+the execution of the body of the outermost \cl{updating-output} and specifies
+the same stream) identifies an individually redisplayable piece of output, the
+program fragment that produces that output, and the circumstances under which
+that output needs to be redrawn.  This nested calls to \cl{updating-output} are
+just hints to incremental redisplay that can reduce the amount of work done by
+CLIM.
+
+The outermost call to \cl{updating-output} executes its body, producing the
+initial version of the output, and returns an \cl{updating-output-record} that
+captures the body in a closure.  Each nested call to \cl{updating-output} stores
+its \cl{:unique-id} and \cl{:cache-value} arguments and the portion of the
+output produced by its body.
+
+\cl{redisplay} takes an \cl{updating-output-record} and executes the captured
+body of \cl{updating-output} over again.  When a nested call to
+\cl{updating-output} is executed during redisplay, \cl{updating-output} decides
+whether the cached output can be reused or the output needs to be redrawn.  This
+is controlled by the \cl{:cache-value} argument to \cl{updating-output}.  If its
+value matches its previous value, the body would produce output identical to the
+previous output and thus it is unnecessary for CLIM to execute the body again.
+In this case the cached output is reused and \cl{updating-output} does not
+execute its body.  If the cache value does not match, the output needs to be
+recomputed, so \cl{updating-output} executes its body and the new output drawn
+on the stream replaces the previous output.  The \cl{:cache-value} argument is
+only meaningful for nested calls to \cl{updating-output}.
+
+In order to compare the cache to the output record, two pieces of information
+are necessary:
+
+\begin{itemize}
+\item An association between the output being done by the program and a
+particular cache.  This is supplied in the \cl{:unique-id} option to
+\cl{updating-output}.
+
+\item A means of determining whether this particular cache is valid.  This is
+the \cl{:cache-value} option to \cl{updating-output}.
+\end{itemize}
+
+Normally, the programmer would supply both options. The unique-id would be some
+data structure associated with the corresponding part of output.  The cache
+value would be something in that data structure that changes whenever the output
+changes.
+
+It is valid to give the \cl{:unique-id} and not the \cl{:cache-value}.  This is
+done to identify a parent in the hierarchy.  By this means, the children
+essentially get a more complex unique id when they are matched for output.  (In
+other words, it is like using a telephone area code.)  The cache without a cache
+value is never valid.  Its children always have to be checked.
+
+It is also valid to give the \cl{:cache-value} and not the \cl{:unique-id}.  In
+this case, unique ids are just assigned sequentially.  So, if output associated
+with the same thing is done in the same order each time, it isn't necessary to
+invent new unique ids for each piece.  This is especially true in the case of
+children of a cache with a unique id and no cache value of its own.  In this
+case, the parent marks the particular data structure, whose components can
+change individually, and the children are always in the same order and properly
+identified by their parent and the order in which they are output.
+
+A unique id need not be unique across the entire redisplay, only among the
+children of a given output cache; that is, among all possible (current and
+additional) uses made of \cl{updating-output} that are dynamically (not
+lexically) within another.
+
+To make incremental redisplay maximally efficient, the programmer should attempt
+to give as many caches with \cl{:cache-value} as possible.  For instance, if the
+thing being redisplayed is a deeply nested tree, it is better to be able to know
+when whole branches have not changed than to have to recurse to every single
+leaf and check it.  So, if there is a modification tick in the leaves, it is
+better to also have one in their parent of the leaves and propagate the
+modification up when things change.  While the simpler approach works, it
+requires CLIM to do more work than is necessary.
+
+The following function illustrates the standard use of incremental redisplay:
+
+\begin{verbatim}
+(defun test (stream)
+  (let* ((list (list 1 2 3 4 5))
+         (record
+           (updating-output (stream)
+             (do* ((elements list (cdr elements))
+                   (count 0 (1+ count)))
+                  ((null elements))
+               (let ((element (first elements)))
+                 (updating-output (stream :unique-id count
+                                          :cache-value element)
+                   (format stream "Element ~D" element)
+                   (terpri stream)))))))
+    (sleep 10)
+    (setf (nth 2 list) 17)
+    (redisplay record stream)))
+\end{verbatim}
+
+When this function is run on a window, the initial display will look like:
+
+\begin{verbatim}
+  Element 1
+  Element 2
+  Element 3
+  Element 4
+  Element 5
+\end{verbatim}
+
+After the sleep has terminated, the display will look like:
+
+\begin{verbatim}
+  Element 1
+  Element 2
+  Element 17
+  Element 4
+  Element 5
+\end{verbatim}
+
+CLIM takes care of ensuring that only the third line gets erased and
+redisplayed.  In the case where items moved around (try the example substituting
+
+\begin{verbatim}
+(setq list (sort list #'(lambda (x y)
+                          (declare (ignore x y))
+                          (zerop (random 2))))) 
+\end{verbatim}
+
+for the form after the call to \cl{sleep}), CLIM would ensure that the minimum
+amount of work would be done in updating the display, thereby minimizing
+``flashiness'' while providing a powerful user interface.
+
+See Chapter~\ref{application-frames} for a discussion of how to use incremental
+redisplay automatically within the panes of an application frame.
+
+
+\section {Standard Programmer Interface}
+
+\Defmacro {updating-output} {(stream
+                              \rest args
+                              \key unique-id (id-test \#'\cl{eql})
+                                   cache-value (cache-test \#'\cl{eql})
+                                   fixed-position all-new parent-cache
+                                   record-type)
+                             \body body}
+
+Introduces a caching point for incremental redisplay.  
+
+The \arg{stream} argument is not evaluated, and must be a symbol that is bound to
+an output recording stream.  If \arg{stream} is \cl{t}, \cl{*standard-output*} is
+used.  \arg{body} may have zero or more declarations as its first forms.
+
+\arg{record-type} specifies the class of output record to create.  The default
+is \cl{standard-updating-output-record}.  This argument should only be supplied
+by a programmer if there is a new class of output record that supports the
+updating output record protocol.
+
+\cl{updating-output} must be implemented by expanding into a call to
+\cl{invoke-updating-output}, supplying a function that executes \arg{body} as
+the \arg{continuation} argument to \cl{invoke-updating-output}.  The exact
+behavior of this macro is described under \cl{invoke-updating-output}.
+
+\Defgeneric {invoke-updating-output} {stream continuation record-type
+                                      unique-id id-test
+                                      cache-value cache-test
+                                      \key all-new parent-cache}
+
+Introduces a caching point for incremental redisplay.  Calls the function
+\arg{continuation}, which generates the output records to be redisplayed.
+\arg{continuation} is a function of one argument, the stream; it has dynamic
+extent.
+
+If this is used outside the dynamic scope of an incremental redisplay, it has no
+particular effect.  However, when incremental redisplay is occurring, the
+supplied \arg{cache-value} is compared with the value stored in the cache
+identified by \arg{unique-id}.  If the values differ or the code in \arg{body}
+has not been run before, the code in \arg{body} runs, and \arg{cache-value} is
+saved for next time.  If the cache values are the same, the code in \arg{body}
+is not run, because the current output is still valid.
+
+\arg{unique-id} provides a means to uniquely identify the output done by
+\arg{body}.  If \arg{unique-id} is not supplied, CLIM will generate one that is
+guaranteed to be unique.  \arg{unique-id} may be any object as long as it is
+unique with respect to the \arg{id-test} predicate among all such unique ids in
+the current incremental redisplay.  \arg{id-test} is a function of two arguments
+that is used for comparing unique ids; it has indefinite extent.
+
+\arg{cache-value} is a value that remains constant if and only if the output
+produced by body does not need to be recomputed.  If the cache value is not
+supplied, CLIM will not use a cache for this piece of output.  \arg{cache-test}
+is a function of two arguments that is used for comparing cache values; it has
+indefinite extent.
+
+If \arg{fixed-position} is \term{true}, then the location of this output is
+fixed relative to its parent output record.  When CLIM redisplays an output
+record that has a fixed position, then if the contents have not changed, the
+position of the output record will not change.  If the contents have changed,
+CLIM assumes that the code will take care to preserve its position.  The default
+for \arg{fixed-position} is \term{false}.
+
+If \arg{all-new} is \term{true}, that indicates that all of the output done by
+\arg{body} is new, and will never match output previously recorded.  In this
+case, CLIM will discard the old output and do the redisplay from scratch.  The
+default for \arg{all-new} is \term{false}.
+
+The output record tree created by \cl{updating-output} defines a caching
+structure where mappings from a unique-id to an output record are maintained.
+If the programmer specifies an output record $P$ via the
+\arg{parent-cache} argument, then CLIM will try to find a corresponding output
+record with the matching unique-id in the cache belonging to $P$.  If 
+\arg{parent-cache} is not provided, then CLIM looks for the unique-id in the
+output record created by immediate dynamically enclosing call to
+\cl{updating-output}.  If that fails, CLIM uses the unique-id to find an output
+record that is a child of the output history of \arg{stream}.  Once CLIM has
+found an output record that matches the unique-id, it uses the cache value and
+cache test to determine whether the output record has changed.  If the output
+record has not changed, it may have moved, in which case CLIM will simply move
+the display of the output record on the display device.
+
+
+\Defun {redisplay} {record stream \key (check-overlapping \cl{t})}
+
+This function simply calls \cl{redisplay-output-record} on the arguments
+\arg{record} and \arg{stream}.
+
+\Defgeneric {redisplay-output-record} {record stream
+                                       \optional (check-overlapping \cl{t}) 
+                                                 x y parent-x parent-y}  
+
+\issue {SWM} {The coordinate system stuff affected by the x/y and parent-x/y
+arguments is entirely bogus.  The proposal to make ``stream relative''
+coordinates for output records instead of ``parent relative'' coordinates will
+eliminate this completely.}
+
+\cl{(redisplay-output-record \arg{record} \arg{stream})} causes the output of
+\arg{record} to be recomputed.
+CLIM redisplays the changes ``incrementally'', that is, it only displays those
+parts that have been changed. \arg{record} must already be part of the output
+history of the \term{output recording stream} \arg{stream}, although it can be
+anywhere inside the hierarchy.
+
+When \arg{check-overlapping} is \term{false}, this means that CLIM can assume
+that no sibling output records overlap each other at any level in the output
+record tree.  Supplying a \term{false} value for this argument can improve
+performance of redisplay.
+
+{\bf Implementation note:} \cl{redisplay-output-record} is implemented by first
+binding \cl{stream-redisplaying-p} of the stream to \term{true}, then creating
+the new output records by invoking \cl{compute-new-output-records}.  Once the
+new output records have been computed, \cl{compute-difference-set} is called to
+compute the difference set, which is then passed to
+\cl{note-child-output-record-changed}.
+
+The other optional arguments can be used to specify where on the \arg{stream}
+the output record should be redisplayed.  \arg{x} and \arg{y} represent where
+the cursor should be, relative to (\cl{output-record-parent} record), before we
+start redisplaying \arg{record}.  \arg{parent-x} and \arg{parent-y} can be
+supplied to say: do the output as if the parent started at positions
+\arg{parent-x} and \arg{parent-y} (which are in absolute coordinates).  The
+default values for \arg{x} and \arg{y} are \cl{(output-record-start-position
+\arg{record})}.  The default values for \arg{parent-x} and \arg{parent-y} are
+
+\begin{verbatim}
+(convert-from-relative-to-absolute-coordinates 
+    stream
+    (output-record-parent record))
+\end{verbatim}
+
+\arg{record} will usually be an output record created by \cl{updating-output}.
+If it is not, then \cl{redisplay-output-record} will be equivalent to
+\cl{replay-output-record}.
+
+
+\section {Incremental Redisplay Protocol}
+
+\Issue {SWM} {While the description of the API here is accurate, the description
+of the protocol is a disaster.  This is no surprise, since the protocol for
+increment redisplay is itself a disaster.}
+
+\Defprotoclass {updating-output-record}
+
+The protocol class corresponding to records that support incremental redisplay;
+a subclass of \cl{output-record}.
+\IfYouWantClass {an} {updating output record} {updating-output-record}
+
+\Defpredicate {updating-output-record-p} {object}
+
+Returns \term{true} if \arg{object} is an \term{updating output record},
+otherwise returns \term{false}.
+
+\definitarg {:unique-id}
+\definitarg {:id-test}
+\definitarg {:cache-value}
+\definitarg {:cache-test}
+\Definitarg {:fixed-position}
+
+All subclasses of \cl{updating-output-record} must handle these four initargs,
+which are used to specify, respectively, the unique id and id test, cache value
+and cache test, and the ``fixed position'' component of the output record.
+
+\Defclass {standard-updating-output-record}
+
+The instantiable class of output record that supports incremental redisplay.
+This is a subclass of \cl{updating-output-record}.
+
+
+\Defgeneric {output-record-unique-id} {record}
+
+Returns the unique id associated with the updating output record \arg{record}.
+
+\Defgeneric {output-record-cache-value} {record}
+
+Returns the cache value associated with the updating output record \arg{record}.
+
+\Defgeneric {output-record-fixed-position} {record}
+
+Returns \term{true} if the updating output record \arg{record} is at a fixed
+location on the output stream, otherwise returns \term{false}.  Output records
+that are not at fixed location on the output stream will be moved by incremental
+redisplay when any of their siblings adjust their size or position.
+
+\Defgeneric {output-record-displayer} {record}
+
+Returns the function that produces the output for this output record.  This is
+the function that is called during redisplay to produce new output if the cache
+value mismatches.
+
+
+\Defgeneric {compute-new-output-records} {record stream}
+
+\cl{compute-new-output-records} modifies an output record tree to reflect new
+output done by the application.  In addition to inserting the new output records
+into the output record tree, it must save enough information to be able to
+compute the difference set, such as the old bounding rectangle, old cursor
+positions, old children, and so forth.
+
+\cl{compute-new-output-records} recursively invokes itself on each child of
+\arg{record}.
+
+\cl{compute-new-output-records} of an output record of type
+\cl{updating-output-record} runs the displayer (\cl{output-record-displayer}),
+which gives the behavior of incremental redisplay.  That is, it reruns the code
+(getting hints from \cl{updating-output}) and figures out the changes from there
+by comparing it to the old output history.
+
+
+\Defgeneric {compute-difference-set} {record \optional (check-overlapping \cl{t})
+                                      (offset-x \cl{0}) (offset-y \cl{0})
+                                      (old-offset-x \cl{0}) (old-offset-y \cl{0})} 
+
+\cl{compute-difference-set} compares the current state of the \term{output
+record} \arg{record} with its previous state, and returns a ``difference set''
+as five values.  The difference set controls what needs to be done to the
+display device in order to accomplish the incremental redisplay.
+
+The values returned are \arg{erases} (what areas of the display device need to
+be erased), \arg{moves} (what output records need to be moved), \arg{draws}
+(what output records need to be freshly replayed), \arg{erase-overlapping}, and
+\arg{move-overlapping}.  Each is a list whose elements are lists of the form:
+
+\begin{itemize}
+\item \arg{erases} are lists of \cl{(\arg{record} \arg{old-box})}
+
+\item \arg{moves} are lists of \cl{(\arg{record} \arg{old-box} \arg{new-position})}
+
+\item \arg{draws} are lists of \cl{(\arg{record} \arg{old-box})}
+
+\item \arg{erase-overlapping} is a list of \cl{(\arg{record} \arg{old-box})}
+
+\item \arg{move-overlapping} is a list of \cl{(\arg{record} \arg{old-box} \arg{new-position})}
+\end{itemize}
+
+When \arg{check-overlapping} is \term{false}, this means that CLIM can assume
+that no sibling output records overlap each other at any level.  Supplying a
+\term{false} value for this argument can improve performance of redisplay.
+
+
+\Defgeneric {augment-draw-set} {record erases moves draws erase-overlapping move-overlapping
+                                \optional x-offset y-offset old-x-offset old-y-offset}
+
+\issue {SWM} {To be supplied.}
+
+
+\Defgeneric {note-output-record-child-changed}
+            {record child mode old-position old-bounding-rectangle stream
+             \optional erases moves draws erase-overlapping move-overlapping
+             \key check-overlapping}
+
+\cl{note-output-record-child-changed} is called after an output history has had
+changes made to it, but before any of the new output has been displayed.  It
+will call \cl{propagate-output-record-changes-p} to determine if the parent
+output record should be notified, and if so, will call
+\cl{propagate-output-record-changes} to create an updated difference set.  If no
+changes need to be propagated to the parent output record, then
+\cl{note-output-record-child-changed} will call \cl{incremental-redisplay} in
+order to display the difference set.
+
+\arg{mode} is one of \cl{:delete}, \cl{:add}, \cl{:change}, \cl{:move}, or
+\cl{:none}.
+
+\arg{old-position} and \arg{old-bounding-rectangle} describe where \arg{child}
+was before it was moved.
+
+\arg{check-overlapping} is as for \cl{compute-difference-set}.
+
+
+\Defgeneric {propagate-output-record-changes-p} {record child mode 
+                                                 old-position old-bounding-rectangle}
+
+\cl{propagate-output-record-changes-p} is a predicate that returns \term{true}
+if the change made to the child will cause \arg{record} to be redisplayed in any
+way.  Otherwise, it returns \term{false}.  \arg{mode} is one of \cl{:delete},
+\cl{:add}, \cl{:change}, \cl{:move}, or \cl{:none}.
+
+\Defgeneric {propagate-output-record-changes} 
+            {record child mode 
+             \optional old-position old-bounding-rectangle
+                       erases moves draws erase-overlapping move-overlapping check-overlapping}
+
+Called when the changed \arg{child} output record requires that its parent,
+\arg{record}, be redisplayed as well.  \cl{propagate-output-record-changes}
+will update the difference set to reflect the additional changes.
+
+\arg{check-overlapping} is as for \cl{compute-difference-set}.
+
+
+\Defgeneric {match-output-records} {record \rest initargs}
+
+Returns \term{true} if record matches the supplied class initargs
+\arg{initargs}, otherwise returns \term{false}.
+
+\Defgeneric {find-child-output-record} {record use-old-elements record-type
+                                        \rest initargs
+                                        \key unique-id unique-id-test}
+
+Finds a child of \arg{record} matching the \arg{record-type} and the supplied
+initargs \arg{initargs}.  \arg{unique-id} and \arg{unique-id-test} are used to
+match against the children as well.  \arg{use-old-elements} controls whether the
+desired record is to be found in the previous (before redisplay) contents of the
+record.
+
+\Defgeneric {output-record-contents-ok} {record}
+
+Returns \term{true} if the current state of \arg{record} are up to date,
+otherwise returns \term{false}.
+
+\Defgeneric {recompute-contents-ok} {record}
+
+Compares the old (before redisplay) and new contents of \arg{record} to
+determine whether or not this record changed in such a way so that the display
+needs updating.
+
+\Defgeneric {cache-output-record} {record child unique-id}
+
+\arg{record} stores \arg{child} such that it can be located later using
+\arg{unique-id}.
+
+\Defgeneric {decache-child-output-record} {record child use-old-elements}
+
+Invalidates the redisplay state of \arg{record}.
+
+\Defgeneric {find-cached-output-record} {record use-old-elements record-type
+                                         \rest initargs
+                                         \key unique-id unique-id-test \allow}
+
+Finds a previously cached child matching \arg{record-type}, \arg{initargs},
+\arg{unique-id}, and \arg{unique-id-test}.  \arg{use-old-elements} controls
+whether the desired record is to be found in the previous (before redisplay)
+contents of the record.
+
+
+\section {Incremental Redisplay Stream Protocol}
+
+\Defgeneric {redisplayable-stream-p} {stream}
+
+Returns \term{true} for any stream that maintains an output history and supports
+the incremental redisplay protocol, otherwise returns \term{false}.
+
+\Defgeneric {stream-redisplaying-p} {stream}
+
+Returns \term{true} if the \arg{stream} is currently doing redisplay (that is,
+is inside of a call to \cl{redisplay}), otherwise returns \term{false}.
+
+\Defgeneric {incremental-redisplay} {stream position
+                                     erases moves draws erase-overlapping move-overlapping} 
+
+Performs the incremental update on \arg{stream} according to the difference set
+comprised by \arg{erases}, \arg{moves}, \arg{draws}, \arg{erase-overlapping},
+and \arg{move-overlapping}, which are values returned by
+\cl{compute-difference-set}.  \arg{position} is a point object that represents
+the start position of the topmost output record that will be redisplayed.
+
+\cl{incremental-redisplay} can be called on any extended output stream.

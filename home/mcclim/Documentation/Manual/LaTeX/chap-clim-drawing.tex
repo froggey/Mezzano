@@ -1,0 +1,65 @@
+\chapter{CLIM drawing functions}
+
+CLIM generalizes the concept of a hierarchy of window in a windowing
+system in several different ways.  A window in a windowing system
+generalizes to a \emph{sheet} in CLIM.  More precisely, a window in a
+windowing system generalizes to the \emph{sheet region} of a sheet.  A
+CLIM sheet is an abstract concept with an infinite \emph{drawing plane}
+and the \emph{region} of the sheet is the potentially visible part of
+that drawing plane.
+
+CLIM \emph{sheet region}s don't have to be rectangular the way windows
+in most windowing systems have to be.  Thus, the width and the height of
+a window in a windowing system generalizes to an arbitrary
+\emph{region} in CLIM.  A CLIM region is simply a set of mathematical
+points in a plane.  CLIM allows this set to be described as a
+combination (union, intersection, difference) of elementary regions made
+up of rectangles, polygons and ellipses.
+
+Even rectangular regions in CLIM are generalizations of the width+height
+concept of windows in most windowing systems.  While the upper left
+corner of a window in a typical windowing system has coordinates (0,0),
+that is not necessarily the case of a CLIM region.  CLIM uses that
+generalization to implement various ways of scrolling the contents of a
+sheet.  To see that, imagine just a slight generalization of the
+width+height concept of a windowing system into a rectangular region
+with x+y+width+height.  Don't confuse the x and y here with the position
+of a window within its parent, they are different.  Instead, imagine
+that the rectangular region is a hole into the (infinite) drawing plane
+defined by all possible coordinates that can be given to drawing
+functions.  If graphical objects appear in the window with respect to
+the origin of some coordinate system, and the upper-left corner of the
+window has coordinates (x,y) in that coordinate system, then changing x
+and y will have the effect of scrolling.
+
+CLIM sheets also generalize windows in that a window typically has
+pixels with integer-value coordinates.  CLIM sheets, on the other hand,
+have infinte resolution.  Drawing functions accept non-integer
+coordinate values which are only translated into integers just before
+the physical rendering on the screen.
+
+The x and y positions of a window in the coordinate system of its parent
+window in a typical windowing system is a translation transformation
+that takes coordinates in a window and transform them into coordinates
+in the parent window.  CLIM generalizes this concepts to arbitrary
+affine transformations (combinations of translations, rotations, and
+scalings).  This generalization makes it possible for points in a sheet
+to be not only translated compared to the parent sheet, but also rotated
+and scaled (including negative scaling, giving mirror images).  A
+typical use for scaling would be for a sheet to be a zoomed version of
+its parent, or for a sheet to have its y-coordinate go the opposite
+direction from that of its parent.
+
+When the shapes of, and relationship between sheets are as simple as
+those of a typical windowing system, each sheet typically has an
+associated window in the underlying windowing system.  In that case,
+drawing on a sheet translates in a relativly straightforward way into
+drawing on the corresponding window.  CLIM sheets that have associated
+windows in the underlying windowing system are called \emph{mirrored
+sheets} and the system-dependent window object is called the
+\emph{mirror}.  When shapes and relationships are more complicated,
+CLIM uses its own transformations to transform coordinates from a sheet
+to its parent and to its grandparent, etc., until a \emph{mirrored
+sheet} is found.  To the user of CLIM, the net effect is to have a
+windowing system with more general shapes of, and relationships between
+windows.

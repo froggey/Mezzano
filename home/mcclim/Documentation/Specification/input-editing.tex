@@ -1,0 +1,836 @@
+% -*- Mode: LaTeX; Package: CLIM-USER -*-
+
+\chapter {Input Editing and Completion Facilities}
+\label {input-editing}
+
+CLIM provides number of facilities to assist in writing presentation type parser
+functions, such as an interactive input editor and some ``completion''
+facilities.
+
+
+\section {The Input Editor}
+
+An input editing stream ``encapsulates'' an interactive stream, that is, most
+operations are handled by the encapsulated interactive stream, but some
+operations are handled directly by the input editing stream itself.  (See
+Appendix~\ref{encapsulating-streams} for a discussion of encapsulating streams.)
+
+An input editing stream will have the following components:
+
+\begin{itemize}
+\item The encapsulated interactive stream.
+
+\item A buffer with a fill pointer, which we shall refer to as $FP$.  The buffer
+contains all of the user's input, and $FP$ is the length of that input.
+
+\item An insertion pointer, which we shall refer to as $IP$.  The insertion
+pointer is the point in the buffer at which the ``editing cursor'' is.
+
+\item A scan pointer, which we shall refer to as $SP$.  The scan pointer is the
+point in the buffer from which CLIM will get the next input gesture object (in
+the sense of \cl{read-gesture}).
+
+\item A ``rescan queued'' flag indicating that the programmer (or CLIM)
+requested that a ``rescan'' operation should take place before the next gesture
+is read from the user.
+
+\item A ``rescan in progress'' flag that indicates that CLIM is rescanning the
+user's input, rather than reading freshly supplied gestures from the user.
+\end{itemize}
+
+The input editing stream may also have other components to store internal state,
+such as a slot to accumulate a numeric argument or remember the most recently
+used presentation history, and so forth.  These other components are explicitly
+left unspecified.
+
+The high level description of the operation of the input editor is that it reads
+either ``real'' gestures from the user (such as characters from the keyboard or
+pointer button events) or input editing commands.  The input editing commands
+can modify the state of the input buffer.  When such modifications take place,
+it is necessary to ``rescan'' the input buffer, that is, reset the scan pointer
+$SP$ to its original state and reparse the contents of the input editor buffer
+before reading any other gestures from the user.  While this rescanning
+operation is taking place, the ``rescan in progress'' flag is set to
+\term{true}.  The relationship $SP \leq IP \leq FP$ always holds.
+
+The overall control structure of the input editor is:
+
+\begin{verbatim}
+(catch 'rescan                  ;thrown to when a rescan is invoked
+  (reset-scan-pointer stream)   ;sets STREAM-RESCANNING-P to T
+  (loop
+     (funcall continuation stream)))
+\end{verbatim}
+
+where \arg{stream} is the input editing stream and \arg{continuation} is the
+code supplied by the programmer, and typically contains calls to such functions
+as \cl{accept} and \cl{read-token} (which will eventually call
+\cl{stream-read-gesture}).  When a rescan operation is invoked, it has the
+effect of throwing to the \cl{rescan} tag in the example above.  The loop is
+terminated when an activation gesture is seen, and at that point the values
+produced by \arg{continuation} are returned as values from the input editor.
+
+The important point is that functions such as \cl{accept}, \cl{read-gesture},
+and \cl{unread-gesture} read (or restore) the next gesture object from the
+buffer at the position pointed to by the scan pointer $SP$.  However, insertion
+and input editing commands take place at the position pointed to by $IP$.  The
+purpose of the rescanning operation is to eventually ensure that all the input
+gestures issued by the user (typed characters, pointer button presses, and so
+forth) have been read by CLIM.  During input editing, the input editor should
+maintain some sort of visible cursor to remind the user of the position of $IP$.
+
+The overall structure of \cl{stream-read-gesture} on an input editing stream is:
+
+\begin{verbatim}
+(progn
+  (rescan-if-necessary stream)
+  (loop
+    ;; If SP is less than FP
+    ;;   Then get the next gesture from the input editor buffer at SP
+    ;;   and increment SP
+    ;;   Else read the next gesture from the encapsulated stream
+    ;;   and insert it into the buffer at IP
+    ;; Set the "rescan in progress" flag to false
+    ;; Call STREAM-PROCESS-GESTURE on the gesture
+    ;;   If it was a "real" gesture
+    ;;     Then exit with the gesture as the result
+    ;;     Else it was an input editing command (which has already been
+    ;;     processed), so continue looping
+    ))
+\end{verbatim}
+
+When a new gesture object is inserted into the input editor buffer, it is
+inserted at the insertion pointer $IP$.  If $IP = FP$, this is accomplished by a
+\cl{vector-push-extend}-like operation on the input buffer and $FP$, and then
+incrementing $IP$.  If $IP < FP$, CLIM must first ``make room'' for the new
+gesture in the input buffer, then insert the gesture at $IP$, then increment
+both $IP$ and $FP$.
+
+When the user requests an input editor motion command, only the insertion
+pointer $IP$ is affected.  Motion commands do not need to request a rescan
+operation.
+
+When the user requests an input editor deletion command, the sequence of gesture
+objects at $IP$ are removed, and $IP$ and $FP$ must be modified to reflect the
+new state of the input buffer.  Deletion commands (and other commands that
+modify the input buffer) must arrange for a rescan to occur when they are done
+modifying the buffer, either by calling \cl{queue-rescan} or
+\cl{immediate-rescan}.
+
+CLIM implementations are free to put special objects in the input editor buffer,
+such as ``noise strings'' and ``accept results''.  A ``noise string'' is used to
+represent some sort of in-line prompt and is never seen as input; the
+\cl{prompt-for-accept} method may insert a noise string into the input buffer.
+An ``accept result'' is an object in the input buffer that is used to represent
+some object that was inserted into the input buffer (typically via a pointer
+gesture) that has no readable representation (in the Lisp sense);
+\cl{presentation-replace-input} may create accept results.  Noise strings are
+skipped over by input editing commands, and accept results are treated as a
+single gesture.
+
+
+\Defpredicate {interactive-stream-p} {object}
+
+Returns \term{true} if \arg{object} is an interactive stream, that is, a
+bidirectional stream intended for user interactions.  Otherwise it returns
+\term{false}.  This is exactly the same function as in X3J13 Common Lisp,
+except that in CLIM it is a generic function.
+
+The input editor need only be fully implemented for interactive streams.
+
+\Defprotoclass {input-editing-stream}
+
+The protocol class that corresponds to an input editing stream.
+\IfYouWantClass {an} {input editing stream} {input-editing-stream}
+
+\Defpredicate {input-editing-stream-p} {object}
+
+Returns \term{true} if \arg{object} is an \term{input editing stream} (that is,
+a stream of the sort created by a call to \cl{with-input-editing}), otherwise
+returns \term{false}.
+
+\Defclass {standard-input-editing-stream}
+
+The instantiable class that implements CLIM's standard input editor.  This is
+the class of stream created by calling \cl{with-input-editing}.
+
+\Mutable
+
+
+\Defmacro {with-input-editing} {(\optional stream 
+                                 \key input-sensitizer initial-contents class)
+                                \body body}
+
+Establishes a context in which the user can edit the input typed in on the
+interactive stream \arg{stream}.  \arg{body} is then executed in this context,
+and the values returned by \arg{body} are returned as the values of
+\cl{with-input-editing}.  \arg{body} may have zero or more declarations as its
+first forms.
+
+The \arg{stream} argument is not evaluated, and must be a symbol that is bound
+to an input stream.  If \arg{stream} is \cl{t} (the default),
+\cl{*standard-input*} is used.  If \arg{stream} is a stream that is not an
+interactive stream, then \cl{with-input-editing} is equivalent to \cl{progn}.
+
+\arg{input-sensitizer}, if supplied, is a function of two arguments, a stream
+and a continuation function; the function has dynamic extent.  The continuation,
+supplied by CLIM, is responsible for displaying output corresponding to the
+user's input on the stream.  The \arg{input-sensitizer} function will typically call
+\cl{with-output-as-presentation} in order to make the output produced by the
+continuation sensitive.
+
+If \arg{initial-contents} is supplied, it must be either a string or a list of
+two elements, an object and a presentation type.  If it is a string, the string
+will be inserted into the input buffer using \cl{replace-input}.  If it is a
+list, the printed representation of the object will be inserted into the input
+buffer using \cl{presentation-replace-input}.
+
+
+\Defmacro {with-input-editor-typeout} {(\optional stream \key erase) \body body} 
+
+Establishes a context inside of \cl{with-input-editing} in which output can be
+done by \arg{body} to the input editing stream \arg{stream}.  If \arg{erase} is
+\term{true}, the area underneath the typeout will be erased before the typeout
+is done.  \cl{with-input-editor-typeout} should call \cl{fresh-line} before and
+after evaluating the body.  \arg{body} may have zero or more declarations as its
+first forms.
+
+The \arg{stream} argument is not evaluated, and must be a symbol that is bound
+to a stream.  If \arg{stream} is \cl{t} (the default), \cl{*standard-input*} is
+used.  If \arg{stream} is a stream that is not an input editing stream, then
+\cl{with-input-editor-typeout} is equivalent to calling \cl{fresh-line},
+evaluating the body, and then calling \cl{fresh-line} again.
+
+\Defgeneric {input-editor-format} {stream format-string \rest format-args}
+
+This function is like \cl{format}, except that it is intended to be called on
+input editing streams.  It arranges to insert ``noise strings'' in the input
+editor's input buffer.  Programmers can use this to display in-line prompts in
+\cl{accept} methods.
+
+If \arg{stream} is a stream that is not an input editing stream, then
+\cl{input-editor-format} is equivalent to \cl{format}.
+
+
+\subsection {The Input Editing Stream Protocol}
+
+Input editing streams obey both the extended input and extended output stream
+protocols, and must support the generic functions that comprise those protocols.
+For the most part, this will simply entail ``trampolining'' those operations to
+the encapsulated interactive stream.  However, some generic functions as
+\cl{stream-read-gesture} and \cl{stream-unread-gesture} will need methods that
+observe the use of the input editor's scan pointer.
+
+Input editing streams will typically also implement methods for
+\cl{prompt-for-accept} (in order to provide in-line prompting that interacts
+correctly with input editing) and \cl{stream-accept} (in order to cause
+\cl{accept} to obey the scan pointer).
+
+The following generic functions comprise the remainder of the input editing
+protocol, and must be implemented for all classes that inherit from
+\cl{input-editing-stream}.
+
+
+\Defmethod {stream-input-buffer} {(stream \cl{input-editing-stream})}
+
+Returns the input buffer (that is, the string being edited) associated with the
+\term{input editing stream} \arg{stream}.  This must be an unspecialized vector
+with a fill pointer.  The fill pointer of the vector points past the last gesture
+object in the buffer.  During input editing, this buffer is side-effected.  The
+consequences of modifying the input buffer by means other than the specified API
+(such as \cl{replace-input}) are unspecified.
+
+\Defgeneric {stream-insertion-pointer} {stream}
+
+Returns an integer corresponding to the current input position in the
+\term{input editing stream} \arg{stream}'s buffer, that is, the point in the
+buffer at which the next user input gesture will be inserted.  The insertion
+pointer will always be less than \cl{(fill-pointer (stream-input-buffer
+\arg{stream}))}.  The insertion pointer can also be thought of as an editing
+cursor.
+
+\Defgeneric {(setf stream-insertion-pointer)} {pointer stream}
+
+Changes the input position of the \term{input editing stream} \arg{stream} to
+\arg{pointer}.  \arg{pointer} is an integer, and must be less than
+\cl{(fill-pointer (stream-input-buffer \arg{stream}))}.
+
+\Defgeneric {stream-scan-pointer} {stream}
+
+Returns an integer corresponding to the current scan pointer in the \term{input
+editing stream} \arg{stream}'s buffer, that is, the point in the buffer at which
+calls to \cl{accept} have stopped parsing input.  The scan pointer will always
+be less than or equal to \cl{(stream-insertion-pointer \arg{stream})}.
+
+\Defgeneric {(setf stream-scan-pointer)} {pointer stream}
+
+Changes the scan pointer of the \term{input editing stream} \arg{stream} to
+\arg{pointer}.  \arg{pointer} is an integer, and must be less than or equal to
+\cl{(stream-insertion-pointer \arg{stream})}.
+
+
+\Defgeneric {stream-rescanning-p} {stream}
+
+Returns the state of the \term{input editing stream} \arg{stream}'s ``rescan in
+progress'' flag, which is \term{true} if \arg{stream} is performing a rescan
+operation, otherwise it is \term{false}.  All extended input streams must
+implement a method for this, but non-input editing streams will always returns
+\term{false}.
+
+\Defgeneric {reset-scan-pointer} {stream \optional (scan-pointer \cl{0})}
+
+Sets the \term{input editing stream} \arg{stream}'s scan pointer to
+\arg{scan-pointer}, and sets the state of \cl{stream-rescanning-p} to
+\term{true}.
+
+\Defgeneric {immediate-rescan} {stream}
+
+Invokes a rescan operation immediately by ``throwing'' out to the most recent
+invocation of \cl{with-input-editing}.
+
+\Defgeneric {queue-rescan} {stream}
+
+Indicates that a rescan operation on the \term{input editing stream}
+\arg{stream} should take place after the next non-input editing gesture is read
+by setting the ``rescan queued'' flag to \term{true}.
+
+\Defgeneric {rescan-if-necessary} {stream \optional inhibit-activation} 
+
+Invokes a rescan operation on the \term{input editing stream} \arg{stream} if
+\cl{queue-rescan} was called on the same stream and no intervening rescan
+operation has taken place.  Resets the state of the ``rescan queued'' flag to
+\term{false}.
+
+If \arg{inhibit-activation} is \term{false}, the input line will not be
+activated even if there is an activation character in it.
+
+\Defgeneric {erase-input-buffer} {stream \optional (start-position \cl{0})}
+
+Erases the part of the display that corresponds to the input editor's buffer
+starting at the position \arg{start-position}.
+
+\Defgeneric {redraw-input-buffer} {stream \optional (start-position \cl{0})}
+
+Displays the input editor's buffer starting at the position \arg{start-position}
+on the interactive stream that is encapsulated by the \term{input editing
+stream} \arg{stream}.
+
+
+\Defgeneric {stream-process-gesture} {stream gesture type}
+
+If \arg{gesture} is an input editing command, \cl{stream-process-gesture}
+performs the input editing operation on the \term{input editing stream}
+\arg{stream} and returns \cl{nil}.  Otherwise, it returns the two values
+\arg{gesture} and \arg{type}.
+
+\Defmethod {stream-read-gesture} {(stream \cl{standard-input-editing-stream}) \key}
+
+Reads and returns a gesture from the user on the \term{input editing stream}
+\arg{stream}.
+
+The \cl{stream-read-gesture} method must call \cl{stream-process-gesture}, which
+will either return a ``real'' gesture (such as a typed character, a pointer
+gesture, or a timeout) or will return \cl{nil} (indicating that some sort of
+input editing operation was performed).  \cl{stream-read-gesture} must only
+return when a real gesture was been read; if an input editing operation was
+performed, \cl{stream-read-gesture} will loop until a ``real'' gesture is
+typed by the user.
+
+\Defmethod {stream-unread-gesture} {(stream \cl{standard-input-editing-stream}) gesture}
+
+Inserts the gesture \arg{gesture} back into the input editor's buffer,
+maintaining the scan pointer.
+
+
+\subsection {Suggestions for Input Editing Commands}
+
+An implementation of the input editor should provide a set of generally useful
+input editing commands.  The exact set of these commands is unspecified, and the
+key bindings for these commands may vary from platform to platform.  The
+following is a suggested minimum set of input editing commands and key bindings,
+taken roughly from EMACS.
+
+\begin{tabular}{|l|l|}
+\hline
+\multicolumn{1}{c}{}                         & \multicolumn{1}{c}{\sl Suggested}   \\ 
+\multicolumn{1}{c}{\sl Input editor command} & \multicolumn{1}{c}{\sl key binding} \\
+\hline
+Forward character   & {\tt control-F} \\
+Forward word        & {\tt meta-F}    \\
+Backward character  & {\tt control-B} \\
+Backward word       & {\tt meta-B}    \\
+Beginning of line   & {\tt control-A} \\
+End of line         & {\tt control-E} \\
+Next line           & {\tt control-N} \\
+Previous line       & {\tt control-P} \\
+Beginning of buffer & {\tt meta-<}    \\
+End of buffer       & {\tt meta-<}    \\
+Delete next character     & {\tt control-D} \\
+Delete next word          & {\tt meta-D}    \\
+Delete previous character & {\tt Rubout}    \\
+Delete previous word      & {\tt m-Rubout}  \\
+Kill to end of line       & {\tt control-K} \\
+Clear input buffer        & {\sl varies}    \\
+Insert new line           & {\tt control-O} \\
+Transpose adjacent characters  & {\tt control-T}  \\
+Transpose adjacent words       & {\tt meta-T}     \\
+Yank from kill ring            & {\tt control-Y}  \\
+Yank from presentation history & {\tt control-meta-Y} \\
+Yank next item                 & {\tt meta-Y}     \\
+Scroll output history forward   & {\tt control-V} \\
+Scroll output history backward  & {\tt meta-V}    \\
+\hline
+\end{tabular}
+
+An implementation of the input may also support ``numeric arguments'' (such as
+{\tt control-0}, {\tt control-1}, {\tt meta-0}, and so forth) that modify the
+behavior of the input editing commands.  For instance, the motion and deletion
+commands should be repeated as many times as specified by the numeric argument.
+Furthermore, the accumulated numeric argument should be passed to the command
+processor in such a way that \cl{substitute-numeric-argument-marker} can be used
+to insert the numeric argument into a command that was read via a keystroke
+accelerator.
+
+\Defun {add-input-editor-command} {gestures function}
+
+Adds an input editing command that causes \arg{function} to be executed when the
+specified gesture(s) are typed by the user.  \arg{gestures} is either a single
+gesture name, or a list of gesture names.  When \arg{gestures} is a sequence of
+gesture names, the function is executed only after all of the gestures are typed
+in order with no intervening gestures.  (This is used to implement ``prefixed''
+commands, such as the {\tt control-X control-F} command one might fix in EMACS.)
+
+
+\section {Activation and Delimiter Gestures}
+
+Activation gestures terminate an input ``sentence'', such as a command or
+anything else being read by \cl{accept}.  When an activation gesture is entered
+by the user, CLIM will cease reading input and ``execute'' the input that has
+been entered.
+
+Delimiter gestures terminate an input ``word'', such as a recursive call to
+\cl{accept}.
+
+
+\Defvar {*activation-gestures*}
+
+The set of currently active activation gestures.  The global value of this must
+be \cl{nil}.  The exact format of \cl{*activation-gestures*} is unspecified.
+\cl{*activation-gestures*} and the elements in it may have dynamic extent.
+
+\Defvar {*standard-activation-gestures*}
+
+The default set of activation gestures.  The exact set of standard activation
+is unspecified, but must include the gesture that corresponds to the
+\verb+#\Newline+ character.
+
+\Defmacro {with-activation-gestures} {(gestures \key override) \body body}
+
+Specifies a list of gestures that terminate input during the execution of
+\arg{body}.  \arg{body} may have zero or more declarations as its first forms.
+\arg{gestures} must be either a single gesture name or a form that evaluates to
+a list of gesture names.
+
+If the boolean \arg{override} is \term{true}, then \arg{gestures} will override
+the current activation gestures.  If it is \term{false} (the default), then
+\arg{gestures} will be added to the existing set of activation gestures.
+\cl{with-activation-gestures} must bind \cl{*activation-gestures*} to the new
+set of activation gestures.
+
+See also the \cl{:activation-gestures} and \cl{:additional-activation-gestures}
+options to \cl{accept}.
+
+\Defun {activation-gesture-p} {gesture}
+
+Returns \term{true} if the gesture object \arg{gesture} is an activation
+gesture, otherwise returns \term{false}.
+
+
+\Defvar {*delimiter-gestures*}
+
+The set of currently active delimiter gestures.  The global value of this must
+be \cl{nil}.  The exact format of \cl{*delimiter-gestures*} is unspecified.
+\cl{*delimiter-gestures*} and the elements in it may have dynamic extent.
+
+\Defmacro {with-delimiter-gestures} {(gestures \key override) \body body}
+
+Specifies a list of gestures that terminate an individual token, but not the
+entire input, during the execution of \arg{body}.  \arg{body} may have zero or
+more declarations as its first forms.  \arg{gestures} must be either a single
+gesture name or a form that evaluates to a list of gesture names.
+
+If the boolean \arg{override} is \term{true}, then \arg{gestures} will override
+the current delimiter gestures.  If it is \term{false} (the default), then
+\arg{gestures} will be added to the existing set of delimiter gestures.
+\cl{with-delimiter-gestures} must bind \cl{*delimiter-gestures*} to the new set
+of delimiter gestures.
+
+See also the \cl{:delimiter-gestures} and \cl{:additional-delimiter-gestures}
+options to \cl{accept}.
+
+\Defun {delimiter-gesture-p} {gesture}
+
+Returns \term{true} if the gesture object \arg{gesture} is a delimiter gesture,
+otherwise returns \term{false}.
+
+
+%% Use \tt instead of \cl, such the hairy \cl macro will blow chow
+\section {Signalling Errors Inside {\tt present} Methods}
+
+\Deferror {simple-parse-error}
+
+The error that is signalled by \cl{simple-parse-error}.  This is a subclass of
+\cl{parse-error}.  
+
+This condition handles two initargs, \cl{:format-string} and
+\cl{:format-arguments}, which are used to specify a control string and arguments
+for a call to \cl{format}.
+
+\Defun {simple-parse-error} {format-string \rest format-arguments}
+
+Signals a \cl{simple-parse-error} error while parsing an input token.  Does not
+return.  \arg{format-string} and \arg{format-args} are as for \cl{format}.
+
+\Deferror {input-not-of-required-type}
+
+The error that is signalled by \cl{input-not-of-required-type}.  This is a
+subclass of \cl{parse-error}.
+
+This condition handles two initargs, \cl{:string} and \cl{:type}, which specify
+a string to be used in an error message and the expected presentation type.
+
+\Defun {input-not-of-required-type} {object type}
+
+Reports that input does not satisfy the specified type by signalling an
+\cl{input-not-of-required-type} error.  \arg{object} is a parsed object or an
+unparsed token (a string).  \arg{type} is a presentation type specifier.  Does
+not return.
+ 
+
+\section {Reading and Writing of Tokens}
+
+\Defgeneric {replace-input} {stream new-input 
+                             \key start end buffer-start rescan}
+
+Replaces the part of the \term{input editing stream} \arg{stream}'s input buffer
+that extends from \arg{buffer-start} to its scan pointer with the string
+\arg{new-input}.  \arg{buffer-start} defaults to the current input position of
+\arg{stream}.  \arg{start} and \arg{end} can be supplied to specify a
+subsequence of \arg{new-input}; \arg{start} defaults to 0 and \arg{end} defaults
+to the length of \arg{new-input}.
+
+\cl{replace-input} must queue a rescan by calling \cl{queue-rescan} if the new
+input does not match the old input, or \arg{rescan} is \term{true}.
+
+The returned value is the position in the input buffer.
+
+All input editing streams must implement a method for this function.
+
+\Defgeneric {presentation-replace-input} {stream object type view
+                                          \key buffer-start rescan 
+                                               query-identifier for-context-type}
+
+Like \cl{replace-input}, except that the new input to insert into the input
+buffer is gotten by presenting \arg{object} with the presentation type
+\arg{type} and view \arg{view}. \arg{buffer-start} and \arg{rescan} are as for
+\cl{replace-input}, and \arg{query-identifier} and \arg{for-context-type} as as
+for \cl{present}.
+
+All input editing streams must implement a method for this function.  Typically,
+this will be implemented by calling \cl{present-to-string} on \arg{object},
+\arg{type}, \arg{view}, and \arg{for-context-type}, and then calling
+\cl{replace-input} on the resulting string.
+
+If the object does not have a readable representation (in the Lisp sense),
+\cl{presentation-replace-input} may create an ``accept result'' to represent the
+object, and insert that into the input buffer.  For the purposes of input
+editing, ``accept results'' must be treated as a single input gesture.
+
+
+\Defun {read-token} {stream \key input-wait-handler pointer-button-press-handler click-only}
+
+Reads characters from the \term{interactive stream} \arg{stream} until it
+encounters a delimiter or activation gesture, or a pointer gesture.  Returns the
+accumulated string that was delimited by the delimiter or activation gesture,
+leaving the delimiter unread.
+
+If the first character of typed input is a quotation mark (\verb+#\"+), then
+\cl{read-token} will ignore delimiter gestures until until another quotation
+mark is seen.  When the closing quotation mark is seen, \cl{read-token} will
+proceed as above.
+
+If the boolean \arg{click-only} is \term{true}, then no keyboard input is
+allowed.  In this case \cl{read-token} will simply ignore any typed characters.
+
+\arg{input-wait-handler} and \arg{pointer-button-press-handler} are as for
+\cl{stream-read-gesture}.
+
+\Defun {write-token} {token stream \key acceptably}
+
+\cl{write-token} is the opposite of \cl{read-token} given the string
+\arg{token}, it writes it to the \term{interactive stream} \arg{stream}.  If
+\arg{acceptably} is \term{true} and there are any characters in the token that
+are delimiter gestures (see the macro \cl{with-delimiter-gestures}), then
+\cl{write-token} will surround the token with quotation marks (\verb+#\"+).
+
+Typically, \cl{present} methods will use \cl{write-token} instead of
+\cl{write-string}.
+
+
+\section {Completion}
+
+CLIM provides a \concept{completion} facility that completes a string provided
+by a user against some set of possible completions (which are themselves
+strings).  Each completion is associated with some Lisp object.  CLIM
+implementations are encouraged to provide ``chunkwise'' completion, that is, if
+the user input consists of several tokens separated by ``partial delimiters'',
+CLIM should complete each token separately against the set of possibilities.
+
+
+\Defvar {*completion-gestures*}
+
+A list of the gesture names that cause \cl{complete-input} to complete the
+user's input as fully as possible.  The exact global contents of this list is
+unspecified, but must include the \cl{:complete} gesture name.
+
+\Defvar {*help-gestures*}
+
+A list of the gesture names that cause \cl{accept} and \cl{complete-input} to
+display a (possibly input context-sensitive) help message, and for some
+presentation types a list of possibilities as well.  The exact global contents
+of this list is unspecified, but must include the \cl{:help} gesture name.
+
+\Defvar {*possibilities-gestures*}
+
+A list of the gesture names that cause \cl{complete-input} to display a
+(possibly input context-sensitive) help message and a list of possibilities.
+The exact global contents of this list is unspecified, but must include the
+\cl{:possibilities} gesture name.
+
+\Defun {complete-input} {stream function 
+                         \key partial-completers allow-any-input
+                              possibility-printer (help-displays-possibilities t)}
+
+Reads input from the user from the \term{input editing stream} \arg{stream},
+completing over a set of possibilities.  \cl{complete-input} is only required to
+work on input editing streams, but implementations may extend it to work on
+interactive streams as well.
+
+\arg{function} is a function of two arguments.  It is called to generate the
+completion possibilities that match the user's input; it has dynamic extent.
+Usually, programmers will pass either \cl{complete-from-possibilities} or
+\cl{complete-from-generator} as the value of \arg{function}.  Its first argument
+is a string containing the user's input ``so far''.  Its second argument is the
+completion mode, one of the following:
+
+\begin{itemize}
+\item \cl{:complete-limited}---the function must complete the input up to the
+next partial delimiter.  This is the mode used when the user types one of the
+partial completers.
+
+\item \cl{:complete-maximal}---the function must complete the input as much as
+possible.  This is the mode used when the user issues a gesture that matches any
+of the gesture names in \cl{*completion-gestures*}.
+
+\item \cl{:complete}---the function must complete the input as much as possible,
+except that if the user's input exactly matches one of the possibilities, even
+if it is a left substring of another possibility, the shorter possibility is
+returned as the result.  This is the mode used when the user issues a delimiter
+or activation gesture that is not a partial completer.
+
+\item \cl{:possibilities}---the function must return an alist of the possible
+completions as its fifth value.  This is the mode used when the user a gesture
+that matches any of the gesture names in \cl{*possibilities-gestures*} or
+\cl{*help-gestures*} (if \arg{help-displays-possibilities} is \term{true}).
+\end{itemize}
+
+\arg{function} must return five values:
+
+\begin{itemize}
+\item \arg{string}---the completed input string.
+
+\item \arg{success}---\term{true} if completion was successful, otherwise
+\term{false}.
+
+\item \arg{object}---the object corresponding to the completion, or \cl{nil} if
+the completion was unsuccessful.
+
+\item \arg{nmatches}---the number of possible completions of the input.
+
+\item \arg{possibilities}---an alist of completions whose entries are a list
+of a string and an object, returned only when the completion mode is
+\cl{:possibilities}.  This list will be freshly created.
+\end{itemize}
+
+\cl{complete-input} returns three values: \arg{object}, \arg{success}, and
+\arg{string}.  In addition, the printed representation of the completed input
+will be inserted into the input buffer of \arg{stream} in place of the
+user-supplied string by calling \cl{replace-input}.
+
+\arg{partial-completers} is a list of characters that delimit portions of a name
+that can be completed separately.  The default is an empty list.
+
+If the boolean \arg{allow-any-input} is \term{true}, then \cl{complete-input}
+will return as soon as the user issues an activation gesture, even if the input
+is not any of the possibilities.  If the input is not one of the possibilities,
+the three values returned by \cl{complete-input} will be \cl{nil}, \cl{t}, and
+the string.  The default for \arg{allow-any-input} is \term{false}.
+
+If \arg{possibility-printer} is supplied, it must be a function of three
+arguments, a possibility, a presentation type, and a stream; it has dynamic
+extent.  The function displays the possibility on the stream.  The possibility
+will be a list of two elements, the first being a string and the second being
+the object corresponding to the string.
+
+If \arg{help-display-possibilities} is \term{true} (the default), then when the
+user issues a help gesture (a gesture that matches one of the gesture names in
+\cl{*help-gestures*}), CLIM will display all the matching possibilities. If it
+is \term{false}, then CLIM will not display the possibilities unless the user
+issues a possibility gesture (a gesture that matches one of the gesture names in
+\cl{*possibilities-gestures*}).
+
+
+\Defcondition {simple-completion-error}
+
+The error that is signalled by \cl{complete-input} when no completion is found.
+This is a subclass of \cl{simple-parse-error}.
+
+
+\Defmacro {completing-from-suggestions} {(stream
+                                          \key partial-completers allow-any-input
+                                               possibility-printer
+                                               (help-displays-possibilities \cl{t}))
+                                         \body body}  
+
+Reads input from the \term{input editing stream} \arg{stream}, completing over a
+set of possibilities generated by calls to \cl{suggest} within \arg{body}.
+\arg{body} may have zero or more declarations as its first forms.
+
+\cl{completing-from-suggestions} returns three values, \arg{object},
+\arg{success}, and \arg{string}
+
+The \arg{stream} argument is not evaluated, and must be a symbol that is bound
+to a stream.  If \arg{stream} is \cl{t} (the default), \cl{*standard-input*} is
+used.
+
+\arg{partial-completers}, \arg{allow-any-input}, and \arg{possibility-printer}
+are as for \cl{complete-input}.
+
+Implementations will probably use \cl{complete-from-generator} to implement
+this.
+
+\Defun {suggest} {completion object}
+
+Specifies one possibility for \cl{completing-from-suggestions}.  \arg{completion}
+is a string, the printed representation of \arg{object}.  \arg{object} is the
+internal representation.
+
+It is permitted for this function to have lexical scope, and be defined only
+within the body of \cl{completing-from-suggestions}.
+
+
+\Defun {complete-from-generator} {string function delimiters
+                                  \key (action \cl{:complete}) predicate}
+
+Given an input string \arg{string} and a list of delimiter characters
+\arg{delimiters} that act as partial completion characters,
+\cl{complete-from-generator} completes against the possibilities that are
+generated by the function \arg{generator}.  \arg{generator} is a function of two
+arguments, the string \arg{string} and another function that it calls in order
+to process the possibility; it has dynamic extent.
+
+\arg{action} will be one of \cl{:complete}, \cl{:complete-maximal},
+\cl{:complete-limited}, or \cl{:possibilities}.  These are described under the
+function \cl{complete-input}.
+
+\arg{predicate} must be a function of one argument, an object.  If the predicate
+returns \term{true}, the possibility corresponding to the object is processed,
+otherwise it is not.  It has dynamic extent.
+
+\cl{complete-from-generator} returns five values, the completed input string,
+the success value (\term{true} if the completion was successful, otherwise
+\term{false}), the object matching the completion (or \cl{nil} if unsuccessful),
+the number of matches, and a list of possible completions if \arg{action} was
+\cl{:possibilities}.
+
+This function is one that will typically be passed as the second argument to
+\cl{complete-input}.
+
+\Defun {complete-from-possibilities} {string completions delimiters
+                                      \key (action \cl{:complete}) predicate
+                                           name-key value-key}
+
+
+Given an input string \arg{string} and a list of delimiter characters
+\arg{delimiters} that act as partial completion characters,
+\cl{complete-from-possibilities} completes against the possibilities in the
+sequence \arg{completions}.  The completion string is extracted from the
+possibilities in completions by applying \arg{name-key}, which is a function of
+one argument.  The object is extracted by applying \arg{value-key}, which is a
+function of one argument.  \arg{name-key} defaults to \cl{first}, and
+\arg{value-key} defaults to \cl{second}.
+
+\arg{action} will be one of \cl{:complete}, \cl{:complete-maximal},
+\cl{:complete-limited}, or \cl{:possibilities}.  These are described under the
+function \cl{complete-input}.
+
+\arg{predicate} must be a function of one argument, an object.  If the predicate
+returns \term{true}, the possibility corresponding to the object is processed,
+otherwise it is not.
+
+\arg{predicate}, \arg{name-key}, and \arg{value-key} have dynamic extent.
+
+\cl{complete-from-possibilities} returns five values, the completed input
+string, the success value (\term{true} if the completion was successful,
+otherwise \term{false}), the object matching the completion (or \cl{nil} if
+unsuccessful), the number of matches, and a list of possible completions if
+\arg{action} was \cl{:possibilities}.
+
+This function is one that will typically be passed as the second argument to
+\cl{complete-input}.
+
+
+\Defmacro {with-accept-help} {options \body body}
+
+Binds the dynamic environment to control the documentation produced by help and
+possibilities gestures during user input in calls to \cl{accept} with the
+dynamic scope of \arg{body}.  \arg{body} may have zero or more declarations as
+its first forms.
+
+\arg{options} is a list of option specifications.  Each specification is itself
+a list of the form \arg{(help-option help-string)}.  \arg{help-option} is either
+a symbol that is a \arg{help-type} or a list of the form \arg{(help-type
+mode-flag)}.
+
+\arg{help-type} must be one of:
+
+\begin{itemize}
+\item \cl{:top-level-help}---specifies that \arg{help-string} be used instead of
+the default help documentation provided by \cl{accept}.
+
+\item \cl{:subhelp}---specifies that \arg{help-string} be used in addition to
+the default help documentation provided by \cl{accept}.
+\end{itemize}
+
+\arg{mode-flag} must be one of:
+
+\begin{itemize}
+\item \cl{:append}---specifies that the current help string be appended to any
+previous help strings of the same help type. This is the default mode.
+
+\item \cl{:override}---specifies that the current help string is the help for
+this help type; no lower-level calls to \cl{with-accept-help} can override this.
+(\cl{:override} works from the out-side in.)
+
+\item \cl{:establish-unless-overridden}---specifies that the current help string
+be the help for this help type unless a higher-level call to
+\cl{with-accept-help} has already established a help string for this help type
+in the \cl{:override} mode. This is what \cl{accept} uses to establish the
+default help.
+\end{itemize}
+
+\arg{help-string} is a string or a function that returns a string.  If it is a
+function, it receives three arguments, the stream, an action (either \cl{:help}
+or \cl{:possibilities}) and the help string generated so far.
+
+None of the arguments are evaluated. 

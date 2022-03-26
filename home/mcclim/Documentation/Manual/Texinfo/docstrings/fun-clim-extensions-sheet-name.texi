@@ -1,0 +1,7 @@
+@anchor{Generic-Function clim-extensions:sheet-name}
+@deffn {Generic Function} {@symbol{sheet-name,clim-extensions}} sheet
+Return the name of @var{sheet}.
+The returned name is a symbol and does not change.
+For sheets which are also panes, the returned name is identical to the
+pane name.
+@end deffn

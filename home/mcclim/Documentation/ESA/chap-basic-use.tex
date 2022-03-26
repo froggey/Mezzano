@@ -1,0 +1,116 @@
+\chapter{Basic use of \sysname{}}
+
+\section{Mixin classes}
+
+For basic use of the \sysname{} library, the application needs to supply it
+with certain functionality.  The basic application document should be a
+class that inherits from the class \class{esa-buffer:esa-buffer-mixin}.
+This class supplies functionality for associating the buffer with a
+file, to determine whether the buffer has been modified since last
+saved, and whether the buffer is read-only.
+
+Application panes should inherit from the class
+\class{esa:esa-pane-mixin}.  This class supplies a slot for storing a
+command table and a slot for storing the previous command.
+
+Application frames should inherit from the class
+\class{esa:esa-frame-mixin}.  This class supplies a slot that stores a
+list of the windows used by the application, and an accessor esa:windows
+that can be used by application code to return or to modify the list of
+windows used.  Notice that the class definition for the application
+frame must explicitly inherit not only from \class{esa-frame-mixin}, but
+also from \class{standard-application-frame}, since the latter is
+automatically supplied only if the list of superclasses is empty.
+
+Applications should supply a method on the generic function
+\cl{esa:buffers} which takes a single argument, the application frame.
+It should return a list of all the application documents (buffers) that
+the application is currently manipulating.
+
+Applications should also supply a method on the generic function
+\cl{esa:esa-current-buffer}, which also take a single argument, the
+application frame.  The method should return the current buffer,
+i.e. the buffer that is currently being manipulated by the user.  This
+might be the buffer that is on display in the window with the current
+keyboard focus.  This method is called by functions that require the
+current buffer, in particular in order to save the current buffer to
+file, or to toggle the read-only flag of the current buffer.  
+
+\section{The info pane}
+
+\sysname{} supplies a class esa:info-pane which is typically used to display
+something similar to the status line of Emacs.  It supplies a slot
+that contains a main application pane.  This slot can be initialized
+with the :initarg :master-pane and can be read using the reader
+master-pane.  An application typically supplies a \clim{}
+display-function for an info pane that displays some data about its 
+master pane. 
+
+\section{The minibuffer pane}
+
+\sysname{} supplies a class esa:minibuffer-pane that is used to display
+messages to the user of the application, and also to acquire arguments
+to commands.  Applications should make sure the application frame
+contains an instance of this class, or of a subclass of it.  
+
+\section{Command tables}
+
+\subsection{Command tables supplied by \sysname{}}
+
+Typically, an application using the \sysname{} library will need a number of
+\clim{} command tables.  \sysname{} supplies a number of such command tables
+that the application can inherit from.  
+
+\Defcommandtable {esa:global-esa-table}
+
+This command table contains a few basic commands that every
+application using the \sysname{} library will need.
+
+\Defcommand {esa:com-quit} {}
+
+This command quits the application by invoking the \clim{} function
+\function{frame-exit} on the application frame.  It is included in the
+global-esa-table, together with the standard key bindings \kbd{C-x
+  C-c}.
+
+The \class{global-esa-table} also contains the keyboard binding
+\kbd{M-x} which invokes the command \cl{esa:com-extended-command}.  This
+command prompts the user for the name of a command in the minibuffer,
+and executes that command.
+
+\Defcommandtable {esa:keyboard-macro-table}
+
+This command table contains three commands, com-start-kbd-macro
+(\kbd{C-x (}), com-end-kbd-macro (\kbd{C-x )}) and
+com-call-last-kbd-macro (\kbd{C-x e}).  Applications that want to use
+Emacs-style keyboard macros should include this table in the global
+application command table.
+
+\subsection{Finding a command table}
+
+A typical \sysname{} application may require a different command table
+depending on what part of the application is being manipulated.
+\sysname{} makes this possible in two different ways.
+
+\Defgeneric {find-applicable-command-table} {frame}
+
+This function provides the most general way in which \sysname{} finds
+the command table to use for each command.  It has a single argument,
+which is the \sysname{} application frame.  Client code may supply a
+primary method on this generic function, specialized to its particular
+application-frame class.
+
+\Defmethod {find-applicable-command-table} {(frame \texttt{esa-frame-mixin})}
+
+This default method on \texttt{find-applicable-command-table} accesses
+a slot in the current pane (i.e, the first pane in the list returned
+by a call to the generic function \texttt{windows}) that stores a
+command table associated with that pane.
+
+\Definitarg {:command-table}
+
+Relatively simple \sysname{} applications may supply this
+\texttt{:initarg} when making an instance of the class
+\class{esa:esa-pane-mixin}.  This technique works for applications
+in which command table to use is always determined by the current
+pane.

@@ -1,0 +1,25 @@
+Today we release ASDF 3.3.1, the first bugfix release for the 3.3.0 release series.  Of primary interest in this release are
+
+1. a fix for an incompatibility in the UIOP stamp-comparison functions.  The handling of infinity as a bound in these functions changed between 3.2 and 3.3, potentially causing problems in backward compatibility.  In order to maintain compatibility, the old behavior was restored to the stamp-comparison functions, and new functions -- TIMEstamp comparison functions -- were added to carry the new behaviors.
+
+2. a fix for upgrade from version 3.2.1
+
+3. fixes for bugs that can occur when the default readtable is manipulated inside a dependency loaded by DEFSYSTEM-DEPENDS-ON.
+
+We urge implementations that are currently bundling previous versions of ASDF -- and especially those bundling 3.3.0 -- to upgrade to 3.3.1 at their earliest convenience.
+
+Here is the changelog entry for 3.3.1:
+
+cl-asdf (2:3.3.167-1) unstable; urgency=low
+
+  New milestone:
+  * UIOP compatibility fix: Introduced new replacement "timestamp"
+    comparison functions, because of inadvertent change in the
+    API. Functions that are compatible with the old semantics are retained
+    as "stamp" comparison functions, but will eventually be deprecated.
+  * Upgrade fix: Upgrade from 3.2.1 needed repair.
+  * Syntax manipulation: Fix for bugs that could be introduced when the
+    default readtable was manipulated during the loading of a
+    defsystem-depends-on system.
+  * Tests: tests for new capabilities and bugs
+  * Documentation: a number of improvements and clarifications.

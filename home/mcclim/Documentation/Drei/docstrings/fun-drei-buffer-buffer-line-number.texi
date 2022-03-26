@@ -1,0 +1,6 @@
+@anchor{Generic-Function drei-buffer:buffer-line-number}
+@deffn {Generic Function} {drei-buffer:buffer-line-number} buffer offset
+@findex drei-buffer:buffer-line-number
+Return the line number of the offset.  Lines
+are numbered from zero.
+@end deffn

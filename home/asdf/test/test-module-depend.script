@@ -1,0 +1,36 @@
+;;; -*- Lisp -*-
+
+(setf asdf::*asdf-session* (make-instance asdf::*asdf-session-class*))
+
+(load-system 'test-module-depend)
+
+;; test that it compiled
+(defparameter file1.lisp (component-pathname (find-component 'test-module-depend "file1")))
+(defparameter file1.fasl (first (output-files 'compile-op '(test-module-depend "file1"))))
+(defparameter file2.fasl (first (output-files 'compile-op '(test-module-depend "quux" "file2"))))
+(defparameter file3.fasl (first (output-files 'compile-op '(test-module-depend "quux" "file3mod" "file3"))))
+(defparameter file1-date (get-file-stamp file1.fasl))
+(defparameter file3-date (get-file-stamp file3.fasl))
+(assert-pathname-equal file1.fasl (test-fasl "file1"))
+(assert-pathname-equal file2.fasl (test-fasl "file2"))
+(assert-pathname-equal file3.fasl (test-fasl "file3"))
+
+(assert file1-date)
+(assert file3-date)
+
+;; and loaded
+(assert (asymval '#:*file1* :test-package))
+
+;; now touch file1 and its fasl so the fasl is out of date,
+;; and check that file2 _is_ also recompiled
+;; this didn't work before the cross-module (intra-system) dependency bug was fixed.
+
+(touch-file file1.lisp :timestamp (- file3-date 60))
+(touch-file file1.fasl :timestamp (- file3-date 90))
+(touch-file file2.fasl :timestamp (- file3-date 30))
+(touch-file file3.fasl :timestamp (- file3-date 15))
+(reset-session-visited)
+(load-system 'test-module-depend)
+(assert-compare (>= (- (get-file-stamp file2.fasl) file3-date) 0))
+;; does this properly go to the second level?
+(assert-compare (>= (- (get-file-stamp file3.fasl) file3-date) 0))

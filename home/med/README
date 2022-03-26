@@ -1,0 +1,69 @@
+med - Mezzano EDitor
+----------------------
+
+med is a fork of the original editor that comes with Mezzano, a 
+Common Lisp operating system.  The original editor is not so good 
+at handling large files, so initially this fork broke the one big 
+file it was written in into smaller ones for easier development.
+
+Original Mezzano editor.lisp code written by Henry Harrington.
+
+TODO:
+
+- minibuffer completion
+  - pass in completion function to read-from-minibuffer
+    - takes a string
+    - returns a list of strings that are completions of that string
+      - file-completion
+      - symbol-completion
+      - buffer-completion
+      - command-completion
+
+- telnet
+
+- irc client
+
+- multiple windows
+  - might just put this in a window manager
+  - need resizeable windows
+
+- grep-buffers
+
+- save all editor threads/frames
+
+- multiple editor frame support
+
+- get minibuffer to wrap 
+- clear bottom messages after a while
+
+- optimize or cache (memoize?) buffer current package so we can put
+  the current file package in the modeline properly
+
+- hang when yanking, sometimes...
+
+- isearch
+  - When typing wrong characters in isearch they are appended to the *isearch-string*. 
+    They should be just discarded 
+
+- replace-string, query-replace, replace-regexp
+- search for regex
+- show-paren-mode like paren matching by bolding the matching paren
+  - added character attributes
+  - make redisplay render with bold font if :BOLD is set in the character attributes
+- auto indentation (basic electric newline?)
+   
+- undo
+- color highlighting (hard, might want to just use italic/bold for keywords at first)
+- file completion during C-x C-f
+- symbol completion during M-: 
+- jump/pop to/from source M-./M-* (see compiler for adding line/file information)
+- 'hippy' symbol completion M-/
+- fill
+
+- Encoding BUG: saving gui/compositor.c caused some sort of encoding problem with
+  the pound symbol and another one. had to revert using git. also happens on 
+   copywrite symbol in the README.
+
+--
+Burton Samograd <burton.samograd@gmail.com>
+2015

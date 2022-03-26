@@ -1,0 +1,2112 @@
+% -*- Mode: LaTeX; Package: CLIM-USER -*-
+
+\chapter {Overview of Window Facilities}
+
+\section {Introduction}
+
+A central notion in organizing user interfaces is allocating screen regions to
+particular tasks and recursively subdividing these regions into subregions.  The
+windowing layer of CLIM defines an extensible framework for constructing, using,
+and managing such \concept{hierarchies of interactive regions}.  This framework
+allows uniform treatment of the following things:
+
+\begin{itemize}
+\item Window objects like those in X or NeWS.
+
+\item Lightweight gadgets typical of toolkit layers, such as Motif or OpenLook.
+
+\item Structured graphics like output records and an application's presentation
+objects.
+
+\item Objects that act as Lisp handles for windows or gadgets implemented in a
+different language (such as OpenLook gadgets implemented in C).
+\end{itemize}
+
+From the perspective of most CLIM users, CLIM's windowing layer plays the role
+of a window system.  However, CLIM will usually use the services of a window
+system platform to provide efficient windowing, input, and output facilities.
+In this specification, such window system platforms will be referred to as host
+window systems or as display servers.
+
+The fundamental window abstraction defined by CLIM is called a \concept{sheet}.
+A sheet can participate in a relationship called a \concept{windowing
+relationship}.  This relationship is one in which one sheet called the
+\concept{parent} provides space to a number of other sheets called
+\concept{children}.  Support for establishing and maintaining this kind of
+relationship is the essence of what window systems provide.  At any point in
+time, CLIM allows a sheet to be a child in one relationship called its
+\concept{youth windowing relationship} and a parent in another relationship
+called its \concept{adult windowing relationship}.
+
+Programmers can manipulate unrooted hierarchies of sheets (those without a
+connection to any particular display server).  However, a sheet hierarchy must
+be attached to a display server to make it visible.  \concept{Ports} and
+\concept{grafts} provide the functionality for managing this capability.  A
+\term{port} is an abstract connection to a display service that is responsible
+for managing host display server resources and for processing input events
+received from the host display server.  A \term{graft} is a special kind of
+sheet that represents a host window, typically a root window (that is, a
+screen-level window).  A sheet is attached to a display by making it a child of
+a graft, which represents an appropriate host window.  The sheet will then
+appear to be a child of that host window.  So, a sheet is put onto a particular
+screen by making it a child of an appropriate graft and enabling it.  Ports and
+grafts are described in detail in Chapter~\ref{ports-and-grafts}.
+
+
+\section {Properties of Sheets}
+
+Sheets have the following properties:
+
+\begin{description}
+\item [A coordinate system] Provides the ability to refer to locations in a
+sheet's abstract plane.
+
+\item [A region] Defines an area within a sheet's coordinate system that
+indicates the area of interest within the plane, that is, a clipping region for
+output and input.  This typically corresponds to the visible region of the sheet
+on the display.
+
+\item [A parent] A sheet that is the parent in a windowing relationship in which
+this sheet is a child.
+
+\item [Children] An ordered set of sheets that are each a child in a windowing
+relationship in which this sheet is a parent.  The ordering of the set
+corresponds to the stacking order of the sheets.  Not all sheets have children.
+
+\item [A transformation] Determines how points in this sheet's coordinate system
+are mapped into points in its parents.
+
+\item [An enabled flag] Indicates whether the sheet is currently actively
+participating in the windowing relationship with its parent and siblings.
+
+\item [An event handler] A procedure invoked when the display server wishes to
+inform CLIM of external events.
+
+\item [Output state] A set of values used when CLIM causes graphical or textual
+output to appear on the display.  This state is often represented by a medium.
+\end{description}
+
+
+\section {Sheet Protocols}
+
+A sheet is a participant in a number of protocols.  Every sheet must provide
+methods for the generic functions that make up these protocols.  These protocols
+are:
+
+\begin{description}
+\item [The windowing protocol] Describes the relationships between the sheet and
+its parent and children (and, by extension, all of its ancestors and
+descendants).
+
+\item [The input protocol] Provides the event handler for a sheet.  Events may
+be handled synchronously, asynchronously, or not at all.
+
+\item [The output protocol] Provides graphical and textual output, and manages
+descriptive output state such as color, transformation, and clipping.
+
+\item [The repaint protocol] Invoked by the event handler and by user programs
+to ensure that the output appearing on the display device appears as the program
+expects it to appear.
+
+\item [The notification protocol] Invoked by the event handler and user programs
+to ensure that CLIM's representation of window system information is equivalent
+to the display server's.
+\end{description}
+
+These protocols may be handled directly by a sheet, queued for later processing
+by some other agent, or passed on to a delegate sheet for further processing.
+
+
+\chapter {Properties of Sheets}
+\label {sheet-properties}
+
+\section {Basic Sheet Classes}
+
+Note that there are no standard sheet classes in CLIM, and no pre-packaged way
+to create sheets in general.  If a programmer needs to create an instance of
+some class of sheet, \cl{make-instance} must be used.  For most purposes,
+calling \cl{make-pane} is how application programmers will make sheets.
+
+\Defprotoclass {sheet}
+
+The protocol class that corresponds to a sheet.  This and the next chapter
+describe all of the sheet protocols.
+\IfYouWantClass {a} {sheet} {sheet}
+
+All of the subclasses of \cl{sheet} are mutable.
+
+\Defpredicate {sheetp} {object}
+
+Returns \term{true} if \arg{object} is a \term{sheet}, otherwise returns
+\term{false}.
+
+\Defclass {basic-sheet}
+
+The basic class on which all CLIM sheets are built, a subclass of \cl{sheet}.
+\AbstractClass
+
+
+
+\section {Relationships Between Sheets}
+
+Sheets are arranged in a tree-structured, acyclic, top-down hierarchy.  Thus, in
+general, a sheet has one parent (or no parent) and zero or more children.  A
+sheet may have zero or more siblings (that is, other sheets that share the same
+parent).  In order to describe the relationships between sheets, we need to
+define some terms.
+
+\begin{description}
+\item [Adopted] A sheet is said to be \concept{adopted} if it has a parent.  A
+sheet becomes the parent of another sheet by adopting that sheet.
+
+\item [Disowned] A sheet is said to be \concept{disowned} if it does not have a
+parent.  A sheet ceases to be a child of another sheet by being disowned.
+
+\item [Grafted] A sheet is said to be \concept{grafted} when it is part of a
+sheet hierarchy whose highest ancestor is a graft.  In this case, the sheet may
+be visible on a particular window server.
+
+\item [Degrafted] A sheet is said to be \concept{degrafted} when it is part of a
+sheet hierarchy that cannot possibly be visible on a server, that is, the
+highest ancestor is not a graft.
+
+\item [Enabled] A sheet is said to be \concept{enabled} when it is actively
+participating in the windowing relationship with its parent.  If a sheet is
+enabled and grafted, and all its ancestors are enabled (they are grafted by
+definition), then the sheet will be visible if it occupies a portion of the
+graft region that isn't clipped by its ancestors or ancestors' siblings.
+
+\item [Disabled] The opposite of enabled is \concept{disabled}.
+\end{description}
+
+
+\subsection {Sheet Relationship Functions}
+
+The generic functions in this section comprise the sheet protocol.  All sheet
+objects must implement or inherit methods for each of these generic functions.
+
+\Defgeneric {sheet-parent} {sheet} 
+
+Returns the parent of the \term{sheet} \arg{sheet}, or \cl{nil} if the sheet has
+no parent.
+
+\Defgeneric {sheet-children} {sheet}
+
+Returns a list of sheets that are the children of the \term{sheet} \arg{sheet}.
+Some sheet classes support only a single child; in this case, the result of
+\cl{sheet-children} will be a list of one element.
+\ReadOnly
+
+\Defgeneric {sheet-adopt-child} {sheet child}
+
+Adds the child sheet \arg{child} to the set of children of the \term{sheet}
+\arg{sheet}, and makes the \arg{sheet} the child's parent.  If \arg{child}
+already has a parent, the \cl{sheet-already-has-parent} error will be signalled.
+
+Some sheet classes support only a single child.  For such sheets, attempting to
+adopt more than a single child will cause the \cl{sheet-supports-only-one-child}
+error to be signalled.
+
+\Defgeneric {sheet-disown-child} {sheet child \key (errorp \cl{t})}
+
+Removes the child sheet \arg{child} from the set of children of the \term{sheet}
+\arg{sheet}, and makes the parent of the child be \cl{nil}.  If \arg{child} is
+not actually a child of \arg{sheet} and \arg{errorp} is \term{true}, then the
+\cl{sheet-is-not-child} error will be signalled.
+
+\Defgeneric {sheet-siblings} {sheet}
+
+Returns a list of all of the siblings of the \term{sheet} \arg{sheet}.  The
+sibling are all the children of \arg{sheet}'s parent excluding \arg{sheet}
+itself.
+\FreshOutputs
+
+\Defgeneric {sheet-enabled-children} {sheet}
+
+Returns a list of those children of the \term{sheet} \arg{sheet} that are enabled.
+\FreshOutputs
+
+\Defgeneric {sheet-ancestor-p} {sheet putative-ancestor}
+
+Returns \term{true} if the \term{sheet} \arg{putative-ancestor} is in fact
+an ancestor of the \term{sheet} \arg{sheet}, otherwise returns \term{false}.
+
+\defgeneric {raise-sheet} {sheet}
+\Defgeneric {bury-sheet}  {sheet}
+
+These functions reorder the children of a sheet by raising the \term{sheet}
+\arg{sheet} to the top or burying it at the bottom.  Raising a sheet puts it at
+the beginning of the ordering; burying it puts it at the end.  If sheets
+overlap, the one that appears ``on top'' on the display device is earlier in the
+ordering than the one underneath.
+
+This may change which parts of which sheets are visible on the display device.
+
+\Defgeneric {reorder-sheets} {sheet new-ordering}
+
+Reorders the children of the \term{sheet} \arg{sheet} to have the new ordering
+specified by \arg{new-ordering}.  \arg{new-ordering} is an ordered list of the
+child sheets; elements at the front of \arg{new-ordering} are ``on top'' of
+elements at the rear.
+
+If \arg{new-ordering} does not contain all of the children of \arg{sheet}, the
+\cl{sheet-ordering-underspecified} error will be signalled.  If
+\arg{new-ordering} contains a sheet that is not a child of \arg{sheet}, the
+\cl{sheet-is-not-child} error will be signalled.
+
+\Defgeneric {sheet-enabled-p} {sheet}
+
+Returns \term{true} if the \term{sheet} \arg{sheet} is enabled by its
+parent, otherwise returns \term{false}.  Note that all of a sheet's ancestors
+must be enabled before the sheet is viewable.
+
+\Defgeneric {(setf sheet-enabled-p)} {enabled-p sheet}
+
+When \arg{enabled-p} is \term{true}, this enables the \term{sheet}
+\arg{sheet}.  When \arg{enabled-p} is \term{false}, this disables the sheet.
+
+Note that a sheet is not visible unless it and all of its ancestors are enabled.
+
+
+\Defgeneric {sheet-viewable-p} {sheet}
+
+Returns \term{true} if the \term{sheet} \arg{sheet} and all its ancestors are
+enabled, and if one of its ancestors is a graft.  See
+Chapter~\ref{ports-and-grafts} for further information.
+
+\Defgeneric {sheet-occluding-sheets} {sheet child}
+
+Returns a list of the \term{sheet} \arg{child}'s siblings that occlude part or
+all of the region of the \arg{child}.  In general, these are the siblings that
+are enabled and appear earlier in the \term{sheet} \arg{sheet}'s children.  If
+\arg{sheet} does not permit overlapping among its children,
+\cl{sheet-occluding-sheets} will return \cl{nil}.
+
+\FreshOutputs
+
+\Defgeneric {map-over-sheets} {function sheet}
+
+Applies the function \arg{function} to the sheet \arg{sheet}, and then applies
+\arg{function} to all of the descendents (the children, the children's children,
+and so forth) of \arg{sheet}.
+
+Function is a function of one argument, the sheet; it has dynamic extent.
+
+
+\subsection {Sheet Genealogy Classes}
+
+Different ``mixin'' classes are provided that implement the relationship
+protocol.  None of the four following classes are instantiable.
+
+\Defclass {sheet-parent-mixin}
+
+This class is mixed into sheet classes that have a parent.
+
+\Defclass {sheet-leaf-mixin}
+
+This class is mixed into sheet classes that will never have children.
+
+\Defclass {sheet-single-child-mixin}
+
+This class is mixed into sheet classes that have at most a single child.
+
+\Defclass {sheet-multiple-child-mixin}
+
+This class is mixed into sheet classes that may have zero or more children.
+
+
+\section {Sheet Geometry}
+
+Every sheet has a region and a coordinate system.  A sheet's region refers to
+its position and extent on the display device, and is represented by some sort
+of a region object, frequently a rectangle.  A sheet's coordinate system is
+represented by a coordinate transformation that converts coordinates in its
+coordinate system to coordinates in its parent's coordinate system.
+
+\subsection {Sheet Geometry Functions}
+
+\defgeneric {sheet-transformation} {sheet}
+\Defgeneric {(setf sheet-transformation)} {transformation sheet}
+
+Returns a transformation that converts coordinates in the \term{sheet}
+\arg{sheet}'s coordinate system into coordinates in its parent's coordinate
+system.  Using \cl{setf} on this accessor will modify the sheet's coordinate
+system, including moving its region in its parent's coordinate system.
+
+When the sheet's transformation is changed,
+\cl{note-sheet-transformation-changed} is called on the \arg{sheet} to notify the sheet of
+the change.
+
+\defgeneric {sheet-region} {sheet}
+\Defgeneric {(setf sheet-region)} {region sheet}
+
+Returns a region object that represents the set of points to which the
+\term{sheet} \arg{sheet} refers.  The region is in the sheet's coordinate
+system.  Using \cl{setf} on this accessor modifies the sheet's region.
+
+When the sheet's region is changed, \cl{note-sheet-region-changed} is called on
+\arg{sheet} to notify the sheet of the change.
+
+\issue {RSL} {To reshape and move a region, you generally have to manipulate
+both of the above.  Maybe there should be a single function that takes either
+or both of a new transformation or region?  Maybe region coordinates should be
+expressed in parents' coordinates, since that's easier to set only one?}
+
+\issue {RSL} {I'm not convinced I like this business of requesting a change by
+modifying an accessor.  It might be better to have a \cl{request-} function, so
+it would be clear that there might be some delay before the region or
+transformation was modified.  Currently, using \cl{setf} on mirrored sheets
+requests that the server move or resize the sheet; the accessor will continue to
+return the old value until the notification comes in from the display server
+that says that the mirror has been moved.}
+
+
+\Defgeneric {move-sheet} {sheet x y}
+
+Moves the \term{sheet} \arg{sheet} to the new position $(x,y)$.  \arg{x} and
+\arg{y} are expressed in the coordinate system of \arg{sheet}'s parent.
+
+\cl{move-sheet} simply modifies \arg{sheet}'s transformation, and could be
+implemented as follows:
+
+\begin{verbatim}
+(defmethod move-sheet ((sheet basic-sheet) x y)
+  (let ((transform (sheet-transformation sheet)))
+    (multiple-value-bind (old-x old-y)
+        (transform-position transform 0 0)
+      (setf (sheet-transformation sheet)
+            (compose-translation-with-transformation
+              transform (- x old-x) (- y old-y))))))
+\end{verbatim}
+
+\Defgeneric {resize-sheet} {sheet width height}
+
+Resizes the \term{sheet} \arg{sheet} to have a new width \arg{width} and a new
+height \arg{height}.  \arg{width} and \arg{height} are real numbers.
+
+\cl{resize-sheet} simply modifies \arg{sheet}'s region, and could be implemented
+as follows:
+
+\begin{verbatim}
+(defmethod resize-sheet ((sheet basic-sheet) width height)
+  (setf (sheet-region sheet)
+        (make-bounding-rectangle 0 0 width height)))
+\end{verbatim}
+
+
+\Defgeneric {move-and-resize-sheet} {sheet x y width height}
+
+Moves the \term{sheet} \arg{sheet} to the new position $(x,y)$, and changes its
+size to the new width \arg{width} and the new height \arg{height}.  \arg{x} and
+\arg{y} are expressed in the coordinate system of \arg{sheet}'s parent.
+\arg{width} and \arg{height} are real numbers.
+
+\cl{move-and-resize-sheet} could be implemented as follows:
+
+\begin{verbatim}
+(defmethod move-and-resize-sheet ((sheet basic-sheet) x y width height)
+  (move-sheet sheet x y)
+  (resize-sheet sheet width height))
+\end{verbatim}
+
+
+\Defgeneric {map-sheet-position-to-parent} {sheet x y}
+
+Applies the \term{sheet} \arg{sheet}'s transformation to the point $(x,y)$,
+returning the coordinates of that point in \arg{sheet}'s parent's coordinate
+system.
+
+\Defgeneric {map-sheet-position-to-child} {sheet x y}
+
+Applies the inverse of the \term{sheet} \arg{sheet}'s transformation to the
+point $(x,y)$ (represented in \arg{sheet}'s parent's coordinate system),
+returning the coordinates of that same point in \arg{sheet} coordinate system.
+
+\Defgeneric {map-sheet-rectangle*-to-parent} {sheet x1 y1 x2 y2} 
+
+Applies the \term{sheet} \arg{sheet}'s transformation to the bounding rectangle
+specified by the corner points $(x1,y1)$ and $(x2,y2)$, returning the bounding
+rectangle of the transformed region as four values, \arg{min-x}, \arg{min-y},
+\arg{max-x}, and \arg{max-y}.  The arguments \arg{x1}, \arg{y1}, \arg{x2}, and
+\arg{y1} are canonicalized in the same way as for \cl{make-bounding-rectangle}.
+
+\Defgeneric {map-sheet-rectangle*-to-child} {sheet x1 y1 x2 y2}
+
+Applies the inverse of the \term{sheet} \arg{sheet}'s transformation to the
+bounding rectangle delimited by the corner points $(x1,y1)$ and $(x2,y2)$
+(represented in \arg{sheet}'s parent's coordinate system), returning the
+bounding rectangle of the transformed region as four values, \arg{min-x},
+\arg{min-y}, \arg{max-x}, and \arg{max-y}.  The arguments \arg{x1}, \arg{y1},
+\arg{x2}, and \arg{y2} are canonicalized in the same way as for
+\cl{make-bounding-rectangle}.
+
+\issue {SWM} {I now think that \cl{map-} in these names is misleading; maybe
+\cl{convert-} is better?}
+
+\Defgeneric {map-over-sheets-containing-position} {function sheet x y}
+
+Applies the function \arg{function} to all of the children of the sheet
+\arg{sheet} that contain the position $(x,y)$.  \arg{x} and \arg{y} are
+expressed in \arg{sheet}'s coordinate system.
+
+Function is a function of one argument, the sheet; it has dynamic extent.
+
+\Defgeneric {map-over-sheets-overlapping-region} {function sheet region}
+
+Applies the function \arg{function} to all of the children of the sheet
+\arg{sheet} that overlap the region \arg{region}.  \arg{region} is expressed in
+\arg{sheet}'s coordinate system.
+
+Function is a function of one argument, the sheet; it has dynamic extent.
+
+
+\Defgeneric {child-containing-position} {sheet x y}
+
+Returns the topmost enabled direct child of the \term{sheet} \arg{sheet} whose
+region contains the position $(x,y)$.  The position is expressed in
+\arg{sheet}'s coordinate system.
+
+\defgeneric {children-overlapping-region}     {sheet region}
+\Defgeneric {children-overlapping-rectangle*} {sheet x1 y1 x2 y2}
+
+Returns the list of enabled direct children of the \term{sheet} \arg{sheet}
+whose region overlaps the \term{region} \arg{region}.
+\cl{children-overlapping-rectangle*} is a special case of
+\cl{children-overlapping-region} in which the region is a bounding rectangle
+whose corner points are $(x1,y1)$ and $(x2,y2)$.  The region is expressed in
+\arg{sheet}'s coordinate system.
+\FreshOutputs
+
+
+\Defgeneric {sheet-delta-transformation} {sheet ancestor}
+
+Returns a transformation that is the composition of all of the sheet
+transformations between the \term{sheets} \arg{sheet} and \arg{ancestor}.  If
+\arg{ancestor} is \cl{nil}, \cl{sheet-delta-transformation} will return the
+transformation to the root of the sheet hierarchy.  If \arg{ancestor} is not an
+ancestor of sheet, the \cl{sheet-is-not-ancestor} error will be signalled.
+
+The computation of the delta transformation is likely to be cached.
+
+\Defgeneric {sheet-allocated-region} {sheet child}
+
+Returns the visible region of the \term{sheet} \arg{child} in the \term{sheet}
+\arg{sheet}'s coordinate system.  If \arg{child} is occluded by any of its
+siblings, those siblings' regions are subtracted (using \cl{region-difference})
+from \arg{child}'s actual region.
+
+
+\subsection {Sheet Geometry Classes}
+
+Each of the following implements the sheet geometry protocol in a different
+manner, according to the sheet's requirements.  None of the four following
+classes are instantiable.
+
+\Defclass {sheet-identity-transformation-mixin}
+
+This class is mixed into sheet classes whose coordinate system is identical to
+that of its parent.
+
+\Defclass {sheet-translation-mixin}
+
+This class is mixed into sheet classes whose coordinate system is related to
+that of its parent by a simple translation.
+
+\Defclass {sheet-y-inverting-transformation-mixin}
+
+This class is mixed into sheet classes whose coordinate system is related to
+that of its parent by inverting the $y$ coordinate system, and optionally
+translating by some amount in $x$ and $y$.
+
+\Defclass {sheet-transformation-mixin}
+
+This class is mixed into sheet classes whose coordinate system is related to
+that of its parent by an arbitrary affine transformation.  CLIM implementations
+are allowed to restrict these transformations to just rectilinear ones.
+
+
+\chapter {Sheet Protocols}
+\label {sheet-protocols}
+
+\section {Input Protocol}
+
+CLIM's windowing substrate provides an input architecture and standard
+functionality for notifying clients of input that is distributed to their
+sheets.  Input includes such events as the pointer entering and exiting sheets,
+pointer motion (whose granularity is defined by performance limitations), and
+pointer button and keyboard events.  At this level, input is represented as
+\term{event} objects.
+
+Sheets either participate fully in the input protocol or are mute for input.  If
+any functions in the input protocol are called on a sheet that is mute for
+input, the \cl{sheet-is-mute-for-input} error will be signalled.
+
+In addition to handling input events, a sheet is also responsible for providing
+other input services, such as controlling the pointer's appearance, and polling
+for current pointer and keyboard state.
+
+Input is processed on a per-port basis by the function \cl{process-next-event}.
+In multiprocessing environments, a process that calls \cl{process-next-event} in a
+loop is created for each port.  In single-process Lisps, \cl{process-next-event}
+is called whenever the user would go blocked for input.
+
+\cl{process-next-event} has three main tasks when it receives an event.  First,
+it must determine to which \concept{client} the event is addressed; this process
+is called \concept{distributing}.  Typically, the client is a sheet, but there
+are other special-purpose clients to which events can also be dispatched.  Next,
+\cl{process-next-event} formats the event into a standard format, and finally it
+\concept{dispatches} the event to the client.  A client may then either handle
+the event synchronously, or it may queue it for later handling by another
+process.
+
+Input events can be broadly categorized into \concept{pointer events} and
+\concept{keyboard events}.  By default, pointer events are dispatched to the
+lowest sheet in the hierarchy whose region contains the location of the pointer.
+Keyboard events are dispatched to the port's keyboard input focus; the accessor
+\cl{port-keyboard-input-focus} contains the event client that receives the
+port's keyboard events.
+
+
+\subsection {Input Protocol Functions}
+
+In the functions below, the \arg{client} argument is typically a sheet, but it
+may be another object that supports event distribution, dispatching, and
+handling.
+
+\Defgeneric {sheet-event-queue} {sheet}
+
+Any sheet that can process events will have an event queue from which the events
+are gotten.  \cl{sheet-event-queue} returns the object that acts as the event
+queue.  The exact representation of an event queue is explicitly unspecified.
+
+\Defgeneric {process-next-event} {port \key wait-function timeout}
+
+This function provides a standard interface for one pass through a
+port's event processing loop. The function should wait until one of
+three conditions occurs:
+
+\begin{itemize}
+\item If an event is received and processed it should return \term{true}.
+\item If \arg{wait-function} returns \term{true},
+  \cl{process-next-event} should return the two values \term{false}
+  and \cl{:wait-function}.
+\item If a timeout occurs, \cl{process-next-event} should return the
+  two values \term{false} and \cl{:timeout}.
+\end{itemize}
+
+\arg{wait-function} is either nil or a function with no arguments that
+acts as a predicate; it has dynamic extent and it doesn't block.  It
+should return \term{true} if there is no further need for processing
+the next event. The predicate is invoked by the port-specific method
+on this generic function at least before trying to read an event and
+again, after the timeout, if it has been reached. \arg{wait-function}
+may be called multiple times while the \cl{process-next-event} method
+tries to read the next event.
+
+\arg{timeout} is either \cl{nil} (then \cl{process-next-event} waits
+indefinetely for the next event) or a time delay specified in seconds
+after which the function gives up. In that case if \arg{wait-function}
+returns true the second value returned is \cl{:wait-function},
+otherwise it is \cl{:timeout}.
+
+A port implementation must provide a method for this function that
+reads the next window server-specific device event, blocking if
+necessary, and then invokes the event distributor.
+
+\defgeneric {port-keyboard-input-focus} {port}
+\Defgeneric {(setf port-keyboard-input-focus)} {focus port}
+
+Returns the client to which keyboard events are to be dispatched.
+
+\issue {RSL} {Should this accessor be called \cl{keyboard-input-focus}?  It may
+be that we want to be able to call it on a frame in order to implement some sort
+of per-frame input focus.}
+
+\Defgeneric {distribute-event} {port event}
+
+The \arg{event} is distributed to the \arg{port}'s proper client.  In general,
+this will be the keyboard input focus for keyboard events, and the lowest sheet
+under the pointer for pointer events.
+
+\issue {RSL} {Do we just want to call this function \cl{dispatch-event} and have
+it called on the port first?}
+
+\Defgeneric {dispatch-event} {client event}
+
+This function is called by \cl{process-next-event} to inform a client about an
+event of interest.  It is invoked synchronously by whatever process called
+\cl{process-next-event}, so many methods for this function will simply queue the
+event for later handling.  Certain classes of clients and events may cause this
+function immediately to call either \cl{queue-event} or \cl{handle-event}, or to
+ignore the event entirely.
+
+\Defgeneric {queue-event} {client event}
+
+Places the event \arg{event} into the queue of events for the client \arg{client}.
+
+\Defgeneric {handle-event} {client event}
+
+Implements the client's policy with respect to the event.  For example, if the
+programmer wishes to highlight a sheet in response to an event that informs it
+that the pointer has entered its territory, there would be a method to carry out
+the policy that specializes the appropriate sheet and event classes.
+
+In addition to \cl{queue-event}, the queued input protocol handles the following
+generic functions.  The \arg{client} argument to these functions is typically a
+sheet.
+
+\Defgeneric {event-read} {client}
+
+Takes the next event out of the queue of events for this client.
+
+\Defgeneric {event-read-no-hang} {client}
+
+Takes the next event out of the queue of events for this client.  It returns
+\cl{nil} if there are no events in the queue.
+
+\Defgeneric {event-peek} {client \optional event-type}
+
+Returns the next event in the queue without removing it from the queue.  If
+\arg{event-type} is supplied, events that are not of that type are first
+removed and discarded.
+
+\Defgeneric {event-unread} {client event}
+
+Places the \arg{event} at the head of the \arg{client}'s event queue, so as to
+be the next event read.
+
+\Defgeneric {event-listen} {client}
+
+Returns \term{true} if there are any events queued for \arg{client}, otherwise
+returns \term{false}.
+
+
+\subsection {Input Protocol Classes}
+
+Most classes of sheets will have one of the following input protocol classes
+mixed in.  Of course, a sheet can always have a specialized method for a
+specific class of event that will override the default.  For example, a sheet
+may need to have only pointer click events dispatched to itself, and may
+delegate all other events to some other input client.  Such a sheet should have
+\cl{delegate-sheet-input-mixin} as a superclass, and have a more specific method
+for \cl{dispatch-event} on its class and \cl{pointer-button-click-event}.
+
+None of the five following classes are instantiable.
+
+\Defclass {standard-sheet-input-mixin}
+
+This class of sheet provides a method for \cl{dispatch-event} that calls
+\cl{queue-event} on each device event.  Note that configuration events invoke
+\cl{handle-event} immediately.
+
+The \cl{standard-sheet-input-mixin} class will also provide a
+\cl{sheet-event-queue} method, described above.
+
+\Defclass {immediate-sheet-input-mixin}
+
+This class of sheet provides a method for \cl{dispatch-event} that calls
+\cl{handle-event} immediately for all events.
+
+The \cl{immediate-sheet-input-mixin} class will also provide a
+\cl{sheet-event-queue} method, described above.
+
+\Defclass {sheet-mute-input-mixin}
+
+This is mixed in to any sheet class that does not handle any input events.
+
+\Defclass {delegate-sheet-input-mixin}
+
+This class of sheet provides a method for \cl{dispatch-event} that calls
+\cl{dispatch-event} on a designated substitute recipient and the event.  The
+initarg \cl{:delegate} or the accessor {delegate-sheet-delegate} may be used to
+set the recipient of dispatched events.
+
+\defgeneric {delegate-sheet-delegate} {sheet}
+\Defgeneric {(setf delegate-sheet-delegate)} {delegate sheet}
+
+This may be set to another recipient of events dispatched to a sheet of class
+\cl{delegate-sheet-input-mixin}.  \arg{delegate} is the object to which events
+will be dispatched, and is usually another sheet.  If the delegate is \cl{nil},
+events are discarded.
+
+
+
+
+\section {Standard Device Events}
+
+An \concept{event} is a CLIM object that represents some sort of user gesture
+(such as moving the pointer or pressing a key on the keyboard) or that
+corresponds to some sort of notification from the display server.  Event objects
+store such things as the sheet associated with the event, the $x$ and $y$
+position of the pointer within that sheet, the key name or character
+corresponding to a key on the keyboard, and so forth.
+
+Figure~\ref{event-hier} shows all the event classes.
+
+\begin{figure}
+\hrule
+\begin{tabbing}
+XX\=XX\=XX\=XX\=XX\=XX\=  \kill
+\cl{event} \\
+\>\cl{device-event}          \\
+\>\>\cl{keyboard-event}      \\
+\>\>\>\cl{key-press-event}   \\
+\>\>\>\cl{key-release-event} \\
+\>\>\cl{pointer-event}       \\
+\>\>\>\cl{pointer-button-event} \\
+\>\>\>\>\cl{pointer-button-press-event}   \\
+\>\>\>\>\cl{pointer-button-release-event} \\
+\>\>\>\>\cl{pointer-button-hold-event}    \\
+\>\>\>\cl{pointer-motion-event}  \\
+\>\>\>\>\cl{pointer-boundary-event} \\
+\>\>\>\>\>\cl{pointer-enter-event} \\
+\>\>\>\>\>\cl{pointer-exit-event}  \\
+\>\cl{window-event} \\
+\>\>\cl{window-configuration-event} \\
+\>\>\cl{window-repaint-event}       \\
+\>\cl{window-manager-event}           \\
+\>\>\cl{window-manager-delete-event} \\
+\>\cl{timer-event} \\
+\end{tabbing}
+\caption{\label{event-hier} CLIM event classes.  All classes that appear
+at a given indentation are subclasses of the class that appears above and at a
+lesser indentation.} 
+\vspace{2pc}
+\hrule
+\end{figure}
+
+\Defprotoclass {event}
+
+The protocol class that corresponds to any sort of ``event''.
+\IfYouWantClass {an} {event} {event}
+
+All of the event classes are immutable.  CLIM implementations may choose to keep
+a resource of the device event classes, but this must be invisible at the API
+level.  That is, any event visible at the level of the API must act as though it
+is immutable.
+
+\Defpredicate {eventp} {object}
+
+Returns \term{true} if \arg{object} is an \term{event}, otherwise returns
+\term{false}.
+
+\Definitarg {:timestamp}
+
+All subclasses of \cl{event} must take a \cl{:timestamp} initarg, which is used
+to specify the timestamp for the event.
+
+\Defgeneric {event-timestamp} {event}
+
+Returns an integer that is a monotonically increasing timestamp for the
+\term{event} \arg{event}.  The timestamp must have at least as many bits of
+precision as a fixnum.
+
+\Defgeneric {event-type} {event}
+
+For the \term{event} \arg{event}, returns a keyword with the same name as the
+class name, except stripped of the ``-event'' ending.  For example, the keyword
+\cl{:key-press} is returned by \cl{event-type} for an event whose class is
+\cl{key-press-event}.
+
+All event classes must implement methods for \cl{event-type} and
+\cl{event-timestamp}.
+
+
+\defclass {device-event}
+\definitarg {:sheet}
+\Definitarg {:modifier-state}
+
+The instantiable class that corresponds to any sort of device event.  This is a
+subclass of \cl{event}.
+
+All subclasses of \cl{device-event} must take the \cl{:sheet} and
+\cl{:modifier-state} initargs, which are used to specify the sheet and modifier
+state components for the event.
+
+\Defgeneric {event-sheet} {device-event}
+
+Returns the sheet associated with the event \arg{device-event}.
+
+\Defgeneric {event-modifier-state} {device-event}
+
+Returns an integer value that encodes the state of all the modifier keys on the
+keyboard.  This will be a mask consisting of the \cl{logior} of
+\cl{+shift-key+}, \cl{+control-key+}, \cl{+meta-key+}, \cl{+super-key+}, and
+\cl{+hyper-key+}.
+
+All device event classes must implement methods for \cl{event-sheet} and
+\cl{event-modifier-state}.
+
+
+\defclass {keyboard-event}
+\Definitarg {:key-name}
+
+The instantiable class that corresponds to any sort of keyboard event.  This is
+a subclass of \cl{device-event}.
+
+All subclasses of \cl{keyboard-event} must take the \cl{:key-name} initarg,
+which is used to specify the key name component for the event.
+
+\Defgeneric {keyboard-event-key-name} {keyboard-event}
+
+Returns the name of the key that was pressed or released in a keyboard event.
+This will be a symbol whose value is port-specific.  Key names corresponding to
+the set of ``standard'' characters (such as the alphanumerics) will be a symbol
+in the keyword package.
+
+\Defgeneric {keyboard-event-character} {keyboard-event}
+
+Returns the character associated with the event \arg{keyboard-event}, if there
+is any.
+
+All keyboard event classes must implement methods for
+\cl{keyboard-event-key-name} and \cl{keyboard-event-character}.
+
+\defclass {key-press-event}
+\Defclass {key-release-event}
+ 
+The instantiable classes that correspond to a key press or release event.  This
+is a subclass of \cl{keyboard-event}.
+
+
+\defclass {pointer-event}
+\definitarg {:pointer}
+\definitarg {:button}
+\definitarg {:x}
+\Definitarg {:y}
+ 
+The instantiable class that corresponds to any sort of pointer event.  This is a
+subclass of \cl{device-event}.
+
+All subclasses of \cl{pointer-event} must take the \cl{:pointer}, \cl{:button},
+\cl{:x}, and \cl{:y} initargs, which are used to specify the pointer object,
+pointer button, and native $x$ and $y$ position of the pointer at the time of
+the event.  The sheet's $x$ and $y$ positions are derived from the supplied
+native $x$ and $y$ positions and the sheet itself.
+
+\defgeneric {pointer-event-x} {pointer-event}
+\Defgeneric {pointer-event-y} {pointer-event}
+
+Returns the $x$ and $y$ position of the pointer at the time the event occurred,
+in the coordinate system of the sheet that received the event.  All pointer
+events must implement a method for these generic functions.
+
+\defgeneric {pointer-event-native-x} {pointer-event}
+\Defgeneric {pointer-event-native-y} {pointer-event}
+
+Returns the $x$ and $y$ position of the pointer at the time the event occurred,
+in the pointer's native coordinate system.  All pointer events must implement a
+method for these generic functions.
+
+\Defgeneric {pointer-event-pointer} {pointer-event}
+
+Returns the pointer object to which this event refers.
+
+All pointer event classes must implement methods for \cl{pointer-event-x},
+\cl{pointer-event-y}, \cl{pointer-event-native-x}, \cl{pointer-event-native-y},
+and \cl{pointer-event-pointer}.
+
+\Defclass {pointer-button-event}
+ 
+The instantiable class that corresponds to any sort of pointer button event.
+This is a subclass of \cl{pointer-event}.
+
+\Defgeneric {pointer-event-button} {pointer-button-event}
+
+Returns the an integer corresponding to the pointer button that was pressed or
+released, which will be one of \cl{+pointer-left-button+},
+\cl{+pointer-middle-button+}, or \cl{+pointer-right-button+}.
+
+\defclass {pointer-button-press-event}
+\defclass {pointer-button-release-event}
+\Defclass {pointer-button-hold-event}
+ 
+The instantiable classes that correspond to a pointer button press, button
+release, and click-and-hold events.  These are subclasses of
+\cl{pointer-button-event}.
+
+\defclass {pointer-click-event}
+\defclass {pointer-double-click-event}
+\Defclass {pointer-click-and-hold-event}
+ 
+The instantiable classes that correspond to a pointer button press, followed
+immediately by (respectively) a button release, another button press, or pointer
+motion.  These are subclasses of \cl{pointer-button-event}.  Ports are not
+required to generate these events.
+
+\Defclass {pointer-motion-event}
+ 
+The instantiable class that corresponds to any sort of pointer motion event.
+This is a subclass of \cl{pointer-event}.
+
+\Defclass {pointer-boundary-event}
+
+The instantiable class that corresponds to a pointer motion event that crosses
+some sort of sheet boundary.  This is a subclass of \cl{pointer-motion-event}.
+
+\Defgeneric {pointer-boundary-event-kind} {pointer-boundary-event}
+
+Returns the ``kind'' of boundary event, which will be one of \cl{:ancestor},
+\cl{:virtual}, \cl{:inferior}, \cl{:nonlinear}, \cl{:nonlinear-virtual}, or
+\cl{nil}.  These event kinds correspond to the detail members for X11 enter and
+exit events.
+
+\defclass {pointer-enter-event}
+\Defclass {pointer-exit-event}
+
+The instantiable classes that correspond to a pointer enter or exit event.
+These are subclasses of \cl{pointer-boundary-event}.
+
+
+\defclass {window-event}
+\Definitarg {:region}
+
+The instantiable class that corresponds to any sort of windowing event.  This is
+a subclass of \cl{event}.
+
+All subclasses of \cl{window-event} must take a \cl{:region} initarg, which is
+used to specify the damage region associated with the event.
+
+\Defgeneric {window-event-region} {window-event}
+
+Returns the region of the sheet that is affected by a window event.
+
+\Defgeneric {window-event-native-region} {window-event}
+
+Returns the region of the sheet in native coordinates.
+
+\Defgeneric {window-event-mirrored-sheet} {window-event}
+
+Returns the mirrored sheet that is attached to the mirror on which the event
+occurred.
+
+All window event classes must implement methods for \cl{window-event-region},
+\cl{window-event-native-region}, and \cl{window-event-mirrored-sheet}.
+
+\Defclass {window-configuration-event}
+
+The instantiable class that corresponds to a window changing its size or
+position.  This is a subclass of \cl{window-event}.
+
+\Defclass {window-repaint-event}
+
+The instantiable class that corresponds to a request to repaint the window.
+This is a subclass of \cl{window-event}.
+
+
+\defclass {window-manager-event}
+\Definitarg {:sheet}
+
+The instantiable class that corresponds to any sort of window manager event.
+This is a subclass of \cl{event}.
+
+All subclasses of \cl{window-manager-event} must take a \cl{:sheet} initarg,
+which is used to specify the sheet on which the window manager acted.
+
+\Defclass {window-manager-delete-event}
+
+The instantiable class that corresponds to window manager event that causes a
+host window to be deleted.  This is a subclass of \cl{window-manager-event}.
+
+
+\Defclass {timer-event}
+
+The instantiable class that corresponds to a timer event.  This is a subclass
+of \cl{event}.
+
+
+\defconst {+pointer-left-button+}
+\defconst {+pointer-middle-button+}
+\Defconst {+pointer-right-button+}
+
+Constants that correspond to the left, middle, and right button on a pointing
+device.  \cl{pointer-event-button} will returns one of these three values.
+
+These constants are powers of 2 so that they can be combined with \cl{logior}
+and tested with \cl{logtest}.
+
+\defconst {+shift-key+}
+\defconst {+control-key+}
+\defconst {+meta-key+}
+\defconst {+super-key+}
+\Defconst {+hyper-key+}
+
+Constants that correspond to the shift, control, meta, super, and hyper modifier
+keys being held down on the keyboard.  These constants are powers of 2 that are
+disjoint from the pointer button constants, so that they can be combined with
+\cl{logior} and tested with \cl{logtest}.
+
+\cl{event-modifier-state} will return some combination of these values.
+
+Implementations must support at least shift, control, and meta modifiers.
+Control and meta might correspond to the control and option or command shift
+keys on a Macintosh keyboard, for example.
+
+
+\section {Output Protocol}
+
+The output protocol is concerned with the appearance of displayed output on the
+window associated with a sheet.  The sheet output protocol is responsible for
+providing a means of doing output to a sheet, and for delivering repaint
+requests to the sheet's client.
+
+Sheets either participate fully in the output protocol or are mute for output.
+If any functions in the output protocol are called on a sheet that is mute for
+output, the \cl{sheet-is-mute-for-output} error will be signalled.
+
+
+\subsection {Output Properties}
+
+Each sheet retains some output state that logically describes how output is to
+be rendered on its window.  Such information as the foreground and background
+ink, line thickness, and transformation to be used during drawing are provided
+by this state.  This state may be stored in a \concept{medium} associated with
+the sheet itself, be derived from a parent, or may have some global default,
+depending on the sheet itself.
+
+If a sheet is mute for output, it is an error to set any of these values.
+
+\Defprotoclass {medium}
+
+The protocol class that corresponds to the output state for some kind of sheet.
+There is no single advertised standard medium class.
+\IfYouWantClass {a} {medium} {medium}
+
+\Defpredicate {mediump} {object}
+
+Returns \term{true} if \arg{object} is a \term{medium}, otherwise returns
+\term{false}.
+
+\Defclass {basic-medium}
+
+The basic class on which all CLIM mediums are built, a subclass of \cl{medium}.
+\AbstractClass
+
+
+The following generic functions comprise the basic medium protocol.  All mediums
+must implement methods for these generic functions.  Often, a sheet class that
+supports the output protocol will implement a ``trampoline'' method that passes
+the operation on to \cl{sheet-medium} of the sheet.
+
+\defgeneric {medium-foreground} {medium}
+\Defgeneric {(setf medium-foreground)} {design medium}
+
+Returns (and, with \cl{setf}, sets) the current foreground ink for the
+\term{medium} \arg{medium}. This is described in detail in
+Chapter~\ref{drawing-options}.
+
+\defgeneric {medium-background} {medium}
+\Defgeneric {(setf medium-background)} {design medium}
+
+Returns (and, with \cl{setf}, sets) the current background ink for the
+\term{medium} \arg{medium}.  This is described in detail in
+Chapter~\ref{drawing-options}.
+
+
+\defgeneric {medium-ink} {medium}
+\Defgeneric {(setf medium-ink)} {design medium}
+
+Returns (and, with \cl{setf}, sets) the current drawing ink for the
+\term{medium} \arg{medium}.  This is described in detail in
+Chapter~\ref{drawing-options}.
+
+
+\defgeneric {medium-transformation} {medium}
+\Defgeneric {(setf medium-transformation)} {transformation medium}
+
+Returns (and, with \cl{setf}, sets) the ``user'' transformation that converts
+the coordinates presented to the drawing functions by the programmer to the
+\term{medium} \arg{medium}'s coordinate system. By default, it is the identity
+transformation.  This is described in detail in Chapter~\ref{drawing-options}.
+
+
+\defgeneric {medium-clipping-region} {medium}
+\Defgeneric {(setf medium-clipping-region)} {region medium}
+
+Returns (and, with \cl{setf}, sets) the clipping region that encloses all output
+performed on the \term{medium} \arg{medium}.  It is returned and set in user
+coordinates.  That is, to convert the user clipping region to medium
+coordinates, it must be transformed by the value of \cl{medium-transformation}.
+For example, the values returned by
+
+\begin{verbatim}
+(let (cr1 cr2)
+  ;; Ensure that the sheet's clipping region and transformation will be reset:
+  (with-drawing-options (sheet :transformation +identity-transformation+
+                               :clipping-region +everywhere+)
+    (setf (medium-clipping-region sheet) (make-rectangle* 0 0 10 10))
+    (setf (medium-transformation sheet) (clim:make-scaling-transformation 2 2))
+    (setf cr1 (medium-clipping-region sheet))
+    (setf (medium-clipping-region sheet) (make-rectangle* 0 0 10 10))
+    (setf (medium-transformation sheet) +identity-transformation+)
+    (setf cr2 (medium-clipping-region sheet))
+    (values cr1 cr2)))
+\end{verbatim}
+
+are two rectangles.  The first one has edges of (0,0,5,5), while the second one
+has edges of (0,0,20,20).
+
+By default, the user clipping region is the value of \cl{+everywhere+}.
+
+\Issue {SWM} {What exactly are ``user coordinates''?  We need to define all of
+the coordinate systems in one place: device, window, stream, etc.}
+
+
+\defgeneric {medium-line-style} {medium}
+\Defgeneric {(setf medium-line-style)} {line-style medium}
+
+Returns (and, with \cl{setf}, sets) the current line style for the \term{medium}
+\arg{medium}.  This is described in detail in Chapter~\ref{drawing-options} and
+Section~\ref{line-styles}.
+
+
+\defgeneric {medium-text-style} {medium}
+\Defgeneric {(setf medium-text-style)} {text-style medium}
+
+Returns (and, with \cl{setf}, sets) the current text style for the \term{medium}
+\arg{medium} of any textual output that may be displayed on the window.  This is
+described in detail in Chapter~\ref{drawing-options}.
+
+
+\defgeneric {medium-default-text-style} {medium}
+\Defgeneric {(setf medium-default-text-style)} {text-style medium}
+
+Returns (and, with \cl{setf}, sets) the default text style for output on the
+\term{medium} \arg{medium}.  This is described in detail in
+Chapter~\ref{drawing-options}.
+
+
+\Defgeneric {medium-merged-text-style} {medium}
+
+Returns the actual text style used in rendering text on the \term{medium}
+\arg{medium}.  It returns the result of
+
+\begin{verbatim} 
+(merge-text-styles (medium-text-style medium)
+                   (medium-default-text-style medium))
+\end{verbatim}
+
+Thus, those components of the current text style that are not \cl{nil} will
+replace the defaults from medium's default text style.  Unlike the preceding
+text style function, \cl{medium-merged-text-style} is read-only.
+
+
+\subsection {Output Protocol Functions} 
+
+The output protocol functions on mediums (and sheets that support the
+standard output protocol) include those functions described in
+Section~\ref{graphics-protocols}.
+
+\issue {SWM} {We need to do a little better than this.}
+
+
+\subsection {Output Protocol Classes}
+
+The following classes implement the standard output protocols.  None of the five
+following classes are instantiable.
+
+\Defclass {standard-sheet-output-mixin}
+
+This class is mixed in to any sheet that provides the standard output protocol,
+such as repainting and graphics.
+
+\Defclass {sheet-mute-output-mixin}
+
+This class is mixed in to any sheet that provides none of the output protocol.
+
+\Defclass {sheet-with-medium-mixin}
+
+This class is used for any sheet that has either a permanent or a temporary
+medium.
+
+\Defclass {permanent-medium-sheet-output-mixin}
+
+This class is mixed in to any sheet that always has a medium associated with it.
+It is a subclass of \cl{sheet-with-medium-mixin}.
+
+\Defclass {temporary-medium-sheet-output-mixin}
+
+This class is mixed in to any sheet that may have a medium associated with it,
+but does not necessarily have a medium at any given instant.  It is a subclass
+of \cl{sheet-with-medium-mixin}.
+
+
+\subsection {Associating a Medium with a Sheet}
+
+Before a sheet may be used for output, it must be associated with a medium.
+Some sheets are permanently associated with media for output efficiency; for
+example, CLIM window stream sheets have a medium that is permanently allocated
+to the window.
+
+However, many kinds of sheets only perform output infrequently, and therefore do
+not need to be associated with a medium except when output is actually required.
+Sheets without a permanently associated medium can be much more lightweight than
+they otherwise would be.  For example, in a program that creates a sheet for the
+purpose of displaying a border for another sheet, the border sheet receives
+output only when the window's shape is changed.
+
+To associate a sheet with a medium, the macro \cl{with-sheet-medium} is used.
+Only sheets that are subclasses of \cl{sheet-with-medium-mixin} may have a
+medium associated with them.
+
+
+\Defmacro {with-sheet-medium} {(medium sheet) \body body}
+
+Within the body, the variable \arg{medium} is bound to the sheet's medium.  If
+the sheet does not have a medium permanently allocated, one will be allocated
+and associated with the sheet for the duration of the body (by calling
+\cl{engraft-medium}), and then degrafted from the sheet and deallocated when the
+body has been exited.  The values of the last form of the body are returned as
+the values of \cl{with-sheet-medium}.
+
+This macro will signal a runtime error if sheet is not a subclass of
+\cl{sheet-with-medium-mixin}.
+
+The \arg{medium} argument is not evaluated, and must be a symbol that will be bound
+to a medium.  \arg{body} may have zero or more declarations as its first forms.
+
+\Defmacro {with-sheet-medium-bound} {(sheet medium) \body body}
+
+\cl{with-sheet-medium-bound} is used to associate the specific medium
+\arg{medium} with the sheet \arg{sheet} for the duration of the body \arg{body}.
+Typically, a single medium will be allocated and passed to several different
+sheets that can use the same medium.
+
+If the sheet already has a medium allocated to it, the new medium will not be
+grafted to the sheet, and \cl{with-sheet-medium-bound} will simple evaluate the
+body.  If the value of \arg{medium} is \cl{nil}, \cl{with-sheet-medium-bound} is
+exactly equivalent to \cl{with-sheet-medium}.  The values of the last form of
+the body are returned as the values of \cl{with-sheet-medium-bound}.
+
+This macro will signal a runtime error if sheet is not a subclass of
+\cl{sheet-with-medium-mixin}.
+
+\arg{body} may have zero or more declarations as its first forms.
+
+\Defgeneric {sheet-medium} {sheet}
+
+Returns the medium associated with the \term{sheet} \arg{sheet}.  If \arg{sheet}
+does not have a medium allocated to it, \cl{sheet-medium} returns \cl{nil}.
+
+This function will signal an error if sheet is not a subclass of
+\cl{sheet-with-medium-mixin}.
+
+\Defgeneric {medium-sheet} {medium}
+
+Returns the sheet associated with the \term{medium} \arg{medium}.  If
+\arg{medium} is not grafted to a sheet, \cl{medium-sheet} returns \cl{nil}.
+
+\Defgeneric {medium-drawable} {medium}
+
+Returns an implementation-dependent object that corresponds to the actual host
+window that will be drawn on when the \term{medium} \arg{medium} is drawn on.
+If \arg{medium} is not grafted to a sheet or the medium's sheet is not currently
+mirrored on a display server, \cl{medium-drawable} returns \cl{nil}.
+
+Programmers can use this function to get a host window system object that can be
+manipulated using the functions of the host window system.  This might be done
+in order to explicitly trade performance against portability.
+
+\Defmethod {port} {(medium \cl{basic-medium})}
+
+If \arg{medium} is both grafted to a sheet and the sheet is currently mirrored
+on a display server, this returns the port with which \arg{medium} is
+associated.  Otherwise it returns \cl{nil}.
+
+\subsubsection {Grafting and Degrafting of Mediums}
+
+The following generic functions are the protocol-level functions responsible for
+the allocating, deallocating, grafting, and degrafting of mediums.  They are not
+intended for general use by programmers.
+
+\Defgeneric {allocate-medium} {port sheet}
+
+Allocates a medium from the \term{port} \arg{port}'s medium resource, or calls
+\cl{make-medium} on the port to create a new medium if the resource is empty or
+the port does not maintain a resource of mediums.  The resulting medium will
+have its default characteristics determined by \arg{sheet}.
+
+\Defgeneric {deallocate-medium} {port medium} 
+
+Returns the \term{medium} \arg{medium} to \arg{port}'s medium resource.
+
+\Defgeneric {make-medium} {port sheet}
+
+Creates a new medium for the \term{port} \arg{port}.  The new medium will have
+its default characteristics determined by \arg{sheet}.
+
+\Defgeneric {engraft-medium} {medium port sheet}
+
+Grafts the \term{medium} \arg{medium} to the \term{sheet} \arg{sheet} on the
+\term{port} \arg{port}.  
+
+The default method on \cl{basic-medium} will set \cl{medium-sheet} on
+\arg{medium} to point to the sheet, and will set up the medium state (foreground
+ink, background ink, and so forth) from the defaults gotten from {sheet}.  Each
+implementation may specialize this generic function in order to set up such
+things as per-medium ink caches, and so forth.
+
+\Defgeneric {degraft-medium} {medium port sheet} 
+
+Degrafts the \term{medium} \arg{medium} from the \term{sheet} \arg{sheet} on the
+\term{port} \arg{port}.
+
+The default method on \cl{basic-medium} will set \cl{medium-sheet} back to
+\cl{nil}.  Each implementation may specialize this generic function in order to
+clear any caches it has set up, and so forth.
+
+
+\section {Repaint Protocol}
+
+The repaint protocol is the mechanism whereby a program keeps the display
+up-to-date, reflecting the results of both synchronous and asynchronous events.
+The repaint mechanism may be invoked by user programs each time through their
+top-level command loop.  It may also be invoked directly or indirectly as a
+result of events received from the display server host.  For example, if a
+window is on display with another window overlapping it, and the second window
+is buried, a ``damage notification'' event may be sent by the server; CLIM would
+cause a repaint to be executed for the newly-exposed region.
+
+
+\subsection {Repaint Protocol Functions}
+
+\Defgeneric {queue-repaint} {sheet repaint-event} 
+
+Requests that the repaint event \arg{repaint-event} be placed in the input queue
+of the \term{sheet} \arg{sheet}.  A program that reads events out of the queue
+will be expected to call \cl{handle-event} for the sheet using the repaint
+region gotten from \arg{repaint-event}.
+
+\Defgeneric {handle-repaint} {sheet region} 
+
+Implements repainting for a given sheet class.  \term{sheet} is the sheet to
+repaint and \arg{region} is the region to repaint.
+
+\Defgeneric {repaint-sheet} {sheet region} 
+
+Recursively causes repainting of the \term{sheet} \arg{sheet} and any of its
+descendants that overlap the \term{region} \arg{region}.
+
+All CLIM implementations must support repainting for regions that are rectangles
+or region sets composed entirely of rectangles.
+
+
+\subsection {Repaint Protocol Classes}
+
+The following classes implement the standard repaint protocols.  None of the
+three following classes are instantiable.
+
+\Defclass {standard-repainting-mixin}
+
+Defines a \cl{dispatch-repaint} method that calls \cl{queue-repaint}.
+
+\Defclass {immediate-repainting-mixin}
+
+Defines a \cl{dispatch-repaint} method that calls \cl{handle-repaint}.
+
+\Defclass {sheet-mute-repainting-mixin}
+
+Defines a \cl{dispatch-repaint} method that calls \cl{queue-repaint}, and a
+method on \cl{repaint-sheet} that does nothing.  This means that its children
+will be recursively repainted when the repaint event is handled.
+
+
+\section {Sheet Notification Protocol}
+
+The notification protocol allows sheet clients to be notified when a sheet
+hierarchy is changed.  Sheet clients can observe modification events by
+providing \cl{:after} methods for functions defined by this protocol.
+
+\subsection {Relationship to Window System Change Notifications}
+
+\issue {RSL} {More to be written.}
+
+\defgeneric {note-sheet-grafted}   {sheet}
+\defgeneric {note-sheet-degrafted} {sheet}
+\defgeneric {note-sheet-adopted}   {sheet}
+\defgeneric {note-sheet-disowned}  {sheet}
+\defgeneric {note-sheet-enabled}   {sheet}
+\Defgeneric {note-sheet-disabled}  {sheet}
+
+These notification functions are invoked when the state change has been made to
+the \term{sheet} \arg{sheet}.
+
+
+\subsection {Sheet Geometry Notifications}
+
+\issue {RSL} {More to be written.}
+
+\defgeneric {note-sheet-region-changed} {sheet}
+\Defgeneric {note-sheet-transformation-changed} {sheet}
+
+These notification functions are invoked when the region or transformation of
+the \term{sheet} \arg{sheet} has been changed.  When the regions and
+transformations of a sheet are changed directly, the client is required to call
+\cl{note-sheet-region-changed} or \cl{note-sheet-transformation-changed}.
+
+
+\chapter {Ports, Grafts, and Mirrored Sheets}
+\label{ports-and-grafts}
+
+\section {Introduction}
+
+A sheet hierarchy must be attached to a display server so as to permit input and
+output.  This is managed by the use of \concept{ports} and \concept{grafts}.
+
+\section {Ports}
+
+A \concept{port} is a logical connection to a display server.  It is responsible
+for managing display output and server resources, and for handling incoming
+input events.  Typically, the programmer will create a single port that will
+manage all of the windows on the display.
+
+A port is described with a \concept{server path}.  A server path is a list whose
+first element is a keyword that selects the kind of port.  The remainder of the
+server path is a list of alternating keywords and values whose interpretation is
+port type-specific.
+
+\Defprotoclass {port}
+
+The protocol class that corresponds to a port.
+\IfYouWantClass {a} {port} {port}
+
+All of the subclasses of \cl{port} are mutable.
+
+\Defpredicate {portp} {object}
+
+Returns \term{true} if \arg{object} is a \term{port}, otherwise returns
+\term{false}.
+
+\Defclass {basic-port}
+
+The basic class on which all CLIM ports are built, a subclass of \cl{port}.
+\AbstractClass
+
+
+\Defun {find-port} {\rest initargs \key (server-path \cl{*default-server-path*}) \allow}
+
+Finds a port that provides a connection to the window server addressed by
+\arg{server-path}.  If no such connection exists, a new connection will be
+constructed and returned.  The initargs in \arg{initargs} will be passed to the
+function that constructed the new port.
+
+\Defvar {*default-server-path*}
+
+This special variable is used by \cl{find-port} and its callers to default the
+choice of a display service to locate.  Binding this variable in a dynamic
+context will affect the defaulting of this argument to these functions.  This
+variable will be defaulted according to the environment.  In the Unix
+environment, for example, CLIM will attempt to set this variable based on the
+value of the \cl{DISPLAY} environment variable.
+
+The value of \cl{*default-server-path*} is a cons of a port type followed by a
+list of initargs.
+
+The following are the recommendations for port types and their initargs.  This
+list is not intended to be comprehensive, nor is it required that a CLIM
+implementation support any of these port types.
+
+\def\Defdp #1 #2 {\Dodocf {#1} {#2} {Server~Path}}
+
+\Defdp {:clx} {\key host display-id screen-id}
+
+Given this server path, \cl{find-port} finds a port for the X server on the
+given \arg{host}, using the \arg{display-id} and \arg{screen-id}.
+
+On a Unix host, if these values are not supplied, the defaults come from the
+\cl{DISPLAY} environment variable.  Each CLIM implementation must describe how
+it uses such environment variables.
+
+\Defdp {:motif} {\key host display-id screen-id}
+
+Given this server path, \cl{find-port} finds a port for a Motif X server on the
+given \arg{host}, using the \arg{display-id} and \arg{screen-id}.
+
+On a Unix host, if these values are not supplied, the defaults come from the
+\cl{DISPLAY} environment variable.
+
+\Defdp {:openlook} {\key host display-id screen-id}
+
+Given this server path, \cl{find-port} finds a port for an OpenLook X server on
+the given \arg{host}, using the \arg{display-id} and \arg{screen-id}.
+
+On a Unix host, if these values are not supplied, the defaults come from the
+\cl{DISPLAY} environment variable.
+
+\Defdp {:genera} {\key screen}
+
+Given this server path, \cl{find-port} finds a port for local Genera platform on
+the screen object \arg{screen}.  \arg{screen} defaults to \arg{tv:main-screen},
+but could also be an object return from \cl{color:find-color-screen}.
+
+
+\Defgeneric {port} {object}
+
+Returns the port associated with \arg{object}.  \cl{port} is defined for all
+sheet classes (including grafts and streams that support the CLIM graphics
+protocol), mediums, and application frames.  For degrafted sheets or other
+objects that aren't currently associated with particular ports, \cl{port}
+will return \cl{nil}.
+
+\Defmacro {with-port-locked} {(port) \body body} 
+
+Executes \arg{body} after grabbing a lock associated with the \term{port}
+\arg{port}, which may be a port or any object on which the function \cl{port}
+works.  If \arg{object} currently has no port, \arg{body} will be executed
+without locking.
+
+\arg{body} may have zero or more declarations as its first forms.
+
+
+\Defun {map-over-ports} {function}
+
+Invokes \arg{function} on each existing port.  Function is a function of one
+argument, the port; it has dynamic extent.
+
+\Defgeneric {port-server-path} {port}
+
+Returns the server path associated with the \term{port} \arg{port}.
+
+\Defgeneric {port-name} {port}
+
+Returns an implementation-dependent string that is the name of the port.  For
+example, a \cl{:clx} port might have a name of \cl{"summer:0.0"}.
+
+\Defgeneric {port-type} {port}
+
+Returns the type of the port, that is, the first element of the server path
+spec.
+
+
+\defgeneric {port-properties} {port indicator}
+\Defgeneric {(setf port-properties)} {property port indicator}
+
+These functions provide a port-based property list.  They are primarily intended
+to support users of CLIM that may need to associate certain information with
+ports.  For example, the implementor of a special graphics package may need to
+maintain resource tables for each port on which it is used.
+
+\Defgeneric {restart-port} {port}
+
+In a multi-process Lisp, \cl{restart-port} restarts the global input processing
+loop associated with the \term{port} \arg{port}.  All pending input events are
+discarded.  Server resources may or may not be released and reallocated during
+or after this action.
+
+\Defgeneric {destroy-port} {port}
+
+Destroys the connection with the window server represented by the \term{port}
+\arg{port}.  All sheet hierarchies that are associated with \arg{port} are
+forcibly degrafted by disowning the children of grafts on \arg{port} using
+\arg{sheet-disown-child}.  All server resources utilized by such hierarchies or
+by any graphics objects on \arg{port} are released as part of the connection
+shutdown.
+
+
+\section {Grafts}
+
+A \concept{graft} is a special sheet that is directly connected to a display
+server.  Typically, a graft is the CLIM sheet that represents the root window of
+the display.  There may be several grafts that are all attached to the same root
+window; these grafts may have differing coordinate systems.
+
+To display a sheet on a display, it must have a graft for an ancestor.  In
+addition, the sheet and all of its ancestors must be enabled, including the
+graft.  In general, a sheet becomes grafted when it (or one of its ancestors) is
+adopted by a graft.
+
+\Defgeneric {sheet-grafted-p} {sheet}
+
+Returns \term{true} if any of the sheet's ancestors is a graft, otherwise
+returns \term{false}.
+
+
+\Defun {find-graft} {\key (server-path \cl{*default-server-path*})
+                          (port \cl{(find-port :server-path server-path)})
+                          (orientation \cl{:default}) (units \cl{:device})} 
+
+Finds a graft that represents the display device on the port \arg{port} that
+also matches the other supplied parameters.  If no such graft exists, a new
+graft is constructed and returned.
+
+If \arg{server-path} is supplied, \cl{find-graft} finds a graft whose port
+provides a connection to the window server addressed by \arg{server-path}.
+
+It is an error to provide both \arg{port} and \arg{server-path} in a call to
+\cl{find-graft}.
+
+\arg{orientation} specifies the orientation of the graft's coordinate
+system.  Supported values are \cl{:default} and \cl{:graphics}, which have the
+meanings describe below:
+
+\begin{itemize}
+\item \cl{:default}---a coordinate system with its origin is in the upper left
+hand corner of the display device with $y$ increasing from top to bottom and $x$
+increasing from left to right.
+
+\item \cl{:graphics}---a coordinate system with its origin in the lower left
+hand corner of the display device with $y$ increasing from bottom to top and $x$
+increasing from left to right.
+\end{itemize}
+
+\arg{units} specifies the units of the coordinate system and defaults to
+\cl{:device}, which means the device units of the host window system (such as
+pixels).  Other supported values include \cl{:inches}, \cl{:millimeters}, and
+\cl{:screen-sized}, which means that one unit in each direction is the width and
+height of the display device.
+
+\issue {RSL} {I don't know how much of this is obsolete.}
+
+\Defgeneric {graft} {object}
+
+Returns the graft currently associated with \arg{object}.  \cl{graft} is
+defined for all sheet classes (including streams that support the CLIM
+graphics protocol), mediums, and application frames.  For degrafted sheets or
+other objects that aren't currently associated with a particular graft,
+\cl{graft} will return \cl{nil}.
+
+\Defun {map-over-grafts} {function port}
+
+Invokes \arg{function} on each existing graft associated with the \term{port}
+\arg{port}.  \arg{function} is a function of one argument, the graft; it has
+dynamic extent.
+
+\Defmacro {with-graft-locked} {(graft) \body body} 
+
+Executes \arg{body} after grabbing a lock associated with the \term{graft}
+\arg{graft}, which may be a graft or any object on which the function
+\cl{graft} works.  If \arg{object} currently has no graft, \arg{body} will
+be executed without locking.
+
+\arg{body} may have zero or more declarations as its first forms.
+
+
+\Defgeneric {graft-orientation} {graft}
+
+Returns the orientation of the \term{graft} \arg{graft}'s coordinate system.
+The returned value will be either \cl{:default} or \cl{:graphics}.  The meanings
+of these values are the same as described for the orientation argument to
+\cl{find-graft}.
+
+\Defgeneric {graft-units} {graft}
+
+Returns the units of the \term{graft} \arg{graft}'s coordinate system.  The
+returned value will be one of \cl{:device}, \cl{:inches}, \cl{:millimeters}, or
+\cl{:screen-sized}.  The meanings of these values are the same as described for
+the units argument to \cl{find-graft}.
+
+\defgeneric {graft-width} {graft \key (units \cl{:device})}
+\Defgeneric {graft-height} {graft \key (units \cl{:device})}
+
+Returns the width and height of the \term{graft} \arg{graft} (and by extension
+the associated host window) in the units indicated.  \arg{Units} may be any of
+\cl{:device}, \cl{:inches}, \cl{:millimeters}, or \cl{:screen-sized}.  The
+meanings of these values are the same as described for the units argument to
+\cl{find-graft}.  Note that if a \arg{unit} of \cl{:screen-sized} is specified, both
+functions will return a value of \cl{1}.
+
+\defun {graft-pixels-per-millimeter} {graft}
+\Defun {graft-pixels-per-inch} {graft}
+
+Returns the number of pixels per millimeter or inch of the \term{graft}
+\arg{graft}.  These functions are provided as a convenience to programmers and
+can be easily written in terms of \cl{graft-width} or \cl{graft-height}.
+
+\issue {Rao} {Do we want to support non-square pixels?  If so, these functions
+aren't sufficient.}
+
+
+\section {Mirrors and Mirrored Sheets}
+
+A \concept{mirrored sheet} is a special class of sheet that is attached directly
+to a window on a display server.  Grafts, for example, are always mirrored
+sheets.  However, any sheet anywhere in a sheet hierarchy may be a mirrored
+sheet.  A mirrored sheet will usually contain a reference to a window system
+object, called a mirror.  For example, a mirrored sheet attached to an X11
+server might have an X window system object stored in one of its slots.
+Allowing mirrored sheets at any point in the hierarchy enables the adaptive
+toolkit facilities.
+
+Since not all sheets in the hierarchy have mirrors, there is no direct
+correspondence between the sheet hierarchy and the mirror hierarchy.  However,
+on those display servers that support hierarchical windows, the hierarchies must
+be parallel.  If a mirrored sheet is an ancestor of another mirrored sheet,
+their corresponding mirrors must have a similar ancestor/descendant
+relationship.
+
+CLIM interacts with mirrors when it must display output or process events.
+On output, the mirrored sheet closest in ancestry to the sheet on which we wish
+to draw provides the mirror on which to draw.  The mirror's drawing clipping
+region is set up to be the intersection of the user's clipping region and the
+sheet's region (both transformed to the appropriate coordinate system) for the
+duration of the output.  On input, events are delivered from mirrors to the
+sheet hierarchy.  The CLIM port must determine which sheet shall receive events
+based on information such as the location of the pointer.
+
+In both of these cases, we must have a coordinate transformation that converts
+coordinates in the mirror (so-called ``native'' coordinates) into coordinates
+in the sheet and vice-versa.
+
+\Defclass {mirrored-sheet-mixin}
+
+This class is mixed in to sheet classes that can be directly mirrored.
+
+
+\subsection {Mirror Functions}
+
+\issue {SWM} {What kind of an object is a mirror?  Is it the Lisp object that is
+the handle to the actual toolkit window or gadget?}
+
+\Defgeneric {sheet-direct-mirror} {sheet}
+
+Returns the mirror of the \term{sheet} \arg{sheet}.  If the sheet is not a
+subclass of \cl{mirrored-sheet-mixin}, this will return \cl{nil}.  If the sheet
+is a subclass of \cl{mirrored-sheet-mixin} and does not currently have a mirror,
+\cl{sheet-direct-mirror} will return \cl{nil}.
+
+\Defgeneric {sheet-mirrored-ancestor} {sheet}
+
+Returns the nearest mirrored ancestor of the \term{sheet} \arg{sheet}.
+
+\Defgeneric {sheet-mirror} {sheet}
+
+Returns the mirror of the \term{sheet} \arg{sheet}.  If the sheet is not itself
+mirrored, \cl{sheet-mirror} returns the direct mirror of its nearest mirrored
+ancestor.  \cl{sheet-mirror} could be implemented as:
+
+\begin{verbatim}
+(defun sheet-mirror (sheet)
+  (sheet-direct-mirror (sheet-mirrored-ancestor sheet)))
+\end{verbatim}
+
+\Defgeneric {realize-mirror} {port mirrored-sheet}
+
+Creates a mirror for the \term{sheet} \arg{mirrored-sheet} on the \term{port}
+\arg{port}, if it does not already have one.  The returned value is the sheet's
+mirror; the type of this object is implementation dependent.
+
+\Defgeneric {destroy-mirror} {port mirrored-sheet}
+
+Destroys the mirror for the \term{sheet} \arg{mirrored-sheet} on the \term{port}
+\arg{port}.
+
+\Defgeneric {raise-mirror} {port sheet}
+
+Raises the \term{sheet} \arg{sheet}'s mirror to the top of all of the host
+windows on the \term{port} \arg{port}.  \arg{sheet} need not be a directly
+mirrored sheet.
+
+\Defgeneric {bury-mirror} {port sheet}
+
+Buries the \term{sheet} \arg{sheet}'s mirror at the bottom of all of the host
+windows on the \term{port} \arg{port}.  \arg{sheet} need not be a directly
+mirrored sheet.
+
+\Defmethod {port} {(sheet \cl{basic-sheet})}
+
+If \arg{sheet} is currently mirrored on a display server, this returns the port
+with which \arg{sheet} is associated.  Otherwise it returns \cl{nil}.
+
+
+\subsection {Internal Interfaces for Native Coordinates}
+
+\issue {SWM} {Do these functions work on any sheet, or only on sheets that have
+a mirror, or only on sheets that have a direct mirror?  Also, define what
+``native coordinates'' are.  Also, do \cl{sheet-device-transformation} and
+\cl{sheet-device-region} really account for the user's transformation and
+clipping region?}
+
+\Defgeneric {sheet-native-transformation} {sheet}
+
+Returns the transformation for the \term{sheet} \arg{sheet} that converts sheet
+coordinates into native coordinates.  The object returned by this function is
+volatile, so programmers must not depend on the components of the object
+remaining constant.
+
+\Defgeneric {sheet-native-region} {sheet}
+
+Returns the region for the \term{sheet} \arg{sheet} in native coordinates.  The
+object returned by this function is volatile, so programmers must not depend on
+the components of the object remaining constant.
+
+\Defgeneric {sheet-device-transformation} {sheet}
+
+Returns the transformation used by the graphics output routines when drawing on
+the mirror.  This is the composition of the sheet's native transformation and
+the user transformation.  The object returned by this function is volatile, so
+programmers must not depend on the components of the object remaining constant.
+
+\Defgeneric {sheet-device-region} {sheet}
+
+Returns the actual clipping region to be used when drawing on the mirror.  This
+is the intersection of the user's clipping region (transformed by the device
+transformation) with the sheet's native region.  The object returned by this
+function is volatile, so programmers must not depend on the components of the
+object remaining constant.
+
+\Defgeneric {invalidate-cached-transformations} {sheet}
+
+\cl{sheet-native-transformation} and \cl{sheet-device-transformation} typically
+cache the transformations for performance reasons.
+\cl{invalidate-cached-transformations} clears the cached native and device
+values for the \term{sheet} \arg{sheet}'s transformation and clipping region.
+It is invoked when a sheet's native transformation changes, which happens when a
+sheet's transformation is changed or when \cl{invalidate-cached-transformations}
+is called on any of its ancestors.
+
+\Defgeneric {invalidate-cached-regions} {sheet}
+
+\cl{sheet-native-region} and \cl{sheet-device-region} typically cache the
+regions for performance reasons.  \cl{invalidate-cached-regions} clears the
+cached native and device values for the \term{sheet} \arg{sheet}'s native
+clipping region.  It is invoked when a sheet's native clipping region changes,
+which happens when the clipping region changes or when
+\cl{invalidate-cached-regions} is called on any of its ancestors.
+
+
+\comment {Here is stuff from the old Silica chapters that should perhaps
+be incorporated into the above:
+
+\section {Dynamic Output Contract}
+
+The \cl{dynamic-output-contract} class allows for the dynamic selection and use
+of properly incorporated graphics package.  Graphics packages are incorporated
+into the Silica framework (provided to clients of dynamic output) by
+implementing a \cl{display medium} class.  A display medium combines state about
+the target sheet, imaging parameters and options supported by the medium, and
+port specific implementation data.  The implementation of a display medium type
+is discussed in Section~\ref{display-medium}.
+
+A client can get a display medium for a dynamic output sheet in one of two ways:
+
+\begin{enumerate}
+\item A medium may be allocated to the sheet by passing in the \cl{:medium-type}
+initarg (for example, \cl{:clim} gets a CLIM graphics medium) at sheet creation.
+
+\item A programmer can use \cl{using-display-medium} to temporary allocate a
+medium that uses the sheet as its target.
+\end{enumerate}
+
+\Definitarg {:medium-type}
+
+This initarg can be used with dynamic output contract.  If this initarg is used,
+than a medium will be allocated for the sheet when it is grafted.  \cl{:clim} is
+the only value guaranteed to be implemented across all ports.
+
+\section {Providing a Display Medium Type}
+
+The graphics package independence of \cl{standard-output-contract} is based on
+the concept of display media.  Display media provide a context that allows the
+window system to control output performed by clients.  In addition, display
+media may provide auxiliary state for managing client imaging parameters.
+Graphics packages are incorporated into Silica (that is, made usable by users of
+standard output) by implementing a \concept{display medium} class.
+
+A medium is an implementation or incorporation of a graphics package into the
+Silica framework.  This section defines the protocols for implementing a medium
+type and in particular a display medium type.
+
+\Defclass {display-medium}
+
+Display mediums are subclasses of standard output that incorporate a graphics
+package into the Silica framework.
+  
+A display medium class must implement two protocol: a client interface to the
+graphics package (which is completely defined by the graphics package being
+incorporated), and an interface required by Silica.  The client interface is
+generally the same as the client interface to the graphics package (that's the
+point of providing that graphics package) though slight additions may be made to
+improve performance.  The \cl{standard-output-contract} requirements are
+sufficient to allow using the graphics package on a sheet.  They consist of the
+following areas:
+
+\begin{itemize}
+\item {\bf View Control}.  Generic functions for setting the clipping region and
+output transformation as required by windowing policies.  These routines must
+not interfere with the use of clipping and transformations by the client, if the
+client interface allows these things.
+
+\item {\bf Output Protection}.  This includes validating that proper clipping
+regions and transformation are being used, and locking out changes that might
+influence these.  Protection granularity depends significantly on the graphics
+package and on what kind of client interface to graphics routines are provided.
+
+\item {\bf Integration of Types}. The region and transformation types used by
+the graphics package should be integrated into the kernel or coerced at
+appropriate interfaces, so that clients don't have to use different kinds of
+regions to talk to windowing functionality and output functionality.
+\end{itemize}
+
+\defgeneric {(setf silica-clipping-region)} {display-medium}
+\Defgeneric {(setf silica-medium-transformation)} {display-medium}
+
+A display medium must clip and transform all output according to the values
+returned by these functions.  A display medium class can provide methods on the
+setf generic functions to update state or to mark the need to update state or
+whatever.
+
+\defgeneric {device-clipping-region} {display-medium} 
+\Defgeneric {device-transformation} {display-medium}
+
+\Defmacro {with-output-protection} {(dm) \body body}
+
+All graphics routines provided by the display medium must insure that imaging
+happens with a protected context using this macro.  This allows the window
+system to insure that the display medium clipping regions and transformations
+will not changed during the scope of the imaging operation.
+
+\chapter {Input Processing}
+
+Silica provides an input architecture and standard functionality for notifying
+clients of input that is distributed to their sheets.  Input includes the
+pointer entering and exiting sheets, pointer motion as allowed by performance,
+and mouse button and keyboard events.
+
+Programmers who would like to design specialized input machinery need to
+understand the details of Silica's input distribution architecture.  This
+section covers that topic.  Most users of higher levels of CLIM need not
+concern themselves with the details presented here.
+
+Silica separates device input processing into two phases:  distribution
+(determining which sheet should receive the input), and delivery (translating
+the raw input into a representation suitable to the client of the recipient
+sheet).  The design goals for the input architecture include allowing flexible
+selection of both distribution and delivery policies as well as providing
+standard policies that are portable across a wide variety of host window servers
+and sufficient for most applications.  This input architecture supports both
+event-oriented and stream-oriented input interfaces; and both single and
+multiple process environments.
+
+The flow of input processing proceeds as follows.  Device events come in from a
+port in a window server specific way.  Each device event is directed to an event
+distributor that is responsible for determining the recipient of the input, and
+possibly also for generating crossing events on mouse motion.  A standard
+distributor is provided and chosen by default for most ports.
+
+After a recipient is found for a device event, the device event is passed to the
+input contract of the sheet.  The input contract translates and delivers the
+event to the sheet's client.  This means that an input contract must define a
+method for converting and delivery the device event of each port type that it
+supports.  This approach allows delayed representation of input based on the
+final recipient of the input.  The standard input contracts are described below.
+
+Each port has a event processor that processes all of the
+implementation-specific device events.  This port event processor may run in a
+separate per-port process or can be invoked directly by higher levels in a
+single-process environment.  For example, in a multiprocess environment a port
+event handler would run code similar to the following:
+
+\begin{verbatim}
+   (loop (process-next-event display))
+\end{verbatim}
+
+\Defgeneric {process-next-event} {port \key timeout}
+
+This function provides a standard interface for one pass through a port's event
+processing loop.  It returns \term{true} if an event was processed, otherwise it
+returns \term{false} (meaning that the function timed out).  A port
+implementation must provide a method for this function that reads the next
+window server specific device event (blocking if necessary) and then invokes the
+port's event distributor via a call to \cl{distribute-device-event}.  This
+method is required to pass along some necessary keyword arguments along with any
+port specific keyword args that will eventually be parsed by port-specific
+methods defined on the input contract of the recipient sheet.
+
+\Defgeneric {distribute-device-event} {distributor port source \key \allow}
+
+A distributor implementation must provide a method for this function.
+\arg{Source} indicates the sheet that corresponds to the host window that the
+event was delivered to by the window server.  This method is responsible for
+invoking \cl{dispatch-device-event} or \cl{dispatch-crossing-event} on input
+contract of sheet's.
+
+\Defclass {standard-event-distributor} 
+
+This class implements the standard distribution policy supported by Silica.
+Pointer button and motion events are distributed to deepest sheet in the
+hierarchy that contains the pointer at the time that the event is generated.
+Keyboard events can be distributed either to a particular sheet or to the same
+sheet that would receive pointer events.
+
+\defgeneric {dispatch-device-event} {port input-contract \key sheet \allow}
+\Defgeneric {dispatch-crossing-event} {port input-contract \key sheet \allow}
+
+These functions are invoked by an event distributor.  Typically the
+input-contract is the same object as the sheet and some generic as well as some
+port-specific keywords arguments indicating the device event are passed in.
+Input contract implementations provide methods specialized on each of the ports
+that the input contract is supported on.  These methods are responsible for
+parsing the keyword arguments and delivering the event to the client of the
+sheet.
+
+
+%\Defgeneric {port-event-distributor} {port}
+
+%\Defgeneric {port-cursor} {port}
+
+\section {Input Contracts}
+
+Standard event delivery is implemented by the \cl{standard-input-contract}
+class.  This input contract type provides methods for the appropriate generic
+functions of the Event Distribution protocol that invoke \cl{queue-event} on the
+recipient sheet and the event.  Clients can pass in an event queue when a
+standard input contract is initialized or change the queue associated with the
+sheet later.
+
+\keepout{This input contract type provides event delivery methods that converts
+the port-specific event keywords into the standard event representation and
+then invokes \cl{queue-event} on the recipient sheet and the event.}
+
+\Defclass {standard-input-contract}
+
+In addition to the standard input contract, two other contracts are provided:
+\cl{mute-input-contract} and \cl{invoking-input-contract}.  In addition, the
+\cl{bursting-input-queuer} mixin is provided as a convenient addition to the
+protocol implemented by \cl{invoking-input-contract}.
+
+\Defclass {mute-input-contract}
+
+This class supports sheets that do not wish to receive input.
+
+\Defclass {invoking-input-contract}
+
+The \cl{invoking-input-contract} is different from the standard input contract
+in at least two significant ways.  First, it converts the host-specific event
+into a set of keyword arguments and invokes \cl{handle-input} on the recipient
+sheet and these arguments (as opposed to queuing a structured event).  And
+second, the client is expected to do its input handling synchronously within the
+port's event handling process.  (In single process environments, the difference
+is that the input is done during queue-input, rather than at a some other place
+in the application input loop).
+        
+\Defgeneric {queue-input} {client \key type sheet state x y time \allow} 
+
+This function is invoked by the invoking input contract.  \arg{client} is
+typically the recipient sheet itself, since the creator of the sheet will have
+additional super classes added to the sheet's sheet class.
+
+\Defclass {bursting-input-queuer}
+
+This class provides standard methods for \cl{queue-input}.  The method for
+\cl{queue-input} provided by input handler examines the \arg{type} and
+dispatches to one of the event handling function described below.
+
+\Defgeneric {enter-region} {client \key \allow}
+\Defgeneric {exit-region} {client \key \allow}
+
+These generic functions are invoked by \cl{deliver-event} when the cursor enters or
+exits an active region
+
+\issue {SWM} {What is \cl{deliver-event}?  Why do these allow other keywords?}
+
+\chapter {Other Input Facilities}
+
+\section {Standard Polling Interfaces}
+
+\Defgeneric {poll-pointer} {sheet}
+
+This function provides polling support.  Returns X, Y, and state.  This function
+can be used to obtain the location of the pointer device and the state of mouse
+buttons and modifier keys.
+
+} %% end of long comment

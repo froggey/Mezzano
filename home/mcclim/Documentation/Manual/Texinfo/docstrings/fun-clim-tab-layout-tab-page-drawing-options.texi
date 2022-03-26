@@ -1,0 +1,8 @@
+@anchor{Generic-Function clim-tab-layout:tab-page-drawing-options}
+@deffn {Generic Function} {@symbol{tab-page-drawing-options,clim-tab-layout}} tab-page
+Return the drawing options of this page's header.  Use
+the @code{setf} function of the same name to set the drawing options dynamically.
+Note: Not all implementations of the tab layout will understand all drawing
+options.  In particular, the Gtkairo backends understands only the :INK
+option at this time.
+@end deffn

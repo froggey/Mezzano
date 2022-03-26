@@ -1,0 +1,133 @@
+\chapter{Menu bar}
+\index{menu-bar}
+
+Menu bar has become essential part of every GUI system, including
+McClim. Ideally, McClim should try to use the menu bar provided by
+host window system via McClim backends, but the current
+\texttt{clx-backend} doesn't supports native menu bars. That's why it
+has some quirks of its own, like you need to keep mouse button pressed
+while accessing the sub-menus.
+
+\section{Creating Menu bar}
+\label{creating-menu-bar}
+
+McCLIM makes creating menu bar quite easy.
+
+\begin{verbatim}
+        (clim:define-application-frame foo ()
+        ...
+        (:menu-bar t)
+        ...)
+\end{verbatim}
+
+Options for \texttt{:menu-bar} can be
+\begin{itemize}
+\item
+  \texttt{t} (default) : McClim will provide the menu bar. Later, when
+  you start defining commands, you can provide a \texttt{(:menu t)}
+  argument to command definition that will add this command to menu
+  bar.
+\item
+  \texttt{nil} : McClim won’t provide the menu bar.
+\item
+  \texttt{command-table} : If you provide a named command table as
+  argument, that command table is used to provide the menu bar(See
+  Chapter \ref{using-command-tables} on command tables).
+\end{itemize}
+
+To add a sub-menu to menu bar, You need to change the type of
+menu-item from \texttt{:command} to \texttt{:menu} (which requires
+another \texttt{command-table} as argument) (See
+\refSec{modifying-menu-items}).
+
+\section{Modifying Menu bar}
+
+Menu bar can be changed anytime by changing \texttt{command-table}
+associated with the current \texttt{frame}. For example:
+\begin{verbatim}
+        (setf (frame-command-table *application-frame*)
+              new-command-table)
+\end{verbatim}
+changes menu bar of \texttt{*application-frame*} by replacing current
+\texttt{command-table} (accessible by \texttt{frame-command-table}
+function) with \texttt{new-command-table}.
+
+\subsection{Modifying menu items of command table}
+\label{modifying-menu-items}
+
+Menu items can be added to command table with following function:
+
+\Defun {add-menu-item-to-command-table} {command-table string type value
+  \\\key documentation (after ':end) keystroke text-style (errorp t)}
+
+Arguments to this function are:
+\begin{itemize}
+\item
+  \texttt{command-table} : Command table to which we want to add the menu item.
+\item
+  \texttt{string} : name of the menu item as it will appear on the
+  menu bar. Its character case is ignored e.g. you may give it
+  \texttt{file} or \texttt{FILE} but it will appear as \texttt{File}.
+\item
+  \texttt{type} and \texttt{value} : type could be one of
+  \texttt{:command},\texttt{:function},\texttt{:menu} and
+  \texttt{:divider}. value of \texttt{value} depends on
+  \texttt{type}. So when given the
+  \begin{itemize}
+  \item
+    \texttt{:command} : \texttt{value} must be a command, a cons of
+    command name and it's arguments. if you omit the arguments McCLIM
+    will prompt for arguments.
+  \item
+    \texttt{:function} : \texttt{value} must be a function having
+    indefinite extent that, when called, returns a command. Function
+    must accept two arguments, the gesture (keyboard or mouse press
+    event) and a ``numeric argument''.
+  \item
+    \texttt{:menu} : \texttt{value} must be another command
+    table. This type is used to add sub-menus to the menu.
+  \item
+    \texttt{:divider} : \texttt{value} is ignored, and \texttt{string}
+    is used as a divider string. Using ``|'' as string will make it
+    obvious to users that it is a divider.
+  \end{itemize}
+\item
+  \texttt{documentation} : You can provide the documentation (for
+  non-obvious menu items) which will be displayed on
+  pointer-documentation pane (if you have one).
+\item
+  \texttt{after} (default \texttt{:end}) : This determines where item
+  will be inserted in the menu. The default is to add it to the
+  end. Other values could be \texttt{:start}, \texttt{:sort}(add in
+  alphabetical order) or \texttt{string} which is name of existing
+  menu-item to add after it.
+\item
+  \texttt{keystroke} : If keystroke is supplied, it will be added to
+  comand tables keystroke accelerator table. Value must be a keyboard
+  gesture name e.g. (:s :control) for Control + s.
+\item
+  \texttt{text-style} : This is either a text style spec or nil. It is
+  used to indicate that the command menu item should be drawn with the
+  supplied text style in command menus.
+\item
+  \texttt{error-p} : If this is \texttt{t} and the item already exists
+  in the menu, it will signal a \texttt{command-already-present}
+  error. If \texttt{nil}, it will first remove the existing item and
+  add the new item to the command-table.
+\end{itemize}
+
+To remove items from command table, the following function is used:
+
+\Defun {remove-menu-item-from-command-table} {command-table string \key (errorp t)}
+
+where \texttt{command-table} is command-table-designator and
+\texttt{string} is the menu item's name (it is case-insensitive). You can
+provide \texttt{:error-p nil} to suppress the error if item is not in
+the command-table.
+
+Note that both of the above functions \texttt{\emph{do not}}
+automatically update the menu bar. For that you need to replace the
+existing \texttt{frame-command-table} with the modified command table
+using \texttt{setf}. The typical way to do this is to use \texttt{let}
+to create a copy of \texttt{frame-command-table}, modify it and at the
+end call \texttt{setf} to replace the original.

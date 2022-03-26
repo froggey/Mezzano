@@ -1,0 +1,319 @@
+@node Developer manual
+@chapter Developer manual
+
+@menu
+* Coding conventions::
+* Writing backends::
+* PostScript backend::
+@end menu
+
+@node Coding conventions
+@section Coding conventions
+
+In the @mcclim{} codebase, we try to follow certain coding conventions
+for consistency and better maintainability.  We default to conventions
+mentioned in the @url{http://bauhh.dyndns.org:8000/clim-spec/2.html,
+specification} and to the
+@url{http://www.cs.umd.edu/~nau/cmsc421/norvig-lisp-style.pdf, usual
+conventions}.  The conventions described in the following sections cover
+aspects not discussed in these documents.
+
+@subsection Packages
+
+In addition to the packages mentioned in the specification, @mcclim{}
+defines the packages @code{clim-extensions} and @code{clim-backend}.
+Both are used by the @code{clim-internals} package to avoid conflicts.
+
+@code{clim-extensions} (which has the nickname @code{clime}) exports all
+extensions provided by @mcclim. While each extension may define its own
+package for implementation purposes, application programmers should
+access symbols only via the @code{clim-extensions} package.
+
+@code{clim-backend} (which has the nickname @code{climb}) exports
+symbols which are intended for use by backend writers.  It uses the
+packages @code{clim} and @code{clim-extensions}.
+
+@subsection Examples
+
+Examples and demos which are distributed with @mcclim{} are loaded from
+a separate system named @code{clim-examples}.  Each example should be
+put either directly in the package @code{clim-demo} or live in its own
+package the name of which should be start with @code{clim-demo.}, for
+instance @code{clim-demo.foobar-example}.
+
+@node Writing backends
+@section Writing backends
+
+@menu
+* Different types of backends::
+* Backend protocol::
+* Event handling::
+* Graft protocol::
+* Medium drawing::
+* Medium operations::
+* Port protocol::
+* Frame manager::
+* Pointer protocol (events?)::
+* Text size::
+* Additional output destinations::
+* Miscellaneous::
+* Obsolete::
+@end menu
+
+@node Different types of backends
+@subsection Different types of backends
+
+Backend provides platform specific API for low level drawing
+operations, getting events, managing window geometry properties and
+providing native look-and-feel to the application.
+
+There are three types of backends:
+
+@table @asis
+@item Draw-only backend
+
+This type doesn't implement any kind of events and allows only drawing
+on it. A good example of it is the @xref{PostScript backend} which is
+part of @emph{@clim{} II} specification.
+
+@item Basic backend
+
+OpenGL, X, or HTML 5 canvas are resources which provide only drawing and
+event handling primitives. In this case we need to wrap their APIs
+for @mcclim{} to use. @mcclim{} will then use these drawing and windowing
+primitives to implement portable widgets.
+
+@item Native backend
+
+Native backend is based on already complete GUI library which provides
+a rich set of widgets (for example Cocoa or Win32 API). Additionally
+to the things needed to be implement in the first two cases, we can
+also map these native look and feel widgets in @mcclim{}.
+@end table
+
+The @class{clim-null} backend can be used as a template to start with a
+new backend.  If the underlying library you write backend for manages
+window hierarchy, positioning and events, it is possible to base new
+pane types on @code{mirrored-sheet-mixin} class which provides native
+handles into native windowing system.  Mirrored and ``native lisp''
+sheets may be freely mixed in the pane hierarchy.
+
+@node Backend protocol
+@subsection Backend protocol
+
+@verbatim
+NEW CLASS FOR BACKEND `FOO'
+---------------------------
+foo-frame-manager
+foo-native-frame-manager (optional)
+foo-graft
+foo-port
+foo-medium
+foo-pointer
+@end verbatim
+
+@node Event handling
+@subsection Event handling
+
+@verbatim
+EVENT HANDLING (in port.lisp)
+-----------------------------
+;;; Originally in CLIM-INTERNALS
+port-frame-keyboard-input-focus
+synthesize-pointer-motion-event
+@end verbatim
+
+@node Graft protocol
+@subsection Graft protocol
+
+@verbatim
+GRAFT (in grafts.lisp)
+-----------------------------------
+;;; Originally in CLIM
+graft        ; root window/screen
+graft-height ; screen height
+graft-width  ; screen width
+@end verbatim
+
+@node Medium drawing
+@subsection Medium drawing
+
+@verbatim
+MEDIUM DRAWING (in medium.lisp)
+-------------------------------
+;;; Originally in CLIM
+medium-draw-circle*
+medium-draw-ellipse*
+medium-draw-line*
+medium-draw-lines*
+medium-draw-point*
+medium-draw-points*
+medium-draw-polygon*
+medium-draw-rectangle*
+medium-draw-rectangles*
+medium-draw-text*
+@end verbatim
+
+@node Medium operations
+@subsection Medium operation
+
+@verbatim
+MEDIUM OPERATIONS (in medium.lisp)
+----------------------------------
+;;; Originally in CLIM
+make-medium ; make medium for a given sheet
+medium-beep
+medium-buffering-output-p
+medium-clear-area
+medium-copy-area
+medium-finish-output
+medium-force-output
+medium-line-style
+medium-text-style
+@end verbatim
+
+@node Port protocol
+@subsection Port protocol
+
+@verbatim
+PORT (BRIDGE) TO GUI (A SERVER LIKE)
+------------------------------------
+;;; Originally in CLIM
+destroy-port
+
+;;; Originally in CLIM-INTERNALS
+port-allocate-pixmap
+port-deallocate-pixmap
+port-disable-sheet
+port-enable-sheet
+port-force-output
+port-set-mirror-region
+port-set-mirror-transformation
+set-sheet-pointer-cursor
+port-set-mirror-name
+@end verbatim
+
+@node Frame manager
+@subsection Frame manager, panes and gadgets
+
+@verbatim
+FRAME MANAGER, PANES AND GADGETS
+--------------------------------
+;;; Originally in CLIM
+;; in frame-manager.lisp
+make-pane-1
+note-space-requirements-changed
+adopt-frame
+
+;; in port.lisp or pane.lisp/gadget.lisp
+allocate-space
+destroy-mirror
+handle-repaint
+realize-mirror
+@end verbatim
+
+@node Pointer protocol (events?)
+@subsection Pointer protocol (events?)
+
+@verbatim
+POINTER (port.lisp or pointer.lisp)
+-----------------------------------
+;;; Originally in CLIM
+pointer-button-state
+pointer-modifier-state
+pointer-position
+@end verbatim
+
+@node Text size
+@subsection Text size
+
+@verbatim
+TEXT SIZE (medium.lisp)
+-----------------------
+;;; Originally in CLIM-INTERNALS
+text-style-character-width
+;;; Originally in CLIM
+text-size
+text-style-ascent
+text-style-descent
+text-style-height
+text-style-mapping
+text-style-width
+@end verbatim
+
+@node Additional output destinations
+@subsection Additional output destinations
+
+A backend implementation may register additional output destination
+types for the @cl{:output-destination} keyword parameter accepted by
+some commands.  Doing so allows the command to be invoked with
+@cl{*standard-output*} bound to a stream provided by the backend that
+redirects the command's output to a non-default destination such as a
+vector graphics or raster image file.
+
+To support this protocol in a backend, three things are required:
+
+@enumerate
+@item
+A new output destination class (usually a subclass of
+@class{clim-backend:output-destination} or one of its subclasses).
+
+@item
+A method on @genfunref{clim-backend:invoke-with-standard-output}
+specialized to the new output destination class.
+
+@item
+A call to @funref{clim-backend:register-output-destination-type} in
+order to register the new output destination.
+@end enumerate
+
+@include docstrings/fun-clim-backend-invoke-with-standard-output.texi
+
+@include docstrings/fun-clim-backend-register-output-destination-type.texi
+
+@node Miscellaneous
+@subsection Miscellaneous
+
+@verbatim
+MISC
+----
+;;; Originally in CLIM-EXTENSIONS
+medium-miter-limit          ; determine a draw for miter < sina/2
+@end verbatim
+
+@node Obsolete
+@subsection Obsolete
+
+@verbatim
+NO LONGER NEEDED IN BACKEND
+---------------------------
+queue-callback                  ; moved to clim-core
+medium-clipping-                ; moved to clim-basic
+mirror-transformation           ; never used
+@end verbatim
+
+@node PostScript backend
+@section PostScript backend
+
+@menu
+* Postscript fonts::
+* Additional functions::
+@end menu
+
+@node Postscript fonts
+@subsection Postscript fonts
+
+Font mapping is a cons, the car of which is the name of the font
+(FontName field in the AFM file), and the cdr is the size in points.
+Before establishing the mapping, an information about this font should
+be loaded with the function @cl{load-afm-file}.
+
+@node Additional functions
+@subsection Additional functions
+
+Package @cl{clim-postscript} exports the following functions:
+
+@deffn {Function} {load-afm-file} afm-filename
+@end deffn
+
+Loads a description of a font from the specified AFM file.

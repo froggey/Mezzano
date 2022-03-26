@@ -1,0 +1,8 @@
+@anchor{Macro clim-tab-layout:with-tab-layout}
+@deffn {Macro} {@symbol{with-tab-layout,clim-tab-layout}} (default-presentation-type &rest initargs &key name &allow-other-keys) &body body
+Return a @code{tab-layout}.  Any keyword arguments, including its name, will be
+passed to @code{make-pane}.  Child pages of the @code{tab-layout} can be specified using
+BODY, using lists of the form (@code{title} PANE &KEY PRESENTATION-TYPE
+DRAWING-OPTIONS @code{enabled-callback}).  @code{default-presentation-type} will be passed
+as :@code{presentation-type} to pane creation forms that specify no type themselves.
+@end deffn

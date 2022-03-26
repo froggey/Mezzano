@@ -1,0 +1,9 @@
+@anchor{Condition drei-buffer:invalid-motion}
+@deftp {Condition} {drei-buffer:invalid-motion}
+@tindex drei-buffer:invalid-motion
+Class precedence list: @code{@w{invalid-motion}, @w{error}, @w{serious-condition}, @w{condition}, @w{slot-object}, @w{t}}
+
+This condition is signaled whenever an attempt is
+made to move a mark before the beginning or after the end of the
+buffer.
+@end deftp

@@ -1,0 +1,701 @@
+@node Reference manual
+@chapter Reference manual
+
+@menu
+* Concepts::
+* Sheet hierarchies::
+* Drawing functions::
+* Panes::
+* Output Protocol::
+* Command Processing::
+* Incremental redisplay::
+@end menu
+
+@node Concepts
+@section Concepts
+
+@menu
+* Coordinate systems::
+* Arguments to drawing functions::
+@end menu
+
+@node Coordinate systems
+@subsection Coordinate systems
+
+@clim{} uses a number of different coordinate systems and transformations
+to transform coordinates between them.
+
+The coordinate system used for the arguments of drawing functions is
+called the @glossref{user coordinate system,User coordinates},
+@cindex user coordinate system
+and coordinate values expressed in the user coordinate system are known
+as @glossref{user coordinates,User coordinates}.
+@cindex user coordinates
+
+Each sheet has its own coordinate system called the @glossref{sheet
+coordinate system,Sheet coordinates},
+@cindex sheet coordinate system
+and positions expressed in this coordinate system are said to be
+expressed in @glossref{sheet coordinates,Sheet coordinates}.
+@cindex sheet coordinates
+User coordinates are translated to @glossref{sheet coordinates,Sheet
+coordinates} by means of the @glossref{user transformation,User
+transformation} also called the @glossref{medium transformation,Medium
+transformation}.  This transformation is stored in the @gloss{medium}
+used for drawing.  The medium transformation can be composed temporarily
+with a transformation given as an explicit argument to a drawing
+function.  In that case, the user transformation is temporarily modified
+for the duration of the drawing.
+
+Before drawing can occur, coordinates in the sheet coordinate system
+must be transformed to @glossref{native coordinates,Native coordinates},
+which are coordinates of the coordinate system of the native windowing
+system.  The transformation responsible for computing native coordinates
+from sheet coordinates is called the @glossref{native
+transformation,Native transformation}.  Notice that each sheet
+potentially has its own native coordinate system, so that the native
+transformation is specific for each sheet.  Another way of putting it is
+that each sheet has a mirror, which is a window in the underlying
+windowing system.  If the sheet has its own mirror, it is the
+@glossref{direct mirror,Direct mirror} of the sheet.  Otherwise its
+mirror is the direct mirror of one of its ancestors.  In any case, the
+native transformation of the sheet determines how sheet coordinates are
+to be translated to the coordinates of that mirror, and the native
+coordinate system of the sheet is that of its mirror.
+
+The composition of the user transformation and the native transformation
+is called the @glossref{device transformation,Device transformation}.
+It allows drawing functions to transform coordinates only once before
+obtaining native coordinates.
+
+Sometimes, it is useful to express coordinates of a sheet in the
+coordinate of its parent.  The transformation responsible for that is
+called the @glossref{sheet transformation,Sheet transformation}.
+
+@node Arguments to drawing functions
+@subsection Arguments to drawing functions
+
+Drawing functions are typically called with a sheet as an argument.
+
+A sheet often, but not always, corresponds to a window in the underlying
+windowing system.
+
+@node Sheet hierarchies
+@section Sheet hierarchies
+
+@menu
+* Computing the native transformation::
+* Computing the native region::
+* Moving and resizing sheets and regions::
+* Scrolling::
+@end menu
+
+@clim{} sheets are organized into a hierarchy.  Each sheet has a sheet
+transformation and a sheet region.  The sheet tranformation determines
+how coordinates in the sheet's own coordinate system get translated into
+coordinates in the coordinate system of its parent.  The sheet region
+determines the @glossref{potentially visible area,Potentially visible
+area} of the otherwise infinite drawing plane of the sheet.  The sheet
+region is given in the coordinate system of the sheet.
+
+In @mcclim{}, every grafted sheet has a @glossref{native
+transformation,Native transformation}.  The native transformation is
+used by drawing functions to translate sheet coordinates to
+@glossref{native coordinates,Native coordinates}, so that drawing can
+occur on the (not necessarily immediate) mirror of the sheet.  It would
+therefore be enough for sheets that support the @gloss{output protocol}
+to have a native transformation.  However, it is easier to generalize it
+to all sheets, in order to simplify the programming of the computation
+of the native transformation.  Thus, in @mcclim{}, even sheets that are
+mute for output have a native transformation.
+
+In @mcclim{}, every grafted sheet also has a @glossref{native
+region,Native region}.  The native region is intersection the sheet
+region and the region of all of its ancestors, except that the native
+region is given in @gloss{native coordinates}, i.e. the coordinates
+obtained after the application of the @gloss{native transformation} of
+the sheet.
+
+@node Computing the native transformation
+@subsection Computing the native transformation
+
+@node Computing the native region
+@subsection Computing the native region
+
+@node Moving and resizing sheets and regions
+@subsection Moving and resizing sheets and regions
+
+@node Scrolling
+@subsection Scrolling
+
+@node Drawing functions
+@section Drawing functions
+
+@menu
+* Windowing system drawing::
+* CLIM drawing::
+@end menu
+
+@node Windowing system drawing
+@subsection Windowing system drawing
+
+A typical windowing system provides a hierarchy of rectangular areas
+called windows.  When a drawing functions is called to draw an object
+(such as a line or a circle) in a window of such a hierarchy, the
+arguments to the drawing function will include at least the window and a
+number of coordinates relative to (usually) the upper left corner of the
+window.
+
+To translate such a request to the actual altering of pixel values in
+the video memory, the windowing system must translate the coordinates
+given as argument to the drawing functions into coordinates relative to
+the upper left corner of the entire screen.  This is done by a
+composition of translation transformations applied to the initial
+coordinates.  These transformations correspond to the position of each
+window in the coordinate system of its parent.
+
+Thus a window in such a system is really just some values indicating its
+height, its width, and its position in the coordinate system of its
+parent, and of course information about background and foreground colors
+and such.
+
+@node CLIM drawing
+@subsection CLIM drawing
+
+@clim{} generalizes the concept of a hierarchy of window in a windowing
+system in several different ways.  A window in a windowing system
+generalizes to a @gloss{sheet} in @clim{}.  More precisely, a window in
+a windowing system generalizes to the @glossref{sheet region,Sheet
+region} of a sheet.  A @clim{} sheet is an abstract concept with an
+infinite @gloss{drawing plane} and the @gloss{region} of the sheet is
+the potentially visible part of that drawing plane.
+
+@clim{} @gloss{sheet region}s don't have to be rectangular the way windows
+in most windowing systems have to be.  Thus, the width and the height of
+a window in a windowing system generalizes to an arbitrary
+@gloss{region} in @clim{}.  A @clim{} region is simply a set of mathematical
+points in a plane.  @clim{} allows this set to be described as a
+combination (union, intersection, difference) of elementary regions made
+up of rectangles, polygons and ellipses.
+
+Even rectangular regions in @clim{} are generalizations of the
+width+height concept of windows in most windowing systems.  While the
+upper left corner of a window in a typical windowing system has
+coordinates @math{(0,0)}, that is not necessarily the case of a @clim{}
+region.  @clim{} uses that generalization to implement various ways of
+scrolling the contents of a sheet.  To see that, imagine just a slight
+generalization of the @math{width+height} concept of a windowing system
+into a rectangular region with @math{x+y+width+height}.  Don't confuse
+the @math{x} and @math{y} here with the position of a window within its
+parent, they are different.  Instead, imagine that the rectangular
+region is a hole into the (infinite) drawing plane defined by all
+possible coordinates that can be given to drawing functions.  If
+graphical objects appear in the window with respect to the origin of
+some coordinate system, and the upper-left corner of the window has
+coordinates @math{(x,y)} in that coordinate system, then changing
+@math{x} and @math{y} will have the effect of scrolling.
+
+@clim{} sheets also generalize windows in that a window typically has
+pixels with integer-value coordinates.  @clim{} sheets, on the other
+hand, have infinte resolution.  Drawing functions accept non-integer
+coordinate values which are only translated into integers just before
+the physical rendering on the screen.
+
+The x and y positions of a window in the coordinate system of its parent
+window in a typical windowing system is a translation transformation
+that takes coordinates in a window and transform them into coordinates
+in the parent window.  @clim{} generalizes this concepts to arbitrary
+affine transformations (combinations of translations, rotations, and
+scalings).  This generalization makes it possible for points in a sheet
+to be not only translated compared to the parent sheet, but also rotated
+and scaled (including negative scaling, giving mirror images).  A
+typical use for scaling would be for a sheet to be a zoomed version of
+its parent, or for a sheet to have its y-coordinate go the opposite
+direction from that of its parent.
+
+When the shapes of, and relationship between sheets are as simple as
+those of a typical windowing system, each sheet typically has an
+associated window in the underlying windowing system.  In that case,
+drawing on a sheet translates in a relativly straightforward way into
+drawing on the corresponding window.  @clim{} sheets that have associated
+windows in the underlying windowing system are called @gloss{mirrored
+sheets} and the system-dependent window object is called the
+@gloss{mirror}.  When shapes and relationships are more complicated,
+@clim{} uses its own transformations to transform coordinates from a sheet
+to its parent and to its grandparent, etc., until a @gloss{mirrored
+sheet} is found.  To the user of @clim{}, the net effect is to have a
+windowing system with more general shapes of, and relationships between
+windows.
+
+@node Panes
+@section Panes
+@cindex pane
+
+Panes are subclasses of sheets.  Some panes are @gloss{layout panes}
+that determine the size and position of its children according to rules
+specific to each particular type of layout pane.  Examples of layout
+panes are vertical and horizontal boxes, tables etc.
+
+According to the @clim{} specification, all @clim{} panes are
+@emph{rectangular objects}.  For @mcclim{}, we interpret that phrase to
+mean that:
+
+@itemize
+@item
+@clim{} panes appear rectangular in the native windowing system;
+
+@item
+@clim{} panes have a native transformation that does not have a rotation
+component, only translation and scaling.
+@end itemize
+
+Of course, the specification is unclear here.  Panes are subclasses of
+sheets, and sheets don't have a shape per-se.  Their @emph{regions} may
+have a shape, but the sheet itself certainly does not.
+
+The phrase in the specification @emph{could} mean that the
+@gloss{sheet-region} of a pane is a subclass of the region class
+@gloss{rectangle}.  But that would not exclude the possibility that the
+region of a pane would be some non-rectangular shape in the
+@gloss{native coordinate system}.  For that to happen, it would be
+enough that the @gloss{sheet-transformation} of some ancestor of the
+pane contain a rotation component.  In that case, the layout protocol
+would be insufficient in its current version.
+
+@mcclim{} panes have the following additional restrictions:
+
+@itemize
+@item
+@mcclim{} panes have a coordinate system that is only a translation
+compared to that of the frame manager;
+
+@item
+The parent of a pane is either nil or another pane.
+@end itemize
+
+Thus, the panes form a @emph{prefix} in the hierarchy of sheets.  It is
+an error for a non-pane to adopt a pane.
+
+Notice that the native transformation of a pane need not be the identity
+transformation.  If the pane is not mirrored, then its native
+transformation is probably a translation of that of its parent.
+
+Notice also that the native transformation of a pane need not be the
+composition of the identity transformation and a translation.  That
+would be the case only of the native transformation of the top level
+sheet is the identity transformation, but that need not be the case.  It
+is possible for the frame manager to impose a coordinate system in (say)
+millimeters as opposed to pixels.  The native transformation of the top
+level sheet of such a frame manager is a scaling with coefficients other
+than 1.
+
+@menu
+* Creating panes::
+* Pane names::
+* Redisplaying panes::
+* Layout protocol::
+@end menu
+
+@node Creating panes
+@subsection Creating panes
+@cindex @code{make-pane} and @code{:scroll-bars} obsolescence
+
+There is some confusion about the options that are allowed when a pane
+is created with @cl{make-pane}.  Some parts of the specification suggest
+that stream panes such as application panes and interactor panes can be
+created using @cl{make-pane} and an option @cl{:scroll-bars}.  Since
+these application panes do not in themselves contain any scroll bars,
+using that option results in a pane hierarchy being created with the
+topmost pane being a pane of type @cl{scroller-pane}.
+
+As far as @mcclim{} is concerned, this option to @cl{make-pane} is
+obsolete. @footnote{In the specification, there is no example of the
+use of this option to @code{make-pane} or to the equivalent keywords
+in the @code{:panes} section of @code{define-application-frame}.
+There is however one instance where the @code{:scroll-bars} option is
+mention for pane creation.  We consider this to be an error in the
+specification.}  The same goes for using this option together with the
+equivalent keyword, i.e., @code{:application} or @code{interactor}, in
+the @code{:panes} section of @code{define-application-frame}.
+
+Instead, we recommend following the examples of the specification, where
+scroll bars are added in the @code{layouts} section of
+@code{define-application-frame}.
+
+@cindex Panes order
+
+When specification talks about panes in a fashion implying some order
+(i.e ``first application-pane'') @mcclim{} assumes order of definition,
+not order of appearing in layout.  Particularly that means, that if one
+pane is put before another in @code{:panes} option, then it precedes
+it. It is relevant to @code{frame-standard-output} (therefore binding of
+@code{*standard-output*}) and other similar functions.
+
+@node Pane names
+@subsection Pane names
+
+Every pane class accepts the initialization argument @code{:name} the
+value of which is typically a symbol in the package defined by the
+application.  The generic function @code{pane-name} returns the value of
+this initialization argument.  There is no standard way of changing the
+name of an existing pane.  Using the function
+@code{reinitialize-instance} may not have the desired effect, since the
+application frame may create a dictionary mapping names to panes, and
+there is no way to invalidate the contents of such a potential
+dictionary.
+
+The function @code{find-pane-named} searches the pane hierarchy of the
+application frame, consulting the names of each pane until a matching
+name is found.  The @clim{} specification does not say what happens if a
+name is given that does not correspond to any pane.  @mcclim{} returns
+@code{nil} in that case.  If pane names are not unique, it is
+unspecified which of several panes is returned by a call to this
+function.
+
+If the advice of @ref{Creating panes} is followed, then the name given
+in the @code{:panes} option of the macro @code{define-application-frame}
+will always be the name of the top-level pane returned by the
+@code{body} following the pane name.
+
+If that advice is not followed, then the name given to a pane in the
+@code{:panes} option of the macro @code{define-application-frame} may or
+may not become the name of the pane that is constructed by the
+@code{body} that follows the name.  Recall that the syntax of the
+expression that defines a pane in the @code{:panes} option is
+@code{(name . body)}.  Currently, @mcclim{} does the following:
+
+@itemize
+@item
+If the @code{body} creates a pane by using a keyword, or by using an
+explicitly mentioned call to @code{make-pane}, then the name is given to
+the pane of the type explicitly mentioned, even when the option
+@code{:scroll-bars} is given.
+
+@item
+If the @code{body} creates a pane by calling some arbitrary form other
+than a call to @code{make-pane}, then the name is given to the topmost
+pane returned by the evaluation of that form.
+@end itemize
+
+We reserve the right to modify this behavior in the future.  Application
+code should respect the advice given in @ref{Creating panes}.
+
+@node Redisplaying panes
+@subsection Redisplaying panes
+@cindex redisplaying panes
+
+Recall that @emph{redisplay} refers to the creation of the output
+history of a pane.  There are two typical ways of creating this output
+history:
+
+@itemize
+@item
+The application maintains some data structure that needs to be reflected
+in the text and graphics of the pane.  In this case, a pane of type
+@t{application-pane} is typically used, and the default value of the
+@t{:display-time} option is used, which means that some kind of
+application-supplied @emph{display function} is executed at the end of
+each iteration of the command loop.  In this situation, the output
+history is either recomputed from scratch in each iteration, or the
+programmer can use the @emph{incremental redisplay} facility to reuse
+some of the existing output records in the history.
+
+@item
+The application does not keep any data structure, and instead generates
+output incrementally, either as a result of some user action, or of some
+data arriving from an external source.  In this case, the
+@t{:display-time} option is either going to be @t{t} or @t{nil}.  With
+both of these options, the output history is maintained intact after
+each iteration of the command loop.  Instead, when user actions are
+issued, more output records are simply added to the existing output
+history.
+@end itemize
+
+For the second possibility, the pane is never redisplayed.  Instead,
+the action of updating the pane contents is referred to as
+@emph{replaying} the output history.  The remainder of this section is
+entirely dedicated to the @emph{redisplay} action.
+
+It is occasionally necessary for the application to redisplay a pane
+explicitly, as opposed to letting the command loop handle it.  For
+example, if the application data structure is updated in some way, but
+this update is not the result of a command, then after such an update,
+the redisplay function needs to be executed explicitly.  Such an
+update could be the result of a timer event, or of communication with
+an external process.
+
+@anchor{Generic-Function clim:redisplay-frame-pane}
+@deffn {Generic Function} {@symbol{redisplay-frame-pane,clim}} frame pane &key force-p
+@end deffn
+
+Calling this generic function causes an immediate redisplay of
+@var{pane}.  When @var{force-p} is false and the incremental redisplay
+facility is in use for @var{pane}, then output records are reused as
+appropriate.  Supplying a true value for @var{force-p} causes the
+entire output history to be recomputed from scratch.
+
+Notice that this function does not check whether the pane has been
+marked to need redisplay, as indicated by a call to the generic
+function @t{pane-needs-redisplay}.  It results in an unconditional
+redisplay of @var{pane}.
+
+@anchor{Generic-Function clim:redisplay-frame-panes}
+@deffn {Generic Function} {@symbol{redisplay-frame-panes,clim}} frame &key force-p
+@end deffn
+
+Calling this generic function causes an immediate redisplay of all the
+panes of @var{frame} that are visible in the current layout.  This
+function simply calls @t{redisplay-frame-pane} for each visible pane
+of @var{frame}.
+
+Again, notice that no check is being made as to whether the visible
+panes have been marked as needing redisplay.  This function calls
+@code{redisplay-frame-pane} unconditionally for each visible pane, and
+since @code{redisplay-frame-pane} redisplays the pane unconditionally,
+it follows that all visible panes are unconditionally redisplayed.
+
+Also notice that the implication of this unconditional behavior on the
+part of @code{redisplay-frame-panes} means that this is not the
+function called by the standard command loop.  The standard command
+loop only redisplays panes that have been marked as needing redisplay,
+though when the value of the @t{:display-time} option is
+@t{:command-loop} for some pane, then it is always marked as needing
+redisplay in each iteration of the command loop.
+
+@node Layout protocol
+@subsection Layout protocol
+@cindex layout protocol
+
+There is a set of fundamental rules of @clim{} dividing responsibility
+between a parent pane and a child pane, with respect to the size and
+position of the region of the child and the @gloss{sheet transformation}
+of the child.  This set of rules is called the @gloss{layout protocol}.
+
+The layout protocol is executed in two phases.  The first phase is
+called the @gloss{space compostion} phase, and the second phase is
+called the @gloss{space allocation} phase.
+
+@menu
+* Space composition::
+* Space allocation::
+* Change-space Notification Protocol::
+@end menu
+
+@node Space composition
+@subsubsection Space composition
+
+The space composition is accomplished by the generic function
+@genfun{compose-space}.  When applied to a pane, @genfun{compose-space}
+returns an object of type @gloss{space-requirement} indicating the needs
+of the pane in terms of preferred size, minimum size and maximum size.
+The phase starts when compose-space is applied to the top-level pane of
+the application frame.  That pane in turn may ask its children for their
+space requirements, and so on until the leaves are reached.  When the
+top-level pane has computed its space requirments, it asks the system
+for that much space.  A conforming window manager should respect the
+request (space wanted, min space, max space) and allocate a top-level
+window of an acceptable size.  The space given by the system must then
+be distributed among the panes in the hierarchy
+@longref{space-allocation}.
+
+Each type of pane is responsible for a different method on
+@genfun{compose-space}.  Leaf panes such as @gloss{labelled gadgets} may
+compute space requirements based on the size and the text-style of the
+label.  Other panes such as the vbox layout pane compute the space as a
+combination of the space requirements of their children.  The result of
+such a query (in the form of a space-requirement object) is stored in
+the pane for later use, and is only changed as a result of a call to
+@genfun{note-space-requirement-changed}.
+
+Most @gloss{composite panes} can be given explicit values for the values
+of @initarg{:width}, @initarg{:min-width}, @initarg{:max-width},
+@initarg{:height}, @initarg{:min-height}, and @initarg{:max-height}
+options.  If such arguments are not given (effectively making these
+values nil), a general method is used, such as computing from children
+or, for leaf panes with no such reasonable default rule, a fixed value
+is given.  If such arguments are given, their values are used instead.
+Notice that one of @initarg{:height} and @initarg{:width} might be
+given, applying the rule only in one of the dimensions.
+
+Subsequent calls to @genfun{compose-space} with the same arguments are
+assumed to return the same space-requirement object, unless a call to
+note-space-requirement-changed has been called in between.
+
+@node Space allocation
+@subsubsection Space allocation
+@anchor{space-allocation}
+
+When @genfun{allocate-space} is called on a pane @var{P}, it must
+compare the space-requirement of the children of @var{P} to the
+available space, in order to distribute it in the most preferable way.
+In order to avoid a second recursive invokation of
+@genfun{compose-space} at this point, we store the result of the
+previous call to @genfun{compose-space} in each pane.
+
+To handle this situtation and also explicitly given size options, we use
+an @methcomp{:around} method on @genfun{compose-space}.  The
+@methcomp{:around} method will call the primary method only if necessary
+(i.e., @code{(eq (slot-value pane 'space-requirement) nil)}), and store
+the result of the call to the primary method in the
+@slot{space-requirement} slot.
+
+We then compute the space requirement of the pane as follows:
+
+@lisp
+     (setf (space-requirement-width ...)  (or explicit-width
+           (space-requirement-width request)) ...
+           (space-requirement-max-width ...)  (or explicit-max-width
+           explicit-width (space-requirement-max-width request)) ...)
+@end lisp
+
+When the call to the primary method is not necessary we simply return
+the stored value.
+
+The @pane{spacer-pane} is an exception to the rule indicated above.  The
+explicit size you can give for this pane should represent the margin
+size.  So its primary method should only call compose on the child.  And
+the around method will compute the explicit sizes for it from the space
+requirement of the child and for the values given for the surrounding
+space.
+
+@node Change-space Notification Protocol
+@subsubsection Change-space Notification Protocol
+
+The purpose of the change-space notification protocol is to force a
+recalculation of the space occupied by potentially each pane in the
+@gloss{pane hierarchy}.  The protocol is triggerred by a call to
+@genfun{note-space-requirement-changed} on a pane @var{P}. In @mcclim, we
+must therefore invalidate the stored space-requirement value and
+re-invoke @genfun{compose-space} on @var{P}.  Finally, the
+@gloss{parent} of @var{P} must be notified recursively.
+
+This process would be repeated for all the panes on a path from @var{P}
+to the top-level pane, if it weren't for the fact that some panes
+compute their space requirements independently of those of their
+children.  Thus, we stop calling @genfun{note-space-requirement-changed}
+in the following cases:
+
+@itemize
+@item
+when @var{P} is a @pane{restraining-pane},
+
+@item
+when @var{P} is a @pane{top-level-sheet-pane}, or
+
+@item
+when @var{P} has been given explicit values for @initarg{:width} and
+@initarg{:height}
+@end itemize
+
+In either of those cases, @genfun{allocate-space} is called.
+
+@issue{JD, This description is wrong. @genfun{note-space-requirement-change}
+is called by @clim{} after the space requirements has changed. Application
+programmer should call @genfun{change-space-requirements} to indicate that
+@genfun{compose-space} may now return something different from the previous
+invocation and/or to update user space requirements options. This may (but
+doesn't have to) trigger @gloss{layout-protocol}.  Macro
+@fmacro{changing-space-requirements} should be described too.}
+
+@node Output Protocol
+@section Output Protocol
+
+@c extension
+@include fun-clim-extensions-medium-miter-limit.texi
+@include fun-clim-extensions-line-style-effective-thickness.texi
+
+@include fun-clim-setf-output-record-parent.texi
+
+@include fun-clim-replay-output-record.texi
+@include fun-clim-map-over-output-records.texi
+@include fun-clim-map-over-output-records-containing-position.texi
+@include fun-clim-map-over-output-records-overlapping-region.texi
+
+@include class-clim-standard-output-recording-stream.texi
+@c XXX {Generic} displayed-output-record-ink for text records
+
+@include fun-clim-add-output-record.texi
+@include fun-clim-delete-output-record.texi
+@include fun-clim-clear-output-record.texi
+
+@include fun-clim-invoke-with-new-output-record.texi
+
+@include macro-clim-with-new-output-record.texi
+@include macro-clim-with-output-to-output-record.texi
+
+@node Command Processing
+@section Command Processing
+@cindex command
+@cindex command processing
+@cindex command tables
+
+@defmac {@symbol{define-command-table,clim}} name &key inherit-from menu inherit-menu
+@end defmac
+@defun {@symbol{make-command-table,clim}} {name &key inherit-from inherit-menu (errorp t)}
+@end defun
+
+By default command tables inherit from
+@cl{global-command-table}. According to the @clim{} 2.0 specification, a
+command table inherits from no command table if @t{nil} is passed as an
+explicit argument to @var{inherit-from}. In revision 2.2 all command
+tables must inherit from @cl{global-command-table}. @mcclim{} treats a
+@t{nil} value of @var{inherit-from} as specifying
+@cl{'(global-command-table)}.
+
+@node Incremental redisplay
+@section Incremental redisplay
+@cindex incremental redisplay
+
+@clim{} applications are most often structured around the @emph{command
+loop}.  The various steps that such an application follow are:
+
+@itemize
+@item
+A @emph{command} is acquired because the user, either typed the name
+of the command to an interactive prompt, selected a menu item
+representing a command, or clicked on an active object that translates
+to a command.
+
+@item
+The @emph{arguments} to that command are acquired.  As with the
+acquisition of the command itself, various gestures can be used to
+supply the arguments.
+
+@item
+The command is @emph{executed} with the acquired arguments.
+Typically, the command modifies some part of the @emph{model}
+@footnote{Some authors use the term @emph{business logic} instead of
+@emph{model}.  Both words refer to the representation of the intrinsic
+purpose of the application, as opposed to superficial characteristics
+such as how objects are physically presented to the user.} contained
+in one or more slots in the application frame.
+
+@item
+The @emph{redisplay functions} associated with the visible panes of
+the application are executed.  Typically, the redisplay function
+erases all the output and traverses the entire model in order to
+produce a new version of that output.  Since output exists in the form
+of @emph{output records}, this process involves deleting the existing
+output records and computing an entirely new set of them.
+@end itemize
+
+This way of structuring an application is very simple.  The resulting
+code is very easy to understand, and the relationship between the code
+of a redisplay function and the output it produces is usually obvious.
+The concept of output records storing the output in the application
+pane is completely hidden, and instead output is produced using
+textual or graphic drawing functions, or more often produced
+indirectly through the use of @t{present} or
+@t{with-output-as-presentation}.
+
+However, if the model contains a large number of objects, then this
+simple way of structuring an application may penalize performance.  In
+most libraries for creating graphic user interfaces, the application
+programmer must then rewrite the code for manipulating the model, and
+especially for incrementally altering the output according to the
+modification of the model resulting from the execution of a command.
+
+In @clim{}, a different mechanism is provided called @emph{incremental
+redisplay}.  This mechanism allows the user to preserve the simple
+logic of the display function with only minor modifications while
+still being able to benefit in terms of performance.

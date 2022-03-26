@@ -1,0 +1,37 @@
+McCLIM 0.9.7-dev post-"St. George's Day"
+
+This is McCLIM, an implementation of the "Common Lisp Interface
+Manager CLIM II Specification." It currently works on X Windows using
+CLX. It works with CMUCL, SBCL, CLISP, OpenMCL, Allegro CL, LispWorks,
+and the Scieneer CL.
+
+The INSTALL file in this directory give instructions for each Lisp
+implementation. Release notes for each release of McCLIM are in the
+NEWS file in this directory.
+
+The other directories of interest are:
+
+Documentation - Various documentation
+Documentation/Manual - the start of a manual
+Documentation/Specification - The LaTeX source to the CLIM specification.
+
+Apps - sample applications. This includes:
+Apps/Debugger - Peter Mechleborg's debugger (similar to SLIME's)
+Apps/Functional-Geometry - Frank Buss and Rainer Joswig's functional
+                geometry package for drawing "Escher" tiles.
+Apps/Inspector - Robert Strandh's inspector (similar to SLIME's)
+Apps/Listener - Andy Hefner's incredibly cool Lisp listener
+Apps/Scigraph - BBN's graphing package, currently not quite working
+
+Examples - Small examples from the Net or written by the McCLIM
+developers. These are of varying quality and style; many of them date
+from a time when McCLIM was quite incomplete. In rough order of
+relevance they are:
+
+address-book - the canonical CLIM application
+clim-fig - a drawing program
+postscript-test - shows off the CLIM PostScript stream
+gadget-test - fun with CLIM gadgets
+calculator - a gadget-based calculator
+
+Please send bug reports and comments to mcclim-devel@common-lisp.net

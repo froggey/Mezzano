@@ -1,0 +1,35 @@
+;;; -*- Lisp -*-
+
+(def-test-system :test-concatenate-source
+  :depends-on (:file3-only)
+  :components
+  ((:file "file2" :depends-on ("foo"))
+   (:module "foo" :pathname ""
+    :components ((:file "file1")
+                 (:file "file4" :if-feature (:not :common-lisp))))))
+
+(defparameter mcso (make-operation 'monolithic-concatenate-source-op))
+(defparameter mccso (make-operation 'monolithic-compile-concatenated-source-op))
+(defparameter mlccso (make-operation 'monolithic-load-compiled-concatenated-source-op))
+(defparameter sys (find-system :test-concatenate-source))
+(assert (operation-monolithic-p mcso))
+(assert-pathnames-equal
+ (input-files mcso sys)
+ (loop :for n :in '(3 1 2) :collect (test-source (format nil "file~D.lisp" n))))
+(with-expected-failure (#+xcl "xcl has buggy translate-pathname")
+  (assert-pathname-equal
+   (output-file mcso sys)
+   (apply-output-translations
+    (resolve-output "asdf/test/test-concatenate-source--all-systems.lisp"))))
+(assert-pathnames-equal
+ (output-files mcso sys)
+ (input-files mccso sys))
+;; on ECL, we get un-equal pathnames.
+(assert-pathname-equal
+ (first (output-files mccso sys))
+ (test-fasl "test-concatenate-source--all-systems.lisp"))
+(assert-pathnames-equal
+ (output-files mccso sys)
+ (input-files mlccso sys))
+(operate 'monolithic-load-compiled-concatenated-source-op sys)
+(assert (symbol-value (find-symbol* :*file3* :test-package)))

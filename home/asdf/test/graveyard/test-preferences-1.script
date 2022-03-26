@@ -1,0 +1,12 @@
+;;; -*- Lisp -*-
+(load "script-support")
+(load "../asdf")
+(exit-on-error
+ (setf asdf:*central-registry* '(*default-pathname-defaults*))
+ (in-package :asdf)
+ (setf asdf::*load-preference-files* t)
+ (asdf:oos 'asdf:load-op 'test-preferences-system-1)
+ (assert (eq common-lisp-user::*test-preferences-variable-1* :load))
+ (asdf:oos 'asdf:test-op 'test-preferences-system-1)
+ (assert (eq common-lisp-user::*test-preferences-variable-1* :test))
+ )

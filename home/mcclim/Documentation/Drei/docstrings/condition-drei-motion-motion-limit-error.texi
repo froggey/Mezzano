@@ -1,0 +1,7 @@
+@anchor{Condition drei-motion:motion-limit-error}
+@deftp {Condition} {drei-motion:motion-limit-error}
+@tindex drei-motion:motion-limit-error
+Class precedence list: @code{@w{motion-limit-error}, @w{error}, @w{serious-condition}, @w{condition}, @w{slot-object}, @w{t}}
+
+This error condition signifies that a motion cannot be performed.
+@end deftp

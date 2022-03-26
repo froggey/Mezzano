@@ -1,0 +1,5 @@
+@anchor{Macro drei-syntax:grammar}
+@deffn {Macro} {drei-syntax:grammar} &body body
+@findex drei-syntax:grammar
+Create a grammar object from a set of rules.
+@end deffn

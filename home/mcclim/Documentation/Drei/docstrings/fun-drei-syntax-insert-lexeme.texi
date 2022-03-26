@@ -1,0 +1,6 @@
+@anchor{Generic-Function drei-syntax:insert-lexeme}
+@deffn {Generic Function} {drei-syntax:insert-lexeme} lexer pos lexeme
+@findex drei-syntax:insert-lexeme
+Insert a lexeme at the position in the lexer.
+All lexemes following @code{pos} are moved to one position higher.
+@end deffn

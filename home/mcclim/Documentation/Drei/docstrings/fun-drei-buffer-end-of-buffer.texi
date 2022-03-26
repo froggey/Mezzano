@@ -1,0 +1,6 @@
+@anchor{Generic-Function drei-buffer:end-of-buffer}
+@deffn {Generic Function} {drei-buffer:end-of-buffer} mark
+@findex drei-buffer:end-of-buffer
+Move the mark to the end of the buffer and
+return mark.
+@end deffn

@@ -1,0 +1,8 @@
+@anchor{Generic-Function drei-syntax:inter-lexeme-object-p}
+@deffn {Generic Function} {drei-syntax:inter-lexeme-object-p} lexer object
+@findex drei-syntax:inter-lexeme-object-p
+This generic function is called by the
+incremental lexer to determine whether a buffer object is an
+inter-lexeme object, typically whitespace. Client code must
+supply a method for this generic function.
+@end deffn
