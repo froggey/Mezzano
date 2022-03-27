@@ -5,7 +5,7 @@ SBCL := sbcl
 # file-server, not the public IP.
 # Note! Addresses on 10.0.2/24 networks are not supported, as this conflicts
 # with the network provided by qemu and VirtualBox.
-FILE_SERVER_IP := 127.0.0.1
+FILE_SERVER_IP := 192.168.1.24
 
 # Report an error if this hasn't been configured.
 ifeq ($(FILE_SERVER_IP),192.168.0.555)
@@ -31,7 +31,7 @@ cold-image: build-cold-image.lisp asdf
 	echo "(in-package :mezzano.internals)" > config.lisp
 	echo "(defparameter *file-server-host-ip* \"$(FILE_SERVER_IP)\")" >> config.lisp
 	echo "(defparameter *home-directory-path* \"REMOTE:$(CURDIR)/home/\")" >> config.lisp
-	echo "(defparameter *mezzano-source-path* \"REMOTE:$(CURDIR)/Mezzano/\")" >> config.lisp
+	echo "(defparameter *mezzano-source-path* \"REMOTE:$(CURDIR)/\")" >> config.lisp
 	$(SBCL) --dynamic-space-size 2048 --load build-cold-image.lisp
 
 cold-image-vmdk: cold-image
