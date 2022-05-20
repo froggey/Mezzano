@@ -70,6 +70,7 @@ If TIMEOUT is NIL then this is equivalent to WAIT-FOR-OBJECTS.
 Otherwise it is as if a timer object with the given TIMEOUT was included with OBJECTS.
 Returns NIL if the timeout expires.
 Returns the number of seconds remaining as a secondary value if TIMEOUT is non-NIL."
+  (declare (dynamic-extent objects))
   (cond ((null timeout)
          ;; No timeout.
          (values (apply #'wait-for-objects objects)
@@ -78,13 +79,13 @@ Returns the number of seconds remaining as a secondary value if TIMEOUT is non-N
          ;; Special case, zero or negative timeout - just poll the events.
          (values (loop
                     for object in objects
-                    when (sup:event-wait (get-object-event object))
+                    when (sup:event-state (get-object-event object))
                     collect object)
                  0))
         (t
          ;; Arbitrary timeout.
          (sup:with-timer (timer :relative timeout :name 'wait-for-objects-with-timeout)
-           (values (remove timer (apply #'wait-for-objects timer objects))
+           (values (delete timer (apply #'wait-for-objects timer objects))
                    (sup:timer-remaining timer))))))
 
 (defmethod get-object-event ((object sup:event))
