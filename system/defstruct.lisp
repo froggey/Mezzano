@@ -257,7 +257,7 @@
                ;; And the previous slot's sibling must match this one.
                (assert (eql (structure-slot-definition-dcas-sibling previous-slot-definition) name)))
               (t
-               ;; This is the second half of a DCAS sibling pair.
+               ;; This is the first half of a DCAS sibling pair.
                ;; It must be 16-byte aligned.
                (setf align 16))))
       (multiple-value-bind (location-type element-size)
