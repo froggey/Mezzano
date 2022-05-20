@@ -532,6 +532,8 @@ May be used from an interrupt handler, assuming the associated mutex is interrup
                       (decf (rw-lock-n-pending-readers rw-lock)))
                  ;; N-PENDING-READERS may be out of sync due to interrupts.
                  ;; Patch things up here.
+                 ;; ### This is buggy: If the lock becomes contested this can
+                 ;; decrement away the final reader and needs to re-run the release path.
                  (when (not (zerop (rw-lock-n-pending-readers rw-lock)))
                    (loop
                       for current = (rw-lock-state rw-lock)
@@ -819,14 +821,14 @@ EVENT can be any object that supports GET-OBJECT-EVENT."
          (sys.int::atomic-incf (object-pool-miss-count pool))
          (return nil))
        (let ((next-object (funcall (object-pool-field-getter pool) current-object)))
-       (when (sys.int::double-compare-and-swap
-              (object-pool-generation pool) (object-pool-head pool)
-              current-generation current-object
-              ;; Avoid fixnum overflow when writing the generation.
-              (sys.int::wrapping-fixnum-+ current-generation 1) next-object)
-         (sys.int::atomic-decf (object-pool-n-objects pool))
-         (sys.int::atomic-incf (object-pool-hit-count pool))
-         (return current-object))))))
+         (when (sys.int::double-compare-and-swap
+                (object-pool-generation pool) (object-pool-head pool)
+                current-generation current-object
+                ;; Avoid fixnum overflow when writing the generation.
+                (sys.int::wrapping-fixnum-+ current-generation 1) next-object)
+           (sys.int::atomic-decf (object-pool-n-objects pool))
+           (sys.int::atomic-incf (object-pool-hit-count pool))
+           (return current-object))))))
 
 ;;; Event/object watcher.
 ;;;
