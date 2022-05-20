@@ -200,6 +200,7 @@
       (when overflow
         (setf sign (logxor sign 1)))
       ;; overflow xor sign == 1.
+	  ;; todo: more sensible? (if (eq (sign x) (sign y)) (sign s) (sign x))
       (not (zerop (logxor (if overflow 1 0)
                           sign))))))
 
