@@ -405,7 +405,7 @@
   (setf (ldb (byte +ahci-PxSCTL-DET-size+ +ahci-PxSCTL-DET-position+)
              (ahci-port-register ahci port +ahci-register-PxSCTL+))
         1)
-  (sup:safe-sleep 0.01) ; TODO: Figure out what timeout is actually required here.
+  (sup:safe-sleep 0.001)
   (setf (ldb (byte +ahci-PxSCTL-DET-size+ +ahci-PxSCTL-DET-position+)
              (ahci-port-register ahci port +ahci-register-PxSCTL+))
         0)
