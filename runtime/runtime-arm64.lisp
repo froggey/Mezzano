@@ -254,6 +254,10 @@
      (setf integer (+ integer integer)))
   integer)
 
+;; I'm just being lazy here, this should be a builtin
+(defun mezzano.compiler::%fast-fixnum-left-shift (integer count)
+  (%fixnum-left-shift integer count))
+
 (defun sys.int::%copy-words (destination-address source-address count)
   (dotimes (i count)
     (setf (sys.int::memref-t destination-address i)
