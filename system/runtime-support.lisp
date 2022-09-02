@@ -594,6 +594,35 @@
 (defglobal *setf-fref-table*)
 (defglobal *cas-fref-table*)
 
+#+x86-64
+(defun %fill-function-reference-code (fref)
+  ;; (nop (:rax)) ; 3 bytes, plus the jump opcode naturally aligns the jump target
+  ;; (jmp <direct-target>) ; initially 0 to activate the fallback path.
+  (setf (%object-ref-unsigned-byte-64 fref (+ +fref-code+ 0))
+        #xE9001F0F)
+  ;; (mov :rbx (:rip fref-function))
+  ;; (jmp ...
+  (setf (%object-ref-unsigned-byte-64 fref (+ +fref-code+ 1))
+        #xFFFFFFFFE91D8B48)
+  ;; ... (:object :rbx entry-point))
+  ;; (ud2)
+  (setf (%object-ref-unsigned-byte-64 fref (+ +fref-code+ 2))
+        #x0B0FFF63))
+
+#+arm64
+(defun %fill-function-reference-code (fref)
+  ;; Note: Doesn't actually follow the proper calling convention,
+  ;; just enough for undefined functions to trap properly.
+  ;; (Meaning that this always does an indirect jump, it's fine, maybe just slower)
+  ;; (ldr :x6 (:pc fref-function))
+  ;; (ldr :x9 (:object :x6 #.sys.int::+function-entry-point+))
+  (setf (%object-ref-unsigned-byte-64 fref (+ +fref-code+ 0))
+        #xF85FF0C958FFFFC6)
+  ;; (br :x9)
+  ;; (hlt 0)
+  (setf (%object-ref-unsigned-byte-64 fref (+ +fref-code+ 1))
+        #xD4400000D61F0120))
+
 (defun make-function-reference (name)
   (let ((fref (mezzano.runtime::%allocate-function
                +object-tag-function-reference+ 0 8 t)))
@@ -603,18 +632,7 @@
           (%function-reference-code-location
            (function-reference 'raise-undefined-function)))
     (setf (%object-ref-t fref +fref-function+) fref)
-    ;; (nop (:rax))
-    ;; (jmp <direct-target>) ; initially 0 to activate the fallback path.
-    (setf (%object-ref-unsigned-byte-64 fref (+ +fref-code+ 0))
-          #xE9001F0F)
-    ;; (mov :rbx (:rip fref-function))
-    ;; (jmp ...
-    (setf (%object-ref-unsigned-byte-64 fref (+ sys.int::+fref-code+ 1))
-          #xFFFFFFFFE91D8B48)
-    ;; ... (:object :rbx entry-point))
-    ;; (ud2)
-    (setf (%object-ref-unsigned-byte-64 fref (+ sys.int::+fref-code+ 2))
-          #x0B0FFF63)
+    (%fill-function-reference-code fref)
     fref))
 
 (defun valid-function-name-p (name)
@@ -685,9 +703,11 @@ then NIL will be returned."
         nil
         fn)))
 
+#+x86-64
 (defun %activate-function-reference-full-path (fref)
   (setf (%object-ref-unsigned-byte-32 fref (1+ (* +fref-code+ 2))) 0))
 
+#+x86-64
 (defun %activate-function-reference-fast-path (fref entry-point)
   ;; Address is *after* the jump.
   (let* ((fref-jmp-address (+ (%function-reference-code-location fref) 8))
@@ -695,6 +715,16 @@ then NIL will be returned."
     (check-type rel-jump (signed-byte 32))
     (setf (%object-ref-signed-byte-32 fref (1+ (* +fref-code+ 2)))
           rel-jump)))
+
+#+arm64
+(defun %activate-function-reference-full-path (fref)
+  (declare (ignore fref))
+  nil)
+
+#+arm64
+(defun %activate-function-reference-fast-path (fref entry-point)
+  (declare (ignore fref entry-point))
+  nil)
 
 (defun (setf function-reference-function) (value fref)
   "Update the function field of a function-reference.
@@ -711,6 +741,9 @@ VALUE may be nil to make the fref unbound."
      (%activate-function-reference-full-path fref))
     ((%object-of-type-p value +object-tag-function+)
      ;; Plain function, use the fast path.
+     ;; Note: Liveness, reading the entry point needs to hold
+     ;; the function live for the duration. We return value
+     ;; so all is ok.
      (setf (%object-ref-t fref +fref-function+) value)
      (%activate-function-reference-fast-path
       fref (%object-ref-unsigned-byte-64 value +function-entry-point+)))

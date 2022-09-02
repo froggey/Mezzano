@@ -1028,19 +1028,7 @@ This is required to make the GC interrupt safe."
      (when (mezzano.supervisor:threadp object)
        (scan-thread object cycle-kind)))
     (#.+object-tag-function-reference+
-     ;; Scan the first 4 words normally.
-     (scan-generic object 4 cycle-kind)
-     ;; Now pull the target function out of the branch and scan that.
-     ;; We may have caught (SETF FUNCTION-REFERENCE-FUNCTION) halfway
-     ;; through an update.
-     (let ((rel-target (%object-ref-signed-byte-32 object (1+ (* +fref-code+ 2)))))
-       (unless (eql rel-target 0) ; must be active
-         (let* ((fref-jmp-address (+ (mezzano.runtime::%object-slot-address object (1+ +fref-code+))))
-                (entry-point (+ fref-jmp-address rel-target)))
-           ;; Reconstruct the object and scan it.
-           ;; It is assumed to be an +object-tag-function+.
-           (scan-function (%%assemble-value (- entry-point 16) +tag-object+)
-                          cycle-kind)))))
+     (scan-function-reference object cycle-kind))
     (#.+object-tag-function+
      (scan-function object cycle-kind))
     ;; Things that don't need to be scanned.
@@ -1121,6 +1109,25 @@ This is required to make the GC interrupt safe."
          (mc-size (* (ldb +function-header-code-size+ header) 16))
          (pool-size (ldb +function-header-pool-size+ header)))
     (scavenge-many (+ address mc-size) pool-size cycle-kind)))
+
+(defun scan-function-reference (object cycle-kind)
+  ;; Scan the first 4 words normally.
+  (scan-generic object 4 cycle-kind)
+  ;; Now pull the target function out of the branch and scan that.
+  ;; We may have caught (SETF FUNCTION-REFERENCE-FUNCTION) halfway
+  ;; through an update.
+  #+x86-64
+  (let ((rel-target (%object-ref-signed-byte-32 object (1+ (* +fref-code+ 2)))))
+    (unless (eql rel-target 0) ; must be active
+      (let* ((fref-jmp-address (+ (mezzano.runtime::%object-slot-address object (1+ +fref-code+))))
+             (entry-point (+ fref-jmp-address rel-target)))
+        ;; Reconstruct the object and scan it.
+        ;; It is assumed to be an +object-tag-function+.
+        (scan-function (%%assemble-value (- entry-point 16) +tag-object+)
+                       cycle-kind))))
+  #+arm64
+  ;; ARM64 does not has a direct fast-path yet.
+  nil)
 
 (defun scan-object (object cycle-kind)
   "Scan one object, updating pointer fields."
