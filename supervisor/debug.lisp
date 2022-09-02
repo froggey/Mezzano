@@ -300,12 +300,17 @@
     (dump-thread-saved-pc thread))
   (panic-print-backtrace fp))
 
+(defun irq-interesting-for-debug-dump-p (irq)
+  (or (not (zerop (irq-count irq)))
+      (irq-attachments irq)))
+
 (defun dump-irq (irq)
-  (debug-print-line "IRQ " irq " - " (irq-platform-number irq) " (" (irq-count irq) " delivered)")
-  (dolist (a (irq-attachments irq))
-    (debug-print-line "  " a " " (irq-attachment-device a)
-                      (if (irq-attachment-exclusive-p a) " [exclusive]" "")
-                      (if (irq-attachment-pending-eoi a) " EOI pending" ""))))
+  (when (irq-interesting-for-debug-dump-p irq)
+    (debug-print-line "IRQ " irq " - " (irq-platform-number irq) " (" (irq-count irq) " delivered)")
+    (dolist (a (irq-attachments irq))
+      (debug-print-line "  " a " " (irq-attachment-device a)
+                        (if (irq-attachment-exclusive-p a) " [exclusive]" "")
+                        (if (irq-attachment-pending-eoi a) " EOI pending" "")))))
 
 (defun dump-threads ()
   (dump-thread (current-thread) (sys.int::read-frame-pointer))
