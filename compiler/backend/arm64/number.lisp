@@ -353,7 +353,7 @@
                                 :values (list shift-result)))
            (emit done-label)))))
 
-(define-builtin mezzano.runtime::%ub64-right-right-shift-in-limits ((integer count) result)
+(define-builtin mezzano.runtime::%ub64-right-shift-in-limits ((integer count) result)
   (when (constant-value-p count '(eql 0))
     ;; Not shifting by anything.
     (emit (make-instance 'ir:move-instruction
