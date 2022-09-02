@@ -368,6 +368,34 @@
                          :inputs (list x-unboxed y)
                          :outputs (list result)))))
 
+(define-builtin mezzano.compiler::%fast-fixnum-* ((lhs rhs) result)
+  (cond ((or (constant-value-p lhs '(eql 0))
+             (constant-value-p rhs '(eql 0)))
+         (emit (make-instance 'ir:constant-instruction
+                              :value 0
+                              :destination result))
+         (finish))
+        ((constant-value-p rhs '(eql 1))
+         (emit (make-instance 'ir:move-instruction
+                              :source lhs
+                              :destination result))
+         (finish))
+        ((constant-value-p lhs '(eql 1))
+         (emit (make-instance 'ir:move-instruction
+                              :source rhs
+                              :destination result))
+         (finish)))
+  (let ((lhs-unboxed (make-instance 'ir:virtual-register :kind :integer)))
+    ;; Unbox one operand, this will produce a boxed result.
+    (emit (make-instance 'ir:unbox-fixnum-instruction
+                         :source lhs
+                         :destination lhs-unboxed))
+    (emit (make-instance 'arm64-instruction
+                         :opcode 'lap:madd
+                         :operands (list result :xzr lhs-unboxed rhs)
+                         :inputs (list lhs-unboxed rhs)
+                         :outputs (list result)))))
+
 (define-builtin mezzano.runtime::%fixnum-truncate ((number divisor) (quotient remainder))
   (let ((quotient-unboxed (make-instance 'ir:virtual-register :kind :integer)))
     (emit (make-instance 'arm64-instruction
