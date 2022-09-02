@@ -613,11 +613,10 @@
 (defun %fill-function-reference-code (fref)
   ;; Note: Doesn't actually follow the proper calling convention,
   ;; just enough for undefined functions to trap properly.
-  ;; (Meaning that this always does an indirect jump, it's fine, maybe just slower)
-  ;; (ldr :x6 (:pc fref-function))
-  ;; (ldr :x9 (:object :x6 #.sys.int::+function-entry-point+))
+  ;; (ldr :x7 (:pc fref-function))
+  ;; (ldr :x9 (:object :x7 #.sys.int::+function-entry-point+))
   (setf (%object-ref-unsigned-byte-64 fref (+ +fref-code+ 0))
-        #xF85FF0C958FFFFC6)
+        #xF85FF0E958FFFFC7)
   ;; (br :x9)
   ;; (hlt 0)
   (setf (%object-ref-unsigned-byte-64 fref (+ +fref-code+ 1))
