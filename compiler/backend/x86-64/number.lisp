@@ -855,7 +855,7 @@
                                 :rhs (fetch-constant-value count))))
           (t
            (let ((count-unboxed (make-instance 'ir:virtual-register :kind :integer)))
-             (emit (make-instance 'ir:unbox-unsigned-byte-64-instruction
+             (emit (make-instance 'ir:unbox-fixnum-instruction
                                   :source count
                                   :destination count-unboxed))
              (emit (make-instance 'ir:move-instruction
