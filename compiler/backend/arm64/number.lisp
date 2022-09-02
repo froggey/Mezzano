@@ -353,6 +353,40 @@
                                 :values (list shift-result)))
            (emit done-label)))))
 
+(define-builtin mezzano.runtime::%ub64-right-right-shift-in-limits ((integer count) result)
+  (when (constant-value-p count '(eql 0))
+    ;; Not shifting by anything.
+    (emit (make-instance 'ir:move-instruction
+                         :source integer
+                         :destination result))
+    (finish))
+  (let ((integer-unboxed (make-instance 'ir:virtual-register :kind :integer))
+        (result-unboxed (make-instance 'ir:virtual-register :kind :integer)))
+    (emit (make-instance 'ir:unbox-unsigned-byte-64-instruction
+                         :source integer
+                         :destination integer-unboxed))
+    (cond ((constant-value-p count '(unsigned-byte 6))
+           ;; The perfect size to use as a shift constant.
+           (emit (make-instance 'arm64-instruction
+                                :opcode 'lap:add
+                                :operands (list result-unboxed :xzr integer-unboxed :lsr (fetch-constant-value count))
+                                :inputs (list integer)
+                                :outputs (list result-unboxed))))
+          (t
+           (let ((count-unboxed (make-instance 'ir:virtual-register :kind :integer)))
+             (emit (make-instance 'ir:unbox-fixnum-instruction
+                                  :source count
+                                  :destination count-unboxed))
+             ;; Shift, mask & produce result.
+             (emit (make-instance 'arm64-instruction
+                                  :opcode 'lap:asrv
+                                  :operands (list result-unboxed integer-unboxed count-unboxed)
+                                  :inputs (list integer-unboxed count-unboxed)
+                                  :outputs (list result-unboxed))))))
+    (emit (make-instance 'ir:box-unsigned-byte-64-instruction
+                         :source result-unboxed
+                         :destination result))))
+
 ;; TODO: Overflow.
 ;; overflow occurs if bits 127-63 of a signed 64*64=128bit multiply are not all
 ;; ones or all zeros.
