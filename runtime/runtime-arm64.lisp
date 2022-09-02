@@ -9,8 +9,9 @@
 
 (sys.int::define-lap-function sys.int::values-simple-vector ((simple-vector))
   "Returns the elements of SIMPLE-VECTOR as multiple values."
+  (:gc :no-frame :incoming-arguments :rcx :layout #*)
   (mezzano.lap.arm64:stp :x29 :x30 (:pre :sp -16))
-  (:gc :no-frame :incoming-arguments :rcx :layout #*0)
+  (:gc :no-frame :incoming-arguments :rcx :layout #*00)
   (mezzano.lap.arm64:add :x29 :sp :xzr)
   (:gc :frame)
   ;; Check arg count.
@@ -102,8 +103,9 @@
   (mezzano.lap.arm64:hlt 0))
 
 (sys.int::define-lap-function %apply ()
+  (:gc :no-frame :incoming-arguments :rcx :layout #*)
   (mezzano.lap.arm64:stp :x29 :x30 (:pre :sp -16))
-  (:gc :no-frame :incoming-arguments :rcx :layout #*0)
+  (:gc :no-frame :incoming-arguments :rcx :layout #*00)
   (mezzano.lap.arm64:add :x29 :sp :xzr)
   (:gc :frame)
   ;; Function goes in X6.
