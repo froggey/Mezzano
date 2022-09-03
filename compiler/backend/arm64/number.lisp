@@ -370,7 +370,7 @@
            (emit (make-instance 'arm64-instruction
                                 :opcode 'lap:add
                                 :operands (list result-unboxed :xzr integer-unboxed :lsr (fetch-constant-value count))
-                                :inputs (list integer)
+                                :inputs (list integer-unboxed)
                                 :outputs (list result-unboxed))))
           (t
            (let ((count-unboxed (make-instance 'ir:virtual-register :kind :integer)))
