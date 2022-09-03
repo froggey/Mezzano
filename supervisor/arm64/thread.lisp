@@ -155,3 +155,13 @@
         (thread-state-rflags thread) #x00000004
         ;; x30
         (thread-state-cs thread) 0))
+
+(defun stack-space-required-for-force-call-on-thread (thread)
+  (declare (ignore thread))
+  (+ 16 ; Return address and more alignment
+     (* +thread-mv-slots-size+ 8) ; Saved MV area.
+     512 ; FPU state
+     (* 20 8)))
+
+(defun force-call-on-thread (thread function &optional (arg nil arg-p))
+  (panic "FORCE-CALL-ON-THREAD not implemented. " thread " " function " " arg " " arg-p))
