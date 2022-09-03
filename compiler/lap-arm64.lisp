@@ -339,6 +339,9 @@
 (defconstant +rt2-shift+ 10)
 (defconstant +rm-shift+ 16)
 (defconstant +rs-shift+ 16)
+(defconstant +imms-shift+ 10)
+(defconstant +immr-shift+ 16)
+(defconstant +n-shift+ 22)
 
 (defun encode-index-option (mode)
   (ecase mode
@@ -1909,6 +1912,52 @@
                             (ash (register-number mhs) +rn-shift+)
                             (ash (register-number rhs) +rm-shift+)))
   (return-from instruction t))
+
+(define-instruction bfi (lhs src lsb width)
+  (let ((is-64-bit (eql (register-class lhs) :gpr-64)))
+    (cond (is-64-bit
+           (check-register-class lhs :gpr-64)
+           (check-register-class src :gpr-64 :xzr)
+           (assert (<= 0 lsb 63))
+           (assert (<= 1 width (- 64 lsb))))
+          (t
+           (check-register-class lhs :gpr-32)
+           (check-register-class src :gpr-32 :wzr)
+           (assert (<= 0 lsb 31))
+           (assert (<= 1 width (- 32 lsb)))))
+    (emit-instruction (logior (if is-64-bit
+                                  #x80000000
+                                  #x00000000)
+                              #x33000000
+                              (if is-64-bit (ash 1 +n-shift+) 0)
+                              (ash (1- width) +imms-shift+)
+                              (ash (- (if is-64-bit 64 32) lsb) +immr-shift+)
+                              (ash (register-number src) +rn-shift+)
+                              (ash (register-number lhs) +rd-shift+)))
+    (return-from instruction t)))
+
+(define-instruction ubfx (lhs src lsb width)
+  (let ((is-64-bit (eql (register-class lhs) :gpr-64)))
+    (cond (is-64-bit
+           (check-register-class lhs :gpr-64)
+           (check-register-class src :gpr-64 :xzr)
+           (assert (<= 0 lsb 63))
+           (assert (<= 1 width (- 64 lsb))))
+          (t
+           (check-register-class lhs :gpr-32)
+           (check-register-class src :gpr-32 :wzr)
+           (assert (<= 0 lsb 31))
+           (assert (<= 1 width (- 32 lsb)))))
+    (emit-instruction (logior (if is-64-bit
+                                  #x80000000
+                                  #x00000000)
+                              #x53000000
+                              (if is-64-bit (ash 1 +n-shift+) 0)
+                              (ash (+ lsb (1- width)) +imms-shift+)
+                              (ash lsb +immr-shift+)
+                              (ash (register-number src) +rn-shift+)
+                              (ash (register-number lhs) +rd-shift+)))
+    (return-from instruction t)))
 
 (define-instruction scvtf (lhs rhs)
   (check-register-class lhs :fp-64 :fp-32)
