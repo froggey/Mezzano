@@ -30,10 +30,9 @@
   (mezzano.lap.arm64:stp :q28 :q29 (:post :x12 32))
   (mezzano.lap.arm64:stp :q30 :q31 (:post :x12 32))
   (mezzano.lap.arm64:mrs :x9 :fpsr)
-  (mezzano.lap.arm64:movz :x10 (:object-literal #.+thread-arm64-fpsr+))
-  (mezzano.lap.arm64:str :x9 (:x0 :x10))
-  (mezzano.lap.arm64:mrs :x9 :fpcr)
-  (mezzano.lap.arm64:movz :x10 (:object-literal #.+thread-arm64-fpcr+))
+  (mezzano.lap.arm64:mrs :x10 :fpcr)
+  (mezzano.lap.arm64:bfi :x9 :x10 32 32)
+  (mezzano.lap.arm64:movz :x10 (:object-literal #.+thread-state-ss+))
   (mezzano.lap.arm64:str :x9 (:x0 :x10))
   (mezzano.lap.arm64:ret))
 
@@ -55,12 +54,12 @@
   (mezzano.lap.arm64:ldp :q26 :q27 (:post :x12 32))
   (mezzano.lap.arm64:ldp :q28 :q29 (:post :x12 32))
   (mezzano.lap.arm64:ldp :q30 :q31 (:post :x12 32))
-  (mezzano.lap.arm64:movz :x10 (:object-literal #.+thread-arm64-fpsr+))
+  (mezzano.lap.arm64:movz :x10 (:object-literal #.+thread-state-ss+))
   (mezzano.lap.arm64:ldr :x9 (:x0 :x10))
+  (mezzano.lap.arm64:ubfx :x10 :x9 32 32)
+  (mezzano.lap.arm64:msr :fpcr :x10)
+  (mezzano.lap.arm64:bfi :x9 :xzr 32 32)
   (mezzano.lap.arm64:msr :fpsr :x9)
-  (mezzano.lap.arm64:movz :x10 (:object-literal #.+thread-arm64-fpcr+))
-  (mezzano.lap.arm64:ldr :x9 (:x0 :x10))
-  (mezzano.lap.arm64:msr :fpcr :x9)
   (mezzano.lap.arm64:ret))
 
 (defun save-interrupted-state (thread interrupt-frame)
@@ -149,10 +148,8 @@
   (mezzano.lap.arm64:ret))
 
 (defun arch-initialize-thread-state (thread stack-pointer)
-  (setf (thread-arm64-fpsr thread) 0
-        (thread-arm64-fpcr thread) 0)
   (setf (thread-state-rsp thread) stack-pointer
-        ;; Unused.
+        ;; Packed fpsr/fpcr.
         (thread-state-ss thread) 0
         ;; Start with interrupts unmasked, EL1, SP_EL0.
         (thread-state-rflags thread) #x00000004

@@ -136,8 +136,6 @@ can be reprotected.")
   (symbol-cache (sys.int::%symbol-binding-cache-sentinel)
                 :fixed-vector #.+thread-symbol-cache-size+)
   ;; Other saved machine state.
-  (arm64-fpsr 0 :type (unsigned-byte 32))
-  (arm64-fpcr 0 :type (unsigned-byte 32))
   (fxsave-area 0 :type (unsigned-byte 8) :fixed-vector 512 :align 16)
   ;; Interrupt save area.
   ;; Used to save an interrupt frame when the thread has stopped to wait for a page.
@@ -159,9 +157,11 @@ can be reprotected.")
   (state-rax 0 :type (signed-byte 64))
   (state-rbp 0 :type (signed-byte 64))
   (state-rip 0 :type (signed-byte 64))
+  ;; Used to save x30 (link register) on arm64.
   (state-cs  0 :type (signed-byte 64))
   (state-rflags 0 :type (signed-byte 64))
   (state-rsp 0 :type (signed-byte 64))
+  ;; Used to save packed fpsr (low half)/fpcr (high half) state on arm64.
   (state-ss  0 :type (signed-byte 64)))
 
 (define-doubly-linked-list-helpers run-queue
