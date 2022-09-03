@@ -466,7 +466,7 @@
          (when (eql key :length)
            (unless (not a-o-k) ; ignore when a-o-k is set.
              (error "Can't set property :LENGTH")))
-         (setf (getf (file-plist file) key) value))))
+         (setf (getf (file-plist file) key) val))))
 
 (defmethod file-properties-using-host ((host local-file-host) pathname)
   (with-host-locked (host)
