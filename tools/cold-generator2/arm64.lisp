@@ -21,6 +21,9 @@
     (lap:br :x9))
   "Trampoline used for calling a closure or funcallable-instance via a funcallable-instance.")
 
+(defconstant +exception-vector-alignment+ 2048
+  "Minimum alignment for the exception vector. See definition of VBAR_EL1 in the ARM ARM.")
+
 (defmethod configure-system-for-target (environment (target (eql :arm64)))
   (setf (env:cross-symbol-value environment 'sys.int::*funcallable-instance-trampoline*)
         (env:compile-lap environment
@@ -31,7 +34,7 @@
         (env:make-stack environment (* 128 1024)))
   (setf (env:cross-symbol-value environment 'sys.int::*arm64-exception-vector*)
         (env:compile-lap environment
-                         (loop repeat (/ (* 1024 2) 8) ; for 1024 alignment
+                         (loop repeat (/ (* +exception-vector-alignment+ 2) 8) ; for alignment
                                collect `(:d64/le 0))
                          :area :wired-function
                          :name 'sys.int::*arm64-exception-vector*)))
@@ -40,8 +43,8 @@
   (let* ((ex-vec (env:cross-symbol-value environment 'sys.int::*arm64-exception-vector*))
          (ex-vec-val (ser:serialize-object ex-vec image environment))
          (ex-vec-addr (+ ex-vec-val (- sys.int::+tag-object+) 8)) ; slot 0
-         ;; Base address of the exception vector must be 1024-byte aligned.
-         (ex-vec-base (util:align-up ex-vec-addr 1024))
+         ;; Base address of the exception vector must be properly aligned.
+         (ex-vec-base (util:align-up ex-vec-addr +exception-vector-alignment+))
          (offset (- ex-vec-base ex-vec-addr))
          (slot-offset (/ offset 8)))
     (setf (ser::image-symbol-value image environment 'sys.int::*arm64-exception-vector-base*)
