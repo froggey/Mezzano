@@ -1747,10 +1747,43 @@
                             (ash (encode-barrier-variant what) 8)))
   (return-from instruction t))
 
+(defmacro emit-system-instruction (op0 op1 crn crm op2 reg)
+  `(progn
+     (emit-instruction (logior #xD5080000
+                               (ash ,op0 19)
+                               (ash ,op1 16)
+                               (ash ,crn 12)
+                               (ash ,crm 8)
+                               (ash ,op2 5)
+                               (if ,reg
+                                   (register-number ,reg)
+                                   #b11111)))
+     (return-from instruction t)))
+
+
+(defmacro define-cache-maintainance-instruction (name op1 crn crm op2 argument)
+  `(define-instruction ,name (,@(if argument (list argument)))
+     ,@(when argument
+         (list `(check-register-class ,argument :gpr-64)))
+     (emit-system-instruction 1 ,op1 ,crn ,crm ,op2 ,argument)))
+
+(define-cache-maintainance-instruction ic.ialluis 0 7  1 0 nil)
+(define-cache-maintainance-instruction ic.iallu   0 7  5 0 nil)
+(define-cache-maintainance-instruction ic.ivau    3 7  5 1 address)
+(define-cache-maintainance-instruction dc.ivac    0 7  6 1 address)
+(define-cache-maintainance-instruction dc.isw     0 7  6 2 address)
+(define-cache-maintainance-instruction dc.csw     0 7 10 2 address)
+(define-cache-maintainance-instruction dc.cisw    0 7 14 2 address)
+(define-cache-maintainance-instruction dc.cvac    3 7 10 1 address)
+(define-cache-maintainance-instruction dc.cvau    3 7 11 1 address)
+(define-cache-maintainance-instruction dc.civac   3 7 14 1 address)
+(define-cache-maintainance-instruction dc.zva     3 7  4 1 address)
+
 (define-instruction eret ()
   (emit-instruction #xD69F03E0)
   (return-from instruction t))
 
+;; Should this follow the ic.foo syntax being used for the cache maintainance instructions?
 (define-instruction tlbi (op &optional reg)
   (multiple-value-bind (op1 crn crm op2 allow-reg)
       (ecase op
@@ -1777,15 +1810,7 @@
            (check-register-class reg :gpr-64))
           (t
            (assert (null reg))))
-    (emit-instruction (logior #xD5080000
-                              (ash op1 16)
-                              (ash crn 12)
-                              (ash crm 8)
-                              (ash op2 5)
-                              (if reg
-                                  (register-number reg)
-                                  #b11111))))
-  (return-from instruction t))
+    (emit-system-instruction 1 op1 crn crm op2 reg)))
 
 (defmacro define-hint-instruction (name op)
   `(define-instruction ,name ()
