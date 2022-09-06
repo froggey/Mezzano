@@ -31,6 +31,32 @@
   (mezzano.lap.arm64:msr :cntp-ctl-el0 :x9)
   (mezzano.lap.arm64:ret))
 
+(sys.int::define-lap-function %cntvct (())
+  (mezzano.lap.arm64:mrs :x9 :cntvct-el0)
+  (mezzano.lap.arm64:add :x0 :xzr :x9 :lsl #.sys.int::+n-fixnum-bits+)
+  (mezzano.lap.arm64:ret))
+
+(sys.int::define-lap-function %cntv-tval (())
+  (mezzano.lap.arm64:mrs :x9 :cntv-tval-el0)
+  (mezzano.lap.arm64:isb)
+  (mezzano.lap.arm64:add :x0 :xzr :x9 :lsl #.sys.int::+n-fixnum-bits+)
+  (mezzano.lap.arm64:ret))
+
+(sys.int::define-lap-function (setf %cntv-tval) ((value))
+  (mezzano.lap.arm64:add :x9 :xzr :x0 :asr #.sys.int::+n-fixnum-bits+)
+  (mezzano.lap.arm64:msr :cntv-tval-el0 :x9)
+  (mezzano.lap.arm64:ret))
+
+(sys.int::define-lap-function %cntv-ctl (())
+  (mezzano.lap.arm64:mrs :x9 :cntv-ctl-el0)
+  (mezzano.lap.arm64:add :x0 :xzr :x9 :lsl #.sys.int::+n-fixnum-bits+)
+  (mezzano.lap.arm64:ret))
+
+(sys.int::define-lap-function (setf %cntv-ctl) ((value))
+  (mezzano.lap.arm64:add :x9 :xzr :x0 :asr #.sys.int::+n-fixnum-bits+)
+  (mezzano.lap.arm64:msr :cntv-ctl-el0 :x9)
+  (mezzano.lap.arm64:ret))
+
 (sys.int::defglobal *generic-timer-rate*)
 (sys.int::defglobal *generic-timer-reset-value*)
 (sys.int::defglobal *run-time-advance*)
@@ -39,7 +65,7 @@
 
 (defun generic-timer-irq-handler (interrupt-frame irq)
   (declare (ignore irq))
-  (setf (%cntp-tval) *generic-timer-reset-value*)
+  (setf (%cntv-tval) *generic-timer-reset-value*)
   (beat-heartbeat *run-time-advance*)
   (profile-sample interrupt-frame)
   :completed)
@@ -65,25 +91,26 @@
                 fdt-node
                 :exclusive t)
     ;; Set countdown value.
-    (setf (%cntp-tval) 0)
+    ;; ### why is this 0 and not *generic-timer-reset-value*?
+    (setf (%cntv-tval) 0)
     (%isb)
     ;; Enable the timer.
-    (setf (%cntp-ctl) 1)
+    (setf (%cntv-ctl) 1)
     (%isb)))
 
 (defun get-universal-time ()
-  (+ *rtc-adjust* (truncate (%cntpct) *generic-timer-rate*)))
+  (+ *rtc-adjust* (truncate (%cntvct) *generic-timer-rate*)))
 
 (defun sys.int::tsc ()
   ;; This isn't the cycle counter, but it's close enough for now.
   (prog1
-      (%cntpct)
+      (%cntvct)
     (%isb)))
 
 (defun get-high-precision-timer ()
   ;; TODO
   (prog1
-      (%cntpct)
+      (%cntvct)
     (%isb)))
 
 (defun high-precision-time-units-to-internal-time-units (hp-time)
