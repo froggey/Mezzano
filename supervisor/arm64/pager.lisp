@@ -39,10 +39,12 @@
 (sys.int::define-lap-function flush-tlb-single ((address))
   ;; TODO.
   (mezzano.lap.arm64:tlbi.vmalle1)
+  (mezzano.lap.arm64:isb)
   (mezzano.lap.arm64:ret))
 
 (sys.int::define-lap-function flush-tlb (())
   (mezzano.lap.arm64:tlbi.vmalle1)
+  (mezzano.lap.arm64:isb)
   (mezzano.lap.arm64:ret))
 
 (defun address-l4-bits (address) (ldb (byte 9 39) address))
