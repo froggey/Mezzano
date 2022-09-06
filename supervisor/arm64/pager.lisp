@@ -36,16 +36,19 @@
   (mezzano.lap.arm64:add :x0 :xzr :x9 :lsl #.sys.int::+n-fixnum-bits+)
   (mezzano.lap.arm64:ret))
 
-(sys.int::define-lap-function flush-tlb-single ((address))
-  ;; TODO.
+(sys.int::define-lap-function %tlbi.vmalle1 (())
   (mezzano.lap.arm64:tlbi.vmalle1)
-  (mezzano.lap.arm64:isb)
   (mezzano.lap.arm64:ret))
 
-(sys.int::define-lap-function flush-tlb (())
-  (mezzano.lap.arm64:tlbi.vmalle1)
-  (mezzano.lap.arm64:isb)
-  (mezzano.lap.arm64:ret))
+(defun flush-tlb-single (address)
+  (declare (ignore address))
+  ;; TODO: Flush by VA
+  (%tlbi.vmalle1)
+  (%isb))
+
+(defun flush-tlb ()
+  (%tlbi.vmalle1)
+  (%isb))
 
 (defun address-l4-bits (address) (ldb (byte 9 39) address))
 (defun address-l3-bits (address) (ldb (byte 9 30) address))
