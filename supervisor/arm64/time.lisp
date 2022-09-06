@@ -7,7 +7,6 @@
 
 (sys.int::define-lap-function %cntpct (())
   (mezzano.lap.arm64:mrs :x9 :cntpct-el0)
-  (mezzano.lap.arm64:isb)
   (mezzano.lap.arm64:add :x0 :xzr :x9 :lsl #.sys.int::+n-fixnum-bits+)
   (mezzano.lap.arm64:ret))
 
@@ -20,7 +19,6 @@
 (sys.int::define-lap-function (setf %cntp-tval) ((value))
   (mezzano.lap.arm64:add :x9 :xzr :x0 :asr #.sys.int::+n-fixnum-bits+)
   (mezzano.lap.arm64:msr :cntp-tval-el0 :x9)
-  (mezzano.lap.arm64:isb)
   (mezzano.lap.arm64:ret))
 
 (sys.int::define-lap-function %cntp-ctl (())
@@ -68,19 +66,25 @@
                 :exclusive t)
     ;; Set countdown value.
     (setf (%cntp-tval) 0)
+    (%isb)
     ;; Enable the timer.
-    (setf (%cntp-ctl) 1)))
+    (setf (%cntp-ctl) 1)
+    (%isb)))
 
 (defun get-universal-time ()
   (+ *rtc-adjust* (truncate (%cntpct) *generic-timer-rate*)))
 
 (defun sys.int::tsc ()
   ;; This isn't the cycle counter, but it's close enough for now.
-  (%cntpct))
+  (prog1
+      (%cntpct)
+    (%isb)))
 
 (defun get-high-precision-timer ()
   ;; TODO
-  (%cntpct))
+  (prog1
+      (%cntpct)
+    (%isb)))
 
 (defun high-precision-time-units-to-internal-time-units (hp-time)
   ;; TODO
