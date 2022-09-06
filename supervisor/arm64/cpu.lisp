@@ -225,7 +225,7 @@
 
 (sys.int::define-lap-function %dmb.oshld (())
   (:gc :no-frame :layout #*)
-  (mezzano.lap.arm64:dmb :oshst)
+  (mezzano.lap.arm64:dmb.oshst)
   (mezzano.lap.arm64:ret))
 
 (defun sys.int::dma-write-barrier ()
@@ -249,7 +249,7 @@
 
 (sys.int::define-lap-function %dsb.ish (())
   (:gc :no-frame :layout #*)
-  (mezzano.lap.arm64:dsb :ish)
+  (mezzano.lap.arm64:dsb.ish)
   (mezzano.lap.arm64:ret))
 
 (sys.int::define-lap-function %isb (())

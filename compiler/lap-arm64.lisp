@@ -1612,6 +1612,19 @@
                               (ash (register-number dst) +rd-shift+)))
     (return-from instruction t)))
 
+(defmacro emit-system-instruction (op0 op1 crn crm op2 reg)
+  `(progn
+     (emit-instruction (logior #xD5080000
+                               (ash ,op0 19)
+                               (ash ,op1 16)
+                               (ash ,crn 12)
+                               (ash ,crm 8)
+                               (ash ,op2 5)
+                               (if ,reg
+                                   (register-number ,reg)
+                                   #b11111)))
+     (return-from instruction t)))
+
 ;; Returns op0, op1, crn, crm, op2.
 (defun decode-msr-name (name)
   (ecase name
@@ -1722,44 +1735,29 @@
   (emit-instruction #xD5033FDF)
   (return-from instruction t))
 
-(defun encode-barrier-variant (what)
-  (ecase what
-    (:sy    #b1111)
-    (:st    #b1110)
-    (:ld    #b1101)
-    (:ish   #b1011)
-    (:ishst #b1010)
-    (:ishld #b1001)
-    (:nsh   #b0111)
-    (:nshst #b0110)
-    (:nshld #b0101)
-    (:osh   #b0011)
-    (:oshst #b0010)
-    (:oshld #b0001)))
-
-(define-instruction dmb (what)
-  (emit-instruction (logior #xD50330BF
-                            (ash (encode-barrier-variant what) 8)))
-  (return-from instruction t))
-
-(define-instruction dsb (what)
-  (emit-instruction (logior #xD503309F
-                            (ash (encode-barrier-variant what) 8)))
-  (return-from instruction t))
-
-(defmacro emit-system-instruction (op0 op1 crn crm op2 reg)
+(defmacro define-data-barrier-instruction (name value)
   `(progn
-     (emit-instruction (logior #xD5080000
-                               (ash ,op0 19)
-                               (ash ,op1 16)
-                               (ash ,crn 12)
-                               (ash ,crm 8)
-                               (ash ,op2 5)
-                               (if ,reg
-                                   (register-number ,reg)
-                                   #b11111)))
-     (return-from instruction t)))
+     (define-instruction ,(intern (format nil "DMB.~A" name)) ()
+       (emit-instruction (logior #xD50330BF
+                                 (ash ,value 8)))
+       (return-from instruction t))
+     (define-instruction ,(intern (format nil "DSB.~A" name)) ()
+       (emit-instruction (logior #xD503309F
+                                 (ash ,value 8)))
+       (return-from instruction t))))
 
+(define-data-barrier-instruction :sy    #b1111)
+(define-data-barrier-instruction :st    #b1110)
+(define-data-barrier-instruction :ld    #b1101)
+(define-data-barrier-instruction :ish   #b1011)
+(define-data-barrier-instruction :ishst #b1010)
+(define-data-barrier-instruction :ishld #b1001)
+(define-data-barrier-instruction :nsh   #b0111)
+(define-data-barrier-instruction :nshst #b0110)
+(define-data-barrier-instruction :nshld #b0101)
+(define-data-barrier-instruction :osh   #b0011)
+(define-data-barrier-instruction :oshst #b0010)
+(define-data-barrier-instruction :oshld #b0001)
 
 (defmacro define-cache-maintainance-instruction (name op1 crn crm op2 argument)
   `(define-instruction ,name (,@(if argument (list argument)))
