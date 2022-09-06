@@ -229,7 +229,8 @@
   (mezzano.lap.arm64:ret))
 
 (defun sys.int::dma-write-barrier ()
-  (%dmb.oshld))
+  (%dmb.oshld)
+  (%isb))
 
 (defun restore-page-fault-ist (state)
   (declare (ignore state))
