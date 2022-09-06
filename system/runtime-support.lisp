@@ -620,7 +620,10 @@
   ;; (br :x9)
   ;; (hlt 0)
   (setf (%object-ref-unsigned-byte-64 fref (+ +fref-code+ 1))
-        #xD4400000D61F0120))
+        #xD4400000D61F0120)
+  (mezzano.supervisor::%arm64-sync-icache
+   (mezzano.runtime::%object-slot-address fref sys.int::+fref-code+)
+   16))
 
 (defun make-function-reference (name)
   (let ((fref (mezzano.runtime::%allocate-function

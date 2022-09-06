@@ -756,12 +756,17 @@
                  (setf (sys.int::%object-ref-unsigned-byte-32-unscaled object (+ -8 byte-offset))
                        value)))
               (sys.int::function-reference
+               ;; Note that the fref here must also be present in the constant pool
+               ;; so that the GC is aware that it's still live.
                (let* ((entry (%object-slot-address fixup sys.int::+fref-code+))
                       (absolute-origin (+ address byte-offset 4))
                       (value (- entry absolute-origin)))
                  (check-type value (signed-byte 32))
                  (setf (sys.int::%object-ref-signed-byte-32-unscaled object (+ -8 byte-offset))
                        value)))))
+      #+arm64
+      (mezzano.supervisor::%arm64-sync-icache
+       (%object-slot-address object 1) (- (* mc-size 16) 16))
       ;; Initialize constant pool.
       (let ((constant-pool-base (1- (* mc-size 2))))
         (dotimes (i (length constants))
