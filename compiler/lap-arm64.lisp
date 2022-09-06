@@ -1783,34 +1783,31 @@
   (emit-instruction #xD69F03E0)
   (return-from instruction t))
 
-;; Should this follow the ic.foo syntax being used for the cache maintainance instructions?
-(define-instruction tlbi (op &optional reg)
-  (multiple-value-bind (op1 crn crm op2 allow-reg)
-      (ecase op
-        ;; Invalidate all entries.
-        (:vmalle1   (values 0 8 7 0 nil))
-        ;; Invalidate by virtual address and ASID.
-        (:vae1      (values 0 8 7 1 t))
-        ;; Invalidate by ASID.
-        (:aside1    (values 0 8 7 2 t))
-        ;; Invalidate by virtual address across all ASIDs.
-        (:vaae1     (values 0 8 7 3 t))
-        ;; Invalidate by virtual address and ASID, last level.
-        (:vale1     (values 0 8 7 5 t))
-        ;; Invalidate by virtual address across all ASIDs, last level.
-        (:vaale1    (values 0 8 7 7 t))
-        ;; Same as above, but executed on all PEs in the same IS domain.
-        (:vmalle1is (values 0 8 3 0 nil))
-        (:vae1is    (values 0 8 3 1 t))
-        (:aside1is  (values 0 8 3 2 t))
-        (:vaae1is   (values 0 8 3 3 t))
-        (:vale1is   (values 0 8 3 5 t))
-        (:vaale1is  (values 0 8 3 7 t)))
-    (cond (allow-reg
-           (check-register-class reg :gpr-64))
-          (t
-           (assert (null reg))))
-    (emit-system-instruction 1 op1 crn crm op2 reg)))
+(defmacro define-tlbi-instruction (name op1 crn crm op2 has-address)
+  `(define-instruction ,name (,@(when has-address '(address)))
+     ,@(when has-address
+         (list `(check-register-class address :gpr-64)))
+     (emit-system-instruction 1 ,op1 ,crn ,crm ,op2 ,(if has-address 'address nil))))
+
+;; Invalidate all entries.
+(define-tlbi-instruction tlbi.vmalle1   0 8 7 0 nil)
+;; Invalidate by virtual address and ASID.
+(define-tlbi-instruction tlbi.vae1      0 8 7 1 t)
+;; Invalidate by ASID.
+(define-tlbi-instruction tlbi.aside1    0 8 7 2 t)
+;; Invalidate by virtual address across all ASIDs.
+(define-tlbi-instruction tlbi.vaae1     0 8 7 3 t)
+;; Invalidate by virtual address and ASID, last level.
+(define-tlbi-instruction tlbi.vale1     0 8 7 5 t)
+;; Invalidate by virtual address across all ASIDs, last level.
+(define-tlbi-instruction tlbi.vaale1    0 8 7 7 t)
+;; Same as above, but executed on all PEs in the same IS domain.
+(define-tlbi-instruction tlbi.vmalle1is 0 8 3 0 nil)
+(define-tlbi-instruction tlbi.vae1is    0 8 3 1 t)
+(define-tlbi-instruction tlbi.aside1is  0 8 3 2 t)
+(define-tlbi-instruction tlbi.vaae1is   0 8 3 3 t)
+(define-tlbi-instruction tlbi.vale1is   0 8 3 5 t)
+(define-tlbi-instruction tlbi.vaale1is  0 8 3 7 t)
 
 (defmacro define-hint-instruction (name op)
   `(define-instruction ,name ()
