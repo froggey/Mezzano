@@ -27,16 +27,19 @@
 (defconstant +arm64-tte-address-mask+  #x00007ffffffff000)
 
 (sys.int::define-lap-function %ttbr0 (())
+  (:gc :no-frame :layout #*)
   (mezzano.lap.arm64:mrs :x9 :ttbr0-el1)
   (mezzano.lap.arm64:add :x0 :xzr :x9 :lsl #.sys.int::+n-fixnum-bits+)
   (mezzano.lap.arm64:ret))
 
 (sys.int::define-lap-function %ttbr1 (())
+  (:gc :no-frame :layout #*)
   (mezzano.lap.arm64:mrs :x9 :ttbr1-el1)
   (mezzano.lap.arm64:add :x0 :xzr :x9 :lsl #.sys.int::+n-fixnum-bits+)
   (mezzano.lap.arm64:ret))
 
 (sys.int::define-lap-function %tlbi.vmalle1 (())
+  (:gc :no-frame :layout #*)
   (mezzano.lap.arm64:tlbi.vmalle1)
   (mezzano.lap.arm64:ret))
 
