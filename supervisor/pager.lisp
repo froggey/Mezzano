@@ -38,14 +38,6 @@
   (when *pager-noisy*
     (debug-print-line-1 things)))
 
-(declaim (inline page-table-entry (setf page-table-entry)))
-(defun page-table-entry (page-table &optional (index 0))
-  (sys.int::memref-unsigned-byte-64 page-table index))
-(defun (setf page-table-entry) (value page-table &optional (index 0))
-  (setf (sys.int::memref-unsigned-byte-64 page-table index) value))
-(defun (sys.int::cas page-table-entry) (old new page-table &optional (index 0))
-  (sys.int::cas (sys.int::memref-unsigned-byte-64 page-table index) old new))
-
 (declaim (inline zeroize-page zeroize-physical-page))
 (defun zeroize-page (addr)
   (sys.int::%fill-words addr 0 512))

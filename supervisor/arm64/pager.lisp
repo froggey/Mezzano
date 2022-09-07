@@ -47,16 +47,34 @@
   (declare (ignore address))
   ;; TODO: Flush by VA
   (%tlbi.vmalle1)
+  (%dsb.ish)
   (%isb))
 
 (defun flush-tlb ()
   (%tlbi.vmalle1)
+  (%dsb.ish)
   (%isb))
 
 (defun address-l4-bits (address) (ldb (byte 9 39) address))
 (defun address-l3-bits (address) (ldb (byte 9 30) address))
 (defun address-l2-bits (address) (ldb (byte 9 21) address))
 (defun address-l1-bits (address) (ldb (byte 9 12) address))
+
+(declaim (inline page-table-entry
+                 (setf page-table-entry)
+                 (ext:cas page-table-entry)))
+(defun page-table-entry (page-table &optional (index 0))
+  (sys.int::memref-unsigned-byte-64 page-table index))
+
+(defun (setf page-table-entry) (value page-table &optional (index 0))
+  (prog1
+      (setf (sys.int::memref-unsigned-byte-64 page-table index) value)
+    (%dsb.ish)))
+
+(defun (ext:cas page-table-entry) (old new page-table &optional (index 0))
+  (prog1
+      (ext:cas (sys.int::memref-unsigned-byte-64 page-table index) old new)
+    (%dsb.ish)))
 
 (defun make-pte (frame &key writable (present t) block wired dirty copy-on-write (cache-mode :normal))
   (logior (ash frame 12)

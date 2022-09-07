@@ -237,12 +237,14 @@
   nil)
 
 (sys.int::define-lap-function %dc.cvau ((address))
+  "Clean data cache for the given virtual address back to the point of unification"
   (:gc :no-frame :layout #*)
   (mezzano.lap.arm64:add :x9 :xzr :x0 :asr #.sys.int::+n-fixnum-bits+)
   (mezzano.lap.arm64:dc.cvau :x9)
   (mezzano.lap.arm64:ret))
 
 (sys.int::define-lap-function %ic.ivau ((address))
+  "Invalidate instruction cache for the given virtual address back to the point of unification"
   (:gc :no-frame :layout #*)
   (mezzano.lap.arm64:add :x9 :xzr :x0 :asr #.sys.int::+n-fixnum-bits+)
   (mezzano.lap.arm64:ic.ivau :x9)

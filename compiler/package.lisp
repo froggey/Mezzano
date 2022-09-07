@@ -405,7 +405,8 @@
 (defpackage :mezzano.supervisor
   (:use :cl)
   (:local-nicknames (:sys.lap-x86 :mezzano.lap.x86)
-                    (:sys.int :mezzano.internals))
+                    (:sys.int :mezzano.internals)
+                    (:ext :mezzano.extensions))
   (:export #:current-thread
            #:with-symbol-spinlock
            #:with-pseudo-atomic

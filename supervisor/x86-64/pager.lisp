@@ -19,6 +19,18 @@
 (defun flush-tlb-single (address)
   (sys.int::%invlpg address))
 
+(declaim (inline page-table-entry
+                 (setf page-table-entry)
+                 (ext:cas page-table-entry)))
+(defun page-table-entry (page-table &optional (index 0))
+  (sys.int::memref-unsigned-byte-64 page-table index))
+
+(defun (setf page-table-entry) (value page-table &optional (index 0))
+  (setf (sys.int::memref-unsigned-byte-64 page-table index) value))
+
+(defun (ext:cas page-table-entry) (old new page-table &optional (index 0))
+  (ext:cas (sys.int::memref-unsigned-byte-64 page-table index) old new))
+
 (defun pte-page-present-p (pte)
   (logtest +x86-64-pte-present+ pte))
 
