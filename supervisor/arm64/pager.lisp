@@ -91,10 +91,14 @@
           (if writable
               (logior +arm64-tte-writable+
                       (if (or wired dirty)
+                          ;; Wired or dirty pages get marked as
+                          ;; writable right away.
                           (logior (dpb +arm64-tte-ap-prw-una+
                                        +arm64-tte-ap+
                                        0)
                                   +arm64-tte-dirty+)
+                          ;; Otherwise they are RO and the dirty bit emulation
+                          ;; will mark them RW when written to.
                           (dpb +arm64-tte-ap-pro-una+
                                +arm64-tte-ap+
                                0)))

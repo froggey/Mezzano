@@ -558,6 +558,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
 
 (defun update-wired-dirty-bits-in-pager (ignore1 ignore2 ignore3)
   (declare (ignore ignore1 ignore2 ignore3))
+  (pager-log-op "Update wired dirty bits")
   (with-rw-lock-write (*vm-lock*)
     (begin-tlb-shootdown)
     (map-ptes

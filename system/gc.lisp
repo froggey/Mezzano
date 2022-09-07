@@ -1473,13 +1473,19 @@ a pointer to the new object. Leaves a forwarding pointer in place."
 (defun find-next-free-object (start limit usage-sym)
   (loop
      (when (>= start limit)
+       (when *gc-debug-freelist-rebuild*
+         (gc-log "fnfo (>= start limit) " start " " limit))
        (return nil))
      (when (not (get-mark-bit start))
        ;; Not marked, must be free.
+       (when *gc-debug-freelist-rebuild*
+         (gc-log "fnfo (not (get-mark-bit start)) " start))
        (return start))
      (let* ((size-in-words (align-up (size-of-pinned-area-allocation start) 2))
             (size (* size-in-words 8)))
        (incf (symbol-value usage-sym) size-in-words)
+       (when *gc-debug-freelist-rebuild*
+         (gc-log "fnfo " start " " size " " (+ start size)))
        (loop
           for card from (align-up start +card-size+) below (+ start size) by +card-size+
           for delta = (- start card)
@@ -1526,7 +1532,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
 (defun rebuild-freelist (bins name base limit usage-sym)
   "Sweep the pinned/wired area chain and rebuild the freelist.
 Additionally update the card table offset fields and clear the mark bits."
-  (gc-log "rebuild freelist " name)
+  (gc-log "rebuild freelist " name " " base " " limit)
   ;; Reset bins.
   (dotimes (i 64)
     (setf (svref bins i) nil))
