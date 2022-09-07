@@ -34,7 +34,7 @@
         (env:make-stack environment (* 128 1024)))
   (setf (env:cross-symbol-value environment 'sys.int::*arm64-exception-vector*)
         (env:compile-lap environment
-                         (loop repeat (/ (* +exception-vector-alignment+ 2) 8) ; for alignment
+                         (loop repeat (/ (+ 2048 +exception-vector-alignment+) 8) ; for alignment
                                collect `(:d64/le 0))
                          :area :wired-function
                          :name 'sys.int::*arm64-exception-vector*)))
@@ -80,6 +80,7 @@
                  (setf (ser::object-slot image ex-vec-val (+ slot-offset offset 2)) entry-fref-val)))
              (gen-invalid (offset)
                ;; HLT #1
+               (setf offset (/ offset 8))
                (setf (mref32 offset 0) #xD4400020)))
       (gen-vector #x000 'sup::%el0-common 'sup::%synchronous-el0-handler)
       (gen-vector #x080 'sup::%el0-common 'sup::%irq-el0-handler)
