@@ -53,6 +53,18 @@
   (mezzano.lap.arm64:movz :x5 #.(ash 1 sys.int::+n-fixnum-bits+))
   (mezzano.lap.arm64:ret))
 
+(sys.int::define-lap-function sys.int::%%round-single-float ()
+  ;; Unbox the float.
+  (mezzano.lap.arm64:add :x9 :xzr :x0 :lsr 32)
+  ;; Load into Single register.
+  (mezzano.lap.arm64:fmov :s0 :w9)
+  ;; Convert to unboxed integer.
+  (mezzano.lap.arm64:fcvtns :x9 :s0)
+  ;; Box fixnum.
+  (mezzano.lap.arm64:add :x0 :xzr :x9 :lsl #.sys.int::+n-fixnum-bits+)
+  (mezzano.lap.arm64:movz :x5 #.(ash 1 sys.int::+n-fixnum-bits+))
+  (mezzano.lap.arm64:ret))
+
 (sys.int::define-lap-function sys.int::%%single-float-< ()
   ;; Unbox the floats.
   (mezzano.lap.arm64:add :x9 :xzr :x0 :lsr 32)
@@ -157,6 +169,18 @@
   (mezzano.lap.arm64:fmov :d0 :x9)
   ;; Convert to unboxed integer.
   (mezzano.lap.arm64:fcvtzs :x9 :d0)
+  ;; Box fixnum.
+  (mezzano.lap.arm64:add :x0 :xzr :x9 :lsl #.sys.int::+n-fixnum-bits+)
+  (mezzano.lap.arm64:movz :x5 #.(ash 1 sys.int::+n-fixnum-bits+))
+  (mezzano.lap.arm64:ret))
+
+(sys.int::define-lap-function sys.int::%%round-double-float ()
+  ;; Unbox the float.
+  (mezzano.lap.arm64:ldr :x9 (:object :x0 0))
+  ;; Load into double register.
+  (mezzano.lap.arm64:fmov :d0 :x9)
+  ;; Convert to unboxed integer.
+  (mezzano.lap.arm64:fcvtns :x9 :d0)
   ;; Box fixnum.
   (mezzano.lap.arm64:add :x0 :xzr :x9 :lsl #.sys.int::+n-fixnum-bits+)
   (mezzano.lap.arm64:movz :x5 #.(ash 1 sys.int::+n-fixnum-bits+))
