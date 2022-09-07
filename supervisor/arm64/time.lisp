@@ -73,8 +73,8 @@
 (defun initialize-platform-time (fdt-node)
   (let* ((fdt-interrupt (fdt-get-property fdt-node "interrupts"))
          ;; FIXME: need to deal with PPI vs SPI. 16 is PPI offset.
-         ;; Read the IRQ for the non-secure physical timer
-         (irq (+ 16 (fdt-read-u32 fdt-interrupt 4)))
+         ;; Read the IRQ for the virtual timer
+         (irq (+ 16 (fdt-read-u32 fdt-interrupt 7)))
          (timer-rate (%cntfrq))
          (tick-rate 100))
     (debug-print-line "Timer irq: " irq)
