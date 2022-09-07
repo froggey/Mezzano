@@ -1133,6 +1133,16 @@ It will put the thread to sleep, while it waits for the page."
        (panic "Missing pte for wired page " wired-page))
      (update-pte pte
                  :dirty t)))
+  ;; Do the same for the wired function area on arm64, since dirty bit
+  ;; emulation doesn't cover it.
+  #+arm64
+  (map-ptes
+   sys.int::*wired-function-area-limit* sys.int::*function-area-base*
+   (dx-lambda (wired-page pte)
+     (when (not pte)
+       (panic "Missing pte for wired page " wired-page))
+     (update-pte pte
+                 :dirty t)))
   (flush-tlb))
 
 ;;; When true, the system will panic if a thread touches a truely unmapped page.
