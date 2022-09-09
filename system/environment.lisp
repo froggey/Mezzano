@@ -557,12 +557,20 @@ second element."
                  (when loc
                    (push (list name loc) result))))
              (frob-name (name)
+               #+x86-64
                (let ((builtin (gethash name mezzano.compiler.backend.x86-64::*builtins*)))
                  (when builtin
                    (frob-fn `(mezzano.compiler.backend.x86-64::define-builtin ,name
                                  ,(mezzano.compiler.backend.x86-64::builtin-lambda-list builtin)
                                ,(mezzano.compiler.backend.x86-64::builtin-result-list builtin))
                             (mezzano.compiler.backend.x86-64::builtin-generator builtin))))
+               #+arm64
+               (let ((builtin (gethash name mezzano.compiler.backend.arm64::*builtins*)))
+                 (when builtin
+                   (frob-fn `(mezzano.compiler.backend.arm64::define-builtin ,name
+                                 ,(mezzano.compiler.backend.arm64::builtin-lambda-list builtin)
+                               ,(mezzano.compiler.backend.arm64::builtin-result-list builtin))
+                            (mezzano.compiler.backend.arm64::builtin-generator builtin))))
                (let ((xforms (gethash name mezzano.compiler::*transforms*)))
                  (when xforms
                    (dolist (xform xforms)

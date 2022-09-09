@@ -35,6 +35,15 @@
                                              (block ,name
                                                ,@body)))))))
 
+(defun find-arm64-lap-definitions (name)
+  (let ((assembler (gethash name *instruction-assemblers*)))
+    (when assembler
+      (let ((loc (mezzano.debug:function-source-location (symbol-function assembler))))
+        (when loc
+          (list (list `(define-instruction ,name)
+                      loc)))))))
+(mezzano.extensions:add-find-definitions-hook 'find-arm64-lap-definitions)
+
 (defun emit-byte (value)
   (check-type value (unsigned-byte 8))
   (mezzano.lap:emit value))
