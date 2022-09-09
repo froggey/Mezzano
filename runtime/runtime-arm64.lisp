@@ -78,7 +78,7 @@
   (mezzano.lap.arm64:add :sp :x29 0)
   (:gc :frame :multiple-values 0)
   (mezzano.lap.arm64:ldp :x29 :x30 (:post :sp 16))
-  (:gc :no-frame :multiple-values 0)
+  (:gc :no-frame :layout #* :multiple-values 0)
   (mezzano.lap.arm64:ret)
   ;; Special-case 0 values as it requires NIL in X0.
   zero-values
@@ -208,13 +208,13 @@
   ;; Finish up & return.
   (mezzano.lap.arm64:add :sp :x29 0)
   (mezzano.lap.arm64:ldp :x29 :x30 (:post :sp 16))
-  (:gc :no-frame)
+  (:gc :no-frame :layout #*)
   (mezzano.lap.arm64:ret)
   DO-TAIL-CALL
   (:gc :frame)
   (mezzano.lap.arm64:add :sp :x29 0)
   (mezzano.lap.arm64:ldp :x29 :x30 (:post :sp 16))
-  (:gc :no-frame)
+  (:gc :no-frame :layout #*)
   (mezzano.lap.arm64:ldr :x9 (:object :x6 0))
   (mezzano.lap.arm64:br :x9)
   ;; X0 = function, X1 = arg-list.

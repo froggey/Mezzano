@@ -3,8 +3,9 @@
 (in-package :mezzano.internals)
 
 (sys.int::define-lap-function sys.int::%%make-bignum-64-x10 ()
+  (:gc :no-frame :layout #*)
   (mezzano.lap.arm64:stp :x29 :x30 (:pre :sp -16))
-  (:gc :no-frame :incoming-arguments :rcx :layout #*0)
+  (:gc :no-frame :layout #*00)
   (mezzano.lap.arm64:add :x29 :sp :xzr)
   (:gc :frame)
   (mezzano.lap.arm64:stp :x10 :x11 (:pre :sp -16))
@@ -16,12 +17,13 @@
   (mezzano.lap.arm64:movz :x5 #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
   (mezzano.lap.arm64:add :sp :x29 0)
   (mezzano.lap.arm64:ldp :x29 :x30 (:post :sp 16))
-  (:gc :no-frame)
+  (:gc :no-frame :layout #*)
   (mezzano.lap.arm64:ret))
 
 (sys.int::define-lap-function sys.int::%%make-bignum-128-x10-x11 ()
+  (:gc :no-frame :layout #*)
   (mezzano.lap.arm64:stp :x29 :x30 (:pre :sp -16))
-  (:gc :no-frame :incoming-arguments :rcx :layout #*0)
+  (:gc :no-frame :layout #*00)
   (mezzano.lap.arm64:add :x29 :sp :xzr)
   (:gc :frame)
   (mezzano.lap.arm64:stp :x10 :x11 (:pre :sp -16))
@@ -34,7 +36,7 @@
   (mezzano.lap.arm64:movz :x5 #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
   (mezzano.lap.arm64:add :sp :x29 0)
   (mezzano.lap.arm64:ldp :x29 :x30 (:post :sp 16))
-  (:gc :no-frame)
+  (:gc :no-frame :layout #*)
   (mezzano.lap.arm64:ret))
 
 (defun bignum-sign-32 (bignum)

@@ -1,8 +1,9 @@
 (in-package :mezzano.supervisor)
 
 (sys.int::define-lap-function ensure-on-wired-stack ()
+  (:gc :no-frame :layout #*)
   (mezzano.lap.arm64:stp :x29 :x30 (:pre :sp -16))
-  (:gc :no-frame :layout #*0)
+  (:gc :no-frame :layout #*00)
   (mezzano.lap.arm64:add :x29 :sp :xzr)
   (:gc :frame)
   (mezzano.lap.arm64:add :x9 :sp 0)
@@ -13,7 +14,7 @@
   (mezzano.lap.arm64:b.hs BAD)
   (mezzano.lap.arm64:orr :x5 :xzr :xzr)
   (mezzano.lap.arm64:ldp :x29 :x30 (:post :sp 16))
-  (:gc :no-frame)
+  (:gc :no-frame :layout #*)
   (mezzano.lap.arm64:ret)
   BAD
   (mezzano.lap.arm64:ldr :x0 (:constant "Not on wired stack."))
@@ -22,6 +23,7 @@
   (mezzano.lap.arm64:hlt 0))
 
 (sys.int::define-lap-function sys.int::%interrupt-state (())
+  (:gc :no-frame :layout #*)
   (mezzano.lap.arm64:mrs :x9 :daif)
   (mezzano.lap.arm64:ldr :x0 (:constant t))
   (mezzano.lap.arm64:ands :xzr :x9 :x9)
@@ -30,19 +32,23 @@
   (mezzano.lap.arm64:ret))
 
 (sys.int::define-lap-function %disable-interrupts (())
+  (:gc :no-frame :layout #*)
   (mezzano.lap.arm64:msr :daifset #b1111)
   (mezzano.lap.arm64:ret))
 
 (sys.int::define-lap-function %enable-interrupts (())
+  (:gc :no-frame :layout #*)
   (mezzano.lap.arm64:msr :daifclr #b1111)
   (mezzano.lap.arm64:ret))
 
 (sys.int::define-lap-function %wait-for-interrupt (())
+  (:gc :no-frame :layout #*)
   (mezzano.lap.arm64:wfi)
   (mezzano.lap.arm64:msr :daifclr #b1111)
   (mezzano.lap.arm64:ret))
 
 (sys.int::define-lap-function %arch-panic-stop (())
+  (:gc :no-frame :layout #*)
   (mezzano.lap.arm64:wfi)
   (mezzano.lap.arm64:ret))
 
@@ -86,7 +92,7 @@
   (mezzano.lap.arm64:msr :daifclr #b1111)
   ;; Now safe to restore the frame pointer.
   (mezzano.lap.arm64:ldp :x29 :x30 (:post :sp 16))
-  (:gc :no-frame :multiple-values 0)
+  (:gc :no-frame :layout #* :multiple-values 0)
   ;; Done, return.
   (mezzano.lap.arm64:ret)
   INTERRUPTS-DISABLED
@@ -96,15 +102,17 @@
   (mezzano.lap.arm64:blr :x9)
   ;; Restore frame and return.
   (mezzano.lap.arm64:ldp :x29 :x30 (:post :sp 16))
-  (:gc :no-frame :multiple-values 0)
+  (:gc :no-frame :layout #* :multiple-values 0)
   (mezzano.lap.arm64:ret))
 
 (sys.int::define-lap-function %read-esr-el1 (())
+  (:gc :no-frame :layout #*)
   (mezzano.lap.arm64:mrs :x9 :esr-el1)
   (mezzano.lap.arm64:add :x0 :xzr :x9 :lsl #.sys.int::+n-fixnum-bits+)
   (mezzano.lap.arm64:ret))
 
 (sys.int::define-lap-function %read-far-el1 (())
+  (:gc :no-frame :layout #*)
   (mezzano.lap.arm64:mrs :x9 :far-el1)
   (mezzano.lap.arm64:add :x0 :xzr :x9 :lsl #.sys.int::+n-fixnum-bits+)
   (mezzano.lap.arm64:ret))

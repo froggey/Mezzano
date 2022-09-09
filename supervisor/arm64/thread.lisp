@@ -1,17 +1,21 @@
 (in-package :mezzano.supervisor)
 
 (sys.int::define-lap-function %%return-to-same-thread ()
+  (:gc :no-frame :layout #*)
   (mezzano.lap.arm64:msr :spsel 0)
   (mezzano.lap.arm64:add :sp :x0 0)
+  (:gc :frame)
   (mezzano.lap.arm64:orr :x29 :xzr :x1)
   (mezzano.lap.arm64:orr :x5 :xzr :xzr)
   (mezzano.lap.arm64:orr :x0 :x26 :xzr)
   (mezzano.lap.arm64:msr :daifclr #b1111)
-  (:gc :no-frame)
+  (:gc :no-frame :layout #*00)
   (mezzano.lap.arm64:ldp :x29 :x30 (:post :sp 16))
+  (:gc :no-frame :layout #*)
   (mezzano.lap.arm64:ret))
 
 (sys.int::define-lap-function save-fpu-state ((thread))
+  (:gc :no-frame :layout #*)
   (mezzano.lap.arm64:add :x12 :x0 (:object-literal #.+thread-fxsave-area+))
   (mezzano.lap.arm64:stp :q0 :q1 (:post :x12 32))
   (mezzano.lap.arm64:stp :q2 :q3 (:post :x12 32))
@@ -37,6 +41,7 @@
   (mezzano.lap.arm64:ret))
 
 (sys.int::define-lap-function restore-fpu-state ((thread))
+  (:gc :no-frame :layout #*)
   (mezzano.lap.arm64:add :x12 :x0 (:object-literal #.+thread-fxsave-area+))
   (mezzano.lap.arm64:ldp :q0 :q1 (:post :x12 32))
   (mezzano.lap.arm64:ldp :q2 :q3 (:post :x12 32))
@@ -74,6 +79,7 @@
   (setf (thread-full-save-p thread) t))
 
 (sys.int::define-lap-function set-current-thread ((thread))
+  (:gc :no-frame :layout #*)
   (mezzano.lap.arm64:orr :x28 :xzr :x0)
   (mezzano.lap.arm64:ret))
 
@@ -143,6 +149,7 @@
   (mezzano.lap.arm64:ret))
 
 (sys.int::define-lap-function current-thread (())
+  (:gc :no-frame :layout #*)
   (mezzano.lap.arm64:orr :x0 :xzr :x28)
   (mezzano.lap.arm64:movz :x5 #.(ash 1 sys.int::+n-fixnum-bits+))
   (mezzano.lap.arm64:ret))

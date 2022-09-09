@@ -10,6 +10,7 @@
                     sys.int::*arm64-exception-vector-base*)))
 
 (sys.int::define-lap-function %load-cpu-bits ((sp-el1 cpu-data vbar-el1))
+  (:gc :no-frame :layout #*)
   ;; Switch to SP_EL1.
   (mezzano.lap.arm64:msr :spsel 1)
   ;; Unbox sp-el1.
@@ -27,6 +28,7 @@
   (mezzano.lap.arm64:ret))
 
 (sys.int::define-lap-function local-cpu-info (())
+  (:gc :no-frame :layout #*)
   (mezzano.lap.arm64:orr :x0 :xzr :x27)
   (mezzano.lap.arm64:movz :x5 #.(ash 1 sys.int::+n-fixnum-bits+))
   (mezzano.lap.arm64:ret))
