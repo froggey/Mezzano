@@ -2189,7 +2189,7 @@
         (cond
           ((and (eql lhs-class :fp-64)
                 (eql rhs-class :fp-32))
-           (values #b11 #b01))
+           (values #b00 #b01))
           ((and (eql lhs-class :fp-32)
                 (eql rhs-class :fp-64))
            (values #b01 #b00))
