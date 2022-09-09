@@ -387,20 +387,82 @@
                          :source result-unboxed
                          :destination result))))
 
-;; TODO: Overflow.
 ;; overflow occurs if bits 127-63 of a signed 64*64=128bit multiply are not all
 ;; ones or all zeros.
 (define-builtin mezzano.runtime::%fixnum-* ((x y) result)
-  (let ((x-unboxed (make-instance 'ir:virtual-register :kind :integer)))
+  (let ((x-unboxed (make-instance 'ir:virtual-register :kind :integer))
+        (low-half (make-instance 'ir:virtual-register :kind :integer))
+        (high-half (make-instance 'ir:virtual-register :kind :integer))
+        (sign-word (make-instance 'ir:virtual-register :kind :integer))
+        (bignum-result (make-instance 'ir:virtual-register))
+        (overflow (make-instance 'ir:label :name :fixnum-*-overflow))
+        (no-overflow (make-instance 'ir:label :name :fixnum-*-no-overflow))
+        (out-label (make-instance 'ir:label :name :fixnum-*-done :phis (list result))))
     ;; Unbox one operand, this will produce a boxed result.
     (emit (make-instance 'ir:unbox-fixnum-instruction
                          :source x
                          :destination x-unboxed))
+    ;; Produce the high bits. This must match the sign-extended low bits.
+    (emit (make-instance 'arm64-instruction
+                         :opcode 'lap:smulh
+                         :operands (list high-half x-unboxed y)
+                         :inputs (list x-unboxed y)
+                         :outputs (list high-half)))
+    ;; Produce the low bits.
     (emit (make-instance 'arm64-instruction
                          :opcode 'lap:madd
-                         :operands (list result :xzr x-unboxed y)
+                         :operands (list low-half :xzr x-unboxed y)
                          :inputs (list x-unboxed y)
-                         :outputs (list result)))))
+                         :outputs (list low-half)))
+    ;; Sign extend the low 64-bits so we can check it against the high 64-bits
+    (emit (make-instance 'arm64-instruction
+                         :opcode 'lap:add
+                         :operands (list sign-word :xzr low-half :asr 63)
+                         :inputs (list low-half)
+                         :outputs (list sign-word)))
+    ;; Compare the two
+    (emit (make-instance 'arm64-instruction
+                         :opcode 'lap:subs
+                         :operands (list :xzr sign-word high-half)
+                         :inputs (list sign-word high-half)
+                         :outputs (list)))
+    (emit (make-instance 'arm64-branch-instruction
+                         :opcode 'lap:b.eq
+                         :true-target no-overflow
+                         :false-target overflow))
+    (emit no-overflow)
+    (emit (make-instance 'ir:jump-instruction
+                         :target out-label
+                         :values (list low-half)))
+    (emit overflow)
+    ;; Overflow occured, we have the full result in the hi/lo registers.
+    ;; Punt to the helper function.
+    (emit (make-instance 'ir:move-instruction
+                         :source low-half
+                         :destination :x10))
+    (emit (make-instance 'ir:move-instruction
+                         :source high-half
+                         :destination :x11))
+    (emit (make-instance 'arm64-instruction
+                         :opcode 'lap:named-call
+                         :operands '(sys.int::%%fixnum-multiply-overflow)
+                         :inputs '(:x10 :x11)
+                         :outputs (list :x0)
+                         :clobbers '(:x0 :x1 :x2 :x3 :x4 :x5 :x6 :x7
+                                     :x8 :x9 :x10 :x11 :x12 :x13 :x14 :x15
+                                     :x16 :x17 :x18 :x19 :x20 :x21 :x22 :x23
+                                     :x24 :x25
+                                     :q0 :q1 :q2 :q3 :q4 :q5 :q6 :q7
+                                     :q8 :q9 :q10 :q11 :q12 :q13 :q14 :q15
+                                     :q16 :q17 :q18 :q19 :q20 :q21 :q22 :q23
+                                     :q24 :q25 :q26 :q27 :q28 :q29 :q30 :q31)))
+    (emit (make-instance 'ir:move-instruction
+                         :destination bignum-result
+                         :source :x0))
+    (emit (make-instance 'ir:jump-instruction
+                         :target out-label
+                         :values (list bignum-result)))
+    (emit out-label)))
 
 (define-builtin mezzano.compiler::%fast-fixnum-* ((lhs rhs) result)
   (cond ((or (constant-value-p lhs '(eql 0))

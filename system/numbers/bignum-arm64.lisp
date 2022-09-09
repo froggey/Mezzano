@@ -39,6 +39,23 @@
   (:gc :no-frame :layout #*)
   (mezzano.lap.arm64:ret))
 
+(sys.int::define-lap-function sys.int::%%fixnum-multiply-overflow ()
+  ;; Unbox the result. Low part in x10, hi in x11.
+  (mezzano.lap.arm64:extr :x10 :x11 :x10 1)
+  (mezzano.lap.arm64:add :x11 :xzr :x11 :asr 1)
+  ;; Check if the result will fit in 64 bits.
+  ;; Extend low 64 bits to 128 bits.
+  (mezzano.lap.arm64:add :x12 :xzr :x10 :asr 63)
+  ;; Compare with high bits.
+  (mezzano.lap.arm64:subs :xzr :x12 :x11)
+  ;; If they're the same then it'll fit in a 64-bit bignum.
+  (mezzano.lap.arm64:b.ne RESULT128)
+  ;; 64-bit result
+  (mezzano.lap.arm64:named-tail-call sys.int::%%make-bignum-64-x10)
+  RESULT128
+  ;; 128-bit result
+  (mezzano.lap.arm64:named-tail-call sys.int::%%make-bignum-128-x10-x11))
+
 (defun bignum-sign-32 (bignum)
   (let* ((len (%n-bignum-fragments bignum))
          (final (%object-ref-unsigned-byte-32 bignum (1- (* len 2)))))
@@ -269,3 +286,47 @@
   (dotimes (i count
             bignum)
     (setf bignum (+ bignum bignum))))
+
+;;; Unsigned multiply X & Y, must be of type (UNSIGNED-BYTE 64)
+;;; This can be either a fixnum, a length-one bignum or a length-two bignum.
+;;; Always returns an (UNSIGNED-BYTE 128) in a length-three bignum.
+(define-lap-function %%bignum-multiply-step ()
+  (:gc :no-frame :layout #*)
+  (mezzano.lap.arm64:stp :x29 :x30 (:pre :sp -16))
+  (:gc :no-frame :layout #*00)
+  (mezzano.lap.arm64:add :x29 :sp :xzr)
+  (:gc :frame)
+  ;; Read X.
+  (mezzano.lap.arm64:ands :xzr :x0 #.+fixnum-tag-mask+)
+  (mezzano.lap.arm64:b.ne read-bignum-x)
+  (mezzano.lap.arm64:add :x12 :xzr :x0 :asr 1)
+  ;; Read Y.
+  read-y
+  (mezzano.lap.arm64:ands :xzr :x1 #.+fixnum-tag-mask+)
+  (mezzano.lap.arm64:b.ne read-bignum-y)
+  (mezzano.lap.arm64:add :x13 :xzr :x1 :asr 1)
+  perform-multiply
+  (mezzano.lap.arm64:umulh :x11 :x12 :x13)
+  (mezzano.lap.arm64:madd :x10 :xzr :x12 :x13)
+  ;; X11:X10 holds the 128-bit result.
+  ;; Prepare to allocate the result.
+  (mezzano.lap.arm64:stp :x10 :x11 (:pre :sp -16))
+  (mezzano.lap.arm64:movz :x5 #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
+  (mezzano.lap.arm64:movz :x0 #.(ash 3 sys.int::+n-fixnum-bits+)) ; fixnum 2
+  (mezzano.lap.arm64:named-call sys.int::%make-bignum-of-length)
+  (mezzano.lap.arm64:ldp :x10 :x11 (:post :sp 16))
+  (mezzano.lap.arm64:str :x10 (:object :x0 0))
+  (mezzano.lap.arm64:str :x11 (:object :x0 1))
+  (mezzano.lap.arm64:str :xzr (:object :x0 2))
+  (mezzano.lap.arm64:movz :x5 #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
+  (mezzano.lap.arm64:add :sp :x29 0)
+  (mezzano.lap.arm64:ldp :x29 :x30 (:post :sp 16))
+  (:gc :no-frame :layout #*)
+  (mezzano.lap.arm64:ret)
+  (:gc :frame)
+  read-bignum-x
+  (mezzano.lap.arm64:ldr :x12 (:object :x0 0))
+  (mezzano.lap.arm64:b read-y)
+  read-bignum-y
+  (mezzano.lap.arm64:ldr :x13 (:object :x1 0))
+  (mezzano.lap.arm64:b perform-multiply))

@@ -1933,6 +1933,28 @@
                             (ash (register-number rhs) +rm-shift+)))
   (return-from instruction t))
 
+(define-instruction smulh (dst lhs rhs)
+  (check-register-class dst :gpr-64)
+  (check-register-class lhs :gpr-64 :xzr)
+  (check-register-class rhs :gpr-64 :xzr)
+  (emit-instruction (logior #x9B400000
+                            (ash (register-number dst) +rd-shift+)
+                            (ash #b11111 +ra-shift+)
+                            (ash (register-number lhs) +rn-shift+)
+                            (ash (register-number rhs) +rm-shift+)))
+  (return-from instruction t))
+
+(define-instruction umulh (dst lhs rhs)
+  (check-register-class dst :gpr-64)
+  (check-register-class lhs :gpr-64 :xzr)
+  (check-register-class rhs :gpr-64 :xzr)
+  (emit-instruction (logior #x9BC00000
+                            (ash (register-number dst) +rd-shift+)
+                            (ash #b11111 +ra-shift+)
+                            (ash (register-number lhs) +rn-shift+)
+                            (ash (register-number rhs) +rm-shift+)))
+  (return-from instruction t))
+
 (define-instruction bfi (lhs src lsb width)
   (let ((is-64-bit (eql (register-class lhs) :gpr-64)))
     (cond (is-64-bit
@@ -1977,6 +1999,29 @@
                               (ash lsb +immr-shift+)
                               (ash (register-number src) +rn-shift+)
                               (ash (register-number lhs) +rd-shift+)))
+    (return-from instruction t)))
+
+(define-instruction extr (dst lhs rhs lsb)
+  (let ((is-64-bit (eql (register-class lhs) :gpr-64)))
+    (cond (is-64-bit
+           (check-register-class dst :gpr-64)
+           (check-register-class lhs :gpr-64 :xzr)
+           (check-register-class rhs :gpr-64 :xzr)
+           (assert (<= 0 lsb 63)))
+          (t
+           (check-register-class dst :gpr-32)
+           (check-register-class lhs :gpr-32 :wzr)
+           (check-register-class rhs :gpr-32 :wzr)
+           (assert (<= 0 lsb 31))))
+    (emit-instruction (logior (if is-64-bit
+                                  #x80000000
+                                  #x00000000)
+                              #x13800000
+                              (if is-64-bit (ash 1 +n-shift+) 0)
+                              (ash lsb +imms-shift+)
+                              (ash (register-number rhs) +rm-shift+)
+                              (ash (register-number lhs) +rn-shift+)
+                              (ash (register-number dst) +rd-shift+)))
     (return-from instruction t)))
 
 (define-instruction scvtf (lhs rhs)
