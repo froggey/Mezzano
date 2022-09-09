@@ -26,17 +26,6 @@
 (defconstant +arm64-tte-dirty+         #x0200000000000000)
 (defconstant +arm64-tte-address-mask+  #x00007ffffffff000)
 
-(sys.int::define-lap-function %ttbr0 (())
-  (:gc :no-frame :layout #*)
-  (mezzano.lap.arm64:mrs :x9 :ttbr0-el1)
-  (mezzano.lap.arm64:add :x0 :xzr :x9 :lsl #.sys.int::+n-fixnum-bits+)
-  (mezzano.lap.arm64:ret))
-
-(sys.int::define-lap-function %ttbr1 (())
-  (:gc :no-frame :layout #*)
-  (mezzano.lap.arm64:mrs :x9 :ttbr1-el1)
-  (mezzano.lap.arm64:add :x0 :xzr :x9 :lsl #.sys.int::+n-fixnum-bits+)
-  (mezzano.lap.arm64:ret))
 
 (sys.int::define-lap-function %tlbi.vmalle1 (())
   (:gc :no-frame :layout #*)
@@ -181,8 +170,8 @@
 
 (defun get-pte-for-address (address &optional (allocate t))
   (let* ((ttl0 (convert-to-pmap-address (if (logbitp 63 address)
-                                            (%ttbr1)
-                                            (%ttbr0))))
+                                            (%ttbr1-el1)
+                                            (%ttbr0-el1))))
          (ttl1           (descend-page-table ttl0 (address-l4-bits address) allocate))
          (ttl2 (and ttl1 (descend-page-table ttl1 (address-l3-bits address) allocate)))
          (ttl3 (and ttl2 (descend-page-table ttl2 (address-l2-bits address) allocate))))
@@ -233,8 +222,8 @@ otherwise FN will be called with a NIL PTE for those entries."
             with start-ttl0e = (ldb (byte 9 39) (align-down start #x0000008000000000))
             with end-ttl0e = (ldb (byte 9 39) (align-up end #x0000008000000000))
             with ttl0 = (convert-to-pmap-address (if (logbitp 63 start)
-                                                     (%ttbr1)
-                                                     (%ttbr0)))
+                                                     (%ttbr1-el1)
+                                                     (%ttbr0-el1)))
             for ttl0e from start-ttl0e below end-ttl0e
             for address from (align-down start #x0000008000000000) by #x0000008000000000
             do

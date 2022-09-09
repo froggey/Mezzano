@@ -281,3 +281,21 @@
     (%dsb.ish)
     ;; Make sure we don't have stale instructions in the pipeline.
     (%isb)))
+
+(defmacro define-system-register-accessors ()
+  `(progn
+     ,@(loop for (name) in mezzano.lap.arm64::*system-registers*
+             for symbol = (intern (format nil "%~A" name))
+             collect `(sys.int::define-lap-function ,symbol (())
+                        (:gc :no-frame :layout #*)
+                        (mezzano.lap.arm64:mrs :x9 ,name)
+                        (mezzano.lap.arm64:add :x0 :xzr :x9 :lsl #.sys.int::+n-fixnum-bits+)
+                        (mezzano.lap.arm64:movz :x5 #.(ash 1 sys.int::+n-fixnum-bits+))
+                        (mezzano.lap.arm64:ret))
+             collect `(sys.int::define-lap-function (setf ,symbol) ((value))
+                        (:gc :no-frame :layout #*)
+                        (mezzano.lap.arm64:add :x9 :xzr :x0 :asr #.sys.int::+n-fixnum-bits+)
+                        (mezzano.lap.arm64:msr ,name :x9)
+                        (mezzano.lap.arm64:ret)))))
+
+(define-system-register-accessors)

@@ -105,26 +105,14 @@
   (:gc :no-frame :layout #* :multiple-values 0)
   (mezzano.lap.arm64:ret))
 
-(sys.int::define-lap-function %read-esr-el1 (())
-  (:gc :no-frame :layout #*)
-  (mezzano.lap.arm64:mrs :x9 :esr-el1)
-  (mezzano.lap.arm64:add :x0 :xzr :x9 :lsl #.sys.int::+n-fixnum-bits+)
-  (mezzano.lap.arm64:ret))
-
-(sys.int::define-lap-function %read-far-el1 (())
-  (:gc :no-frame :layout #*)
-  (mezzano.lap.arm64:mrs :x9 :far-el1)
-  (mezzano.lap.arm64:add :x0 :xzr :x9 :lsl #.sys.int::+n-fixnum-bits+)
-  (mezzano.lap.arm64:ret))
-
 (defun unhandled-interrupt (interrupt-frame name)
   (panic "Unhandled " name " interrupt."
          " SPSR: " (interrupt-frame-raw-register interrupt-frame :rflags)
          " PC: " (interrupt-frame-raw-register interrupt-frame :rip)
          " x30: " (interrupt-frame-raw-register interrupt-frame :cs)
          " SP: " (interrupt-frame-raw-register interrupt-frame :rsp)
-         " ESR: " (%read-esr-el1)
-         " FAR: " (%read-far-el1)))
+         " ESR: " (%esr-el1)
+         " FAR: " (%far-el1)))
 
 (sys.int::defglobal *page-fault-hook*)
 
@@ -200,13 +188,13 @@
        (unhandled-interrupt interrupt-frame "data-abort")))))
 
 (defun %synchronous-el0-handler (interrupt-frame)
-  (let* ((esr (%read-esr-el1))
+  (let* ((esr (%esr-el1))
          (class (ldb (byte 6 26) esr)))
     (case class
       (#x21
-       (%instruction-abort-handler interrupt-frame (%read-far-el1) esr))
+       (%instruction-abort-handler interrupt-frame (%far-el1) esr))
       (#x25
-       (%data-abort-handler interrupt-frame (%read-far-el1) esr))
+       (%data-abort-handler interrupt-frame (%far-el1) esr))
       (t
        (unhandled-interrupt interrupt-frame "synchronous-el0")))))
 
@@ -220,13 +208,13 @@
   (unhandled-interrupt interrupt-frame "serror-el0"))
 
 (defun %synchronous-elx-handler (interrupt-frame)
-  (let* ((esr (%read-esr-el1))
+  (let* ((esr (%esr-el1))
          (class (ldb (byte 6 26) esr)))
     (case class
       (#x21
-       (%instruction-abort-handler interrupt-frame (%read-far-el1) esr))
+       (%instruction-abort-handler interrupt-frame (%far-el1) esr))
       (#x25
-       (%data-abort-handler interrupt-frame (%read-far-el1) esr))
+       (%data-abort-handler interrupt-frame (%far-el1) esr))
       (t
        (unhandled-interrupt interrupt-frame "synchronous-elx")))))
 

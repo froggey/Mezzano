@@ -1634,57 +1634,78 @@
                                    #b11111)))
      (return-from instruction t)))
 
-;; Returns op0, op1, crn, crm, op2.
+(defparameter *system-registers*
+  ;; op0, op1, crn, crm, op2.
+  '((:nzcv             (#b11 #b011 #b0100 #b0010 #b000))
+    (:spsel            (#b11 #b000 #b0100 #b0010 #b000))
+    (:sp-el0           (#b11 #b000 #b0100 #b0001 #b000))
+    (:elr-el1          (#b11 #b000 #b0100 #b0000 #b001))
+    (:esr-el1          (#b11 #b000 #b0101 #b0010 #b000))
+    (:far-el1          (#b11 #b000 #b0110 #b0000 #b000))
+    (:spsr-el1         (#b11 #b000 #b0100 #b0000 #b000))
+    (:vbar-el1         (#b11 #b000 #b1100 #b0000 #b000))
+    (:ttbr0-el1        (#b11 #b000 #b0010 #b0000 #b000))
+    (:ttbr1-el1        (#b11 #b000 #b0010 #b0000 #b001))
+    (:tcr-el1          (#b11 #b000 #b0010 #b0000 #b010))
+    (:daif             (#b11 #b011 #b0100 #b0010 #b001))
+    (:cntfrq-el0       (#b11 #b011 #b1110 #b0000 #b000))
+    (:cntkctl-el1      (#b11 #b000 #b1110 #b0001 #b000))
+    (:cntp-ctl-el0     (#b11 #b011 #b1110 #b0010 #b001))
+    (:cntp-cval-el0    (#b11 #b011 #b1110 #b0010 #b010))
+    (:cntp-tval-el0    (#b11 #b011 #b1110 #b0010 #b000))
+    (:cntpct-el0       (#b11 #b011 #b1110 #b0000 #b001))
+    (:cntv-ctl-el0     (#b11 #b011 #b1110 #b0011 #b001))
+    (:cntv-cval-el0    (#b11 #b011 #b1110 #b0011 #b010))
+    (:cntv-tval-el0    (#b11 #b011 #b1110 #b0011 #b000))
+    (:cntvct-el0       (#b11 #b011 #b1110 #b0000 #b010))
+    (:fpcr             (#b11 #b011 #b0100 #b0100 #b000))
+    (:fpsr             (#b11 #b011 #b0100 #b0100 #b001))
+    (:midr-el1         (#b11 #b000 #b0000 #b0000 #b000))
+    (:mpidr-el1        (#b11 #b000 #b0000 #b0000 #b101))
+    (:revidr-el1       (#b11 #b000 #b0000 #b0000 #b110))
+    (:id-pfr0-el1      (#b11 #b000 #b0000 #b0001 #b000))
+    (:id-pfr1-el1      (#b11 #b000 #b0000 #b0001 #b001))
+    (:id-dfr0-el1      (#b11 #b000 #b0000 #b0001 #b010))
+    (:id-afr0-el1      (#b11 #b000 #b0000 #b0001 #b011))
+    (:id-mmfr0-el1     (#b11 #b000 #b0000 #b0001 #b100))
+    (:id-mmfr1-el1     (#b11 #b000 #b0000 #b0001 #b101))
+    (:id-mmfr2-el1     (#b11 #b000 #b0000 #b0001 #b110))
+    (:id-mmfr3-el1     (#b11 #b000 #b0000 #b0001 #b111))
+    (:id-isar0-el1     (#b11 #b000 #b0000 #b0010 #b000))
+    (:id-isar1-el1     (#b11 #b000 #b0000 #b0010 #b001))
+    (:id-isar2-el1     (#b11 #b000 #b0000 #b0010 #b010))
+    (:id-isar3-el1     (#b11 #b000 #b0000 #b0010 #b011))
+    (:id-isar4-el1     (#b11 #b000 #b0000 #b0010 #b100))
+    (:id-isar5-el1     (#b11 #b000 #b0000 #b0010 #b101))
+    (:mvfr0-el1        (#b11 #b000 #b0000 #b0011 #b000))
+    (:mvfr1-el1        (#b11 #b000 #b0000 #b0011 #b001))
+    (:mvfr2-el1        (#b11 #b000 #b0000 #b0011 #b010))
+    (:id-aa64pfr0-el1  (#b11 #b000 #b0000 #b0100 #b000))
+    (:id-aa64pfr1-el1  (#b11 #b000 #b0000 #b0100 #b001))
+    (:id-aa64dfr0-el1  (#b11 #b000 #b0000 #b0101 #b000))
+    (:id-aa64dfr1-el1  (#b11 #b000 #b0000 #b0101 #b001))
+    (:id-aa64afr0-el1  (#b11 #b000 #b0000 #b0101 #b100))
+    (:id-aa64afr1-el1  (#b11 #b000 #b0000 #b0101 #b101))
+    (:id-aa64isar0-el1 (#b11 #b000 #b0000 #b0110 #b000))
+    (:id-aa64isar1-el1 (#b11 #b000 #b0000 #b0110 #b001))
+    (:id-aa64mmfr0-el1 (#b11 #b000 #b0000 #b0111 #b000))
+    (:id-aa64mmfr1-el1 (#b11 #b000 #b0000 #b0111 #b001))
+    (:ccsidr-el1       (#b11 #b001 #b0000 #b0000 #b000))
+    (:clidr-el1        (#b11 #b001 #b0000 #b0000 #b001))
+    (:aidr-el1         (#b11 #b001 #b0000 #b0000 #b111))
+    (:csselr-el1       (#b11 #b010 #b0000 #b0000 #b000))
+    (:ctr-el0          (#b11 #b011 #b0000 #b0000 #b001))
+    (:dczid-el0        (#b11 #b011 #b0000 #b0000 #b111))
+    (:sctlr-el1        (#b11 #b000 #b0001 #b0000 #b000))
+    (:actlr-el1        (#b11 #b000 #b0001 #b0000 #b001))
+    (:cpacr-el1        (#b11 #b000 #b0001 #b0000 #b010))))
+
 (defun decode-msr-name (name)
-  (ecase name
-    (:nzcv
-     (values #b11 #b011 #b0100 #b0010 #b000))
-    (:spsel
-     (values #b11 #b000 #b0100 #b0010 #b000))
-    (:sp-el0
-     (values #b11 #b000 #b0100 #b0001 #b000))
-    (:elr-el1
-     (values #b11 #b000 #b0100 #b0000 #b001))
-    (:esr-el1
-     (values #b11 #b000 #b0101 #b0010 #b000))
-    (:far-el1
-     (values #b11 #b000 #b0110 #b0000 #b000))
-    (:spsr-el1
-     (values #b11 #b000 #b0100 #b0000 #b000))
-    (:vbar-el1
-     (values #b11 #b000 #b1100 #b0000 #b000))
-    (:ttbr0-el1
-     (values #b11 #b000 #b0010 #b0000 #b000))
-    (:ttbr1-el1
-     (values #b11 #b000 #b0010 #b0000 #b001))
-    (:tcr-el1
-     (values #b11 #b000 #b0010 #b0000 #b010))
-    (:daif
-     (values #b11 #b011 #b0100 #b0010 #b001))
-    (:cntfrq-el0
-     (values #b11 #b011 #b1110 #b0000 #b000))
-    (:cntkctl-el1
-     (values #b11 #b000 #b1110 #b0001 #b000))
-    (:cntp-ctl-el0
-     (values #b11 #b011 #b1110 #b0010 #b001))
-    (:cntp-cval-el0
-     (values #b11 #b011 #b1110 #b0010 #b010))
-    (:cntp-tval-el0
-     (values #b11 #b011 #b1110 #b0010 #b000))
-    (:cntpct-el0
-     (values #b11 #b011 #b1110 #b0000 #b001))
-    (:cntv-ctl-el0
-     (values #b11 #b011 #b1110 #b0011 #b001))
-    (:cntv-cval-el0
-     (values #b11 #b011 #b1110 #b0011 #b010))
-    (:cntv-tval-el0
-     (values #b11 #b011 #b1110 #b0011 #b000))
-    (:cntvct-el0
-     (values #b11 #b011 #b1110 #b0000 #b010))
-    (:fpcr
-     (values #b11 #b011 #b0100 #b0100 #b000))
-    (:fpsr
-     (values #b11 #b011 #b0100 #b0100 #b001))))
+  "Returns op0, op1, crn, crm, op2."
+  (let ((def (assoc name *system-registers*)))
+    (unless def
+      (error "Unknown MSR ~S" name))
+    (values-list (second def))))
 
 (define-instruction msr (name reg)
   (cond ((and (member name '(:spsel :daifset :daifclr))

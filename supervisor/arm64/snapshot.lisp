@@ -32,7 +32,7 @@
     (declare (dynamic-extent #'mark-level
                              #'mark-pml4e-cow #'mark-pml3e-cow
                              #'mark-pml2e-cow #'mark-pml1e-cow))
-    (let ((pml4 (convert-to-pmap-address (logand (%ttbr0) (lognot #xFFF)))))
+    (let ((pml4 (convert-to-pmap-address (logand (%ttbr0-el1) (lognot #xFFF)))))
       ;; Skip wired area, entry 0.
       (loop for i from 1 below 64 ; pinned area to wired stack area.
          do (mark-pml4e-cow pml4 i))
