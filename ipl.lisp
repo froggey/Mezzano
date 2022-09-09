@@ -246,10 +246,12 @@ Make sure there is a virtio-net NIC attached.~%")
 ;;(eval (read-from-string "(setf mezzano.gui.compositor:*screensaver-spawn-function* 'mezzano.gui.starfield:spawn)"))
 
 ;; USB Driver
-(require :mezzano-usb)
-(require :mezzano-usb/class-drivers)
-(require :mezzano-usb/ohci)
-(require :mezzano-usb/ehci)
+#-arm64 ; Missing PCI functions.
+(progn
+  (require :mezzano-usb)
+  (require :mezzano-usb/class-drivers)
+  (require :mezzano-usb/ohci)
+  (require :mezzano-usb/ehci))
 
 ;; Other stuff.
 #+x86-64
@@ -258,6 +260,7 @@ Make sure there is a virtio-net NIC attached.~%")
 (sys.int::cal "sys:source;file;http.lisp")
 (sys.int::cal "sys:source;net;http-demo.lisp")
 (sys.int::cal "sys:source;system;disassemble.lisp")
+#-arm64 ; compile-file seems to hang
 (sys.int::cal "sys:source;system;lldb.lisp")
 
 ;; Load the desktop image and start the desktop.
