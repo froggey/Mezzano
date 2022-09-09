@@ -271,7 +271,7 @@ If ORIGIN is a server name, then only the host is valid. Nick and ident will be 
           (t (format (display-pane irc) "~&:~A NICK ~A" from message)))))
 
 (defvar *known-servers*
-  '((:freenode "chat.freenode.net" 6667))
+  '((:libera "irc.libera.chat" 6667))
   "A list of known/named IRC servers.")
 
 (defun resolve-server-name (name)
