@@ -252,6 +252,7 @@ Make sure there is a virtio-net NIC attached.~%")
 (require :mezzano-usb/ehci)
 
 ;; Other stuff.
+#+x86-64
 (sys.int::cal "sys:source;drivers;intel-gma.lisp")
 (sys.int::cal "sys:source;file;ext4.lisp")
 (sys.int::cal "sys:source;file;http.lisp")
