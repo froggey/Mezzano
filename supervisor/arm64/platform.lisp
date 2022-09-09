@@ -49,6 +49,7 @@
   (arm64-fdt-scan t))
 
 (defun initialize-platform ()
+  (initialize-cpu)
   (debug-print-line "Performing FDT scan")
   (arm64-fdt-scan nil))
 

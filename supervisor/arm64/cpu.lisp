@@ -7,7 +7,8 @@
 (defun initialize-boot-cpu ()
   (let ((sp-el1 (+ (car sys.int::*bsp-wired-stack*) (cdr sys.int::*bsp-wired-stack*))))
     (%load-cpu-bits sp-el1 (ash sp-el1 -1)
-                    sys.int::*arm64-exception-vector-base*)))
+                    sys.int::*arm64-exception-vector-base*))
+  (setf *cpus* '()))
 
 (sys.int::define-lap-function %load-cpu-bits ((sp-el1 cpu-data vbar-el1))
   (:gc :no-frame :layout #*)
@@ -35,6 +36,9 @@
 
 (defun local-cpu ()
   (local-cpu-info))
+
+(defun initialize-cpu ()
+  (push-wired (local-cpu) *cpus*))
 
 (sys.int::define-lap-function %el0-common ()
   ;; Stack looks like:
@@ -197,6 +201,7 @@
   nil)
 
 (sys.int::defglobal *n-up-cpus* 1)
+(sys.int::defglobal *cpus*)
 
 (defstruct (cpu
              (:area :wired))
