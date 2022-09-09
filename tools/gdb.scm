@@ -140,13 +140,13 @@
 
 (define (value-cons? value)
   (and value
-       (eq? (value-tag value) 3)))
+       (eq? (value-tag value) 1)))
 
 (define (value-car value)
-  (read-value (- value 3)))
+  (read-value (- value 1)))
 
 (define (value-cdr value)
-  (read-value (+ (- value 3) 8)))
+  (read-value (+ (- value 1) 8)))
 
 (define (oref-t value index)
   (read-value (+ (- value 9)
@@ -169,9 +169,7 @@
          (format #t "#<truncated-value {~x}>" value))
         ((value-fixnum? value)
          (format #t "#<fixnum ~a>" (fixnum->integer value)))
-        ((eq? (value-tag value) #b0001)
-         (format #t "#<dx-root {~x}>" value))
-        ((eq? (value-tag value) #b0011)
+        ((value-cons? value)
          (display "(")
          (display-value-1 (value-car value) (1- depth-limit))
          (do ((i (value-cdr value)
@@ -188,9 +186,9 @@
            (display-value-1 (value-car i) (1- depth-limit))
            (set! depth-limit (1- depth-limit))))
         ((eq? (value-tag value) #b0101)
-         (format #t "#<tag-5 {~x}>" value))
+         (format #t "#<tag-immediate {~x}>" value))
         ((eq? (value-tag value) #b0111)
-         (format #t "#<byte-specifier {~x}>" value))
+         (format #t "#<instance-header {~x}>" value))
         ((eq? (value-tag value) #b1001)
          (case (object-tag value)
            ((#f) (format #t "#<unreadable-object {~x}>" value))
@@ -204,9 +202,9 @@
            (else
             (format #t "#<object-~b {~x}>" (object-tag value) value))))
         ((eq? (value-tag value) #b1011)
-         (format #t "#<character {~x}>" value))
+         (format #t "#<tag-1011 {~x}>" value))
         ((eq? (value-tag value) #b1101)
-         (format #t "#<single-float {~x}>" value))
+         (format #t "#<dx-root {~x}>" value))
         ((eq? (value-tag value) #b1111)
          (format #t "#<gc-forward {~x}>" value))))
 
