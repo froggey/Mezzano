@@ -222,6 +222,9 @@
 (defun stop-other-cpus-for-debug-magic-button ()
   nil)
 
+(defun resume-other-cpus-for-debug-magic-button ()
+  nil)
+
 (defun arch-pre-panic ()
   nil)
 
