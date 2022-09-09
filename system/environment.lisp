@@ -388,10 +388,13 @@ It is the implementation of UIOP's lisp-version-string function."
   #+x86-64 "x86-64"
   #+arm64 "arm64")
 (defun machine-version ()
+  #+x86-64
   (multiple-value-bind (cpuid-max vendor-1 vendor-3 vendor-2)
       (cpuid 0)
     (declare (ignore cpuid-max))
-    (decode-cpuid-vendor vendor-1 vendor-2 vendor-3)))
+    (decode-cpuid-vendor vendor-1 vendor-2 vendor-3))
+  #+arm64
+  nil)
 
 ;;; Mezzano uses no supporting software.
 (defun software-type () nil)
