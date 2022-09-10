@@ -260,6 +260,8 @@ Make sure there is a virtio-net NIC attached.~%")
 (sys.int::cal "sys:source;file;http.lisp")
 (sys.int::cal "sys:source;net;http-demo.lisp")
 (sys.int::cal "sys:source;system;disassemble.lisp")
+(sys.int::cal "sys:source;system;disassemble-x86-64.lisp")
+(sys.int::cal "sys:source;system;disassemble-arm64.lisp")
 (sys.int::cal "sys:source;system;lldb.lisp")
 
 ;; Load the desktop image and start the desktop.
