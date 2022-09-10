@@ -260,7 +260,6 @@ Make sure there is a virtio-net NIC attached.~%")
 (sys.int::cal "sys:source;file;http.lisp")
 (sys.int::cal "sys:source;net;http-demo.lisp")
 (sys.int::cal "sys:source;system;disassemble.lisp")
-#-arm64 ; compile-file seems to hang
 (sys.int::cal "sys:source;system;lldb.lisp")
 
 ;; Load the desktop image and start the desktop.
