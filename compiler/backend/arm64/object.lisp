@@ -16,21 +16,40 @@
                          :outputs '()))))
 
 (define-builtin mezzano.runtime::%%object-of-type-p ((object (:constant object-tag (typep object-tag '(unsigned-byte 6)))) :eq :has-wrapper nil)
-  (let ((header (make-instance 'ir:virtual-register :kind :integer))
-        (temp (make-instance 'ir:virtual-register :kind :integer)))
+  (let ((header (make-instance 'ir:virtual-register :kind :integer)))
     (emit (make-instance 'arm64-instruction
-                         :opcode 'lap:ldr
+                         :opcode 'lap:ldrb
                          :operands (list header `(,object ,(object-slot-displacement -1)))
                          :inputs (list object)
                          :outputs (list header)))
     (emit (make-instance 'arm64-instruction
-                         :opcode 'lap:and
-                         :operands (list temp header #b11111100)
+                         :opcode 'lap:subs
+                         :operands (list :xzr header (ash object-tag sys.int::+object-type-shift+))
                          :inputs (list header)
-                         :outputs (list temp)))
+                         :outputs (list)))))
+
+(define-builtin mezzano.runtime::%%object-of-type-range-p ((object
+                                                            (:constant first-tag (typep first-tag '(unsigned-byte 6)))
+                                                            (:constant last-tag (typep last-tag '(unsigned-byte 6))))
+                                                           :ls
+                                                           :has-wrapper nil)
+  (let ((header (make-instance 'ir:virtual-register :kind :integer))
+        (temp (make-instance 'ir:virtual-register :kind :integer)))
+    (emit (make-instance 'arm64-instruction
+                         :opcode 'lap:ldrb
+                         :operands (list header `(,object ,(object-slot-displacement -1)))
+                         :inputs (list object)
+                         :outputs (list header)))
+    (cond ((not (eql first-tag 0))
+           (emit (make-instance 'arm64-instruction
+                                :opcode 'lap:sub
+                                :operands (list temp header (ash first-tag sys.int::+object-type-shift+))
+                                :inputs (list header)
+                                :outputs (list temp))))
+          (t (setf temp header)))
     (emit (make-instance 'arm64-instruction
                          :opcode 'lap:subs
-                         :operands (list :xzr temp (ash object-tag sys.int::+object-type-shift+))
+                         :operands (list :xzr temp (ash (- last-tag first-tag) sys.int::+object-type-shift+))
                          :inputs (list temp)
                          :outputs (list)))))
 
