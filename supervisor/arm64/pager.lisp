@@ -26,7 +26,6 @@
 (defconstant +arm64-tte-dirty+         #x0200000000000000)
 (defconstant +arm64-tte-address-mask+  #x00007ffffffff000)
 
-
 (sys.int::define-lap-function %tlbi.vmalle1 (())
   (:gc :no-frame :layout #*)
   (mezzano.lap.arm64:tlbi.vmalle1)

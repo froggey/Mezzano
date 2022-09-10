@@ -136,13 +136,8 @@
         ((logtest #x3C0 (interrupt-frame-raw-register interrupt-frame :rflags))
          ;; IRQs must be enabled when a page fault occurs.
          (unhandled-interrupt interrupt-frame "page-fault-no-irqs"))
-        ((or (<= 0 fault-addr (1- (* 512 1024 1024 1024)))
-             (<= (ash sys.int::+address-tag-stack+ sys.int::+address-tag-shift+)
-                 fault-addr
-                 (+ (ash sys.int::+address-tag-stack+ sys.int::+address-tag-shift+)
-                    (* 512 1024 1024 1024))))
-         ;; Pages below 512G are wired and should never be unmapped or protected.
-         ;; Same for pages in the wired stack area.
+        ((and (eql (thread-priority (current-thread)) :supervisor)
+              (address-in-non-faulting-range-p fault-addr))
          (unhandled-interrupt interrupt-frame "wired-page-fault"))
         (t ;; Defer to the pager.
          ;; Might not return.
@@ -195,6 +190,13 @@
        (%instruction-abort-handler interrupt-frame (%far-el1) esr))
       (#x25
        (%data-abort-handler interrupt-frame (%far-el1) esr))
+      (#x3C ; BRK instruction
+       (let ((comment (ldb (byte 16 0) esr)))
+         (case comment
+           (28 ; %%partial-save-return-thunk
+            (partial-save-return-helper interrupt-frame))
+           (t
+            (unhandled-interrupt interrupt-frame "brk")))))
       (t
        (unhandled-interrupt interrupt-frame "synchronous-el0")))))
 

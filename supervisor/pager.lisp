@@ -1028,7 +1028,8 @@ It will put the thread to sleep, while it waits for the page."
   (let ((self (current-thread))
         (pager (sys.int::symbol-global-value 'sys.int::*pager-thread*)))
     (when (eql self pager)
-      (panic "Page fault in pager!"))
+      (panic "Page fault in pager! frame:" interrupt-frame
+             " addr:" address " writep:" writep " ist-state:" ist-state))
     (when (and *pager-fast-path-enabled*
                (wait-for-page-fast-path address writep))
       (sys.int::%atomic-fixnum-add-symbol

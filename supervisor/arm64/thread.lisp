@@ -154,14 +154,68 @@
   (mezzano.lap.arm64:movz :x5 #.(ash 1 sys.int::+n-fixnum-bits+))
   (mezzano.lap.arm64:ret))
 
+(defconstant +initial-fpsr/fpcr+ 0)
+;; Start with interrupts unmasked, EL1, SP_EL0.
+(defconstant +initial-spsr+ #x00000004)
+
 (defun arch-initialize-thread-state (thread stack-pointer)
   (setf (thread-state-rsp thread) stack-pointer
         ;; Packed fpsr/fpcr.
-        (thread-state-ss thread) 0
-        ;; Start with interrupts unmasked, EL1, SP_EL0.
-        (thread-state-rflags thread) #x00000004
+        (thread-state-ss thread) +initial-fpsr/fpcr+
+        ;; SPSR
+        (thread-state-rflags thread) +initial-spsr+
         ;; x30
         (thread-state-cs thread) 0))
+
+;; This thunk is used to patch things up when a full-save state
+;; was converted to a partial save state.
+(sys.int::define-lap-function %%partial-save-return-thunk ()
+  (:gc :frame :interrupt t)
+  ;; Call out to a helper function to do the return via the
+  ;; pager. This leaves the interrupt frame intact and avoids
+  ;; awkward issues around interrupts that ERET causes. x86's IRET
+  ;; does not have this issue as it atomically restores much more
+  ;; state directly from the stack. No special registers to be
+  ;; clobbered by a badly timed interrupt.
+  ;; Note that this does not use the normal pager-rpc mechanism
+  ;; due to issues around footholds.
+  (mezzano.lap.arm64:brk 28))
+
+(defun partial-save-return-helper (interrupt-frame)
+  (let ((self (current-thread)))
+    (setf (thread-pager-argument-1 self) self
+          (thread-pager-argument-2 self) (interrupt-frame-raw-register interrupt-frame :rsp)
+          (thread-pager-argument-3 self) nil)
+    (with-symbol-spinlock (*pager-lock*)
+      (acquire-global-thread-lock)
+      (setf (thread-state self) :pager-request
+            (thread-wait-item self) 'partial-save-return-helper-in-pager
+            (thread-queue-next self) *pager-waiting-threads*
+            *pager-waiting-threads* self)
+      (when (and (eql (thread-state sys.int::*pager-thread*) :sleeping)
+                 (eql (thread-wait-item sys.int::*pager-thread*) '*pager-waiting-threads*))
+        (setf (thread-state sys.int::*pager-thread*) :runnable)
+        (push-run-queue sys.int::*pager-thread*)))
+    (%reschedule-via-interrupt interrupt-frame)))
+
+(defun partial-save-return-helper-in-pager (thread interrupt-frame ignore3)
+  (declare (ignore ignore3))
+  (pager-log-op "arm64-partial-save-return-helper " thread " " interrupt-frame)
+  ;; FIXME: Make sure the stack is paged in (see pager-invoke-function-on-thread)
+  ;; This is why we're doing this in the pager, instead of the interrupt handler.
+  ;; Restore the MV area.
+  (sys.int::%copy-words (mezzano.runtime::%object-slot-address thread +thread-mv-slots+)
+                        (+ interrupt-frame 512 (* 20 8))
+                        +thread-mv-slots-size+)
+  ;; Save the FPU state.
+  (sys.int::%copy-words (mezzano.runtime::%object-slot-address thread +thread-fxsave-area+)
+                        (+ interrupt-frame (* 20 8))
+                        (truncate 512 8))
+  ;; Save the interrupt state, 20 elements.
+  (sys.int::%copy-words (mezzano.runtime::%object-slot-address thread +thread-interrupt-save-area+)
+                        interrupt-frame
+                        20)
+  (setf (thread-full-save-p thread) t))
 
 (defun stack-space-required-for-force-call-on-thread (thread)
   (declare (ignore thread))
@@ -170,5 +224,63 @@
      512 ; FPU state
      (* 20 8)))
 
-(defun force-call-on-thread (thread function &optional (arg nil arg-p))
-  (panic "FORCE-CALL-ON-THREAD not implemented. " thread " " function " " arg " " arg-p))
+(defun convert-thread-to-partial-save (thread)
+  (when (thread-full-save-p thread)
+    ;; Push the current full save state on the stack and create an interrupt frame.
+    (let ((sp (thread-state-rsp thread)))
+      (decf sp (+ (* +thread-mv-slots-size+ 8)
+                  512
+                  (* 20 8)))
+      ;; Stack must always be aligned on ARM64
+      (when (not (zerop (logand sp 15)))
+        (panic "Misaligned thread stack! " thread))
+      ;; Save the MV area.
+      (sys.int::%copy-words (+ sp 512 (* 20 8))
+                            (mezzano.runtime::%object-slot-address thread +thread-mv-slots+)
+                            +thread-mv-slots-size+)
+      ;; Save the FPU state.
+      (sys.int::%copy-words (+ sp (* 20 8))
+                            (mezzano.runtime::%object-slot-address thread +thread-fxsave-area+)
+                            (truncate 512 8))
+      ;; Save the interrupt state, 20 elements.
+      (sys.int::%copy-words sp
+                            (mezzano.runtime::%object-slot-address thread +thread-interrupt-save-area+)
+                            20)
+      ;; Push the address of the return thunk
+      (decf sp 8)
+      (setf (sys.int::memref-unsigned-byte-64 sp) (sys.int::%object-ref-unsigned-byte-64
+                                                   #'%%partial-save-return-thunk
+                                                   sys.int::+function-entry-point+))
+      ;; Realign stack
+      (decf sp 8)
+      (setf (thread-state-rsp thread) sp
+            (thread-state-rbp thread) (+ sp (* 16 8))
+            (thread-full-save-p thread) nil))))
+
+(sys.int::define-lap-function %%force-call-on-thread-return-thunk ()
+  ;; There's a return address on the stack, pop it and return to it.
+  ;; Needed to paper over calling convention differences.
+  (:gc :no-frame :layout #*00)
+  (mezzano.lap.arm64:ldp :x9 :x30 (:post :sp 16))
+  (:gc :no-frame :layout #*)
+  (mezzano.lap.arm64:ret))
+
+(defun force-call-on-thread (thread function &optional (argument nil argumentp))
+  (convert-thread-to-partial-save thread)
+  (setf (thread-state-rip thread) (sys.int::%object-ref-unsigned-byte-64
+                                   function
+                                   sys.int::+function-entry-point+)
+        (thread-state-rcx-value thread) (if argumentp 1 0)
+        (thread-state-rbx-value thread) function
+        (thread-state-r8-value thread) argument
+        (thread-state-r9-value thread) nil
+        (thread-state-r10-value thread) nil
+        (thread-state-r11-value thread) nil
+        (thread-state-r12-value thread) nil
+        (thread-state-r13-value thread) nil
+        (thread-state-cs thread) (sys.int::%object-ref-unsigned-byte-64
+                                   #'%%force-call-on-thread-return-thunk
+                                   sys.int::+function-entry-point+)
+        (thread-state-ss thread) +initial-fpsr/fpcr+
+        (thread-state-rflags thread) +initial-spsr+
+        (thread-full-save-p thread) t))
