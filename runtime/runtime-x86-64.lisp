@@ -219,7 +219,11 @@
 ;;            (%value-has-tag-p y +tag-object+)
 ;;            (eq (%object-tag x) (%object-tag y))
 ;;            (<= +first-numeric-object-tag+ (%object-tag x) +last-numeric-object-tag+)
-;;            (= x y))))
+;;            (cond ((eq (%object-tag x) +object-tag-double-float+)
+;;                   (eq (%object-ref-ub64 x 0) (%object-ref-ub64 y 0)))
+;;                  ((eq (%object-tag x) +object-tag-short-float+)
+;;                   (eq (%object-ref-ub16 x 0) (%object-ref-ub16 y 0)))
+;;                  (t (= x y))))))
 (sys.int::define-lap-function eql ((x y))
   "Compare X and Y."
   ENTRY-POINT

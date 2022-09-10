@@ -237,20 +237,90 @@
   (mezzano.lap.arm64:named-call sys.int::raise-type-error)
   (mezzano.lap.arm64:hlt 0))
 
-(defun eql (x y)
-  (or (eq x y)
-      (and (sys.int::%value-has-tag-p x sys.int::+tag-object+)
-           (sys.int::%value-has-tag-p y sys.int::+tag-object+)
-           (eq (sys.int::%object-tag x) (sys.int::%object-tag y))
-           (or
-            (and (sys.int::double-float-p x)
-                 (eql (sys.int::%object-ref-unsigned-byte-64 x 0)
-                      (sys.int::%object-ref-unsigned-byte-64 y 0)))
-            (and
-             (<= sys.int::+first-numeric-object-tag+
-                 (sys.int::%object-tag x)
-                 sys.int::+last-numeric-object-tag+)
-             (= x y))))))
+(sys.int::define-lap-function eql ((x y))
+  "Compare X and Y."
+  ENTRY-POINT
+  (:gc :no-frame :incoming-arguments :rcx :layout #*)
+  ;; Check arg count.
+  (mezzano.lap.arm64:subs :xzr :x5 #.(ash 2 sys.int::+n-fixnum-bits+)) ; fixnum 2
+  (mezzano.lap.arm64:b.ne BAD-ARGUMENTS)
+  (:gc :no-frame :layout #*)
+  (:debug ((x :x0 :value) (y :x1 :value)))
+  ;; EQ test.
+  ;; This additionally covers fixnums, characters and single-floats.
+  (mezzano.lap.arm64:subs :xzr :x0 :x1)
+  (mezzano.lap.arm64:b.ne MAYBE-NUMBER-CASE)
+  ;; Objects are EQ.
+  (:debug ())
+  OBJECTS-EQUAL
+  (mezzano.lap.arm64:ldr :x0 (:constant t))
+  (mezzano.lap.arm64:movz :x5 #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
+  (mezzano.lap.arm64:ret)
+  MAYBE-NUMBER-CASE
+  (:debug ((x :r8 :value) (y :r9 :value)))
+  ;; Not EQ.
+  ;; Both must be objects.
+  (mezzano.lap.arm64:sub :x9 :x0 #.sys.int::+tag-object+)
+  (mezzano.lap.arm64:ands :xzr :x9 #b1111)
+  (mezzano.lap.arm64:b.ne OBJECTS-UNEQUAL)
+  (mezzano.lap.arm64:sub :x9 :x1 #.sys.int::+tag-object+)
+  (mezzano.lap.arm64:ands :xzr :x9 #b1111)
+  (mezzano.lap.arm64:b.ne OBJECTS-UNEQUAL)
+  ;; Both are objects.
+  ;; Test that both are the same kind of object.
+  (mezzano.lap.arm64:ldrb :x9 (:object :x0 -1))
+  (mezzano.lap.arm64:ldrb :x10 (:object :x1 -1))
+  (mezzano.lap.arm64:subs :xzr :x9 :x10)
+  (mezzano.lap.arm64:b.ne OBJECTS-UNEQUAL)
+  ;; They must be numbers. Characters were handled above.
+  (mezzano.lap.arm64:sub :x9 :x9 #.(ash sys.int::+first-numeric-object-tag+
+                                        sys.int::+object-type-shift+))
+  (mezzano.lap.arm64:subs :xzr :x9 #.(ash (- sys.int::+last-numeric-object-tag+
+                                             sys.int::+first-numeric-object-tag+)
+                                          sys.int::+object-type-shift+))
+  (mezzano.lap.arm64:b.hi OBJECTS-UNEQUAL)
+  ;; Both are numbers of the same type.
+  ;; Handle short-floats and double-floats specifically. They have
+  ;; different behaviour for negative 0.0 compared to =
+  (mezzano.lap.arm64:subs :xzr :x9 #.(ash (- sys.int::+object-tag-double-float+
+                                             sys.int::+first-numeric-object-tag+)
+                                          sys.int::+object-type-shift+))
+  (mezzano.lap.arm64:b.eq COMPARE-DOUBLE-FLOATS)
+  (mezzano.lap.arm64:subs :xzr :x9 #.(ash (- sys.int::+object-tag-short-float+
+                                             sys.int::+first-numeric-object-tag+)
+                                          sys.int::+object-type-shift+))
+  (mezzano.lap.arm64:b.eq COMPARE-SHORT-FLOATS)
+  ;; Same for short floats
+  ;; Tail-call to generic-=.
+  ;; RCX was set to fixnum 2 on entry.
+  (mezzano.lap.arm64:named-tail-call sys.int::generic-=)
+  ;; Compare the two values directly.
+  ;; This means +0.0 and -0.0 will be different and that NaNs can be EQL
+  ;; if they have the same representation.
+  COMPARE-SHORT-FLOATS
+  (mezzano.lap.arm64:ldrh :x9 (:object :x0 0))
+  (mezzano.lap.arm64:ldrh :x10 (:object :x1 0))
+  (mezzano.lap.arm64:subs :xzr :x9 :x10)
+  (mezzano.lap.arm64:b.eq OBJECTS-EQUAL)
+  (mezzano.lap.arm64:b OBJECTS-UNEQUAL)
+  COMPARE-DOUBLE-FLOATS
+  (mezzano.lap.arm64:ldr :x9 (:object :x0 0))
+  (mezzano.lap.arm64:ldr :x10 (:object :x1 0))
+  (mezzano.lap.arm64:subs :xzr :x9 :x10)
+  (mezzano.lap.arm64:b.eq OBJECTS-EQUAL)
+  OBJECTS-UNEQUAL
+  ;; Objects are not EQL.
+  (:debug ())
+  (mezzano.lap.arm64:orr :x0 :x26 :xzr)
+  (mezzano.lap.arm64:movz :x5 #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
+  (mezzano.lap.arm64:ret)
+  BAD-ARGUMENTS
+  (:gc :no-frame :layout #* :incoming-arguments :rcx)
+  (mezzano.lap.arm64:adr :x6 (+ (- ENTRY-POINT 16) #.sys.int::+tag-object+))
+  (mezzano.lap.arm64:ldr :x7 (:function sys.int::raise-invalid-argument-error))
+  (mezzano.lap.arm64:ldr :x7 (:object :x7 #.sys.int::+fref-function+))
+  (mezzano.lap.arm64:ldr :x9 (:object :x7 #.sys.int::+function-entry-point+))
+  (mezzano.lap.arm64:br :x9))
 
 ;; ARM makes it difficult to detect overflow when shifting left.
 ;;(declaim (inline %fixnum-left-shift))
