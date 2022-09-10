@@ -160,40 +160,35 @@
                                y-sign-extension)))))
     result))
 
-(defun %%bignum-+/- (x y op)
-  (let* ((carry 0)
-         (overflow nil)
-         (size nil)
+(defun %%bignum-+/- (x y op subtractp)
+  (let* ((carry (if subtractp 1 0))
          (result (operate-on-bignum x y
                                     (lambda (len-x len-y)
-                                      (setf size (1+ (max len-x len-y))))
+                                      (1+ (max len-x len-y)))
                                     (lambda (a b)
                                       (let ((result (funcall op a b carry)))
-                                        (setf overflow (logtest (logand (logxor result a)
-                                                                        (logxor result b))
-                                                               #x80000000))
                                         (setf carry (ldb (byte 1 32) result))
-                                        (ldb (byte 32 0) result))))))
-    (let* ((sign (cond (overflow
-                        ;; On overflow, extend the carry bit out and populate the last fragment with that.
-                        carry)
-                       (t
-                        ;; Otherwise, sign-extend the second-last fragment out.
-                        (ash (%object-ref-unsigned-byte-32 result (- (* size 2) 3)) -31))))
-           (sign-bits (if (eql sign 0)
-                          #x00000000
-                          #xFFFFFFFF)))
-      (setf (%object-ref-unsigned-byte-32 result (- (* size 2) 2)) sign-bits
-            (%object-ref-unsigned-byte-32 result (- (* size 2) 1)) sign-bits)
-      (values result
-              overflow
-              sign))))
+                                        (ldb (byte 32 0) result)))))
+         (cout (if subtractp (logxor carry 1) carry))
+         (len-x (%n-bignum-fragments x))
+         (len-y (%n-bignum-fragments y))
+         (sign-x (ash (%object-ref-unsigned-byte-32 x (- (* len-x 2) 1)) -31))
+         (sign-y (ash (%object-ref-unsigned-byte-32 y (- (* len-y 2) 1)) -31))
+         (sign-bits (if (if (not (eql sign-x sign-y))
+                            (not (zerop cout))
+                            (zerop cout))
+                        #x00000000
+                        #xFFFFFFFF))
+         (len (%n-bignum-fragments result)))
+    (setf (%object-ref-unsigned-byte-32 result (- (* len 2) 2)) sign-bits
+          (%object-ref-unsigned-byte-32 result (- (* len 2) 1)) sign-bits)
+    (values result sign-bits)))
 
 (defun %%bignum-+ (x y)
-  (%%canonicalize-bignum (%%bignum-+/- x y (lambda (a b cin) (+ a b cin)))))
+  (%%canonicalize-bignum (%%bignum-+/- x y (lambda (a b cin) (+ a b cin)) nil)))
 
 (defun %%bignum-- (x y)
-  (%%canonicalize-bignum (%%bignum-+/- x y (lambda (a b cin) (- a (+ b cin))))))
+  (%%canonicalize-bignum (%%bignum-+/- x y (lambda (a b cin) (+ a (logxor b #xFFFFFFFF) cin)) t)))
 
 (defun %%bignum-< (x y)
   (let* ((len-x (%n-bignum-fragments x))
@@ -213,15 +208,12 @@
              ;; Negative.
              (return-from %%bignum-< (< len-y len-x)))))
     ;; Same length, same sign. Subtract them and examine the result.
-    (multiple-value-bind (val overflow sign)
-        (%%bignum-+/- x y (lambda (a b cin) (- a (+ b cin))))
+    (multiple-value-bind (val sign)
+        (%%bignum-+/- x y (lambda (a b cin) (+ a (logxor b #xFFFFFFFF) cin)) t)
       (declare (ignore val))
-      (when overflow
-        (setf sign (logxor sign 1)))
-      ;; overflow xor sign == 1.
-	  ;; todo: more sensible? (if (eq (sign x) (sign y)) (sign s) (sign x))
-      (not (zerop (logxor (if overflow 1 0)
-                          sign))))))
+      (not (zerop (if (eql sign-x sign-y)
+                      sign
+                      sign-x))))))
 
 (defun %%bignum-= (x y)
   (let* ((len-x (%n-bignum-fragments x))
