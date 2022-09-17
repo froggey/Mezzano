@@ -335,6 +335,26 @@
       (list `(sub ,dst ,s1 ,(- s2-imm)))
       (list `(add ,dst ,s1 ,s2-imm))))
 
+(define-macro-instruction mov (dst src)
+  (if (register-class src)
+      (list `(orr ,dst :xzr ,src))
+      (list `(movz ,dst ,src))))
+
+(define-macro-instruction lsl (dst src count)
+  (if (register-class count)
+      (list `(lslv ,dst ,src ,count))
+      (list `(orr ,dst :xzr ,src :lsl ,count))))
+
+(define-macro-instruction asr (dst src count)
+  (if (register-class count)
+      (list `(asrv ,dst ,src ,count))
+      (list `(orr ,dst :xzr ,src :asr ,count))))
+
+(define-macro-instruction lsr (dst src count)
+  (if (register-class count)
+      (list `(lsrv ,dst ,src ,count))
+      (list `(orr ,dst :xzr ,src :lsr ,count))))
+
 (defconstant +ldst-size-64-bit+ #x40000000)
 (defconstant +ldst-size-32-bit+ #x00000000)
 
