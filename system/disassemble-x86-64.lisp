@@ -8,6 +8,9 @@
 
 (in-package :mezzano.disassemble.x86-64)
 
+(defclass x86-64-disassembler-context (dis:disassembler-context)
+  ((%decoding-jump-table-p :initform nil :accessor decoding-jump-table-p)))
+
 (defmethod dis:print-instruction ((context x86-64-disassembler-context) instruction
                                   &key (print-annotations t) (print-labels t))
   (let ((annotations '()))
@@ -216,9 +219,6 @@
    (%disp :initarg :disp :reader ea-disp)
    (%segment :initarg :segment :reader ea-segment))
   (:default-initargs :base nil :index nil :scale nil :disp 0 :segment nil))
-
-(defclass x86-64-disassembler-context (dis:disassembler-context)
-  ((%decoding-jump-table-p :initform nil :accessor decoding-jump-table-p)))
 
 (defmethod dis:make-disassembler-context-using-architecture ((architecture mezzano.compiler::x86-64-target) &rest initargs)
   (apply #'make-instance 'x86-64-disassembler-context initargs))
