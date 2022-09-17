@@ -320,9 +320,13 @@ must not be allocated by virgl.")
                (flags (sys.int::memref-unsigned-byte-32 (+ base offset +virtio-gpu-display-flags+) 0)))
           (sup:debug-print-line "Display " i ": x:" x " y:" y " w: " width " h:" height " en:" enabled " flg:" flags)
           (when (not pmode)
+            #++
             (setf pmode i
                   pmode-width width
-                  pmode-height height))))
+                  pmode-height height)
+            (setf pmode i
+                  pmode-width 1024
+                  pmode-height 768))))
       (values pmode pmode-width pmode-height))))
 
 (define-virtio-gpu-command virtio-gpu-resource-create-2d
