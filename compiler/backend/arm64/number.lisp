@@ -275,6 +275,39 @@
                        :inputs (list lhs rhs)
                        :outputs '())))
 
+(define-builtin mezzano.compiler::%fast-fixnum-left-shift ((integer count) result)
+  (cond ((constant-value-p count '(integer 0))
+         (let ((count-value (fetch-constant-value count)))
+           (cond ((>= count-value (- 64 sys.int::+n-fixnum-bits+))
+                  ;; All bits shifted out.
+                  ;; Turn INTEGER into 0.
+                  (emit (make-instance 'ir:constant-instruction
+                                       :destination result
+                                       :value 0)))
+                 ((zerop count-value)
+                  (emit (make-instance 'ir:move-instruction
+                                       :destination result
+                                       :source integer)))
+                 (t
+                  (emit (make-instance 'arm64-instruction
+                                       :opcode 'lap:lsl
+                                       :operands (list result integer count-value)
+                                       :inputs (list integer)
+                                       :outputs (list result)))))))
+        (t
+         ;; No need to test for overlong shift counts here. The result must fit
+         ;; in a fixnum, so obviously the count is within range or the input
+         ;; is 0.
+         (let ((count-value (make-instance 'ir:virtual-register :kind :integer)))
+           (emit (make-instance 'ir:unbox-fixnum-instruction
+                                :source count
+                                :destination count-value))
+           (emit (make-instance 'arm64-instruction
+                                :opcode 'lap:lsl
+                                :operands (list result integer count-value)
+                                :inputs (list integer count-value)
+                                :outputs (list result)))))))
+
 (define-builtin mezzano.runtime::%fixnum-right-shift ((integer count) result)
   ;; INTEGER and COUNT must both be fixnums.
   (cond ((constant-value-p count '(integer 0))

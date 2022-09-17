@@ -322,16 +322,38 @@
   (mezzano.lap.arm64:ldr :x9 (:object :x7 #.sys.int::+function-entry-point+))
   (mezzano.lap.arm64:br :x9))
 
-;; ARM makes it difficult to detect overflow when shifting left.
-;;(declaim (inline %fixnum-left-shift))
-(defun %fixnum-left-shift (integer count)
-  (dotimes (i count)
-     (setf integer (+ integer integer)))
-  integer)
+(sys.int::define-lap-function %fixnum-left-shift ((integer count))
+  (:gc :no-frame :layout #*)
+  (mezzano.lap.arm64:subs :xzr :x1 #.(ash (- 63 sys.int::+n-fixnum-bits+)
+                                          sys.int::+n-fixnum-bits+))
+  (mezzano.lap.arm64:b.hi DO-BIG-SHIFT)
+  ;; Check for overflow.
+  ;; Sign extend INTEGER into :X9.
+  (mezzano.lap.arm64:asr :x9 :x0 63) ; x9=rdx (sign bits)
+  ;; Unbox fixnum count, x5=rcx
+  (mezzano.lap.arm64:asr :x10 :x1 #.sys.int::+n-fixnum-bits+)
+  ;; Arithmetic shift integer right by 63 - fixnum-bits - count, so that the
+  ;; to-be-shifted out bits are the only ones left, make sure it matches the
+  ;; sign extended version.
+  (mezzano.lap.arm64:asr :x11 :x0 #.sys.int::+n-fixnum-bits+)
+  (mezzano.lap.arm64:movz :x12 #.(- 63 sys.int::+n-fixnum-bits+))
+  (mezzano.lap.arm64:sub :x12 :x12 :x10)
+  (mezzano.lap.arm64:asr :x11 :x11 :x12)
+  ;; Compare with sign bits, if both the same then we're good.
+  (mezzano.lap.arm64:subs :xzr :x9 :x11)
+  ;; TODO: Could be a bit clever and construct the bignum result directly here.
+  (mezzano.lap.arm64:b.ne DO-BIG-SHIFT)
+  ;; Finally do the shift.
+  (mezzano.lap.arm64:lsl :x0 :x0 :x10)
+  (mezzano.lap.arm64:movz :x5 #.(ash 1 sys.int::+n-fixnum-bits+))
+  (mezzano.lap.arm64:ret)
+  ;; Bail out, call the helper.
+  DO-BIG-SHIFT
+  (mezzano.lap.arm64:named-tail-call %fixnum-left-shift-slow))
 
-;; I'm just being lazy here, this should be a builtin
-(defun mezzano.compiler::%fast-fixnum-left-shift (integer count)
-  (%fixnum-left-shift integer count))
+(defun %fixnum-left-shift-slow (integer count)
+  (dotimes (i count integer)
+    (setf integer (+ integer integer))))
 
 (defun sys.int::%copy-words (destination-address source-address count)
   (dotimes (i count)
