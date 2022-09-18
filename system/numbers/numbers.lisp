@@ -175,6 +175,15 @@
         ((zerop b) a)
         (t (/ (abs (* a b)) (gcd a b)))))
 
+(define-compiler-macro lcm (&rest integers)
+  (cond ((null integers) '1)
+        ((null (rest integers))
+         `(abs (the integer ,(first integers))))
+        (t (let ((result (first integers)))
+             (dolist (n (rest integers))
+               (setf result (list 'two-arg-lcm result n)))
+             result))))
+
 (defmacro define-comparison-operator (name base type)
   `(progn (defun ,name (number &rest more-numbers)
             (declare (dynamic-extent more-numbers))
