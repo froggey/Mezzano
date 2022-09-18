@@ -1109,6 +1109,7 @@
            #:complex-sin
            #:complex-cos
            #:complex-log-e
+           #:complex-exp
            #:conjugate))
 
 (defpackage :mezzano.garbage-collection.weak-objects

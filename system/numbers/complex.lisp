@@ -119,6 +119,14 @@
 (defun complex-log-e (number)
   (complex (log (abs number)) (phase number)))
 
+(defun complex-exp (number)
+  (* (exp (realpart number))
+     (cis (imagpart number))))
+
+(defun cis (radians)
+  (complex (cos radians)
+           (sin radians)))
+
 (defun conjugate (number)
   (if (complexp number)
       (complex (realpart number)

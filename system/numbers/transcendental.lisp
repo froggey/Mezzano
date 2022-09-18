@@ -52,11 +52,20 @@
   (check-type number number)
   (etypecase number
     (double-float
-     (int::%%double-float-sqrt number))
+     (if (minusp number)
+         (mezzano.internals.numbers.complex:complex-sqrt
+          (complex number))
+         (int::%%double-float-sqrt number)))
     (short-float
-     (int::%%short-float-sqrt number))
+     (if (minusp number)
+         (mezzano.internals.numbers.complex:complex-sqrt
+          (complex number))
+         (int::%%short-float-sqrt number)))
     (real
-     (int::%%single-float-sqrt (float number 0.0f0)))
+     (if (minusp number)
+         (mezzano.internals.numbers.complex:complex-sqrt
+          (complex (float number 0.0f0)))
+         (int::%%single-float-sqrt (float number 0.0f0))))
     (complex
      (mezzano.internals.numbers.complex:complex-sqrt number))))
 
@@ -335,8 +344,12 @@
   (etypecase number
     (double-float
      (float (exp-single-float (float number 0.0f0)) 0.0d0))
+    (short-float
+     (float (exp-single-float (float number 0.0f0)) 0.0s0))
     (real
-     (exp-single-float (float number 0.0f0)))))
+     (exp-single-float (float number 0.0f0)))
+    (complex
+     (mezzano.internals.numbers.complex:complex-exp number))))
 
 (defun log-e (number)
   (let ((d (float number 0.0f0))
