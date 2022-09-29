@@ -700,17 +700,6 @@
   (:gc :no-frame :layout #*)
   (mezzano.lap.arm64:ret))
 
-(defun %ub64-= (x y) (eql x y))
-(defun %ub64-< (x y) (< x y))
-(defun %fast-ub64-+ (x y) (+ x y))
-(defun %fast-ub64-- (x y) (- x y))
-(defun %fast-ub64-* (x y) (* x y))
-(defun %fast-ub64-truncate (x y) (truncate x y))
-(defun %fast-ub64-logior (x y) (logior t x y))
-(defun %fast-ub64-logxor (x y) (logxor t x y))
-(defun %fast-ub64-logand (x y) (logand t x y))
-(defun %ub64-right-shift-in-limits (x y) (ash x (- y)))
-
 (defun %sb64-= (x y) (eql x y))
 (defun %sb64-< (x y) (< x y))
 (defun %fast-sb64-+ (x y) (+ x y))

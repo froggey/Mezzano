@@ -128,7 +128,8 @@
 (defpackage :mezzano.lap.arm64
   (:documentation "arm64 assembler for LAP.")
   (:local-nicknames (:sys.int :mezzano.internals))
-  (:use :cl))
+  (:use :cl)
+  (:export #:encodable-bit-mask-p))
 
 (defpackage :mezzano.extensions
   (:use :cl)

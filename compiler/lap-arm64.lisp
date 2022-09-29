@@ -330,10 +330,28 @@
    `(br :x9)))
 
 (define-macro-instruction add-imm (dst s1 s2-imm)
-  "Like ADD, but generated SUB if S2-IMM is negative"
+  "Like ADD, but generate SUB if S2-IMM is negative"
   (if (minusp s2-imm)
       (list `(sub ,dst ,s1 ,(- s2-imm)))
       (list `(add ,dst ,s1 ,s2-imm))))
+
+(define-macro-instruction adds-imm (dst s1 s2-imm)
+  "Like ADDS, but generate SUBS if S2-IMM is negative"
+  (if (minusp s2-imm)
+      (list `(subs ,dst ,s1 ,(- s2-imm)))
+      (list `(adds ,dst ,s1 ,s2-imm))))
+
+(define-macro-instruction sub-imm (dst s1 s2-imm)
+  "Like SUB, but generate ADD if S2-IMM is negative"
+  (if (minusp s2-imm)
+      (list `(add ,dst ,s1 ,(- s2-imm)))
+      (list `(sub ,dst ,s1 ,s2-imm))))
+
+(define-macro-instruction subs-imm (dst s1 s2-imm)
+  "Like SUBS, but generate ADDS if S2-IMM is negative"
+  (if (minusp s2-imm)
+      (list `(adds ,dst ,s1 ,(- s2-imm)))
+      (list `(subs ,dst ,s1 ,s2-imm))))
 
 (define-macro-instruction mov (dst src)
   (if (register-class src)
@@ -1397,6 +1415,9 @@
     (logior (ash 1 12)
             (ash (logand (- 64 shift) #x3f) 6)
             (1- width))))
+
+(defun encodable-bit-mask-p (imm reg-size)
+  (ignore-errors (encode-bit-mask imm reg-size)))
 
 (defun emit-logical-instruction (opcode negate-bit dst lhs rhs shift amount)
   (let* ((dst-class (register-class dst))
