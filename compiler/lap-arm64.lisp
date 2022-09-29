@@ -1924,7 +1924,7 @@
      (when (emit-divide ',opcode dst lhs rhs)
        (return-from instruction t))))
 
-(define-divide udiv 1)
+(define-divide udiv 0)
 (define-divide sdiv 1)
 
 (define-instruction msub (dst lhs mhs rhs)
