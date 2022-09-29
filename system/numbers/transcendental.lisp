@@ -43,6 +43,10 @@
      (int::%integer-as-double-float
       (logand #x7FFFFFFFFFFFFFFF
               (int::%double-float-as-integer number))))
+    (short-float
+     (int::%integer-as-short-float
+      (logand #x7FFF
+              (int::%short-float-as-integer number))))
     (real
      (if (minusp number)
          (- number)
