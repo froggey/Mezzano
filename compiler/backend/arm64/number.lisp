@@ -865,3 +865,310 @@
                                   :operands (list :xzr lhs-unboxed rhs-unboxed)
                                   :inputs (list lhs-unboxed rhs-unboxed)
                                   :outputs '())))))))
+
+
+;;; Signed-byte 64 arithmetic
+
+(define-builtin mezzano.runtime::%fast-sb64-+ ((lhs rhs) result)
+  (cond ((constant-value-p rhs '(eql 0))
+         (emit (make-instance 'ir:move-instruction
+                              :source lhs
+                              :destination result))
+         (finish))
+        ((constant-value-p lhs '(eql 0))
+         (emit (make-instance 'ir:move-instruction
+                              :source rhs
+                              :destination result))
+         (finish)))
+  (let ((lhs-unboxed (make-instance 'ir:virtual-register :kind :integer))
+        (result-unboxed (make-instance 'ir:virtual-register :kind :integer)))
+    (emit (make-instance 'ir:unbox-signed-byte-64-instruction
+                         :source lhs
+                         :destination lhs-unboxed))
+    (cond ((constant-value-p rhs '(signed-byte 12))
+           (emit (make-instance 'arm64-instruction
+                                :opcode 'lap:add-imm
+                                :operands (list result-unboxed
+                                                lhs-unboxed
+                                                (fetch-constant-value rhs))
+                                :inputs (list lhs-unboxed)
+                                :outputs (list result-unboxed))))
+          (t
+           (let ((rhs-unboxed (make-instance 'ir:virtual-register :kind :integer)))
+             (emit (make-instance 'ir:unbox-signed-byte-64-instruction
+                                  :source rhs
+                                  :destination rhs-unboxed))
+             (emit (make-instance 'arm64-instruction
+                                  :opcode 'lap:add
+                                  :operands (list result-unboxed lhs-unboxed rhs-unboxed)
+                                  :inputs (list lhs-unboxed rhs-unboxed)
+                                  :outputs (list result-unboxed))))))
+    (emit (make-instance 'ir:box-signed-byte-64-instruction
+                         :source result-unboxed
+                         :destination result))))
+
+(define-builtin mezzano.runtime::%fast-sb64-- ((lhs rhs) result)
+  (when (constant-value-p rhs '(eql 0))
+    (emit (make-instance 'ir:move-instruction
+                         :source lhs
+                         :destination result))
+    (finish))
+  (let ((lhs-unboxed (make-instance 'ir:virtual-register :kind :integer))
+        (result-unboxed (make-instance 'ir:virtual-register :kind :integer)))
+    (emit (make-instance 'ir:unbox-signed-byte-64-instruction
+                         :source lhs
+                         :destination lhs-unboxed))
+    (cond ((constant-value-p rhs '(signed-byte 12))
+           (emit (make-instance 'arm64-instruction
+                                :opcode 'lap:sub-imm
+                                :operands (list result-unboxed
+                                                lhs-unboxed
+                                                (fetch-constant-value rhs))
+                                :inputs (list lhs-unboxed)
+                                :outputs (list result-unboxed))))
+          (t
+           (let ((rhs-unboxed (make-instance 'ir:virtual-register :kind :integer)))
+             (emit (make-instance 'ir:unbox-signed-byte-64-instruction
+                                  :source rhs
+                                  :destination rhs-unboxed))
+             (emit (make-instance 'arm64-instruction
+                                  :opcode 'lap:sub
+                                  :operands (list result-unboxed lhs-unboxed rhs-unboxed)
+                                  :inputs (list lhs-unboxed rhs-unboxed)
+                                  :outputs (list result-unboxed))))))
+    (emit (make-instance 'ir:box-signed-byte-64-instruction
+                         :source result-unboxed
+                         :destination result))))
+
+(define-builtin mezzano.runtime::%fast-sb64-* ((lhs rhs) result)
+  (cond ((or (constant-value-p lhs '(eql 0))
+             (constant-value-p rhs '(eql 0)))
+         (emit (make-instance 'ir:constant-instruction
+                              :value 0
+                              :destination result))
+         (finish))
+        ((constant-value-p rhs '(eql 1))
+         (emit (make-instance 'ir:move-instruction
+                              :source lhs
+                              :destination result))
+         (finish))
+        ((constant-value-p lhs '(eql 1))
+         (emit (make-instance 'ir:move-instruction
+                              :source rhs
+                              :destination result))
+         (finish)))
+  (let ((lhs-unboxed (make-instance 'ir:virtual-register :kind :integer))
+        (rhs-unboxed (make-instance 'ir:virtual-register :kind :integer))
+        (result-unboxed (make-instance 'ir:virtual-register :kind :integer)))
+    (emit (make-instance 'ir:unbox-signed-byte-64-instruction
+                         :source lhs
+                         :destination lhs-unboxed))
+    (emit (make-instance 'ir:unbox-signed-byte-64-instruction
+                         :source rhs
+                         :destination rhs-unboxed))
+    (emit (make-instance 'arm64-instruction
+                         :opcode 'lap:madd
+                         :operands (list result-unboxed :xzr lhs-unboxed rhs-unboxed)
+                         :inputs (list lhs-unboxed rhs-unboxed)
+                         :outputs (list result-unboxed)))
+    (emit (make-instance 'ir:box-signed-byte-64-instruction
+                         :source result-unboxed
+                         :destination result))))
+
+(define-builtin mezzano.runtime::%fast-sb64-truncate ((lhs rhs) (quot rem))
+  (let ((lhs-unboxed (make-instance 'ir:virtual-register :kind :integer))
+        (rhs-unboxed (make-instance 'ir:virtual-register :kind :integer))
+        (quot-unboxed (make-instance 'ir:virtual-register :kind :integer))
+        (rem-unboxed (make-instance 'ir:virtual-register :kind :integer)))
+    (emit (make-instance 'ir:unbox-signed-byte-64-instruction
+                         :source lhs
+                         :destination lhs-unboxed))
+    (emit (make-instance 'ir:unbox-signed-byte-64-instruction
+                         :source rhs
+                         :destination rhs-unboxed))
+    (emit (make-instance 'arm64-instruction
+                         :opcode 'lap:sdiv
+                         :operands (list quot-unboxed lhs-unboxed rhs-unboxed)
+                         :inputs (list lhs-unboxed rhs-unboxed)
+                         :outputs (list quot-unboxed)))
+    ;; Compute the remainder.
+    ;; remainder = numerator - (quotient * denominator)
+    (emit (make-instance 'arm64-instruction
+                         :opcode 'lap:msub
+                         :operands (list rem-unboxed lhs-unboxed quot-unboxed rhs-unboxed)
+                         :inputs (list lhs-unboxed quot-unboxed rhs-unboxed)
+                         :outputs (list rem-unboxed)))
+    (emit (make-instance 'ir:box-signed-byte-64-instruction
+                         :source quot-unboxed
+                         :destination quot))
+    (emit (make-instance 'ir:box-signed-byte-64-instruction
+                         :source rem-unboxed
+                         :destination rem))))
+
+(define-builtin mezzano.runtime::%fast-sb64-logior ((lhs rhs) result)
+  (let ((lhs-unboxed (make-instance 'ir:virtual-register :kind :integer))
+        (result-unboxed (make-instance 'ir:virtual-register :kind :integer)))
+    (emit (make-instance 'ir:unbox-signed-byte-64-instruction
+                         :source lhs
+                         :destination lhs-unboxed))
+    (cond ((and (constant-value-p rhs '(signed-byte 64))
+                (lap:encodable-bit-mask-p (fetch-constant-value rhs)))
+           (emit (make-instance 'arm64-instruction
+                                :opcode 'lap:orr
+                                :operands (list result-unboxed
+                                                lhs-unboxed
+                                                (fetch-constant-value rhs))
+                                :inputs (list lhs-unboxed)
+                                :outputs (list result-unboxed))))
+          (t
+           (let ((rhs-unboxed (make-instance 'ir:virtual-register :kind :integer)))
+             (emit (make-instance 'ir:unbox-signed-byte-64-instruction
+                                  :source rhs
+                                  :destination rhs-unboxed))
+             (emit (make-instance 'arm64-instruction
+                                  :opcode 'lap:orr
+                                  :operands (list result-unboxed lhs-unboxed rhs-unboxed)
+                                  :inputs (list lhs-unboxed rhs-unboxed)
+                                  :outputs (list result-unboxed))))))
+    (emit (make-instance 'ir:box-signed-byte-64-instruction
+                         :source result-unboxed
+                         :destination result))))
+
+(define-builtin mezzano.runtime::%fast-sb64-logxor ((lhs rhs) result)
+  (let ((lhs-unboxed (make-instance 'ir:virtual-register :kind :integer))
+        (result-unboxed (make-instance 'ir:virtual-register :kind :integer)))
+    (emit (make-instance 'ir:unbox-signed-byte-64-instruction
+                         :source lhs
+                         :destination lhs-unboxed))
+    (cond ((and (constant-value-p rhs '(signed-byte 64))
+                (lap:encodable-bit-mask-p (fetch-constant-value rhs)))
+           (emit (make-instance 'arm64-instruction
+                                :opcode 'lap:eor
+                                :operands (list result-unboxed
+                                                lhs-unboxed
+                                                (fetch-constant-value rhs))
+                                :inputs (list lhs-unboxed)
+                                :outputs (list result-unboxed))))
+          (t
+           (let ((rhs-unboxed (make-instance 'ir:virtual-register :kind :integer)))
+             (emit (make-instance 'ir:unbox-signed-byte-64-instruction
+                                  :source rhs
+                                  :destination rhs-unboxed))
+             (emit (make-instance 'arm64-instruction
+                                  :opcode 'lap:eor
+                                  :operands (list result-unboxed lhs-unboxed rhs-unboxed)
+                                  :inputs (list lhs-unboxed rhs-unboxed)
+                                  :outputs (list result-unboxed))))))
+    (emit (make-instance 'ir:box-signed-byte-64-instruction
+                         :source result-unboxed
+                         :destination result))))
+
+(define-builtin mezzano.runtime::%fast-sb64-logand ((lhs rhs) result)
+  (let ((lhs-unboxed (make-instance 'ir:virtual-register :kind :integer))
+        (result-unboxed (make-instance 'ir:virtual-register :kind :integer)))
+    (emit (make-instance 'ir:unbox-signed-byte-64-instruction
+                         :source lhs
+                         :destination lhs-unboxed))
+    (cond ((and (constant-value-p rhs '(signed-byte 64))
+                (lap:encodable-bit-mask-p (fetch-constant-value rhs)))
+           (emit (make-instance 'arm64-instruction
+                                :opcode 'lap:and
+                                :operands (list result-unboxed
+                                                lhs-unboxed
+                                                (fetch-constant-value rhs))
+                                :inputs (list lhs-unboxed)
+                                :outputs (list result-unboxed))))
+          (t
+           (let ((rhs-unboxed (make-instance 'ir:virtual-register :kind :integer)))
+             (emit (make-instance 'ir:unbox-signed-byte-64-instruction
+                                  :source rhs
+                                  :destination rhs-unboxed))
+             (emit (make-instance 'arm64-instruction
+                                  :opcode 'lap:and
+                                  :operands (list result-unboxed lhs-unboxed rhs-unboxed)
+                                  :inputs (list lhs-unboxed rhs-unboxed)
+                                  :outputs (list result-unboxed))))))
+    (emit (make-instance 'ir:box-signed-byte-64-instruction
+                         :source result-unboxed
+                         :destination result))))
+
+(define-builtin mezzano.runtime::%sb64-right-shift-in-limits ((integer count) result)
+  (when (constant-value-p count '(eql 0))
+    ;; Not shifting by anything.
+    (emit (make-instance 'ir:move-instruction
+                         :source integer
+                         :destination result))
+    (finish))
+  (let ((integer-unboxed (make-instance 'ir:virtual-register :kind :integer))
+        (result-unboxed (make-instance 'ir:virtual-register :kind :integer)))
+    (emit (make-instance 'ir:unbox-signed-byte-64-instruction
+                         :source integer
+                         :destination integer-unboxed))
+    (cond ((constant-value-p count '(unsigned-byte 6))
+           ;; The perfect size to use as a shift constant.
+           (emit (make-instance 'arm64-instruction
+                                :opcode 'lap:asr
+                                :operands (list result-unboxed
+                                                integer-unboxed
+                                                (fetch-constant-value count))
+                                :inputs (list integer-unboxed)
+                                :outputs (list result-unboxed))))
+          (t
+           (let ((count-unboxed (make-instance 'ir:virtual-register :kind :integer)))
+             (emit (make-instance 'ir:unbox-fixnum-instruction
+                                  :source count
+                                  :destination count-unboxed))
+             (emit (make-instance 'arm64-instruction
+                                  :opcode 'lap:asr
+                                  :operands (list result-unboxed
+                                                  integer-unboxed
+                                                  count-unboxed)
+                                  :inputs (list integer-unboxed count-unboxed)
+                                  :outputs (list result-unboxed))))))
+    (emit (make-instance 'ir:box-signed-byte-64-instruction
+                         :source result-unboxed
+                         :destination result))))
+
+(define-builtin mezzano.runtime::%sb64-= ((lhs rhs) :eq)
+  (let ((lhs-unboxed (make-instance 'ir:virtual-register :kind :integer)))
+    (emit (make-instance 'ir:unbox-signed-byte-64-instruction
+                         :source lhs
+                         :destination lhs-unboxed))
+    (cond ((constant-value-p rhs '(signed-byte 12))
+           (emit (make-instance 'arm64-instruction
+                                :opcode 'lap:subs-imm
+                                :operands (list :xzr lhs-unboxed (fetch-constant-value rhs))
+                                :inputs (list lhs-unboxed)
+                                :outputs '())))
+          (t
+           (let ((rhs-unboxed (make-instance 'ir:virtual-register :kind :integer)))
+             (emit (make-instance 'ir:unbox-signed-byte-64-instruction
+                                  :source rhs
+                                  :destination rhs-unboxed))
+             (emit (make-instance 'arm64-instruction
+                                  :opcode 'lap:subs
+                                  :operands (list :xzr lhs-unboxed rhs-unboxed)
+                                  :inputs (list lhs-unboxed rhs-unboxed)
+                                  :outputs '())))))))
+
+(define-builtin mezzano.runtime::%sb64-< ((lhs rhs) :lt)
+  (let ((lhs-unboxed (make-instance 'ir:virtual-register :kind :integer)))
+    (emit (make-instance 'ir:unbox-signed-byte-64-instruction
+                         :source lhs
+                         :destination lhs-unboxed))
+    (cond ((constant-value-p rhs '(signed-byte 12))
+           (emit (make-instance 'arm64-instruction
+                                :opcode 'lap:subs-imm
+                                :operands (list :xzr lhs-unboxed (fetch-constant-value rhs))
+                                :inputs (list lhs-unboxed)
+                                :outputs '())))
+          (t
+           (let ((rhs-unboxed (make-instance 'ir:virtual-register :kind :integer)))
+             (emit (make-instance 'ir:unbox-signed-byte-64-instruction
+                                  :source rhs
+                                  :destination rhs-unboxed))
+             (emit (make-instance 'arm64-instruction
+                                  :opcode 'lap:subs
+                                  :operands (list :xzr lhs-unboxed rhs-unboxed)
+                                  :inputs (list lhs-unboxed rhs-unboxed)
+                                  :outputs '())))))))
