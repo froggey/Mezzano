@@ -668,24 +668,6 @@
                          :source result-unboxed
                          :destination result))))
 
-(define-builtin mezzano.runtime::%fixnum-truncate ((number divisor) (quotient remainder))
-  (let ((quotient-unboxed (make-instance 'ir:virtual-register :kind :integer)))
-    (emit (make-instance 'arm64-instruction
-                         :opcode 'lap:sdiv
-                         :operands (list quotient-unboxed number divisor)
-                         :inputs (list number divisor)
-                         :outputs (list quotient-unboxed)))
-    ;; Compute the remainder.
-    ;; remainder = numerator - (quotient * denominator)
-    (emit (make-instance 'arm64-instruction
-                         :opcode 'lap:msub
-                         :operands (list remainder number quotient-unboxed divisor)
-                         :inputs (list number quotient-unboxed divisor)
-                         :outputs (list remainder)))
-    (emit (make-instance 'ir:box-fixnum-instruction
-                         :source quotient-unboxed
-                         :destination quotient))))
-
 (define-builtin mezzano.runtime::%fast-ub64-truncate ((lhs rhs) (quot rem))
   (let ((lhs-unboxed (make-instance 'ir:virtual-register :kind :integer))
         (rhs-unboxed (make-instance 'ir:virtual-register :kind :integer))
