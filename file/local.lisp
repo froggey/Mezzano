@@ -407,7 +407,7 @@
                     (pathname-name pathname)
                     (pathname-type pathname)
                     (pathname-version pathname)))
-           (cond ((string= (pathname-type pathname) "directory")
+           (cond ((string-equal (pathname-type pathname) "directory")
                   (make-pathname :directory (append (pathname-directory pathname)
                                                     (list (pathname-name pathname)))
                                  :name nil
@@ -880,7 +880,7 @@ If ERRORP is true, then a file error will be signalled if any components are mis
 
 (defmethod stream-truename ((stream local-stream))
   (let ((truename (file-truename (local-stream-file stream))))
-    (cond ((string= (pathname-type truename) "directory")
+    (cond ((string-equal (pathname-type truename) "directory")
            (make-pathname :directory (append (pathname-directory truename)
                                              (list (pathname-name truename)))
                           :name nil
