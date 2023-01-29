@@ -350,7 +350,8 @@
   (or (probe-file pathname)
       (error 'simple-file-error
              :pathname pathname
-             :format-control "No such file.")))
+             :format-control "No such file ~S"
+             :format-arguments (list pathname))))
 
 (defun truename (pathname)
   (cond
