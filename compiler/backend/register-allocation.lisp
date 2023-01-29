@@ -30,6 +30,10 @@
   (:method (kind1 kind2 architecture)
     (eql kind1 kind2)))
 
+(defgeneric adjust-register-for-vreg-width (kind physical architecture)
+  (:method (k p a)
+    p))
+
 #|
 ;; Original recursive implementation.
 ;; Uses too much stack space when compiling Ironclad.
@@ -796,7 +800,9 @@
                                  (if (or (not new)
                                          (eql new :memory))
                                      old
-                                     new)))))
+                                     (adjust-register-for-vreg-width (ir:virtual-register-kind old)
+                                                                     new
+                                                                     (allocator-architecture allocator)))))))
 
 (defun rewrite-terminator-instruction (allocator inst instruction-index)
   ;; Insert code to patch up interval differences.

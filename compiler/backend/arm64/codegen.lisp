@@ -456,6 +456,8 @@
     (when (not (eql lhs rhs))
       (assert (eql (lap::register-class lhs) (lap::register-class rhs)))
       (ecase (lap::register-class rhs)
+        ;; FIXME: This is wildly wrong and will cause the GC to lose live values.
+        ;; Use a temporary or spill to the stack instead.
         (:gpr-64
          (emit `(lap:eor ,lhs ,lhs ,rhs)
                `(lap:eor ,rhs ,rhs ,lhs)
@@ -1187,7 +1189,7 @@
   (ecase (lap::register-class (ir:box-source instruction))
     (:gpr-64
      (emit `(lap:orr :x9 :xzr ,(ir:box-source instruction))))
-    (:fp-128
+    (:fp-32
      (emit `(lap:fmov :w9 ,(lap::convert-width (ir:box-source instruction) 32)))))
   (emit `(lap:add :x9 :xzr :x9 :lsl 32)
         `(lap:add ,(ir:box-destination instruction) :x9 ,(logior sys.int::+tag-immediate+
@@ -1196,10 +1198,10 @@
                                                                       0)))))
 
 (defmethod emit-lap (backend-function (instruction ir:unbox-single-float-instruction) uses defs)
-  (ecase (lap::register-class (ir:box-source instruction))
+  (ecase (lap::register-class (ir:unbox-destination instruction))
     (:gpr-64
      (emit `(lap:add ,(ir:unbox-destination instruction) :xzr ,(ir:unbox-source instruction) :lsr 32)))
-    (:fp-128
+    (:fp-32
      (emit `(lap:add :x9 :xzr ,(ir:unbox-source instruction) :lsr 32))
      (emit `(lap:fmov ,(lap::convert-width (ir:unbox-destination instruction) 32) :w9)))))
 

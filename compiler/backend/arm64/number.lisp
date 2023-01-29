@@ -560,6 +560,124 @@
                          :source value-float
                          :destination result))))
 
+(define-builtin sys.int::%single-float-as-integer ((single-float) result)
+  (let ((unboxed (make-instance 'ir:virtual-register :kind :integer)))
+    (emit (make-instance 'ir:unbox-single-float-instruction
+                         :source single-float
+                         :destination unboxed))
+    (emit (make-instance 'ir:box-fixnum-instruction
+                         :source unboxed
+                         :destination result))))
+
+(define-builtin sys.int::%integer-as-single-float ((integer) result)
+  (let ((unboxed (make-instance 'ir:virtual-register :kind :integer)))
+    (emit (make-instance 'ir:unbox-fixnum-instruction
+                         :source integer
+                         :destination unboxed))
+    (emit (make-instance 'ir:box-single-float-instruction
+                         :source unboxed
+                         :destination result))))
+
+(macrolet ((def (name op)
+             `(define-builtin ,name ((x y) result)
+                (let ((x-unboxed (make-instance 'ir:virtual-register :kind :single-float))
+                      (y-unboxed (make-instance 'ir:virtual-register :kind :single-float))
+                      (result-unboxed (make-instance 'ir:virtual-register :kind :single-float)))
+                  (emit (make-instance 'ir:unbox-single-float-instruction
+                                       :source x
+                                       :destination x-unboxed))
+                  (emit (make-instance 'ir:unbox-single-float-instruction
+                                       :source y
+                                       :destination y-unboxed))
+                  (emit (make-instance 'arm64-instruction
+                                       :opcode ',op
+                                       :operands (list result-unboxed x-unboxed y-unboxed)
+                                       :inputs (list x-unboxed y-unboxed)
+                                       :outputs (list result-unboxed)))
+                  (emit (make-instance 'ir:box-single-float-instruction
+                                       :source result-unboxed
+                                       :destination result))))))
+  (def sys.int::%%single-float-+ lap:fadd)
+  (def sys.int::%%single-float-- lap:fsub)
+  (def sys.int::%%single-float-* lap:fmul)
+  (def sys.int::%%single-float-/ lap:fdiv))
+
+(define-builtin sys.int::%%truncate-single-float ((single-float) result)
+  (let ((float-unboxed (make-instance 'ir:virtual-register :kind :single-float))
+        (result-unboxed (make-instance 'ir:virtual-register :kind :integer)))
+    (emit (make-instance 'ir:unbox-single-float-instruction
+                         :source single-float
+                         :destination float-unboxed))
+    (emit (make-instance 'arm64-instruction
+                         :opcode 'lap:fcvtzs
+                         :operands (list result-unboxed float-unboxed)
+                         :inputs (list float-unboxed)
+                         :outputs (list result-unboxed)))
+    (emit (make-instance 'ir:box-fixnum-instruction
+                         :source result-unboxed
+                         :destination result))))
+
+(define-builtin sys.int::%%round-single-float ((single-float) result)
+  (let ((float-unboxed (make-instance 'ir:virtual-register :kind :single-float))
+        (result-unboxed (make-instance 'ir:virtual-register :kind :integer)))
+    (emit (make-instance 'ir:unbox-single-float-instruction
+                         :source single-float
+                         :destination float-unboxed))
+    (emit (make-instance 'arm64-instruction
+                         :opcode 'lap:fcvtns
+                         :operands (list result-unboxed float-unboxed)
+                         :inputs (list float-unboxed)
+                         :outputs (list result-unboxed)))
+    (emit (make-instance 'ir:box-fixnum-instruction
+                         :source result-unboxed
+                         :destination result))))
+
+(define-builtin sys.int::%%single-float-< ((x y) :cc)
+  (let ((x-unboxed (make-instance 'ir:virtual-register :kind :single-float))
+        (y-unboxed (make-instance 'ir:virtual-register :kind :single-float)))
+    (emit (make-instance 'ir:unbox-single-float-instruction
+                         :source x
+                         :destination x-unboxed))
+    (emit (make-instance 'ir:unbox-single-float-instruction
+                         :source y
+                         :destination y-unboxed))
+    (emit (make-instance 'arm64-instruction
+                         :opcode 'lap:fcmp
+                         :operands (list x-unboxed y-unboxed)
+                         :inputs (list x-unboxed y-unboxed)
+                         :outputs (list)))))
+
+(define-builtin sys.int::%%single-float-= ((x y) :eq)
+  (let ((x-unboxed (make-instance 'ir:virtual-register :kind :single-float))
+        (y-unboxed (make-instance 'ir:virtual-register :kind :single-float)))
+    (emit (make-instance 'ir:unbox-single-float-instruction
+                         :source x
+                         :destination x-unboxed))
+    (emit (make-instance 'ir:unbox-single-float-instruction
+                         :source y
+                         :destination y-unboxed))
+    (emit (make-instance 'arm64-instruction
+                         :opcode 'lap:fcmp
+                         :operands (list x-unboxed y-unboxed)
+                         :inputs (list x-unboxed y-unboxed)
+                         :outputs (list)))))
+
+(define-builtin sys.int::%%single-float-sqrt ((x) result)
+  (let ((x-unboxed (make-instance 'ir:virtual-register :kind :single-float))
+        (result-unboxed (make-instance 'ir:virtual-register :kind :single-float)))
+    (emit (make-instance 'ir:unbox-single-float-instruction
+                         :source x
+                         :destination x-unboxed))
+    (emit (make-instance 'arm64-instruction
+                         :opcode 'lap:fsqrt
+                         :operands (list result-unboxed x-unboxed)
+                         :inputs (list x-unboxed)
+                         :outputs (list result-unboxed)))
+    (emit (make-instance 'ir:box-single-float-instruction
+                         :source result-unboxed
+                         :destination result))))
+
+
 ;;; Unsigned-byte 64 arithmetic
 
 (define-builtin mezzano.runtime::%fast-ub64-+ ((lhs rhs) result)

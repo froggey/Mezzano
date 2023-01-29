@@ -920,7 +920,8 @@
            #:spill/fill-register-kinds-compatible
            #:instruction-clobbers
            #:instruction-inputs-read-before-outputs-written-p
-           #:allow-memory-operand-p))
+           #:allow-memory-operand-p
+           #:adjust-register-for-vreg-width))
 
 (defpackage :mezzano.compiler.backend.x86-64
   (:use :cl)
