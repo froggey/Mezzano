@@ -489,18 +489,24 @@
   `(eval-when (:compile-toplevel :load-toplevel :execute)
      (%define-symbol-macro ',symbol ',expansion (current-source-location (define-symbol-macro ,symbol)))))
 
-(defmacro defglobal (name &optional (initial-value nil initial-valuep) (docstring nil docstringp))
+(defmacro defglobal* (name &optional (initial-value nil initial-valuep) (docstring nil docstringp) (paramp nil))
   (when docstringp
     (check-type docstring string))
   `(progn
      (declaim (global ,name))
      ,@(when initial-valuep
-         `((unless (boundp ',name)
+         `((unless (and (boundp ',name) ,(not paramp))
              (setq ,name ,initial-value))))
      ,@(when docstringp
          `((set-variable-docstring ',name ',docstring)))
      (set-variable-source-location ',name (current-source-location (defglobal ,name)) 'defglobal)
      ',name))
+
+(defmacro defglobal (name &optional (initial-value nil initial-valuep) (docstring nil docstringp))
+  (list 'defglabal name initial-value docstring))
+
+(defmacro defglobal-parameter (name &optional (initial-value nil initial-valuep) (docstring nil docstringp))
+  (list 'defglabal name initial-value docstring t))
 
 (defmacro defun (&environment env name lambda-list &body body)
   (let ((base-name (if (consp name)
