@@ -503,10 +503,10 @@
      ',name))
 
 (defmacro defglobal (name &optional (initial-value nil initial-valuep) (docstring nil docstringp))
-  (list 'defglabal name initial-value docstring))
+  (list 'defglabal* name initial-value docstring))
 
 (defmacro defglobal-parameter (name &optional (initial-value nil initial-valuep) (docstring nil docstringp))
-  (list 'defglabal name initial-value docstring t))
+  (list 'defglabal* name initial-value docstring t))
 
 (defmacro defun (&environment env name lambda-list &body body)
   (let ((base-name (if (consp name)
