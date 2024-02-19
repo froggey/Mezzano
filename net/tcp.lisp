@@ -383,7 +383,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
              (setf (tcp-connection-last-ack-time connection)
                    (get-internal-run-time))
              (when (not *netmangler-force-local-retransmit*)
-               (tcp4-send-packet connection iss (+u32 irs 1) nil :ack-p t :syn-p t))))
+               (tcp4-send-packet connection iss (+u32 irs 1) nil :syn-p t))))
           ((logtest flags +tcp4-flag-rst+)) ; Do nothing for resets addressed to nobody.
           (t
            (let* ((seq (if (logtest flags +tcp4-flag-ack+)
@@ -474,8 +474,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
     (tcp4-send-packet connection
                       (tcp-connection-snd.nxt connection)
                       (tcp-connection-rcv.nxt connection)
-                      nil
-                      :ack-p t)))
+                      nil)))
 
 (defun tcp-packet-sequence-number (packet start end)
   (declare (ignore end))
@@ -593,7 +592,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                       (tcp-connection-rcv.nxt connection) (+u32 seq 1))
                 (when (not *netmangler-force-local-retransmit*)
                   (tcp4-send-packet connection ack (tcp-connection-rcv.nxt connection) nil
-                                    :ack-p t :syn-p t))
+                                    :syn-p t))
                 ;; Cancel retransmit
                 (disarm-retransmit-timer connection)
                 (disarm-timeout-timer connection))
@@ -637,8 +636,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                   (tcp4-send-packet connection
                                     (tcp-connection-snd.nxt connection)
                                     (tcp-connection-rcv.nxt connection)
-                                    nil
-                                    :ack-p t)))
+                                    nil)))
                ((logtest flags +tcp4-flag-rst+)
                 (setf (tcp-connection-pending-error connection)
                       (make-condition 'connection-reset
@@ -700,7 +698,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                       (setf (mezzano.supervisor:event-state
                              (tcp-connection-receive-event connection))
                             t)
-                      (tcp4-send-packet connection ack (+u32 seq 1) nil :ack-p t))
+                      (tcp4-send-packet connection ack (+u32 seq 1) nil))
                     (tcp4-receive-data connection data-length end header-length packet seq start)))
                ((eql (tcp-connection-snd.una connection) ack)
                 ;; TODO: slow start/duplicate ack detection/fast retransmit/etc.
