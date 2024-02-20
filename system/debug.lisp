@@ -910,3 +910,42 @@ executed, and the offset into it."
 
 (defmethod function-lambda-list ((function mezzano.clos:generic-function))
   (mezzano.clos:generic-function-lambda-list function))
+
+;;; A REPL for the debug serial port.
+
+(defclass debug-serial-repl (mezzano.gray:unread-char-mixin
+                             mezzano.gray:fundamental-character-input-stream
+                             mezzano.gray:fundamental-character-output-stream)
+  ((%thread :initarg :thread :reader thread)))
+
+(defmethod mezzano.gray:stream-read-char ((stream debug-serial-repl))
+  (mezzano.supervisor::debug-serial-read-char))
+
+(defmethod mezzano.gray:stream-terpri ((stream debug-serial-repl))
+  (mezzano.supervisor::debug-serial-write-char #\Newline))
+
+(defmethod mezzano.gray:stream-write-char ((stream debug-serial-repl) character)
+  (mezzano.supervisor::debug-serial-write-char character))
+
+(defmethod mezzano.gray:stream-start-line-p ((stream debug-serial-repl))
+  mezzano.supervisor::*debug-serial-at-line-start*)
+
+(defmethod mezzano.gray:stream-line-column ((stream debug-serial-repl))
+  nil)
+
+(defun debug-serial-repl-main ()
+  (let* ((terminal (make-instance 'debug-serial-repl
+                                  :thread (mezzano.supervisor:current-thread)))
+         (*terminal-io* terminal)
+         (*standard-input* (make-synonym-stream '*terminal-io*))
+         (*standard-output* *standard-input*)
+         (*error-output* *standard-input*)
+         (*query-io* *standard-input*)
+         (*trace-output* *standard-input*)
+         (*debug-io* *standard-input*))
+    (mezzano.internals::repl)))
+
+(defun debug-serial-repl-start (&rest args)
+  (mezzano.supervisor:make-thread
+   (lambda () (apply #'debug-serial-repl-main args))
+   :name "Debug Serial Lisp Listener"))
