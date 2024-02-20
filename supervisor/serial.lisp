@@ -108,7 +108,7 @@
 (sys.int::defglobal *debug-serial-read-fn*)
 (sys.int::defglobal *debug-serial-write-fn*)
 (sys.int::defglobal *debug-serial-lock*)
-(sys.int::defglobal *serial-at-line-start*)
+(sys.int::defglobal *debug-serial-at-line-start*)
 
 ;; Low-level byte functions.
 
@@ -142,11 +142,11 @@
 ;; end of the port uses UTF-8 with CRLF newlines.
 
 (defun debug-serial-write-char (char)
-  (setf *serial-at-line-start* nil)
+  (setf *debug-serial-at-line-start* nil)
   ;; FIXME: Should write all the bytes to the buffer in one go.
   ;; Other processes may interfere.
   (cond ((eql char #\Newline)
-         (setf *serial-at-line-start* t)
+         (setf *debug-serial-at-line-start* t)
          ;; Turn #\Newline into CRLF
          (debug-serial-write-byte #x0D)
          (debug-serial-write-byte #x0A))
@@ -160,12 +160,12 @@
       (dotimes (i (string-length string))
         (let ((char (char string i)))
           (cond ((eql char #\Newline)
-                 (setf *serial-at-line-start* t)
+                 (setf *debug-serial-at-line-start* t)
                  ;; Turn #\Newline into CRLF
                  (debug-serial-write-byte-1 #x0D)
                  (debug-serial-write-byte-1 #x0A))
                 (t
-                 (setf *serial-at-line-start* nil)
+                 (setf *debug-serial-at-line-start* nil)
                  (with-utf-8-bytes (char byte)
                    (debug-serial-write-byte-1 byte)))))))))
 
@@ -179,12 +179,12 @@
         (dotimes (i (cdr buf))
           (let ((byte (aref buf-data (the fixnum i))))
             (cond ((eql byte #.(char-code #\Newline))
-                   (setf *serial-at-line-start* t)
+                   (setf *debug-serial-at-line-start* t)
                    ;; Turn #\Newline into CRLF
                    (debug-serial-write-byte-1 #x0D)
                    (debug-serial-write-byte-1 #x0A))
                   (t
-                   (setf *serial-at-line-start* nil)
+                   (setf *debug-serial-at-line-start* nil)
                    (debug-serial-write-byte-1 byte)))))))))
 
 (defun debug-serial-stream (op &optional arg)
@@ -195,7 +195,7 @@
     (:write-string (debug-serial-write-string arg))
     (:flush-buffer (debug-serial-flush-buffer arg))
     (:force-output)
-    (:start-line-p *serial-at-line-start*)))
+    (:start-line-p *debug-serial-at-line-start*)))
 
 (defun initialize-debug-serial (io-port io-shift io-read-fn io-write-fn irq baud &optional (reinit t))
   (declare (ignore irq))
@@ -204,7 +204,7 @@
         *debug-serial-read-fn* io-read-fn
         *debug-serial-write-fn* io-write-fn
         *debug-serial-lock* :unlocked
-        *serial-at-line-start* t)
+        *debug-serial-at-line-start* t)
   ;; Initialize port.
   (when reinit
     (let ((divisor (truncate 115200 baud)))
