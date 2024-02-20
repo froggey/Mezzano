@@ -148,12 +148,12 @@
     "system/condition.lisp"
     "system/error.lisp"
     "system/coerce.lisp"
+    "system/gray-streams.lisp" ; before system/debug for debug-serial-repl
     "system/debug.lisp"
     "system/dispatch.lisp"
     "system/full-eval.lisp"
     "system/fast-eval.lisp"
     "system/eval.lisp"
-    "system/gray-streams.lisp"
     "system/external-format.lisp"
     "system/standard-streams.lisp"
     "system/stream.lisp"
