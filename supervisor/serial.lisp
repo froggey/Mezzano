@@ -109,6 +109,8 @@
 (sys.int::defglobal *debug-serial-write-fn*)
 (sys.int::defglobal *debug-serial-lock*)
 (sys.int::defglobal *debug-serial-at-line-start*)
+(sys.int::defglobal *debug-serial-irq*)
+(sys.int::defglobal *debug-serial-irq-handler*)
 
 ;; Low-level byte functions.
 
@@ -198,7 +200,6 @@
     (:start-line-p *debug-serial-at-line-start*)))
 
 (defun initialize-debug-serial (io-port io-shift io-read-fn io-write-fn irq baud &optional (reinit t))
-  (declare (ignore irq))
   (setf *debug-serial-io-port* io-port
         *debug-serial-io-shift* io-shift
         *debug-serial-read-fn* io-read-fn
@@ -209,6 +210,8 @@
   (when reinit
     (let ((divisor (truncate 115200 baud)))
       (setf
+       *debug-serial-irq* irq
+       *debug-serial-irq-handler* nil
        ;; Turn interrupts off.
        (uart-16550-reg +serial-IER+) #x00
        ;; DLAB on.
@@ -239,3 +242,17 @@
                        (uart-16550-reg +serial-LSR+)))
   ;; Read byte.
   (uart-16550-reg +serial-THR+))
+
+(defun debug-serial-read-byte ()
+  ;; IRQ initialization cannot be done in initialize-debug-serial
+  ;; because it is called very early during boot, before interrupt
+  ;; objects exist.  Calling make-simple-irq there causes the boot to
+  ;; hang just before "Hello, Debug World!" is printed.  Initialize
+  ;; IRQ during the first debug-serial-read-byte call instead.
+  (unless *debug-serial-irq-handler*
+    (setf *debug-serial-irq-handler* (make-simple-irq *debug-serial-irq*))
+    (simple-irq-attach *debug-serial-irq-handler*)
+    (simple-irq-unmask *debug-serial-irq-handler*))
+  (mezzano.sync::wait-for-objects *debug-serial-irq-handler*)
+  (prog1 (debug-serial-read-byte-1-blocking)
+    (mezzano.supervisor:simple-irq-unmask *debug-serial-irq-handler*)))
