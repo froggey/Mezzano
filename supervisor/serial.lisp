@@ -191,7 +191,7 @@
 
 (defun debug-serial-stream (op &optional arg)
   (ecase op
-    (:read-char (panic "Serial read char not implemented."))
+    (:read-char (debug-serial-read-char))
     (:clear-input)
     (:write-char (debug-serial-write-char arg))
     (:write-string (debug-serial-write-string arg))
@@ -256,3 +256,26 @@
   (mezzano.sync::wait-for-objects *debug-serial-irq-handler*)
   (prog1 (debug-serial-read-byte-1-blocking)
     (mezzano.supervisor:simple-irq-unmask *debug-serial-irq-handler*)))
+
+(defun utf8-sequence-length (byte)
+  (cond
+    ((eql (logand byte #x80) #x00)
+     (values 1 byte))
+    ((eql (logand byte #xE0) #xC0)
+     (values 2 (logand byte #x1F)))
+    ((eql (logand byte #xF0) #xE0)
+     (values 3 (logand byte #x0F)))
+    ((eql (logand byte #xF8) #xF0)
+     (values 4 (logand byte #x07)))
+    (t (error "Invalid UTF-8 lead byte ~S." byte))))
+
+(defun debug-serial-read-char ()
+  (multiple-value-bind (length value)
+      (utf8-sequence-length (debug-serial-read-byte))
+    ;; Read remaining bytes. They must all be continuation bytes.
+    (dotimes (i (1- length))
+      (let ((byte (debug-serial-read-byte)))
+        (unless (eql (logand byte #xC0) #x80)
+          (error "Invalid UTF-8 continuation byte ~S." byte))
+        (setf value (logior (ash value 6) (logand byte #x3F)))))
+    (code-char value)))
