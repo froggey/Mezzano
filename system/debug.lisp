@@ -596,6 +596,7 @@ executed, and the offset into it."
 (defgeneric function-source-location (function &key))
 
 (defmethod function-source-location ((function compiled-function) &key (offset 0))
+  (declare (ignore offset))
   (let* ((info (function-debug-info function))
          (pathname (mezzano.internals::debug-info-source-pathname info))
          (tlf (mezzano.internals::debug-info-source-top-level-form-number info)))
