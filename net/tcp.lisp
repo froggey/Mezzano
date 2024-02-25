@@ -645,7 +645,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                                       :port (tcp-connection-remote-port connection)))
                 (detach-tcp-connection connection)
                 (tcp4-send-packet connection
-                                  (tcp-connection-snd.next connection)
+                                  (tcp-connection-snd.nxt connection)
                                   0 ; ???
                                   nil
                                   :ack-p nil
