@@ -1,14 +1,8 @@
 ;;; TCP
 ;;;
 ;;; Transmission Control Protocol - Protocol Specification
-;;; https://tools.ietf.org/html/rfc793
+;;; https://datatracker.ietf.org/doc/html/rfc9293
 ;;;
-;;; EFSM/SDL modeling of the original TCP standard (RFC793) and the
-;;; Congestion Control Mechanism of TCP Reno
-;;; http://www.medianet.kent.edu/techreports/TR2005-07-22-tcp-EFSM.pdf
-;;;
-;;; Computing TCP's Retransmission Timer
-;;; https://tools.ietf.org/html/rfc6298
 
 (in-package :mezzano.network.tcp)
 
