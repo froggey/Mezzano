@@ -379,6 +379,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
              (when (not *netmangler-force-local-retransmit*)
                (tcp4-send-packet connection iss (+u32 irs 1) nil :syn-p t))))
           ((logtest flags +tcp4-flag-rst+)) ; Do nothing for resets addressed to nobody.
+          ((logtest flags +tcp4-flag-fin+)) ; Do nothing for finish since the SEG.SEQ cannot be validated
           (t
            (let* ((seq (if (logtest flags +tcp4-flag-ack+)
                            (tcp-packet-acknowledgment-number packet start end)
