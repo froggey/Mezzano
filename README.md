@@ -87,6 +87,6 @@ Licensed under CC BY-SA 3.0 via Wikimedia Commons - http://commons.wikimedia.org
 "Handsome" by Andy Morffew - https://www.flickr.com/photos/andymorffew/19377769093/in/album-72157630893775092/
 [CC BY 2.0 (http://creativecommons.org/licenses/by/2.0)]
 
-Includes Dejavu Fonts 2.37 (http://dejavu-fonts.org/)
+Includes Dejavu Fonts 2.37 (https://dejavu-fonts.github.io/)
 
 Some icons from Icojam (http://www.icojam.com)
