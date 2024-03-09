@@ -84,6 +84,7 @@
                    type
                    tag
                    data
+                   #+nil
                    (get-page-entry (parse-state-value state :page) data)))
           ((and (eq type :main) (eq tag :collection))
            (format stream "~A ~A ~A (~A)~%"
