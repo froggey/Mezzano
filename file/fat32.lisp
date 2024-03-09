@@ -1150,7 +1150,7 @@ Valid media-type ara 'FAT32   ' " fat-type-label)))
 ;; According to jdebp (Jonathan de Boyne Pollard)'s Frequently Given
 ;; Answers, the question of how to determine if a partition contains a
 ;; FAT file system is answered at the following URL:
-;; https://jdebp.eu/FGA/determining-filesystem-type.html#FSTypeDefinitive
+;; https://jdebp.uk/FGA/determining-filesystem-type.html#FSTypeDefinitive
 ;;
 ;; The following two routines detect BPB (Bios Partition Block)
 ;; version 7.0 and version 4.0 for FAT file systems. Where buffer is
