@@ -626,19 +626,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                   (mezzano.sync:mailbox-send connection (tcp-listener-connections listener))))
                ;; Ignore duplicated SYN packets
                ((and (logtest flags +tcp4-flag-syn+)
-                     (eql seq (-u32 (tcp-connection-rcv.nxt connection) 1))))
-               (t
-                ;; Aborting connection
-                (tcp4-send-packet connection ack seq nil :rst-p t)
-                (setf (tcp-connection-pending-error connection)
-                      (make-condition 'connection-aborted
-                                      :host (tcp-connection-remote-ip connection)
-                                      :port (tcp-connection-remote-port connection)))
-                (detach-tcp-connection connection)
-                (when (and listener
-                           (tcp-listener-backlog listener))
-                  (remhash connection (tcp-listener-pending-connections listener))
-                  (decf (tcp-listener-n-pending-connections listener))))))
+                     (eql seq (-u32 (tcp-connection-rcv.nxt connection) 1))))))
         (:established
          (cond ((not (acceptable-segment-p connection seq data-length))
                 (unless (logtest flags +tcp4-flag-rst+)
