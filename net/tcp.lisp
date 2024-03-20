@@ -58,7 +58,8 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
     :last-ack
     :fin-wait-1
     :fin-wait-2
-    :closing))
+    :closing
+    :time-wait))
 
 (deftype tcp-port-number ()
   '(unsigned-byte 16))
@@ -258,7 +259,8 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
         :last-ack
         :fin-wait-1
         :fin-wait-2
-        :closing)
+        :closing
+        :time-wait)
        (let ((packet (first (tcp-connection-retransmit-queue connection))))
          (apply #'tcp4-send-packet connection packet)
          (setf (tcp-connection-rto connection)
@@ -743,16 +745,17 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                 (challenge-ack connection))
                (t
                 (if (zerop data-length)
-                    (when (= seq (tcp-connection-rcv.nxt connection))
+                    (when (eql seq (tcp-connection-rcv.nxt connection))
                       (cond ((logtest flags +tcp4-flag-fin+)
-                             (setf (tcp-connection-rcv.nxt connection)
-                                   (+u32 (tcp-connection-rcv.nxt connection) 1))
+                             (setf (tcp-connection-rcv.nxt connection) (+u32 seq 1))
                              (tcp4-send-ack connection)
-                             (if (logtest flags +tcp4-flag-ack+)
-                                 ;; Remote saw our FIN and closed as well.
-                                 (detach-tcp-connection connection)
-                                 ;; Simultaneous close
-                                 (setf (tcp-connection-state connection) :closing)))
+                             (cond ((logtest flags +tcp4-flag-ack+)
+                                    ;; Remote saw our FIN
+                                    ;; TODO: Start the time-wait timer, turn off the other timers.
+                                    (setf (tcp-connection-state connection) :time-wait))
+                                   (t
+                                    ;; Simultaneous close
+                                    (setf (tcp-connection-state connection) :closing))))
                             ((logtest flags +tcp4-flag-ack+)
                              ;; Remote saw our FIN
                              (setf (tcp-connection-state connection) :fin-wait-2))))
@@ -775,13 +778,13 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                 (challenge-ack connection))
                (t
                 (if (zerop data-length)
-                    (when (and (= seq (tcp-connection-rcv.nxt connection))
-                               (logtest flags +tcp4-flag-fin+))
+                    (when (and (logtest flags +tcp4-flag-fin+)
+                               (eql seq (tcp-connection-rcv.nxt connection)))
                       ;; Remote has sent FIN and waiting for ACK
-                      (setf (tcp-connection-rcv.nxt connection)
-                            (+u32 (tcp-connection-rcv.nxt connection) 1))
-                      (tcp4-send-ack connection)
-                      (detach-tcp-connection connection))
+                      ;; TODO: Start the time-wait timer, turn off the other timers.
+                      (setf (tcp-connection-state connection) :time-wait
+                            (tcp-connection-rcv.nxt connection) (+u32 seq 1))
+                      (tcp4-send-ack connection))
                     (tcp4-receive-data connection data-length end header-length packet seq start)))))
         (:closing
          ;; Waiting for ACK
@@ -796,8 +799,23 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                 (challenge-ack connection))
                ((and (eql seq (tcp-connection-rcv.nxt connection))
                      (logtest flags +tcp4-flag-ack+))
-                ;; Remote has sent ACK, connection closed
-                (detach-tcp-connection connection))))))
+                (setf (tcp-connection-state connection) :time-wait))))
+        (:time-wait
+         (cond ((not (acceptable-segment-p connection seq data-length))
+                (unless (logtest flags +tcp4-flag-rst+)
+                  (tcp4-send-ack connection)))
+               ((logtest flags +tcp4-flag-rst+)
+                (if (eql seq (tcp-connection-rcv.nxt connection))
+                    (detach-tcp-connection connection)
+                    (challenge-ack connection)))
+               ((logtest flags +tcp4-flag-syn+)
+                (challenge-ack connection))
+               ((not (logtest flags +tcp4-flag-ack+))) ; Ignore packets without ACK set.
+               ((and (logtest flags +tcp4-flag-fin+)
+                     (eql seq (tcp-connection-rcv.nxt connection)))
+                ;; TODO: Restart the 2 MSL timeout.
+                (setf (tcp-connection-rcv.nxt connection) (+u32 seq 1))
+                (tcp4-send-ack connection))))))
     (update-timeout-timer connection)
     ;; Notify any waiters that something may have changed.
     (mezzano.supervisor:condition-notify (tcp-connection-cvar connection) t)))
@@ -1234,7 +1252,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                          nil
                          :fin-p t
                          :errors-escape t)))
-    ((:last-ack :fin-wait-1 :fin-wait-2 :closed))))
+    ((:last-ack :fin-wait-1 :fin-wait-2 :closed :time-wait))))
 
 (defmethod close ((stream tcp-octet-stream) &key abort)
   ;; TODO: ABORT should abort the connection entirely.
