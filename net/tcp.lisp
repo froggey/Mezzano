@@ -582,6 +582,11 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                                         :port (tcp-connection-remote-port connection)))
                   (detach-tcp-connection connection)))
                ((and (logtest flags +tcp4-flag-ack+)
+                     (not (acceptable-ack-p connection ack)))
+                ;; Segment comes from an old connection
+                (unless *netmangler-force-local-retransmit*
+                  (tcp4-send-packet connection ack seq nil :ack-p nil :rst-p t)))
+               ((and (logtest flags +tcp4-flag-ack+)
                      (logtest flags +tcp4-flag-syn+)
                      (eql ack (tcp-connection-snd.nxt connection)))
                 ;; Active open
@@ -603,15 +608,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                                     :syn-p t))
                 ;; Cancel retransmit
                 (disarm-retransmit-timer connection)
-                (disarm-timeout-timer connection))
-               (t
-                ;; Aborting connection
-                (tcp4-send-packet connection ack seq nil :rst-p t)
-                (setf (tcp-connection-pending-error connection)
-                      (make-condition 'connection-aborted
-                                      :host (tcp-connection-remote-ip connection)
-                                      :port (tcp-connection-remote-port connection)))
-                (detach-tcp-connection connection))))
+                (disarm-timeout-timer connection))))
         (:syn-received
          ;; Pasive open
          (cond ((and (eql flags +tcp4-flag-ack+)
