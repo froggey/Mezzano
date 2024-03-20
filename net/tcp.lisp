@@ -591,11 +591,11 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                      (eql ack (tcp-connection-snd.nxt connection)))
                 ;; Active open
                 (initial-rtt-measurement connection)
-                (setf (tcp-connection-state connection) :established)
-                (setf (tcp-connection-rcv.nxt connection) (+u32 seq 1))
-                (setf (tcp-connection-snd.una connection) ack)
-                (when (not *netmangler-force-local-retransmit*)
-                  (tcp4-send-packet connection ack (tcp-connection-rcv.nxt connection) nil))
+                (setf (tcp-connection-state connection) :established
+                      (tcp-connection-rcv.nxt connection) (+u32 seq 1)
+                      (tcp-connection-snd.una connection) ack)
+                (unless *netmangler-force-local-retransmit*
+                  (tcp4-send-ack connection))
                 ;; Cancel retransmit
                 (disarm-retransmit-timer connection)
                 (disarm-timeout-timer connection))
@@ -603,7 +603,8 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                 ;; Simultaneous open
                 (setf (tcp-connection-state connection) :syn-received
                       (tcp-connection-rcv.nxt connection) (+u32 seq 1))
-                (when (not *netmangler-force-local-retransmit*)
+                ;; TODO: Update window
+                (unless *netmangler-force-local-retransmit*
                   (tcp4-send-packet connection ack (tcp-connection-rcv.nxt connection) nil
                                     :syn-p t))
                 ;; Cancel retransmit
