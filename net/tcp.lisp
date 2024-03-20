@@ -611,11 +611,13 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                 (disarm-retransmit-timer connection)
                 (disarm-timeout-timer connection))))
         (:syn-received
-         ;; Pasive open
-         (cond ((and (eql flags +tcp4-flag-ack+)
+         (cond ((not (acceptable-segment-p connection seq data-length))
+                (unless (logtest flags +tcp4-flag-rst+)
+                  (tcp4-send-ack connection)))
+               ((and (eql flags +tcp4-flag-ack+)
                      (eql seq (tcp-connection-rcv.nxt connection))
                      (eql ack (tcp-connection-snd.nxt connection)))
-                ;; Remote has sent ACK, connection established
+                ;; Pasive open
                 (initial-rtt-measurement connection)
                 (setf (tcp-connection-state connection) :established)
                 (when listener
@@ -638,7 +640,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                   (decf (tcp-listener-n-pending-connections listener))))))
         (:established
          (cond ((not (acceptable-segment-p connection seq data-length))
-                (when (not (logtest flags +tcp4-flag-rst+))
+                (unless (logtest flags +tcp4-flag-rst+)
                   (tcp4-send-ack connection)))
                ((logtest flags +tcp4-flag-rst+)
                 (setf (tcp-connection-pending-error connection)
@@ -709,47 +711,60 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                   (tcp4-receive-data connection data-length end header-length packet seq start)))))
         (:close-wait
          ;; Remote has closed, local can still send data.
-         ;; Not much to do here, just waiting for the application to close.
-         )
+         (cond ((not (acceptable-segment-p connection seq data-length))
+                (unless (logtest flags +tcp4-flag-rst+)
+                  (tcp4-send-ack connection)))))
         (:last-ack
-         ;; Local closed, waiting for remote to ACK.
-         (when (logtest flags +tcp4-flag-ack+)
-           ;; Remote has sent ACK, connection closed
-           (detach-tcp-connection connection)))
+         (cond ((not (acceptable-segment-p connection seq data-length))
+                (unless (logtest flags +tcp4-flag-rst+)
+                  (tcp4-send-ack connection)))
+               ((logtest flags +tcp4-flag-ack+)
+                (detach-tcp-connection connection))))
         (:fin-wait-1
          ;; Local closed, waiting for remote to close.
-         (if (zerop data-length)
-             (when (= seq (tcp-connection-rcv.nxt connection))
-               (cond ((logtest flags +tcp4-flag-fin+)
+         (cond ((not (acceptable-segment-p connection seq data-length))
+                (unless (logtest flags +tcp4-flag-rst+)
+                  (tcp4-send-ack connection)))
+               (t
+                (if (zerop data-length)
+                    (when (= seq (tcp-connection-rcv.nxt connection))
+                      (cond ((logtest flags +tcp4-flag-fin+)
+                             (setf (tcp-connection-rcv.nxt connection)
+                                   (+u32 (tcp-connection-rcv.nxt connection) 1))
+                             (tcp4-send-ack connection)
+                             (if (logtest flags +tcp4-flag-ack+)
+                                 ;; Remote saw our FIN and closed as well.
+                                 (detach-tcp-connection connection)
+                                 ;; Simultaneous close
+                                 (setf (tcp-connection-state connection) :closing)))
+                            ((logtest flags +tcp4-flag-ack+)
+                             ;; Remote saw our FIN
+                             (setf (tcp-connection-state connection) :fin-wait-2))))
+                    (tcp4-receive-data connection data-length end header-length packet seq start)))))
+        (:fin-wait-2
+         ;; Local closed, still waiting for remote to close.
+         (cond ((not (acceptable-segment-p connection seq data-length))
+                (unless (logtest flags +tcp4-flag-rst+)
+                  (tcp4-send-ack connection)))
+               (t
+                (if (zerop data-length)
+                    (when (and (= seq (tcp-connection-rcv.nxt connection))
+                               (logtest flags +tcp4-flag-fin+))
+                      ;; Remote has sent FIN and waiting for ACK
                       (setf (tcp-connection-rcv.nxt connection)
                             (+u32 (tcp-connection-rcv.nxt connection) 1))
                       (tcp4-send-ack connection)
-                      (if (logtest flags +tcp4-flag-ack+)
-                          ;; Remote saw our FIN and closed as well.
-                          (detach-tcp-connection connection)
-                          ;; Simultaneous close
-                          (setf (tcp-connection-state connection) :closing)))
-                     ((logtest flags +tcp4-flag-ack+)
-                      ;; Remote saw our FIN
-                      (setf (tcp-connection-state connection) :fin-wait-2))))
-             (tcp4-receive-data connection data-length end header-length packet seq start)))
-        (:fin-wait-2
-         ;; Local closed, still waiting for remote to close.
-         (if (zerop data-length)
-             (when (and (= seq (tcp-connection-rcv.nxt connection))
-                        (logtest flags +tcp4-flag-fin+))
-               ;; Remote has sent FIN and waiting for ACK
-               (setf (tcp-connection-rcv.nxt connection)
-                     (+u32 (tcp-connection-rcv.nxt connection) 1))
-               (tcp4-send-ack connection)
-               (detach-tcp-connection connection))
-             (tcp4-receive-data connection data-length end header-length packet seq start)))
+                      (detach-tcp-connection connection))
+                    (tcp4-receive-data connection data-length end header-length packet seq start)))))
         (:closing
          ;; Waiting for ACK
-         (when (and (eql seq (tcp-connection-rcv.nxt connection))
-                    (logtest flags +tcp4-flag-ack+))
-           ;; Remote has sent ACK, connection closed
-           (detach-tcp-connection connection)))))
+         (cond ((not (acceptable-segment-p connection seq data-length))
+                (unless (logtest flags +tcp4-flag-rst+)
+                  (tcp4-send-ack connection)))
+               ((and (eql seq (tcp-connection-rcv.nxt connection))
+                     (logtest flags +tcp4-flag-ack+))
+                ;; Remote has sent ACK, connection closed
+                (detach-tcp-connection connection))))))
     (update-timeout-timer connection)
     ;; Notify any waiters that something may have changed.
     (mezzano.supervisor:condition-notify (tcp-connection-cvar connection) t)))
