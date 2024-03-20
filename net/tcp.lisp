@@ -615,6 +615,12 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                                              :host (tcp-connection-remote-ip connection)
                                              :port (tcp-connection-remote-port connection)))
                        (detach-tcp-connection connection))))
+               ((logtest flags +tcp4-flag-syn+)
+                (cond ((and listener
+                            (gethash connection (tcp-listener-pending-connections listener)))
+                       ;; Connection comes from pasive OPEN
+                       (remhash connection (tcp-listener-pending-connections listener))
+                       (decf (tcp-listener-n-pending-connections listener)))))
                ((and (eql flags +tcp4-flag-ack+)
                      (eql seq (tcp-connection-rcv.nxt connection))
                      (eql ack (tcp-connection-snd.nxt connection)))
