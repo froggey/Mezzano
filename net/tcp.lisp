@@ -773,6 +773,12 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                     (tcp-connection-rcv.nxt connection)
                     nil))
 
+(defun challenge-ack (connection)
+  (tcp4-send-packet connection
+                    (tcp-connection-snd.nxt connection)
+                    (tcp-connection-rcv.nxt connection)
+                    nil))
+
 (defun compute-ip-pseudo-header-partial-checksum (src-ip dst-ip protocol length)
   (+ (logand src-ip #xFFFF)
      (logand (ash src-ip -16) #xFFFF)
