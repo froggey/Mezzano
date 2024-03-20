@@ -620,7 +620,10 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                             (gethash connection (tcp-listener-pending-connections listener)))
                        ;; Connection comes from pasive OPEN
                        (remhash connection (tcp-listener-pending-connections listener))
-                       (decf (tcp-listener-n-pending-connections listener)))))
+                       (decf (tcp-listener-n-pending-connections listener)))
+                      (t
+                       ;; Connection comes from active OPEN
+                       (challenge-ack connection))))
                ((and (eql flags +tcp4-flag-ack+)
                      (eql seq (tcp-connection-rcv.nxt connection))
                      (eql ack (tcp-connection-snd.nxt connection)))
@@ -629,10 +632,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                 (setf (tcp-connection-state connection) :established)
                 (when listener
                   (remhash connection (tcp-listener-pending-connections listener))
-                  (mezzano.sync:mailbox-send connection (tcp-listener-connections listener))))
-               ;; Ignore duplicated SYN packets
-               ((and (logtest flags +tcp4-flag-syn+)
-                     (eql seq (-u32 (tcp-connection-rcv.nxt connection) 1))))))
+                  (mezzano.sync:mailbox-send connection (tcp-listener-connections listener))))))
         (:established
          (cond ((not (acceptable-segment-p connection seq data-length))
                 (unless (logtest flags +tcp4-flag-rst+)
@@ -647,17 +647,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                       (t
                        (challenge-ack connection))))
                ((logtest flags +tcp4-flag-syn+)
-                (setf (tcp-connection-pending-error connection)
-                      (make-condition 'connection-reset
-                                      :host (tcp-connection-remote-ip connection)
-                                      :port (tcp-connection-remote-port connection)))
-                (detach-tcp-connection connection)
-                (tcp4-send-packet connection
-                                  (tcp-connection-snd.nxt connection)
-                                  0 ; ???
-                                  nil
-                                  :ack-p nil
-                                  :rst-p t))
+                (challenge-ack connection))
                ((not (logtest flags +tcp4-flag-ack+))) ; Ignore packets without ACK set.
                ((if (< (tcp-connection-snd.una connection) (tcp-connection-snd.nxt connection))
                     (and (< (tcp-connection-snd.una connection) ack)
@@ -720,7 +710,9 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                                              :port (tcp-connection-remote-port connection)))
                        (detach-tcp-connection connection))
                       (t
-                       (challenge-ack connection))))))
+                       (challenge-ack connection))))
+               ((logtest flags +tcp4-flag-syn+)
+                (challenge-ack connection))))
         (:last-ack
          (cond ((not (acceptable-segment-p connection seq data-length))
                 (unless (logtest flags +tcp4-flag-rst+)
@@ -729,6 +721,8 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                 (if (eql seq (tcp-connection-rcv.nxt connection))
                     (detach-tcp-connection connection)
                     (challenge-ack connection)))
+               ((logtest flags +tcp4-flag-syn+)
+                (challenge-ack connection))
                ((logtest flags +tcp4-flag-ack+)
                 (detach-tcp-connection connection))))
         (:fin-wait-1
@@ -745,6 +739,8 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                        (detach-tcp-connection connection))
                       (t
                        (challenge-ack connection))))
+               ((logtest flags +tcp4-flag-syn+)
+                (challenge-ack connection))
                (t
                 (if (zerop data-length)
                     (when (= seq (tcp-connection-rcv.nxt connection))
@@ -775,6 +771,8 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                        (detach-tcp-connection connection))
                       (t
                        (challenge-ack connection))))
+               ((logtest flags +tcp4-flag-syn+)
+                (challenge-ack connection))
                (t
                 (if (zerop data-length)
                     (when (and (= seq (tcp-connection-rcv.nxt connection))
@@ -794,6 +792,8 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                 (if (eql seq (tcp-connection-rcv.nxt connection))
                     (detach-tcp-connection connection)
                     (challenge-ack connection)))
+               ((logtest flags +tcp4-flag-syn+)
+                (challenge-ack connection))
                ((and (eql seq (tcp-connection-rcv.nxt connection))
                      (logtest flags +tcp4-flag-ack+))
                 ;; Remote has sent ACK, connection closed
