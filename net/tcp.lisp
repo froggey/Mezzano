@@ -466,10 +466,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
   (when (<= seq (tcp-connection-rcv.nxt connection))
     ;; Don't check *netmangler-force-local-retransmit* here,
     ;; or no acks will ever get through.
-    (tcp4-send-packet connection
-                      (tcp-connection-snd.nxt connection)
-                      (tcp-connection-rcv.nxt connection)
-                      nil)))
+    (tcp4-send-ack connection)))
 
 (defun tcp-packet-sequence-number (packet start end)
   (declare (ignore end))
@@ -627,10 +624,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
         (:established
          (cond ((not (acceptable-segment-p connection seq data-length))
                 (when (not (logtest flags +tcp4-flag-rst+))
-                  (tcp4-send-packet connection
-                                    (tcp-connection-snd.nxt connection)
-                                    (tcp-connection-rcv.nxt connection)
-                                    nil)))
+                  (tcp4-send-ack connection)))
                ((logtest flags +tcp4-flag-rst+)
                 (setf (tcp-connection-pending-error connection)
                       (make-condition 'connection-reset
@@ -714,10 +708,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                (cond ((logtest flags +tcp4-flag-fin+)
                       (setf (tcp-connection-rcv.nxt connection)
                             (+u32 (tcp-connection-rcv.nxt connection) 1))
-                      (tcp4-send-packet connection
-                                        (tcp-connection-snd.nxt connection)
-                                        (tcp-connection-rcv.nxt connection)
-                                        nil)
+                      (tcp4-send-ack connection)
                       (if (logtest flags +tcp4-flag-ack+)
                           ;; Remote saw our FIN and closed as well.
                           (detach-tcp-connection connection)
@@ -735,10 +726,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                ;; Remote has sent FIN and waiting for ACK
                (setf (tcp-connection-rcv.nxt connection)
                      (+u32 (tcp-connection-rcv.nxt connection) 1))
-               (tcp4-send-packet connection
-                                 (tcp-connection-snd.nxt connection)
-                                 (tcp-connection-rcv.nxt connection)
-                                 nil)
+               (tcp4-send-ack connection)
                (detach-tcp-connection connection))
              (tcp4-receive-data connection data-length end header-length packet seq start)))
         (:closing
@@ -778,6 +766,12 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
         (mezzano.supervisor:condition-notify (tcp-connection-cvar connection) t)
         (when errors-escape
           (error c))))))
+
+(defun tcp4-send-ack (connection)
+  (tcp4-send-packet connection
+                    (tcp-connection-snd.nxt connection)
+                    (tcp-connection-rcv.nxt connection)
+                    nil))
 
 (defun compute-ip-pseudo-header-partial-checksum (src-ip dst-ip protocol length)
   (+ (logand src-ip #xFFFF)
