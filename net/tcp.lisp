@@ -500,6 +500,16 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                  (let ((seq-end (+ seg.seq seg.len -1)))
                    (and (<= rcv.nxt seq-end) (< seq-end (+ rcv.nxt rcv.wnd)))))))))
 
+(defun acceptable-ack-p (connection seg.ack)
+  "If SND.UNA < SEG.ACK <= SND.NXT, then the ACK is acceptable."
+  (if (< (tcp-connection-snd.una connection)
+         (tcp-connection-snd.nxt connection))
+      (and (< (tcp-connection-snd.una connection) seg.ack)
+           (<= seg.ack (tcp-connection-snd.nxt connection)))
+      ;; Sequence numbers wrapped.
+      (or (< (tcp-connection-snd.una connection) seg.ack)
+          (<= seg.ack (tcp-connection-snd.nxt connection)))))
+
 (defun update-timeout-timer (connection)
   (when (not (eql (tcp-connection-state connection) :syn-sent))
     (disarm-timeout-timer connection)
@@ -546,12 +556,13 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
            (flags (tcp-packet-flags packet start end))
            (header-length (tcp-packet-header-length packet start end))
            (data-length (tcp-packet-data-length packet start end)))
-      (when (and (not (eql (tcp-connection-state connection) :established))
-                 (logtest flags +tcp4-flag-rst+))
+      (when (and (logtest flags +tcp4-flag-rst+)
+                 (not (or (eql (tcp-connection-state connection) :syn-sent)
+                          (eql (tcp-connection-state connection) :established))))
         ;; FIXME: This code isn't correct, it needs to check the sequence numbers
         ;; before accepting this packet and resetting the connection. This is
-        ;; currently only done correctly in the :ESTABLISHED state, but should
-        ;; be done for the other states too.
+        ;; currently only done correctly in the states: :SYN-SENT, :ESTABLISHED
+        ;; But should be done for the other states too.
         ;; Remote has sent RST, aborting connection
         (setf (tcp-connection-pending-error connection)
               (make-condition 'connection-reset
@@ -563,11 +574,17 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
       ;; :CLOSED should never be seen here
       (ecase (tcp-connection-state connection)
         (:syn-sent
-         ;; Active open
-         (cond ((and (logtest flags +tcp4-flag-ack+)
+         (cond ((logtest flags +tcp4-flag-rst+)
+                (when (acceptable-ack-p connection ack)
+                  (setf (tcp-connection-pending-error connection)
+                        (make-condition 'connection-reset
+                                        :host (tcp-connection-remote-ip connection)
+                                        :port (tcp-connection-remote-port connection)))
+                  (detach-tcp-connection connection)))
+               ((and (logtest flags +tcp4-flag-ack+)
                      (logtest flags +tcp4-flag-syn+)
                      (eql ack (tcp-connection-snd.nxt connection)))
-                ;; Remote has sent SYN+ACK and waiting for ACK
+                ;; Active open
                 (initial-rtt-measurement connection)
                 (setf (tcp-connection-state connection) :established)
                 (setf (tcp-connection-rcv.nxt connection) (+u32 seq 1))
