@@ -730,6 +730,9 @@ to wrap around logic"
                ((not (logtest flags +tcp4-flag-ack+))) ; Ignore packets without ACK set.
                ((not (rfc5961-mitigation-check-p connection ack))
                 (tcp4-send-ack connection))
+               ((>u32 ack (tcp-connection-snd.nxt connection))
+                ;; Remote acks something not yet sent
+                (tcp4-send-ack connection))
                (t
                 (when-acceptable-ack-p connection ack seq)
                 (if (zerop data-length)
@@ -766,6 +769,9 @@ to wrap around logic"
                 (challenge-ack connection))
                ((not (logtest flags +tcp4-flag-ack+))) ; Ignore packets without ACK set.
                ((not (rfc5961-mitigation-check-p connection ack))
+                (tcp4-send-ack connection))
+               ((>u32 ack (tcp-connection-snd.nxt connection))
+                ;; Remote acks something not yet sent
                 (tcp4-send-ack connection))
                (t
                 (when-acceptable-ack-p connection ack seq))))
@@ -808,6 +814,9 @@ to wrap around logic"
                ((not (logtest flags +tcp4-flag-ack+))) ; Ignore packets without ACK set.
                ((not (rfc5961-mitigation-check-p connection ack))
                 (tcp4-send-ack connection))
+               ((>u32 ack (tcp-connection-snd.nxt connection))
+                ;; Remote acks something not yet sent
+                (tcp4-send-ack connection))
                (t
                 (when-acceptable-ack-p connection ack seq)
                 (if (zerop data-length)
@@ -845,6 +854,9 @@ to wrap around logic"
                ((not (logtest flags +tcp4-flag-ack+))) ; Ignore packets without ACK set.
                ((not (rfc5961-mitigation-check-p connection ack))
                 (tcp4-send-ack connection))
+               ((>u32 ack (tcp-connection-snd.nxt connection))
+                ;; Remote acks something not yet sent
+                (tcp4-send-ack connection))
                (t
                 (when-acceptable-ack-p connection ack seq)
                 (if (zerop data-length)
@@ -869,6 +881,9 @@ to wrap around logic"
                 (challenge-ack connection))
                ((not (logtest flags +tcp4-flag-ack+))) ; Ignore packets without ACK set.
                ((not (rfc5961-mitigation-check-p connection ack))
+                (tcp4-send-ack connection))
+               ((>u32 ack (tcp-connection-snd.nxt connection))
+                ;; Remote acks something not yet sent
                 (tcp4-send-ack connection))
                (t
                 (when-acceptable-ack-p connection ack seq)
