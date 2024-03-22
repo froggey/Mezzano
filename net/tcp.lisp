@@ -888,7 +888,11 @@ to wrap around logic"
                (t
                 (when-acceptable-ack-p connection ack seq)
                 (when (eql seq (tcp-connection-rcv.nxt connection))
-                  (setf (tcp-connection-state connection) :time-wait)))))
+                  (setf (tcp-connection-state connection) :time-wait))
+                (when (and (logtest flags +tcp4-flag-fin+)
+                           (eql seq (tcp-connection-rcv.nxt connection)))
+                  (setf (tcp-connection-rcv.nxt connection) (+u32 seq 1))
+                  (tcp4-send-ack connection)))))
         (:time-wait
          (cond ((not (acceptable-segment-p connection seq data-length))
                 (unless (logtest flags +tcp4-flag-rst+)
