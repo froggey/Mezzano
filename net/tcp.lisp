@@ -760,8 +760,10 @@ to wrap around logic"
                     (challenge-ack connection)))
                ((logtest flags +tcp4-flag-syn+)
                 (challenge-ack connection))
-               ((logtest flags +tcp4-flag-ack+)
-                (detach-tcp-connection connection))))
+               ((not (logtest flags +tcp4-flag-ack+))) ; Ignore packets without ACK set.
+               (t
+                (when (eql ack (tcp-connection-snd.nxt connection))
+                  (detach-tcp-connection connection)))))
         (:fin-wait-1
          ;; Local closed, waiting for remote to close.
          (cond ((not (acceptable-segment-p connection seq data-length))
