@@ -73,6 +73,32 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
 (defun -u32 (x y)
   (ldb (byte 32 0) (- x y)))
 
+(defun <u32 (x y)
+  "Smaller wrapped y number may actually be considered greater than x due
+to wrap around logic"
+  (or (and (< x y)
+           (< (- y x)
+              (ash 1 31)))
+      (and (> x y)
+           (> (- x y)
+              (ash 1 31)))))
+
+(defun >u32 (x y)
+  "Bigger wrapped y number may actually be considered smaller than x due
+to wrap around logic"
+  (<u32 y x))
+
+(defun <=u32 (x y)
+  "Smaller wrapped y number may actually be considered greater than x due
+to wrap around logic"
+  (or (= x y)
+      (<u32 x y)))
+
+(defun >=u32 (x y)
+  "Bigger wrapped y number may actually be considered smaller than x due
+to wrap around logic"
+  (<=u32 y x))
+
 (defun =< (a b c)
   "a <= b <= c"
   (if (< a c)
@@ -469,11 +495,11 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                 (tcp-connection-receive-event connection))
                t))
         ;; Add future packet to tcp-connection-rx-data-unordered
-        ((> seq (tcp-connection-rcv.nxt connection))
+        ((>u32 seq (tcp-connection-rcv.nxt connection))
          (unless (gethash seq (tcp-connection-rx-data-unordered connection))
            (setf (gethash seq (tcp-connection-rx-data-unordered connection))
                  (list packet (+ start header-length) end data-length)))))
-  (when (<= seq (tcp-connection-rcv.nxt connection))
+  (when (<=u32 seq (tcp-connection-rcv.nxt connection))
     ;; Don't check *netmangler-force-local-retransmit* here,
     ;; or no acks will ever get through.
     (tcp4-send-ack connection)))
