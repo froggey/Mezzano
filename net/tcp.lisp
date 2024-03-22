@@ -672,7 +672,12 @@ to wrap around logic"
                          (mezzano.sync:mailbox-send connection (tcp-listener-connections listener))))
                       (t
                        ;; Segment from an old connection
-                       (tcp4-send-packet connection ack seq nil :ack-p nil :rst-p t))))))
+                       (tcp4-send-packet connection ack seq nil :ack-p nil :rst-p t)))
+                (when (and (logtest flags +tcp4-flag-fin+)
+                           (eql seq (tcp-connection-rcv.nxt connection)))
+                  (setf (tcp-connection-rcv.nxt connection) (+u32 seq 1)
+                        (tcp-connection-state connection) :close-wait)
+                  (tcp4-send-ack connection)))))
         (:established
          (cond ((not (acceptable-segment-p connection seq data-length))
                 (unless (logtest flags +tcp4-flag-rst+)
