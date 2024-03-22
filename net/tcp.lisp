@@ -546,6 +546,12 @@ to wrap around logic"
       (or (< (tcp-connection-snd.una connection) seg.ack)
           (<= seg.ack (tcp-connection-snd.nxt connection)))))
 
+(defun rfc5961-mitigation-check-p (connection seg.ack)
+  "If ((SND.UNA - MAX.SND.WND) =< SEG.ACK =< SND.NXT) the ACK is acceptable."
+  (let ((x (- (tcp-connection-snd.una connection)
+              (tcp-connection-max.snd.wnd connection))))
+    (=< x seg.ack (tcp-connection-snd.nxt connection))))
+
 (defun update-timeout-timer (connection)
   (when (not (eql (tcp-connection-state connection) :syn-sent))
     (disarm-timeout-timer connection)
@@ -687,6 +693,8 @@ to wrap around logic"
                        ;; Connection comes from active OPEN
                        (challenge-ack connection))))
                ((not (logtest flags +tcp4-flag-ack+))) ; Ignore packets without ACK set.
+               ((not (rfc5961-mitigation-check-p connection ack))
+                (tcp4-send-ack connection))
                (t
                 (cond ((acceptable-ack-p connection ack)
                        ;; Pasive open
@@ -720,6 +728,8 @@ to wrap around logic"
                ((logtest flags +tcp4-flag-syn+)
                 (challenge-ack connection))
                ((not (logtest flags +tcp4-flag-ack+))) ; Ignore packets without ACK set.
+               ((not (rfc5961-mitigation-check-p connection ack))
+                (tcp4-send-ack connection))
                (t
                 (when-acceptable-ack-p connection ack seq)
                 (if (zerop data-length)
@@ -755,6 +765,8 @@ to wrap around logic"
                ((logtest flags +tcp4-flag-syn+)
                 (challenge-ack connection))
                ((not (logtest flags +tcp4-flag-ack+))) ; Ignore packets without ACK set.
+               ((not (rfc5961-mitigation-check-p connection ack))
+                (tcp4-send-ack connection))
                (t
                 (when-acceptable-ack-p connection ack seq))))
         (:last-ack
@@ -768,6 +780,8 @@ to wrap around logic"
                ((logtest flags +tcp4-flag-syn+)
                 (challenge-ack connection))
                ((not (logtest flags +tcp4-flag-ack+))) ; Ignore packets without ACK set.
+               ((not (rfc5961-mitigation-check-p connection ack))
+                (tcp4-send-ack connection))
                (t
                 (when (eql ack (tcp-connection-snd.nxt connection))
                   (detach-tcp-connection connection))
@@ -792,6 +806,8 @@ to wrap around logic"
                ((logtest flags +tcp4-flag-syn+)
                 (challenge-ack connection))
                ((not (logtest flags +tcp4-flag-ack+))) ; Ignore packets without ACK set.
+               ((not (rfc5961-mitigation-check-p connection ack))
+                (tcp4-send-ack connection))
                (t
                 (when-acceptable-ack-p connection ack seq)
                 (if (zerop data-length)
@@ -827,6 +843,8 @@ to wrap around logic"
                ((logtest flags +tcp4-flag-syn+)
                 (challenge-ack connection))
                ((not (logtest flags +tcp4-flag-ack+))) ; Ignore packets without ACK set.
+               ((not (rfc5961-mitigation-check-p connection ack))
+                (tcp4-send-ack connection))
                (t
                 (when-acceptable-ack-p connection ack seq)
                 (if (zerop data-length)
@@ -850,6 +868,8 @@ to wrap around logic"
                ((logtest flags +tcp4-flag-syn+)
                 (challenge-ack connection))
                ((not (logtest flags +tcp4-flag-ack+))) ; Ignore packets without ACK set.
+               ((not (rfc5961-mitigation-check-p connection ack))
+                (tcp4-send-ack connection))
                (t
                 (when-acceptable-ack-p connection ack seq)
                 (when (eql seq (tcp-connection-rcv.nxt connection))
@@ -865,6 +885,8 @@ to wrap around logic"
                ((logtest flags +tcp4-flag-syn+)
                 (challenge-ack connection))
                ((not (logtest flags +tcp4-flag-ack+))) ; Ignore packets without ACK set.
+               ((not (rfc5961-mitigation-check-p connection ack))
+                (tcp4-send-ack connection))
                ((and (logtest flags +tcp4-flag-fin+)
                      (eql seq (tcp-connection-rcv.nxt connection)))
                 ;; TODO: Restart the 2 MSL timeout.
