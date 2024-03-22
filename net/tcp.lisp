@@ -583,6 +583,32 @@ to wrap around logic"
                        (max 0.01 (* 4 (tcp-connection-rttvar connection))))))
           (tcp-connection-last-ack-time connection) nil)))
 
+(defun when-acceptable-ack-p (connection ack seq)
+  (when (acceptable-ack-p connection ack)
+    (when (tcp-connection-last-ack-time connection)
+      (subsequent-rtt-measurement connection))
+    (setf (tcp-connection-snd.una connection) ack)
+    ;; Remove from the retransmit queue any segments that were fully acknowledged by this ACK.
+    (loop
+      (when (endp (tcp-connection-retransmit-queue connection))
+        (return))
+      (let* ((rtx-start-seq (first (first (tcp-connection-retransmit-queue connection))))
+             (rtx-end-seq (+u32 rtx-start-seq (length (third (first (tcp-connection-retransmit-queue connection)))))))
+        (unless (and (=< (tcp-connection-snd.una connection)
+                         rtx-start-seq
+                         ack)
+                     (=< (tcp-connection-snd.una connection)
+                         rtx-end-seq
+                         ack))
+          ;; This segment not fully acked.
+          (return)))
+      (pop (tcp-connection-retransmit-queue connection)))
+    (if (endp (tcp-connection-retransmit-queue connection))
+        (disarm-retransmit-timer connection)
+        (arm-retransmit-timer connection)))
+  ;; TODO: Update window
+  )
+
 (defun tcp4-connection-receive (connection packet start end listener)
   ;; Don't use WITH-TCP-CONNECTION-LOCKED here. No errors should occur
   ;; in here, so this avoids truncating the backtrace with :resignal-errors.
@@ -694,30 +720,8 @@ to wrap around logic"
                ((logtest flags +tcp4-flag-syn+)
                 (challenge-ack connection))
                ((not (logtest flags +tcp4-flag-ack+))) ; Ignore packets without ACK set.
-               ((acceptable-ack-p connection ack)
-                (when (tcp-connection-last-ack-time connection)
-                  (subsequent-rtt-measurement connection))
-                ;; TODO: Update the send window.
-                ;; Remove from the retransmit queue any segments that
-                ;; were fully acknowledged by this ACK.
-                (loop
-                  (when (endp (tcp-connection-retransmit-queue connection))
-                    (return))
-                  (let* ((rtx-start-seq (first (first (tcp-connection-retransmit-queue connection))))
-                         (rtx-end-seq (+u32 rtx-start-seq (length (third (first (tcp-connection-retransmit-queue connection)))))))
-                    (unless (and (=< (tcp-connection-snd.una connection)
-                                     rtx-start-seq
-                                     ack)
-                                 (=< (tcp-connection-snd.una connection)
-                                     rtx-end-seq
-                                     ack))
-                      ;; This segment not fully acked.
-                      (return)))
-                  (pop (tcp-connection-retransmit-queue connection)))
-                (if (endp (tcp-connection-retransmit-queue connection))
-                    (disarm-retransmit-timer connection)
-                    (arm-retransmit-timer connection))
-                (setf (tcp-connection-snd.una connection) ack)
+               (t
+                (when-acceptable-ack-p connection ack seq)
                 (if (zerop data-length)
                     (when (and (eql seq (tcp-connection-rcv.nxt connection))
                                (logtest flags +tcp4-flag-fin+))
@@ -750,7 +754,9 @@ to wrap around logic"
                        (challenge-ack connection))))
                ((logtest flags +tcp4-flag-syn+)
                 (challenge-ack connection))
-               ((not (logtest flags +tcp4-flag-ack+))))) ; Ignore packets without ACK set.
+               ((not (logtest flags +tcp4-flag-ack+))) ; Ignore packets without ACK set.
+               (t
+                (when-acceptable-ack-p connection ack seq))))
         (:last-ack
          (cond ((not (acceptable-segment-p connection seq data-length))
                 (unless (logtest flags +tcp4-flag-rst+)
@@ -787,6 +793,7 @@ to wrap around logic"
                 (challenge-ack connection))
                ((not (logtest flags +tcp4-flag-ack+))) ; Ignore packets without ACK set.
                (t
+                (when-acceptable-ack-p connection ack seq)
                 (if (zerop data-length)
                     (when (eql seq (tcp-connection-rcv.nxt connection))
                       (cond ((logtest flags +tcp4-flag-fin+)
@@ -821,6 +828,7 @@ to wrap around logic"
                 (challenge-ack connection))
                ((not (logtest flags +tcp4-flag-ack+))) ; Ignore packets without ACK set.
                (t
+                (when-acceptable-ack-p connection ack seq)
                 (if (zerop data-length)
                     (when (and (logtest flags +tcp4-flag-fin+)
                                (eql seq (tcp-connection-rcv.nxt connection)))
@@ -842,9 +850,10 @@ to wrap around logic"
                ((logtest flags +tcp4-flag-syn+)
                 (challenge-ack connection))
                ((not (logtest flags +tcp4-flag-ack+))) ; Ignore packets without ACK set.
-               ((and (eql seq (tcp-connection-rcv.nxt connection))
-                     (logtest flags +tcp4-flag-ack+))
-                (setf (tcp-connection-state connection) :time-wait))))
+               (t
+                (when-acceptable-ack-p connection ack seq)
+                (when (eql seq (tcp-connection-rcv.nxt connection))
+                  (setf (tcp-connection-state connection) :time-wait)))))
         (:time-wait
          (cond ((not (acceptable-segment-p connection seq data-length))
                 (unless (logtest flags +tcp4-flag-rst+)
@@ -1090,8 +1099,8 @@ to wrap around logic"
     (check-connection-error connection)
     (update-timeout-timer connection)
     ;; No sending when the connection is closing.
-    ;; Half-closed connections seem too weird to be worth dealing with.
-    (when (not (eql (tcp-connection-state connection) :established))
+    (when (not (or (eql (tcp-connection-state connection) :established)
+                   (eql (tcp-connection-state connection) :close-wait)))
       (error 'connection-closed
              :host (tcp-connection-remote-ip connection)
              :port (tcp-connection-remote-port connection)))
