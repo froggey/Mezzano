@@ -749,7 +749,8 @@ to wrap around logic"
                       (t
                        (challenge-ack connection))))
                ((logtest flags +tcp4-flag-syn+)
-                (challenge-ack connection))))
+                (challenge-ack connection))
+               ((not (logtest flags +tcp4-flag-ack+))))) ; Ignore packets without ACK set.
         (:last-ack
          (cond ((not (acceptable-segment-p connection seq data-length))
                 (unless (logtest flags +tcp4-flag-rst+)
@@ -784,6 +785,7 @@ to wrap around logic"
                        (challenge-ack connection))))
                ((logtest flags +tcp4-flag-syn+)
                 (challenge-ack connection))
+               ((not (logtest flags +tcp4-flag-ack+))) ; Ignore packets without ACK set.
                (t
                 (if (zerop data-length)
                     (when (eql seq (tcp-connection-rcv.nxt connection))
@@ -817,6 +819,7 @@ to wrap around logic"
                        (challenge-ack connection))))
                ((logtest flags +tcp4-flag-syn+)
                 (challenge-ack connection))
+               ((not (logtest flags +tcp4-flag-ack+))) ; Ignore packets without ACK set.
                (t
                 (if (zerop data-length)
                     (when (and (logtest flags +tcp4-flag-fin+)
@@ -838,6 +841,7 @@ to wrap around logic"
                     (challenge-ack connection)))
                ((logtest flags +tcp4-flag-syn+)
                 (challenge-ack connection))
+               ((not (logtest flags +tcp4-flag-ack+))) ; Ignore packets without ACK set.
                ((and (eql seq (tcp-connection-rcv.nxt connection))
                      (logtest flags +tcp4-flag-ack+))
                 (setf (tcp-connection-state connection) :time-wait))))
