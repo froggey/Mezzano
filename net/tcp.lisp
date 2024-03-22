@@ -73,6 +73,14 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
 (defun -u32 (x y)
   (ldb (byte 32 0) (- x y)))
 
+(defun =< (a b c)
+  "a <= b <= c"
+  (if (< a c)
+      (<= a b c)
+      ;; Sequence numbers wrapped.
+      (or (<= a b)
+          (<= b c))))
+
 ;; FIXME: Inbound connections need to timeout if state :syn-received don't change.
 ;; TODO: Better locking on this is probably needed. It looks like it is accesed
 ;; from the network serial queue and from user threads.
@@ -662,23 +670,20 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                 ;; TODO: Update the send window.
                 ;; Remove from the retransmit queue any segments that
                 ;; were fully acknowledged by this ACK.
-                (flet ((seq-cmp (x)
-                         "Test SND.UNA =< X =< SEG.ACK"
-                         (if (< (tcp-connection-snd.una connection) ack)
-                             (<= (tcp-connection-snd.una connection) x ack)
-                             ;; Sequence numbers wrapped.
-                             (or (<= (tcp-connection-snd.una connection) x)
-                                 (<= x ack)))))
-                  (loop
-                     (when (endp (tcp-connection-retransmit-queue connection))
-                       (return))
-                     (let* ((rtx-start-seq (first (first (tcp-connection-retransmit-queue connection))))
-                            (rtx-end-seq (+u32 rtx-start-seq (length (third (first (tcp-connection-retransmit-queue connection)))))))
-                       (when (not (and (seq-cmp rtx-start-seq)
-                                       (seq-cmp rtx-end-seq)))
-                         ;; This segment not fully acked.
-                         (return)))
-                     (pop (tcp-connection-retransmit-queue connection))))
+                (loop
+                  (when (endp (tcp-connection-retransmit-queue connection))
+                    (return))
+                  (let* ((rtx-start-seq (first (first (tcp-connection-retransmit-queue connection))))
+                         (rtx-end-seq (+u32 rtx-start-seq (length (third (first (tcp-connection-retransmit-queue connection)))))))
+                    (unless (and (=< (tcp-connection-snd.una connection)
+                                     rtx-start-seq
+                                     ack)
+                                 (=< (tcp-connection-snd.una connection)
+                                     rtx-end-seq
+                                     ack))
+                      ;; This segment not fully acked.
+                      (return)))
+                  (pop (tcp-connection-retransmit-queue connection)))
                 (if (endp (tcp-connection-retransmit-queue connection))
                     (disarm-retransmit-timer connection)
                     (arm-retransmit-timer connection))
