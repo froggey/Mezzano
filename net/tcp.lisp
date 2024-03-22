@@ -685,12 +685,7 @@ to wrap around logic"
                ((logtest flags +tcp4-flag-syn+)
                 (challenge-ack connection))
                ((not (logtest flags +tcp4-flag-ack+))) ; Ignore packets without ACK set.
-               ((if (< (tcp-connection-snd.una connection) (tcp-connection-snd.nxt connection))
-                    (and (< (tcp-connection-snd.una connection) ack)
-                         (<= ack (tcp-connection-snd.nxt connection)))
-                    ;; In the middle of wraparound.
-                    (or (< (tcp-connection-snd.una connection) ack)
-                        (<= ack (tcp-connection-snd.nxt connection))))
+               ((acceptable-ack-p connection ack)
                 (when (tcp-connection-last-ack-time connection)
                   (subsequent-rtt-measurement connection))
                 ;; TODO: Update the send window.
