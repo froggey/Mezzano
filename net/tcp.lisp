@@ -660,15 +660,19 @@ to wrap around logic"
                       (t
                        ;; Connection comes from active OPEN
                        (challenge-ack connection))))
-               ((and (eql flags +tcp4-flag-ack+)
-                     (eql seq (tcp-connection-rcv.nxt connection))
-                     (eql ack (tcp-connection-snd.nxt connection)))
-                ;; Pasive open
-                (initial-rtt-measurement connection)
-                (setf (tcp-connection-state connection) :established)
-                (when listener
-                  (remhash connection (tcp-listener-pending-connections listener))
-                  (mezzano.sync:mailbox-send connection (tcp-listener-connections listener))))))
+               ((not (logtest flags +tcp4-flag-ack+))) ; Ignore packets without ACK set.
+               (t
+                (cond ((acceptable-ack-p connection ack)
+                       ;; Pasive open
+                       (initial-rtt-measurement connection)
+                       (setf (tcp-connection-state connection) :established)
+                       ;; TODO: Update window
+                       (when listener
+                         (remhash connection (tcp-listener-pending-connections listener))
+                         (mezzano.sync:mailbox-send connection (tcp-listener-connections listener))))
+                      (t
+                       ;; Segment from an old connection
+                       (tcp4-send-packet connection ack seq nil :ack-p nil :rst-p t))))))
         (:established
          (cond ((not (acceptable-segment-p connection seq data-length))
                 (unless (logtest flags +tcp4-flag-rst+)
