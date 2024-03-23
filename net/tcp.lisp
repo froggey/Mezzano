@@ -774,7 +774,11 @@ to wrap around logic"
                 ;; Remote acks something not yet sent
                 (tcp4-send-ack connection))
                (t
-                (when-acceptable-ack-p connection ack seq))))
+                (when-acceptable-ack-p connection ack seq)
+                (when (and (logtest flags +tcp4-flag-fin+)
+                           (eql seq (tcp-connection-rcv.nxt connection)))
+                  (setf (tcp-connection-rcv.nxt connection) (+u32 seq 1))
+                  (tcp4-send-ack connection)))))
         (:last-ack
          (cond ((not (acceptable-segment-p connection seq data-length))
                 (unless (logtest flags +tcp4-flag-rst+)
