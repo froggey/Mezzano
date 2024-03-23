@@ -709,8 +709,8 @@ to wrap around logic"
                        (tcp4-send-packet connection ack seq nil :ack-p nil :rst-p t)))
                 (when (and (logtest flags +tcp4-flag-fin+)
                            (eql seq (tcp-connection-rcv.nxt connection)))
-                  (setf (tcp-connection-rcv.nxt connection) (+u32 seq 1)
-                        (tcp-connection-state connection) :close-wait)
+                  (setf (tcp-connection-state connection) :close-wait
+                        (tcp-connection-rcv.nxt connection) (+u32 seq 1))
                   (tcp4-send-ack connection)))))
         (:established
          (cond ((not (acceptable-segment-p connection seq data-length))
@@ -735,22 +735,14 @@ to wrap around logic"
                 (tcp4-send-ack connection))
                (t
                 (when-acceptable-ack-p connection ack seq)
-                (if (zerop data-length)
-                    (when (and (eql seq (tcp-connection-rcv.nxt connection))
-                               (logtest flags +tcp4-flag-fin+))
-                      ;; Remote has sent FIN and waiting for ACK
-                      (setf (tcp-connection-state connection) :close-wait
-                            (tcp-connection-rcv.nxt connection)
-                            (+u32 seq 1))
-                      (setf (mezzano.supervisor:event-state
-                             (tcp-connection-receive-event connection))
-                            t)
-                      (tcp4-send-packet connection ack (+u32 seq 1) nil))
-                    (tcp4-receive-data connection data-length end header-length packet seq start)))
-               ((eql (tcp-connection-snd.una connection) ack)
-                ;; TODO: slow start/duplicate ack detection/fast retransmit/etc.
-                (when (not (eql data-length 0))
-                  (tcp4-receive-data connection data-length end header-length packet seq start)))))
+                (unless (zerop data-length)
+                  (tcp4-receive-data connection data-length end header-length packet seq start))
+                (when (and (logtest flags +tcp4-flag-fin+)
+                           (eql seq (tcp-connection-rcv.nxt connection)))
+                  ;; Remote has sent FIN and waiting for ACK
+                  (setf (tcp-connection-state connection) :close-wait
+                        (tcp-connection-rcv.nxt connection) (+u32 seq 1))
+                  (tcp4-send-ack connection)))))
         (:close-wait
          ;; Remote has closed, local can still send data.
          (cond ((not (acceptable-segment-p connection seq data-length))
@@ -823,22 +815,23 @@ to wrap around logic"
                 (tcp4-send-ack connection))
                (t
                 (when-acceptable-ack-p connection ack seq)
-                (if (zerop data-length)
-                    (when (eql seq (tcp-connection-rcv.nxt connection))
-                      (cond ((logtest flags +tcp4-flag-fin+)
-                             (setf (tcp-connection-rcv.nxt connection) (+u32 seq 1))
-                             (tcp4-send-ack connection)
-                             (cond ((logtest flags +tcp4-flag-ack+)
-                                    ;; Remote saw our FIN
-                                    ;; TODO: Start the time-wait timer, turn off the other timers.
-                                    (setf (tcp-connection-state connection) :time-wait))
-                                   (t
-                                    ;; Simultaneous close
-                                    (setf (tcp-connection-state connection) :closing))))
-                            ((logtest flags +tcp4-flag-ack+)
-                             ;; Remote saw our FIN
-                             (setf (tcp-connection-state connection) :fin-wait-2))))
-                    (tcp4-receive-data connection data-length end header-length packet seq start)))))
+                (unless (zerop data-length)
+                  (tcp4-receive-data connection data-length end header-length packet seq start))
+                (when (eql seq (tcp-connection-rcv.nxt connection))
+                  (cond ((logtest flags +tcp4-flag-fin+)
+                         (setf (tcp-connection-rcv.nxt connection) (+u32 seq 1))
+                         (tcp4-send-ack connection)
+                         (cond ((logtest flags +tcp4-flag-ack+)
+                                ;; Remote saw our FIN
+                                (setf (tcp-connection-state connection) :time-wait)
+                                ;; TODO: Start the time-wait timer, turn off the other timers.
+                                )
+                               (t
+                                ;; Simultaneous close
+                                (setf (tcp-connection-state connection) :closing))))
+                        ((logtest flags +tcp4-flag-ack+)
+                         ;; Remote saw our FIN
+                         (setf (tcp-connection-state connection) :fin-wait-2)))))))
         (:fin-wait-2
          ;; Local closed, still waiting for remote to close.
          (cond ((not (acceptable-segment-p connection seq data-length))
@@ -863,15 +856,15 @@ to wrap around logic"
                 (tcp4-send-ack connection))
                (t
                 (when-acceptable-ack-p connection ack seq)
-                (if (zerop data-length)
-                    (when (and (logtest flags +tcp4-flag-fin+)
-                               (eql seq (tcp-connection-rcv.nxt connection)))
-                      ;; Remote has sent FIN and waiting for ACK
-                      ;; TODO: Start the time-wait timer, turn off the other timers.
-                      (setf (tcp-connection-state connection) :time-wait
-                            (tcp-connection-rcv.nxt connection) (+u32 seq 1))
-                      (tcp4-send-ack connection))
-                    (tcp4-receive-data connection data-length end header-length packet seq start)))))
+                (unless (zerop data-length)
+                  (tcp4-receive-data connection data-length end header-length packet seq start))
+                (when (and (logtest flags +tcp4-flag-fin+)
+                           (eql seq (tcp-connection-rcv.nxt connection)))
+                  (setf (tcp-connection-state connection) :time-wait
+                        (tcp-connection-rcv.nxt connection) (+u32 seq 1))
+                  (tcp4-send-ack connection)
+                  ;; TODO: Start the time-wait timer, turn off the other timers.
+                  ))))
         (:closing
          ;; Waiting for ACK
          (cond ((not (acceptable-segment-p connection seq data-length))
