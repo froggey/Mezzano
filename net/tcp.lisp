@@ -817,21 +817,21 @@ to wrap around logic"
                 (when-acceptable-ack-p connection ack seq)
                 (unless (zerop data-length)
                   (tcp4-receive-data connection data-length end header-length packet seq start))
-                (when (eql seq (tcp-connection-rcv.nxt connection))
-                  (cond ((logtest flags +tcp4-flag-fin+)
-                         (setf (tcp-connection-rcv.nxt connection) (+u32 seq 1))
-                         (tcp4-send-ack connection)
-                         (cond ((logtest flags +tcp4-flag-ack+)
-                                ;; Remote saw our FIN
-                                (setf (tcp-connection-state connection) :time-wait)
-                                ;; TODO: Start the time-wait timer, turn off the other timers.
-                                )
-                               (t
-                                ;; Simultaneous close
-                                (setf (tcp-connection-state connection) :closing))))
-                        ((logtest flags +tcp4-flag-ack+)
-                         ;; Remote saw our FIN
-                         (setf (tcp-connection-state connection) :fin-wait-2)))))))
+                (cond ((and (logtest flags +tcp4-flag-fin+)
+                            (eql seq (tcp-connection-rcv.nxt connection)))
+                       (setf (tcp-connection-state connection) :time-wait
+                             (tcp-connection-rcv.nxt connection) (+u32 seq 1))
+                       (tcp4-send-ack connection)
+                       ;; TODO: Start the time-wait timer, turn off the other timers.
+                       )
+                      ((eql seq (tcp-connection-rcv.nxt connection))
+                       (setf (tcp-connection-state connection) :fin-wait-2))
+                      ((and (logtest flags +tcp4-flag-fin+)
+                            (eql seq (tcp-connection-rcv.nxt connection)))
+                       ;; Simultaneous close
+                       (setf (tcp-connection-state connection) :closing
+                             (tcp-connection-rcv.nxt connection) (+u32 seq 1))
+                       (tcp4-send-ack connection))))))
         (:fin-wait-2
          ;; Local closed, still waiting for remote to close.
          (cond ((not (acceptable-segment-p connection seq data-length))
