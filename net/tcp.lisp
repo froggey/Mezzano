@@ -224,6 +224,14 @@ to wrap around logic"
              :type tcp-sequence-number)
    (%snd.una :accessor tcp-connection-snd.una
              :initarg :snd.una)
+   (%snd.wnd :accessor tcp-connection-snd.wnd
+             :initarg :snd.wnd)
+   (%max.snd.wnd :accessor tcp-connection-max.snd.wnd
+                 :initarg :max.snd.wnd)
+   (%snd.wl1 :accessor tcp-connection-snd.wl1
+             :initarg :snd.wl1)
+   (%snd.wl2 :accessor tcp-connection-snd.wl2
+             :initarg :snd.wl2)
    (%rcv.nxt :accessor tcp-connection-rcv.nxt
              :initarg :rcv.nxt
              :type tcp-sequence-number)
@@ -251,6 +259,7 @@ to wrap around logic"
              :initarg :boot-id))
   (:default-initargs
    :max-seg-size 1000
+   :max.snd.wnd 0
    :last-ack-time nil
    :srtt nil
    :rttvar nil
@@ -520,6 +529,10 @@ to wrap around logic"
   (declare (ignore end))
   (* (ldb (byte 4 12) (ub16ref/be packet (+ start +tcp4-header-flags-and-data-offset+))) 4))
 
+(defun tcp-packet-window-size (packet start end)
+  (declare (ignore end))
+  (ub16ref/be packet (+ start +tcp4-header-window-size+)))
+
 (defun tcp-packet-data-length (packet start end)
   (- end (+ start (tcp-packet-header-length packet start end))))
 
@@ -551,6 +564,13 @@ to wrap around logic"
   (let ((x (- (tcp-connection-snd.una connection)
               (tcp-connection-max.snd.wnd connection))))
     (=< x seg.ack (tcp-connection-snd.nxt connection))))
+
+(defun update-window (connection seg.wnd seg.seq seg.ack)
+  (when (> seg.wnd (tcp-connection-max.snd.wnd connection))
+    (setf (tcp-connection-max.snd.wnd connection) seg.wnd))
+  (setf (tcp-connection-snd.wnd connection) seg.wnd
+        (tcp-connection-snd.wl1 connection) seg.seq
+        (tcp-connection-snd.wl2 connection) seg.ack))
 
 (defun update-timeout-timer (connection)
   (when (not (eql (tcp-connection-state connection) :syn-sent))
@@ -589,7 +609,7 @@ to wrap around logic"
                        (max 0.01 (* 4 (tcp-connection-rttvar connection))))))
           (tcp-connection-last-ack-time connection) nil)))
 
-(defun when-acceptable-ack-p (connection ack seq)
+(defun when-acceptable-ack-p (connection ack seq wnd)
   (when (acceptable-ack-p connection ack)
     (when (tcp-connection-last-ack-time connection)
       (subsequent-rtt-measurement connection))
@@ -612,8 +632,7 @@ to wrap around logic"
     (if (endp (tcp-connection-retransmit-queue connection))
         (disarm-retransmit-timer connection)
         (arm-retransmit-timer connection)))
-  ;; TODO: Update window
-  )
+  (update-window connection wnd seq ack))
 
 (defun tcp4-connection-receive (connection packet start end listener)
   ;; Don't use WITH-TCP-CONNECTION-LOCKED here. No errors should occur
@@ -623,6 +642,7 @@ to wrap around logic"
            (ack (tcp-packet-acknowledgment-number packet start end))
            (flags (tcp-packet-flags packet start end))
            (header-length (tcp-packet-header-length packet start end))
+           (wnd (tcp-packet-window-size packet start end))
            (data-length (tcp-packet-data-length packet start end)))
       ;; :CLOSED should never be seen here
       (ecase (tcp-connection-state connection)
@@ -656,7 +676,7 @@ to wrap around logic"
                 ;; Simultaneous open
                 (setf (tcp-connection-state connection) :syn-received
                       (tcp-connection-rcv.nxt connection) (+u32 seq 1))
-                ;; TODO: Update window
+                (update-window connection wnd seq ack)
                 (unless *netmangler-force-local-retransmit*
                   (tcp4-send-packet connection ack (tcp-connection-rcv.nxt connection) nil
                                     :syn-p t))
@@ -700,7 +720,7 @@ to wrap around logic"
                        ;; Pasive open
                        (initial-rtt-measurement connection)
                        (setf (tcp-connection-state connection) :established)
-                       ;; TODO: Update window
+                       (update-window connection wnd seq ack)
                        (when listener
                          (remhash connection (tcp-listener-pending-connections listener))
                          (mezzano.sync:mailbox-send connection (tcp-listener-connections listener))))
@@ -734,7 +754,7 @@ to wrap around logic"
                 ;; Remote acks something not yet sent
                 (tcp4-send-ack connection))
                (t
-                (when-acceptable-ack-p connection ack seq)
+                (when-acceptable-ack-p connection ack seq wnd)
                 (unless (zerop data-length)
                   (tcp4-receive-data connection data-length end header-length packet seq start))
                 (when (and (logtest flags +tcp4-flag-fin+)
@@ -766,7 +786,7 @@ to wrap around logic"
                 ;; Remote acks something not yet sent
                 (tcp4-send-ack connection))
                (t
-                (when-acceptable-ack-p connection ack seq)
+                (when-acceptable-ack-p connection ack seq wnd)
                 (when (and (logtest flags +tcp4-flag-fin+)
                            (eql seq (tcp-connection-rcv.nxt connection)))
                   (setf (tcp-connection-rcv.nxt connection) (+u32 seq 1))
@@ -814,7 +834,7 @@ to wrap around logic"
                 ;; Remote acks something not yet sent
                 (tcp4-send-ack connection))
                (t
-                (when-acceptable-ack-p connection ack seq)
+                (when-acceptable-ack-p connection ack seq wnd)
                 (unless (zerop data-length)
                   (tcp4-receive-data connection data-length end header-length packet seq start))
                 (cond ((and (logtest flags +tcp4-flag-fin+)
@@ -855,7 +875,7 @@ to wrap around logic"
                 ;; Remote acks something not yet sent
                 (tcp4-send-ack connection))
                (t
-                (when-acceptable-ack-p connection ack seq)
+                (when-acceptable-ack-p connection ack seq wnd)
                 (unless (zerop data-length)
                   (tcp4-receive-data connection data-length end header-length packet seq start))
                 (when (and (logtest flags +tcp4-flag-fin+)
@@ -883,7 +903,7 @@ to wrap around logic"
                 ;; Remote acks something not yet sent
                 (tcp4-send-ack connection))
                (t
-                (when-acceptable-ack-p connection ack seq)
+                (when-acceptable-ack-p connection ack seq wnd)
                 (when (eql seq (tcp-connection-rcv.nxt connection))
                   (setf (tcp-connection-state connection) :time-wait))
                 (when (and (logtest flags +tcp4-flag-fin+)
