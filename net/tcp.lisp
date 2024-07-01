@@ -1044,6 +1044,9 @@ to wrap around logic"
 (define-condition connection-closed (connection-error)
   ())
 
+(define-condition connection-closing (connection-error)
+  ())
+
 (define-condition connection-refused (connection-error)
   ())
 
@@ -1156,10 +1159,19 @@ to wrap around logic"
   (with-tcp-connection-locked connection
     (check-connection-error connection)
     (update-timeout-timer connection)
-    ;; No sending when the connection is closing.
-    (when (not (or (eql (tcp-connection-state connection) :established)
-                   (eql (tcp-connection-state connection) :close-wait)))
+    (when (or (eql (tcp-connection-state connection) :syn-sent)
+              (eql (tcp-connection-state connection) :syn-received))
+      ;; TODO: If in state :syn-sent or :syn-received queue the data for processing after the ESTABLISHED state has been reached
       (error 'connection-closed
+             :host (tcp-connection-remote-ip connection)
+             :port (tcp-connection-remote-port connection)))
+    ;; No sending when the connection is closing.
+    (when (or (eql (tcp-connection-state connection) :fin-wait-1)
+              (eql (tcp-connection-state connection) :fin-wait-2)
+              (eql (tcp-connection-state connection) :closing)
+              (eql (tcp-connection-state connection) :last-ack)
+              (eql (tcp-connection-state connection) :time-wait))
+      (error 'connection-closing
              :host (tcp-connection-remote-ip connection)
              :port (tcp-connection-remote-port connection)))
     (unless (tcp-connection-last-ack-time connection)
