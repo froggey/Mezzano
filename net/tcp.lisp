@@ -1026,17 +1026,6 @@ to wrap around logic"
         :do (unless (get-tcp-connection ip port local-ip local-port)
               (return local-port))))
 
-(defun abort-connection (connection)
-  (mezzano.sync.dispatch:dispatch-async
-   (lambda ()
-     (tcp4-send-packet connection
-                       (tcp-connection-snd.nxt connection)
-                       (tcp-connection-rcv.nxt connection)
-                       nil
-                       :rst-p t)
-     (detach-tcp-connection connection))
-   net::*network-serial-queue*))
-
 (define-condition connection-error (net:network-error)
   ((host :initarg :host :reader connection-error-host)
    (port :initarg :port :reader connection-error-port)))
@@ -1341,6 +1330,33 @@ to wrap around logic"
 (defmethod gray:stream-write-sequence ((stream tcp-octet-stream) sequence &optional (start 0) end)
   (tcp-send (tcp-stream-connection stream) sequence start end))
 
+(defun abort-connection (connection)
+  (ecase (tcp-connection-state connection)
+    (:syn-sent
+     (setf (tcp-connection-pending-error connection)
+           (make-condition 'connection-reset
+                           :host (tcp-connection-remote-ip connection)
+                           :port (tcp-connection-remote-port connection))))
+    ((:syn-received :established :fin-wait-1 :fin-wait-2 :close-wait)
+     (setf (tcp-connection-pending-error connection)
+           (make-condition 'connection-reset
+                           :host (tcp-connection-remote-ip connection)
+                           :port (tcp-connection-remote-port connection)))
+     (tcp4-send-packet connection
+                       (tcp-connection-snd.nxt connection)
+                       (tcp-connection-rcv.nxt connection)
+                       nil
+                       :ack-p nil
+                       :rst-p t))
+    ((:closing :last-ack :time-wait)
+     (tcp4-send-packet connection
+                       (tcp-connection-snd.nxt connection)
+                       (tcp-connection-rcv.nxt connection)
+                       nil))
+    (:closed))
+  (mezzano.supervisor:condition-notify (tcp-connection-cvar connection) t)
+  (detach-tcp-connection connection))
+
 (defun close-connection (connection)
   (ecase (tcp-connection-state connection)
     (:established
@@ -1379,12 +1395,11 @@ to wrap around logic"
     ((:last-ack :fin-wait-1 :fin-wait-2 :closed :time-wait))))
 
 (defmethod close ((stream tcp-octet-stream) &key abort)
-  ;; TODO: ABORT should abort the connection entirely.
-  ;; Don't even bother sending RST packets, just detatch the connection.
-  (declare (ignore abort))
   (let ((connection (tcp-stream-connection stream)))
     (with-tcp-connection-locked connection
-      (close-connection connection))))
+      (if abort
+          (abort-connection connection)
+          (close-connection connection)))))
 
 (defmethod open-stream-p ((stream tcp-octet-stream))
   (with-tcp-connection-locked (tcp-stream-connection stream)
