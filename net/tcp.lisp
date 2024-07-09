@@ -1148,38 +1148,36 @@ to wrap around logic"
   (with-tcp-connection-locked connection
     (check-connection-error connection)
     (update-timeout-timer connection)
-    (when (or (eql (tcp-connection-state connection) :syn-sent)
-              (eql (tcp-connection-state connection) :syn-received))
-      ;; TODO: If in state :syn-sent or :syn-received queue the data for processing after the ESTABLISHED state has been reached
-      (error 'connection-closed
-             :host (tcp-connection-remote-ip connection)
-             :port (tcp-connection-remote-port connection)))
-    ;; No sending when the connection is closing.
-    (when (or (eql (tcp-connection-state connection) :fin-wait-1)
-              (eql (tcp-connection-state connection) :fin-wait-2)
-              (eql (tcp-connection-state connection) :closing)
-              (eql (tcp-connection-state connection) :last-ack)
-              (eql (tcp-connection-state connection) :time-wait))
-      (error 'connection-closing
-             :host (tcp-connection-remote-ip connection)
-             :port (tcp-connection-remote-port connection)))
-    (unless (tcp-connection-last-ack-time connection)
-      (setf (tcp-connection-last-ack-time connection)
-            (get-internal-run-time)))
-    (let ((mss (tcp-connection-max-seg-size connection)))
-      (cond ((>= start end))
-            ((> (- end start) mss)
-             ;; Send multiple packets.
-             (loop
-                for offset from start by mss
-                while (> (- end offset) mss)
-                do
-                  (tcp-send-1 connection data offset (+ offset mss))
-                finally
-                  (tcp-send-1 connection data offset end :psh-p t)))
-            (t
-             ;; Send one packet.
-             (tcp-send-1 connection data start end :psh-p t))))))
+    (ecase (tcp-connection-state connection)
+      ((:syn-sent :syn-received)
+       ;; Data associated with SEND may be sent with SYN segment or queued for transmission after entering ESTABLISHED state
+       ;; TODO: If in state :syn-sent or :syn-received queue the data for processing after the ESTABLISHED state has been reached
+       (error 'connection-closed
+              :host (tcp-connection-remote-ip connection)
+              :port (tcp-connection-remote-port connection)))
+      ((:established :close-wait)
+       (unless (tcp-connection-last-ack-time connection)
+         (setf (tcp-connection-last-ack-time connection)
+               (get-internal-run-time)))
+       (let ((mss (tcp-connection-max-seg-size connection)))
+         (cond ((>= start end))
+               ((> (- end start) mss)
+                ;; Send multiple packets.
+                (loop :for offset :from start :by mss
+                      :while (> (- end offset) mss)
+                      :do (tcp-send-1 connection data offset (+ offset mss))
+                      :finally (tcp-send-1 connection data offset end :psh-p t)))
+               (t
+                ;; Send one packet.
+                (tcp-send-1 connection data start end :psh-p t)))))
+      ((:fin-wait-1 :fin-wait-2 :closing :last-ack :time-wait)
+       (error 'connection-closing
+              :host (tcp-connection-remote-ip connection)
+              :port (tcp-connection-remote-port connection)))
+      (:closed
+       (error 'connection-closed
+              :host (tcp-connection-remote-ip connection)
+              :port (tcp-connection-remote-port connection))))))
 
 (defclass tcp-octet-stream (gray:fundamental-binary-input-stream
                             gray:fundamental-binary-output-stream)
