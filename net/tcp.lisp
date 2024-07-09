@@ -308,7 +308,8 @@ to wrap around logic"
          (apply #'tcp4-send-packet connection packet)
          (setf (tcp-connection-rto connection)
                (min *maximum-rto* (* 2 (tcp-connection-rto connection))))
-         (arm-retransmit-timer connection))))))
+         (arm-retransmit-timer connection)))
+      (:closed))))
 
 (defun arm-timeout-timer (seconds connection)
   (mezzano.supervisor:timer-arm seconds
