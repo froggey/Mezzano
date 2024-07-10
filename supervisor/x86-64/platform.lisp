@@ -4,7 +4,7 @@
   (declare (ignore boot-information-page))
   ;; TODO: This (along with the other serial settings) should be provided by the bootloader.
   (let ((serial-port-io-base #x3F8))
-    (initialize-debug-serial serial-port-io-base 0 #'sys.int::io-port/8 #'(setf sys.int::io-port/8) 4 38400)))
+    (initialize-debug-serial serial-port-io-base 0 #'sys.int::io-port/8 #'(setf sys.int::io-port/8) 4 115200)))
 
 (defun initialize-early-platform ()
   (initialize-interrupts)
