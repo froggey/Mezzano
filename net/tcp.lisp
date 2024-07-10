@@ -32,6 +32,7 @@
 (defparameter *tcp-initial-retransmit-time* 1)
 (defparameter *minimum-rto* 1) ;; in seconds
 (defparameter *maximum-rto* 60) ;; in seconds
+(defparameter *msl* 120) ;; in seconds
 
 (defparameter *initial-window-size* 8192)
 
@@ -336,7 +337,7 @@ to wrap around logic"
                           :port (tcp-connection-remote-port connection)))
     (mezzano.supervisor:condition-notify (tcp-connection-cvar connection) t)
     (case (tcp-connection-state connection)
-      (:syn-sent
+      ((:syn-sent :time-wait)
        (detach-tcp-connection connection))
       (:closed)
       (t
@@ -574,13 +575,14 @@ to wrap around logic"
         (tcp-connection-snd.wl2 connection) seg.ack))
 
 (defun update-timeout-timer (connection)
-  (when (not (eql (tcp-connection-state connection) :syn-sent))
-    (disarm-timeout-timer connection)
-    (let ((timeout (tcp-connection-timeout connection)))
-      (when (and timeout
-                 (not (member (tcp-connection-state connection)
-                              '(:fin-wait-1 :fin-wait-2 :last-ack :closed))))
-        (arm-timeout-timer timeout connection)))))
+  (case (tcp-connection-state connection)
+    ((:fin-wait-1 :fin-wait-2)
+     (disarm-timeout-timer connection))
+    ((:syn-sent :syn-received :established :closing)
+     (disarm-timeout-timer connection)
+     (let ((timeout (tcp-connection-timeout connection)))
+       (when timeout
+         (arm-timeout-timer timeout connection))))))
 
 (defun initial-rtt-measurement (connection)
   (let ((delta-time (float (/ (- (get-internal-run-time) (tcp-connection-last-ack-time connection))
@@ -843,8 +845,7 @@ to wrap around logic"
                        (setf (tcp-connection-state connection) :time-wait
                              (tcp-connection-rcv.nxt connection) (+u32 seq 1))
                        (tcp4-send-ack connection)
-                       ;; TODO: Start the time-wait timer, turn off the other timers.
-                       )
+                       (arm-timeout-timer (* 2 *msl*) connection))
                       ((eql seq (tcp-connection-rcv.nxt connection))
                        (setf (tcp-connection-state connection) :fin-wait-2))
                       ((and (logtest flags +tcp4-flag-fin+)
@@ -884,8 +885,7 @@ to wrap around logic"
                   (setf (tcp-connection-state connection) :time-wait
                         (tcp-connection-rcv.nxt connection) (+u32 seq 1))
                   (tcp4-send-ack connection)
-                  ;; TODO: Start the time-wait timer, turn off the other timers.
-                  ))))
+                  (arm-timeout-timer (* 2 *msl*) connection)))))
         (:closing
          ;; Waiting for ACK
          (cond ((not (acceptable-segment-p connection seq data-length))
@@ -906,7 +906,9 @@ to wrap around logic"
                (t
                 (when-acceptable-ack-p connection ack seq wnd)
                 (when (eql seq (tcp-connection-rcv.nxt connection))
-                  (setf (tcp-connection-state connection) :time-wait))
+                  (setf (tcp-connection-state connection) :time-wait)
+                  (disarm-timeout-timer connection)
+                  (arm-timeout-timer (* 2 *msl*) connection))
                 (when (and (logtest flags +tcp4-flag-fin+)
                            (eql seq (tcp-connection-rcv.nxt connection)))
                   (setf (tcp-connection-rcv.nxt connection) (+u32 seq 1))
@@ -926,9 +928,10 @@ to wrap around logic"
                 (tcp4-send-ack connection))
                ((and (logtest flags +tcp4-flag-fin+)
                      (eql seq (tcp-connection-rcv.nxt connection)))
-                ;; TODO: Restart the 2 MSL timeout.
                 (setf (tcp-connection-rcv.nxt connection) (+u32 seq 1))
-                (tcp4-send-ack connection))))))
+                (tcp4-send-ack connection)
+                (disarm-timeout-timer connection)
+                (arm-timeout-timer (* 2 *msl*) connection))))))
     (update-timeout-timer connection)
     ;; Notify any waiters that something may have changed.
     (mezzano.supervisor:condition-notify (tcp-connection-cvar connection) t)))
