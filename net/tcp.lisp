@@ -1361,6 +1361,30 @@ to wrap around logic"
 
 (defun close-connection (connection)
   (ecase (tcp-connection-state connection)
+    (:syn-sent
+     (setf (tcp-connection-pending-error connection)
+           (make-condition 'connection-closing
+                           :host (tcp-connection-remote-ip connection)
+                           :port (tcp-connection-remote-port connection)))
+     (detach-tcp-connection connection))
+    (:syn-received
+     ;; TODO: If there is data to send queue for processing after entering ESTABLISHED state.
+     (setf (tcp-connection-state connection) :fin-wait-1)
+     (setf (tcp-connection-retransmit-queue connection)
+           (append (tcp-connection-retransmit-queue connection)
+                   (list (list (tcp-connection-snd.nxt connection)
+                               (tcp-connection-rcv.nxt connection)
+                               nil
+                               :fin-p t
+                               :errors-escape t))))
+     (arm-retransmit-timer connection)
+     (when (not *netmangler-force-local-retransmit*)
+       (tcp4-send-packet connection
+                         (tcp-connection-snd.nxt connection)
+                         (tcp-connection-rcv.nxt connection)
+                         nil
+                         :fin-p t
+                         :errors-escape t)))
     (:established
      (setf (tcp-connection-state connection) :fin-wait-1)
      (setf (tcp-connection-retransmit-queue connection)
@@ -1368,7 +1392,8 @@ to wrap around logic"
                    (list (list (tcp-connection-snd.nxt connection)
                                (tcp-connection-rcv.nxt connection)
                                nil
-                               :fin-p t))))
+                               :fin-p t
+                               :errors-escape t))))
      (arm-retransmit-timer connection)
      (when (not *netmangler-force-local-retransmit*)
        (tcp4-send-packet connection
@@ -1394,7 +1419,7 @@ to wrap around logic"
                          nil
                          :fin-p t
                          :errors-escape t)))
-    ((:last-ack :fin-wait-1 :fin-wait-2 :closed :time-wait))))
+    ((:last-ack :fin-wait-1 :fin-wait-2 :closing :time-wait :closed))))
 
 (defmethod close ((stream tcp-octet-stream) &key abort)
   (let ((connection (tcp-stream-connection stream)))
