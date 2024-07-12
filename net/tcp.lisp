@@ -647,7 +647,6 @@ to wrap around logic"
            (header-length (tcp-packet-header-length packet start end))
            (wnd (tcp-packet-window-size packet start end))
            (data-length (tcp-packet-data-length packet start end)))
-      ;; :CLOSED should never be seen here
       (ecase (tcp-connection-state connection)
         (:syn-sent
          (cond ((logtest flags +tcp4-flag-rst+)
@@ -931,7 +930,8 @@ to wrap around logic"
                 (setf (tcp-connection-rcv.nxt connection) (+u32 seq 1))
                 (tcp4-send-ack connection)
                 (disarm-timeout-timer connection)
-                (arm-timeout-timer (* 2 *msl*) connection))))))
+                (arm-timeout-timer (* 2 *msl*) connection))))
+        (:closed)))
     (update-timeout-timer connection)
     ;; Notify any waiters that something may have changed.
     (mezzano.supervisor:condition-notify (tcp-connection-cvar connection) t)))
