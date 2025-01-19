@@ -259,7 +259,7 @@ to wrap around logic"
    (%boot-id :reader tcp-connection-boot-id
              :initarg :boot-id))
   (:default-initargs
-   :max-seg-size 1000
+   :max-seg-size 536
    :max.snd.wnd 0
    :last-ack-time nil
    :srtt nil
