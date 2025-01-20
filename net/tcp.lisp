@@ -3,6 +3,7 @@
 ;;; Transmission Control Protocol - Protocol Specification
 ;;; https://datatracker.ietf.org/doc/html/rfc9293
 ;;;
+;;; TODO: Sending MSS (Must-14)
 
 (in-package :mezzano.network.tcp)
 
@@ -14,6 +15,7 @@
 (defconstant +tcp4-header-window-size+ 14)
 (defconstant +tcp4-header-checksum+ 16)
 (defconstant +tcp4-header-urgent-pointer+ 18)
+(defconstant +tcp4-header-options+ 20)
 
 (defconstant +tcp4-flag-fin+ #b00000001)
 (defconstant +tcp4-flag-syn+ #b00000010)
@@ -23,6 +25,13 @@
 (defconstant +tcp4-flag-urg+ #b00100000)
 (defconstant +tcp4-flag-ece+ #b01000000)
 (defconstant +tcp4-flag-cwr+ #b10000000)
+
+;;; TCP options
+(defconstant +tcp-option-eol+ 0 "End of options (RFC793)")
+(defconstant +tcp-option-nop+ 1 "Padding (RFC793)")
+(defconstant +tcp-option-mss+ 2 "Segment size negotiating (RFC793)")
+
+(defconstant +tcp-option-mss-length+ 4)
 
 ;; DEFPARAMETER, not DEFCONSTANT, due to cross-compiler constraints.
 (defparameter +ip-wildcard+ (mezzano.network.ip:make-ipv4-address "0.0.0.0"))
@@ -406,6 +415,7 @@ to wrap around logic"
            (let* ((irs (ub32ref/be packet (+ start +tcp4-header-sequence-number+)))
                   (iss (or *netmangler-iss*
                            (random #x100000000)))
+                  (header-length (tcp-packet-header-length packet start end))
                   (connection (make-instance 'tcp-connection
                                              :state :syn-received
                                              :local-port local-port
@@ -418,6 +428,7 @@ to wrap around logic"
                                              :rcv.wnd *initial-window-size*
                                              :boot-id (mezzano.supervisor:current-boot-id))))
              (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
+               (tcp-packet-options connection packet start header-length)
                (push connection *tcp-connections*))
              (setf (gethash connection (tcp-listener-pending-connections listener))
                    connection)
@@ -537,6 +548,27 @@ to wrap around logic"
 
 (defun tcp-packet-data-length (packet start end)
   (- end (+ start (tcp-packet-header-length packet start end))))
+
+(defun tcp-packet-options (connection packet start header-length)
+  (when (> header-length +tcp4-header-options+)
+    (loop :with offset := (+ start +tcp4-header-options+)
+          :with end := (+ start header-length)
+          :always (< offset end)
+          :do (let ((kind (aref packet offset)))
+                (cond ((= kind +tcp-option-eol+)
+                       (return))
+                      ((= kind +tcp-option-nop+)
+                       (incf offset))
+                      (t
+                       (let ((length (aref packet (1+ offset))))
+                         (when (> 2 length end)
+                           ;; Ignore silly options and partial options
+                           (return))
+                         (when (= kind +tcp-option-mss+)
+                           (when (= length +tcp-option-mss-length+)
+                             (let ((mss (ub16ref/be packet (+ offset 2))))
+                               (setf (tcp-connection-max-seg-size connection) mss))))
+                         (incf offset length))))))))
 
 (defun acceptable-segment-p (connection seg.seq seg.len)
   (let ((rcv.wnd (tcp-connection-rcv.wnd connection))
@@ -666,6 +698,7 @@ to wrap around logic"
                      (eql ack (tcp-connection-snd.nxt connection)))
                 ;; Active open
                 (initial-rtt-measurement connection)
+                (tcp-packet-options connection packet start header-length)
                 (setf (tcp-connection-state connection) :established
                       (tcp-connection-rcv.nxt connection) (+u32 seq 1)
                       (tcp-connection-snd.una connection) ack)
@@ -676,6 +709,7 @@ to wrap around logic"
                 (disarm-timeout-timer connection))
                ((logtest flags +tcp4-flag-syn+)
                 ;; Simultaneous open
+                (tcp-packet-options connection packet start header-length)
                 (setf (tcp-connection-state connection) :syn-received
                       (tcp-connection-rcv.nxt connection) (+u32 seq 1))
                 (update-window connection wnd seq ack)
