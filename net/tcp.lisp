@@ -3,7 +3,6 @@
 ;;; Transmission Control Protocol - Protocol Specification
 ;;; https://datatracker.ietf.org/doc/html/rfc9293
 ;;;
-;;; TODO: Sending MSS (Must-14)
 
 (in-package :mezzano.network.tcp)
 
@@ -1023,7 +1022,8 @@ to wrap around logic"
   "Build a full TCP & IP header."
   (let* ((checksum 0)
          (payload-size (length payload))
-         (header (make-array 20 :element-type '(unsigned-byte 8)))
+         (header-length (if syn-p 24 20))
+         (header (make-array header-length :element-type '(unsigned-byte 8)))
          (packet (list header payload)))
     ;; Assemble the TCP header.
     (setf (ub16ref/be header +tcp4-header-source-port+) src-port
@@ -1031,7 +1031,7 @@ to wrap around logic"
           (ub32ref/be header +tcp4-header-sequence-number+) seq-num
           (ub32ref/be header +tcp4-header-acknowledgment-number+) ack-num
           ;; Data offset/header length (5 32-bit words) and flags.
-          (ub16ref/be header +tcp4-header-flags-and-data-offset+) (logior #x5000
+          (ub16ref/be header +tcp4-header-flags-and-data-offset+) (logior (ash (ceiling header-length 4) 12)
                                                                           (if fin-p +tcp4-flag-fin+ 0)
                                                                           (if syn-p +tcp4-flag-syn+ 0)
                                                                           (if rst-p +tcp4-flag-rst+ 0)
@@ -1046,6 +1046,11 @@ to wrap around logic"
           (ub16ref/be header +tcp4-header-checksum+) 0
           ;; Urgent pointer.
           (ub16ref/be header +tcp4-header-urgent-pointer+) 0)
+    ;; MSS TODO: MUST-16, SHLD-6 and MUST-67
+    (when syn-p
+      (setf (aref header +tcp4-header-options+) 2
+            (aref header (+ 1 +tcp4-header-options+)) 4
+            (ub16ref/be header (+ 2 +tcp4-header-options+)) 1460))
     ;; Compute the final checksum.
     (setf checksum (compute-ip-pseudo-header-partial-checksum
                     (mezzano.network.ip::ipv4-address-address src-ip)
