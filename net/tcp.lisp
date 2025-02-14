@@ -666,7 +666,11 @@ to wrap around logic"
     (if (endp (tcp-connection-retransmit-queue connection))
         (disarm-retransmit-timer connection)
         (arm-retransmit-timer connection)))
-  (update-window connection wnd seq ack))
+  (when (and (=< (tcp-connection-snd.una connection) ack (tcp-connection-snd.nxt connection))
+             (or (>u32 seq (tcp-connection-snd.wl1 connection))
+                 (and (= seq (tcp-connection-snd.wl1 connection))
+                      (>=u32 ack (tcp-connection-snd.wl2 connection)))))
+    (update-window connection wnd seq ack)))
 
 (defun tcp4-connection-receive (connection packet start end listener)
   ;; Don't use WITH-TCP-CONNECTION-LOCKED here. No errors should occur
