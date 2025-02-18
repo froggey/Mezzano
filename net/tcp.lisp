@@ -306,6 +306,11 @@ to wrap around logic"
        (let ((seq (-u32 (tcp-connection-snd.nxt connection) 1)))
          (tcp4-send-packet connection seq 0 nil :ack-p nil :syn-p t)
          (arm-retransmit-timer connection)))
+      (:syn-received
+       (let* ((iss (tcp-connection-snd.una connection))
+              (irs (tcp-connection-rcv.nxt connection)))
+         (tcp4-send-packet connection iss irs nil :syn-p t)
+         (arm-retransmit-timer connection)))
       ((:established
         :close-wait
         :last-ack
@@ -345,7 +350,7 @@ to wrap around logic"
                           :port (tcp-connection-remote-port connection)))
     (mezzano.supervisor:condition-notify (tcp-connection-cvar connection) t)
     (case (tcp-connection-state connection)
-      ((:syn-sent :time-wait)
+      ((:syn-sent :syn-received :time-wait)
        (detach-tcp-connection connection))
       (:closed)
       (t
@@ -434,7 +439,9 @@ to wrap around logic"
              (setf (tcp-connection-last-ack-time connection)
                    (get-internal-run-time))
              (when (not *netmangler-force-local-retransmit*)
-               (tcp4-send-packet connection iss (+u32 irs 1) nil :syn-p t))))
+               (tcp4-send-packet connection iss (+u32 irs 1) nil :syn-p t))
+             (arm-retransmit-timer connection)
+             (arm-timeout-timer *tcp-connect-timeout* connection)))
           ((logtest flags +tcp4-flag-rst+)) ; Do nothing for resets addressed to nobody.
           ((logtest flags +tcp4-flag-fin+)) ; Do nothing for finish since the SEG.SEQ cannot be validated
           (t
