@@ -1394,10 +1394,7 @@ to wrap around logic"
                        :ack-p nil
                        :rst-p t))
     ((:closing :last-ack :time-wait)
-     (tcp4-send-packet connection
-                       (tcp-connection-snd.nxt connection)
-                       (tcp-connection-rcv.nxt connection)
-                       nil))
+     (tcp4-send-ack connection))
     (:closed))
   (mezzano.supervisor:condition-notify (tcp-connection-cvar connection) t)
   (detach-tcp-connection connection))
