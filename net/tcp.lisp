@@ -712,6 +712,7 @@ to wrap around logic"
                 (setf (tcp-connection-state connection) :established
                       (tcp-connection-rcv.nxt connection) (+u32 seq 1)
                       (tcp-connection-snd.una connection) ack)
+                (update-window connection wnd seq ack)
                 (unless *netmangler-force-local-retransmit*
                   (tcp4-send-ack connection))
                 ;; Cancel retransmit
