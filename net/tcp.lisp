@@ -577,6 +577,7 @@ to wrap around logic"
                          (incf offset length))))))))
 
 (defun acceptable-segment-p (connection seg.seq seg.len)
+  "If (RCV.NXT <= SEG.SEQ < RCV.NXT+RCV.WND) the segment is inside the receive window."
   (let ((rcv.wnd (tcp-connection-rcv.wnd connection))
         (rcv.nxt (tcp-connection-rcv.nxt connection)))
     (if (eql rcv.wnd 0)
@@ -590,7 +591,7 @@ to wrap around logic"
                    (and (<= rcv.nxt seq-end) (< seq-end (+ rcv.nxt rcv.wnd)))))))))
 
 (defun acceptable-ack-p (connection seg.ack)
-  "If SND.UNA < SEG.ACK <= SND.NXT, then the ACK is acceptable."
+  "If (SND.UNA < SEG.ACK <= SND.NXT) the ACK is acceptable."
   (if (< (tcp-connection-snd.una connection)
          (tcp-connection-snd.nxt connection))
       (and (< (tcp-connection-snd.una connection) seg.ack)
