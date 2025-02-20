@@ -231,3 +231,11 @@
        ;; Enable RX interrupts.
        (uart-16550-reg +serial-IER+) +serial-ier-received-data-available+)))
   (debug-set-output-pseudostream 'debug-serial-stream))
+
+(defun debug-serial-read-byte-1-blocking ()
+  ;; Wait for the RX FIFO to have data available.
+  (loop
+        until (logbitp +serial-lsr-data-available+
+                       (uart-16550-reg +serial-LSR+)))
+  ;; Read byte.
+  (uart-16550-reg +serial-THR+))
