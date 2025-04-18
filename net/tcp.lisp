@@ -727,10 +727,7 @@ to wrap around logic"
                 (update-window connection wnd seq ack)
                 (unless *netmangler-force-local-retransmit*
                   (tcp4-send-packet connection ack (tcp-connection-rcv.nxt connection) nil
-                                    :syn-p t))
-                ;; Cancel retransmit
-                (disarm-retransmit-timer connection)
-                (disarm-timeout-timer connection))))
+                                    :syn-p t)))))
         (:syn-received
          (cond ((not (acceptable-segment-p connection seq data-length))
                 (unless (logtest flags +tcp4-flag-rst+)
@@ -771,7 +768,10 @@ to wrap around logic"
                        (update-window connection wnd seq ack)
                        (when listener
                          (remhash connection (tcp-listener-pending-connections listener))
-                         (mezzano.sync:mailbox-send connection (tcp-listener-connections listener))))
+                         (mezzano.sync:mailbox-send connection (tcp-listener-connections listener)))
+                       ;; Cancel retransmit
+                       (disarm-retransmit-timer connection)
+                       (disarm-timeout-timer connection))
                       (t
                        ;; Segment from an old connection
                        (tcp4-send-packet connection ack seq nil :ack-p nil :rst-p t)))
