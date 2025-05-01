@@ -196,6 +196,8 @@ the old or new values are expected to be unbound.")
               (let* ((real-instance (mezzano.runtime::obsolete-instance-layout-new-instance layout))
                      (real-layout (sys.int::%instance-layout real-instance)))
                 ;; But it's possible that the layout of the new instance is obsolete
+                ;; FIXME: This needs to use REAL-INSTANCE to populate the new instance,
+                ;; but the old instance must be what gets superseded.
                 (cond ((sys.int::layout-obsolete real-layout)
                        (update-instance-for-new-layout instance))
                       (t

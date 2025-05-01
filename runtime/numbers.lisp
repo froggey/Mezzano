@@ -281,6 +281,9 @@
             (cond ((%fixnum-< ,the-fixnum ,fix) ,(if swap-args nil t))
                   ((%fixnum-< ,fix ,the-fixnum) ,(if swap-args t nil))
                   ;; Integer parts are equal.
+                  ;; This bit is a conversion from fixnum to float and is
+                  ;; the only point that might cons in this function.
+                  ;; But it shouldn't, if the compiler does its job properly.
                   ((,float= (,fix-to-float ,fix) ,the-float)
                    ;; No fractional part, the two are equal.
                    nil)
