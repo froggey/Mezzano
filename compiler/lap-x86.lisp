@@ -1810,3 +1810,15 @@ Remaining values describe the effective address: base index scale disp rip-relat
        (emit-rex :b rex-b :w t)
        (emit #x0F (+ #xC8 nr))
        (return-from instruction t)))))
+
+(defmacro define-prefetch-instruction (name opc opc-minor)
+  `(define-instruction ,name (address)
+     (when (and (not (keywordp address))
+                (not (immediatep address)))
+       (modrm-single :gpr-32 address '(#x0F ,opc) ,opc-minor))))
+
+(define-prefetch-instruction prefetchnta #x18 0)
+(define-prefetch-instruction prefetcht0 #x18 1)
+(define-prefetch-instruction prefetcht1 #x18 2)
+(define-prefetch-instruction prefetcht2 #x18 3)
+(define-prefetch-instruction prefetchw #x0D 1)

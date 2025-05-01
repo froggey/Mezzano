@@ -618,7 +618,7 @@
     nil
     (decode-simple sys.lap-x86:ud2)
     nil
-    nil
+    (decode-prefetchw)
     nil
     nil
     (decode-v-w nil ; sys.lap-x86:movups
@@ -634,7 +634,7 @@
     (decode-v-w sys.lap-x86:unpckhps sys.lap-x86:unpckhpd nil nil)
     (decode-v-w sys.lap-x86:movlhps nil nil nil)
     nil
-    nil ; 18
+    (decode-group-16) ; 18
     nil
     nil
     nil
@@ -1252,6 +1252,38 @@
                          sys.lap-x86:fxrstor
                          sys.lap-x86:ldmxcsr
                          sys.lap-x86:stmxcsr
+                         nil
+                         nil
+                         nil
+                         nil)
+                       reg)))
+      (when opcode
+        (make-instruction opcode
+                          (decode-gpr64-or-mem r/m (rex-b info)))))))
+
+(defun decode-group-16 (context info)
+  (multiple-value-bind (reg r/m)
+      (disassemble-modr/m context info)
+    (let ((opcode (elt #(sys.lap-x86:prefetchnta
+                         sys.lap-x86:prefetcht0
+                         sys.lap-x86:prefetcht1
+                         sys.lap-x86:prefetcht2
+                         nil
+                         nil
+                         nil
+                         nil)
+                       reg)))
+      (when opcode
+        (make-instruction opcode
+                          (decode-gpr64-or-mem r/m (rex-b info)))))))
+
+(defun decode-prefetchw (context info)
+  (multiple-value-bind (reg r/m)
+      (disassemble-modr/m context info)
+    (let ((opcode (elt #(nil
+                         sys.lap-x86:prefetchw
+                         nil
+                         nil
                          nil
                          nil
                          nil
