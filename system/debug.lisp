@@ -946,6 +946,7 @@ executed, and the offset into it."
     (mezzano.internals::repl)))
 
 (defun debug-serial-repl-start (&rest args)
+  (mezzano.supervisor:initialize-debug-serial-reads)
   (mezzano.supervisor:make-thread
    (lambda () (apply #'debug-serial-repl-main args))
    :name "Debug Serial Lisp Listener"))

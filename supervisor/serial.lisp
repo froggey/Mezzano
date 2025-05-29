@@ -243,7 +243,7 @@
   ;; Read byte.
   (uart-16550-reg +serial-THR+))
 
-(defun debug-serial-read-byte ()
+(defun initialize-debug-serial-reads ()
   ;; IRQ initialization cannot be done in initialize-debug-serial
   ;; because it is called very early during boot, before interrupt
   ;; objects exist.  Calling make-simple-irq there causes the boot to
@@ -252,7 +252,9 @@
   (unless *debug-serial-irq-handler*
     (setf *debug-serial-irq-handler* (make-simple-irq *debug-serial-irq*))
     (simple-irq-attach *debug-serial-irq-handler*)
-    (simple-irq-unmask *debug-serial-irq-handler*))
+    (simple-irq-unmask *debug-serial-irq-handler*)))
+
+(defun debug-serial-read-byte ()
   (mezzano.sync::wait-for-objects *debug-serial-irq-handler*)
   (prog1 (debug-serial-read-byte-1-blocking)
     (mezzano.supervisor:simple-irq-unmask *debug-serial-irq-handler*)))
