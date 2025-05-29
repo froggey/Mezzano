@@ -280,4 +280,6 @@
         (unless (eql (logand byte #xC0) #x80)
           (error "Invalid UTF-8 continuation byte ~S." byte))
         (setf value (logior (ash value 6) (logand byte #x3F)))))
-    (code-char value)))
+    (let ((result (code-char value)))
+      (debug-serial-write-char result)
+      result)))
