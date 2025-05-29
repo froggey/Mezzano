@@ -950,3 +950,8 @@ executed, and the offset into it."
   (mezzano.supervisor:make-thread
    (lambda () (apply #'debug-serial-repl-main args))
    :name "Debug Serial Lisp Listener"))
+
+(defun debug-serial-repl-stop ()
+  (dolist (thread (mezzano.supervisor:all-threads))
+    (when (equal (mezzano.supervisor:thread-name thread) "Debug Serial Lisp Listener")
+      (mezzano.supervisor:terminate-thread thread))))
