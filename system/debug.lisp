@@ -946,6 +946,15 @@ executed, and the offset into it."
     (mezzano.internals::repl)))
 
 (defun debug-serial-repl-start (&rest args)
+  #+(not x86-64)
+  (error "debug-serial-repl is not yet implemented on this architecture.  Please file a feature request.")
+  (debug-serial-repl-stop)
+  (let ((interrupt 4))
+    ;; Remove existing interrupt handlers.
+    (setf (mezzano.supervisor::irq-attachments (mezzano.supervisor::platform-irq interrupt)) nil)
+    ;; Make sure debug pseudostream is set to debug-serial-stream.
+    (mezzano.supervisor:initialize-debug-serial
+     #x3F8 0 #'sys.int::io-port/8 #'(setf sys.int::io-port/8) interrupt 115200))
   (mezzano.supervisor:initialize-debug-serial-reads)
   (mezzano.supervisor:make-thread
    (lambda () (apply #'debug-serial-repl-main args))

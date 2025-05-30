@@ -686,6 +686,7 @@
            #:dma-buffer-sg-entry
            #:dma-buffer-sg-entry-list
 
+           #:initialize-debug-serial
            #:initialize-debug-serial-reads
            ))
 
