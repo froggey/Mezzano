@@ -135,11 +135,13 @@ This assumes PS/2 scan code set 1 is in effect.")
 ;; Intel 8042 and PS/2 global variables.
 (defvar *intel-8042-present* nil
   "Whether or not a PS/2 controller is present.")
-(defvar *intel-8042-queue-keyboard* nil
+;; These must be sys.int::defglobal, not defvar'd normal special
+;; variables.  See doc/internals/supervisor-restrictions.md.
+(sys.int::defglobal *intel-8042-queue-keyboard* nil
   "The PS/2 controller keyboard port IRQ FIFO.")
-(defvar *intel-8042-queue-auxiliary* nil
+(sys.int::defglobal *intel-8042-queue-auxiliary* nil
   "The PS/2 controller auxiliary port IRQ FIFO.")
-(defvar *intel-8042-debug-dump-state* nil
+(sys.int::defglobal *intel-8042-debug-dump-state* nil
   "Whether or not to dump global state based on keyboard state.")
 
 (defun read-keyboard (&optional (wait-p t))
