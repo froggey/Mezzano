@@ -282,6 +282,12 @@ Make sure there is a virtio-net NIC attached.~%")
                 sys.int::*init-file-path*
                 c)))))
 
+(mezzano.supervisor:add-boot-hook
+ #'(lambda ()
+     (unless (mezzano.supervisor:boot-option
+              mezzano.supervisor:+boot-option-video-console+)
+       ;; Start a REPL on the debug serial port.
+       (sys.int::debug-serial-repl-start))))
 (mezzano.supervisor:add-boot-hook 'sys.int::load-init-file :late)
 (sys.int::load-init-file)
 
