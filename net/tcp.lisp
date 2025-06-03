@@ -1404,7 +1404,9 @@ to wrap around logic"
                        (tcp-connection-rcv.nxt connection)
                        nil
                        :ack-p nil
-                       :rst-p t))
+                       :rst-p t)
+     (setf (tcp-connection-snd.nxt connection)
+           (+u32 (tcp-connection-snd.nxt connection) 1)))
     ((:closing :last-ack :time-wait)
      (tcp4-send-ack connection))
     (:closed))
@@ -1436,7 +1438,9 @@ to wrap around logic"
                          (tcp-connection-rcv.nxt connection)
                          nil
                          :fin-p t
-                         :errors-escape t)))
+                         :errors-escape t))
+     (setf (tcp-connection-snd.nxt connection)
+           (+u32 (tcp-connection-snd.nxt connection) 1)))
     (:established
      (setf (tcp-connection-state connection) :fin-wait-1)
      (setf (tcp-connection-retransmit-queue connection)
@@ -1453,7 +1457,9 @@ to wrap around logic"
                          (tcp-connection-rcv.nxt connection)
                          nil
                          :fin-p t
-                         :errors-escape t)))
+                         :errors-escape t))
+     (setf (tcp-connection-snd.nxt connection)
+           (+u32 (tcp-connection-snd.nxt connection) 1)))
     (:close-wait
      (setf (tcp-connection-state connection) :last-ack)
      (setf (tcp-connection-retransmit-queue connection)
@@ -1470,7 +1476,9 @@ to wrap around logic"
                          (tcp-connection-rcv.nxt connection)
                          nil
                          :fin-p t
-                         :errors-escape t)))
+                         :errors-escape t))
+     (setf (tcp-connection-snd.nxt connection)
+           (+u32 (tcp-connection-snd.nxt connection) 1)))
     ((:last-ack :fin-wait-1 :fin-wait-2 :closing :time-wait :closed))))
 
 (defmethod close ((stream tcp-octet-stream) &key abort)
