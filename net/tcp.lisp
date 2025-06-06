@@ -6,6 +6,11 @@
 
 (in-package :mezzano.network.tcp)
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; TCP protocol constants
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;;; TCP header offsets in octets
 (defconstant +tcp4-header-source-port+ 0)
 (defconstant +tcp4-header-destination-port+ 2)
 (defconstant +tcp4-header-sequence-number+ 4)
@@ -16,44 +21,60 @@
 (defconstant +tcp4-header-urgent-pointer+ 18)
 (defconstant +tcp4-header-options+ 20)
 
-(defconstant +tcp4-flag-fin+ #b00000001)
-(defconstant +tcp4-flag-syn+ #b00000010)
-(defconstant +tcp4-flag-rst+ #b00000100)
-(defconstant +tcp4-flag-psh+ #b00001000)
-(defconstant +tcp4-flag-ack+ #b00010000)
-(defconstant +tcp4-flag-urg+ #b00100000)
-(defconstant +tcp4-flag-ece+ #b01000000)
-(defconstant +tcp4-flag-cwr+ #b10000000)
+;;; TCP control flags (bitmask values)
+(defconstant +tcp4-flag-fin+ #b00000001 "Finish flag (RFC 793)")
+(defconstant +tcp4-flag-syn+ #b00000010 "Synchronize flag (RFC 793)")
+(defconstant +tcp4-flag-rst+ #b00000100 "Reset flag (RFC 793)")
+(defconstant +tcp4-flag-psh+ #b00001000 "Push flag (RFC 793)")
+(defconstant +tcp4-flag-ack+ #b00010000 "Acknowledgment flag (RFC 793)")
+(defconstant +tcp4-flag-urg+ #b00100000 "Urgent flag (RFC 793)")
+(defconstant +tcp4-flag-ece+ #b01000000 "ECN-Echo flag (RFC 3168)")
+(defconstant +tcp4-flag-cwr+ #b10000000 "Congestion Window Reduced flag (RFC 3168)")
 
-;;; TCP options
-(defconstant +tcp-option-eol+ 0 "End of options (RFC793)")
-(defconstant +tcp-option-nop+ 1 "Padding (RFC793)")
-(defconstant +tcp-option-mss+ 2 "Segment size negotiating (RFC793)")
+;;; TCP option types
+(defconstant +tcp-option-eol+ 0 "End of options (RFC 793)")
+(defconstant +tcp-option-nop+ 1 "No operation/Padding (RFC 793)")
+(defconstant +tcp-option-mss+ 2 "Maximum Segment Size (RFC 793)")
+(defconstant +tcp-option-mss-length+ 4 "MSS option length in octets")
 
-(defconstant +tcp-option-mss-length+ 4)
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Network configuration parameters
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;; DEFPARAMETER, not DEFCONSTANT, due to cross-compiler constraints.
+;;; Wildcard address/port definitions
+;; DEFPARAMETER used for +ip-wildcard+ due to cross-compiler constraints
 (defparameter +ip-wildcard+ (mezzano.network.ip:make-ipv4-address "0.0.0.0"))
 (defconstant +port-wildcard+ 0)
 
-(defparameter *tcp-connect-timeout* 10)
-(defparameter *tcp-initial-retransmit-time* 1)
-(defparameter *minimum-rto* 1) ;; in seconds
-(defparameter *maximum-rto* 60) ;; in seconds
-(defparameter *msl* 120) ;; in seconds
+;;; Connection time management
+(defparameter *tcp-connect-timeout* 10 "Connection establishment timeout in seconds")
+(defparameter *tcp-initial-retransmit-time* 1 "Initial RTO value in seconds (RFC 6298)")
+(defparameter *minimum-rto* 1 "Minimum retransmission timeout in seconds (RFC 6298)")
+(defparameter *maximum-rto* 60 "Maximum retransmission timeout in seconds (RFC 6298)")
+(defparameter *msl* 120 "Maximum Segment Lifetime in seconds (RFC 793)")
 
-(defparameter *initial-window-size* 8192)
+;;; Window and Segment Sizing
+(defparameter *initial-window-size* 8192 "Initial congestion window size in octets")
+(defparameter *default-max-seg-size* 536 "Default maximum segment size in octets")
+(defparameter *max-seg-size* 1460 "Maximum segment size in octets")
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Debugging and testing parameters
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defparameter *netmangler-force-local-retransmit* nil
-  "If true, then all data segments will be initially dropped
-and forced to be sent from the retransmit queue.")
+  "When T, force all data segments through retransmit queue (simulates packet loss)")
 (defparameter *netmangler-iss* nil
   "Force the ISS to this value.
 Set to a value near 2^32 to test SND sequence number wrapping.")
 
-(defvar *tcp-connections* nil)
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Connection state management
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defvar *tcp-connections* nil "List of active TCP connections")
 (defvar *tcp-connection-lock* (mezzano.supervisor:make-mutex "TCP connection list"))
-(defvar *tcp-listeners* nil)
+(defvar *tcp-listeners* nil "List of active TCP listeners")
 (defvar *tcp-listener-lock* (mezzano.supervisor:make-mutex "TCP listener list"))
 
 (deftype tcp-connection-state ()
@@ -267,7 +288,7 @@ to wrap around logic"
    (%boot-id :reader tcp-connection-boot-id
              :initarg :boot-id))
   (:default-initargs
-   :max-seg-size 536
+   :max-seg-size *default-max-seg-size*
    :max.snd.wnd 0
    :last-ack-time nil
    :srtt nil
@@ -291,8 +312,8 @@ to wrap around logic"
   (values))
 
 (defun retransmit-timer-handler (connection)
-  (when (not (mezzano.supervisor:timer-expired-p
-              (tcp-connection-retransmit-timer connection)))
+  (unless (mezzano.supervisor:timer-expired-p
+           (tcp-connection-retransmit-timer connection))
     ;; Timer is either still pending or isn't actually running.
     ;; This can happen if the timer expires but some other task reconfigures
     ;; a new retransmit time.
@@ -335,8 +356,8 @@ to wrap around logic"
   (values))
 
 (defun timeout-timer-handler (connection)
-  (when (not (mezzano.supervisor:timer-expired-p
-              (tcp-connection-timeout-timer connection)))
+  (unless (mezzano.supervisor:timer-expired-p
+           (tcp-connection-timeout-timer connection))
     ;; Timer is either still pending or isn't actually running.
     ;; This can happen if the timer expires but some other task reconfigures
     ;; a new timeout time.
@@ -438,7 +459,7 @@ to wrap around logic"
                    connection)
              (setf (tcp-connection-last-ack-time connection)
                    (get-internal-run-time))
-             (when (not *netmangler-force-local-retransmit*)
+             (unless *netmangler-force-local-retransmit*
                (tcp4-send-packet connection iss (+u32 irs 1) nil :syn-p t))
              (arm-retransmit-timer connection)
              (arm-timeout-timer *tcp-connect-timeout* connection)))
@@ -1066,7 +1087,7 @@ to wrap around logic"
     (when syn-p
       (setf (aref header +tcp4-header-options+) 2
             (aref header (+ 1 +tcp4-header-options+)) 4
-            (ub16ref/be header (+ 2 +tcp4-header-options+)) 1460))
+            (ub16ref/be header (+ 2 +tcp4-header-options+)) *max-seg-size*))
     ;; Compute the final checksum.
     (setf checksum (compute-ip-pseudo-header-partial-checksum
                     (mezzano.network.ip::ipv4-address-address src-ip)
@@ -1162,7 +1183,7 @@ to wrap around logic"
          (push connection *tcp-connections*))
        (setf (tcp-connection-last-ack-time connection)
              (get-internal-run-time))
-       (when (not *netmangler-force-local-retransmit*)
+       (unless *netmangler-force-local-retransmit*
          (tcp4-send-packet connection iss 0 nil :ack-p nil :syn-p t))
        (arm-retransmit-timer connection)
        (arm-timeout-timer *tcp-connect-timeout* connection))
@@ -1194,7 +1215,7 @@ to wrap around logic"
           (append (tcp-connection-retransmit-queue connection)
                   (list (list snd.nxt rcv.nxt data :psh-p psh-p))))
     (arm-retransmit-timer connection)
-    (when (not *netmangler-force-local-retransmit*)
+    (unless *netmangler-force-local-retransmit*
       (tcp4-send-packet connection
                         snd.nxt rcv.nxt
                         data
@@ -1330,7 +1351,7 @@ to wrap around logic"
 (defmethod gray:stream-read-byte ((stream tcp-octet-stream))
   (with-tcp-connection-locked (tcp-stream-connection stream)
     (check-connection-error (tcp-stream-connection stream))
-    (when (not (refill-tcp-packet-buffer stream))
+    (unless (refill-tcp-packet-buffer stream)
       (return-from gray:stream-read-byte :eof))
     (let* ((packet (tcp-stream-packet stream))
            (byte (aref (first packet) (second packet))))
@@ -1343,7 +1364,7 @@ to wrap around logic"
   (with-tcp-connection-locked (tcp-stream-connection stream)
     (check-connection-error (tcp-stream-connection stream))
     (refill-tcp-packet-buffer-no-hang stream)
-    (when (not (tcp-stream-packet stream))
+    (unless (tcp-stream-packet stream)
       (return-from gray:stream-read-byte-no-hang
         (if (connection-may-have-additional-data-p (tcp-stream-connection stream))
             nil
@@ -1356,7 +1377,7 @@ to wrap around logic"
       byte)))
 
 (defmethod gray:stream-read-sequence ((stream tcp-octet-stream) sequence &optional (start 0) end)
-  (when (not end)
+  (unless end
     (setf end (length sequence)))
   (with-tcp-connection-locked (tcp-stream-connection stream)
     (check-connection-error (tcp-stream-connection stream))
@@ -1432,7 +1453,7 @@ to wrap around logic"
                                :fin-p t
                                :errors-escape t))))
      (arm-retransmit-timer connection)
-     (when (not *netmangler-force-local-retransmit*)
+     (unless *netmangler-force-local-retransmit*
        (tcp4-send-packet connection
                          (tcp-connection-snd.nxt connection)
                          (tcp-connection-rcv.nxt connection)
@@ -1451,7 +1472,7 @@ to wrap around logic"
                                :fin-p t
                                :errors-escape t))))
      (arm-retransmit-timer connection)
-     (when (not *netmangler-force-local-retransmit*)
+     (unless *netmangler-force-local-retransmit*
        (tcp4-send-packet connection
                          (tcp-connection-snd.nxt connection)
                          (tcp-connection-rcv.nxt connection)
@@ -1470,7 +1491,7 @@ to wrap around logic"
                                :fin-p t
                                :errors-escape t))))
      (arm-retransmit-timer connection)
-     (when (not *netmangler-force-local-retransmit*)
+     (unless *netmangler-force-local-retransmit*
        (tcp4-send-packet connection
                          (tcp-connection-snd.nxt connection)
                          (tcp-connection-rcv.nxt connection)
