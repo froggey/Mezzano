@@ -915,14 +915,14 @@ to wrap around logic"
                              (tcp-connection-rcv.nxt connection) (+u32 seq 1))
                        (tcp4-send-ack connection)
                        (arm-timeout-timer (* 2 *msl*) connection))
-                      ((eql seq (tcp-connection-rcv.nxt connection))
-                       (setf (tcp-connection-state connection) :fin-wait-2))
                       ((and (logtest flags +tcp4-flag-fin+)
                             (eql seq (tcp-connection-rcv.nxt connection)))
                        ;; Simultaneous close
                        (setf (tcp-connection-state connection) :closing
                              (tcp-connection-rcv.nxt connection) (+u32 seq 1))
-                       (tcp4-send-ack connection))))))
+                       (tcp4-send-ack connection))
+                      ((eql seq (tcp-connection-rcv.nxt connection))
+                       (setf (tcp-connection-state connection) :fin-wait-2))))))
         (:fin-wait-2
          ;; Local closed, still waiting for remote to close.
          (cond ((not (acceptable-segment-p connection seq data-length))
