@@ -55,8 +55,8 @@
 
 ;;; Window and Segment Sizing
 (defparameter *initial-window-size* 8192 "Initial congestion window size in octets")
-(defparameter *default-mss* 536 "Default maximum segment size in octets")
-(defparameter *mss* (- (mezzano.driver.network-card:mtu (first (mezzano.sync:watchable-set-items mezzano.driver.network-card::*nics*))) 40) "Maximum segment size in octets")
+(defparameter *default-snd.mss* 536 "Default maximum segment size in octets")
+(defparameter *rcv.mss* (- (mezzano.driver.network-card:mtu (first (mezzano.sync:watchable-set-items mezzano.driver.network-card::*nics*))) 40) "Maximum segment size in octets")
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Debugging and testing parameters
@@ -266,7 +266,7 @@ to wrap around logic"
              :initarg :rcv.nxt
              :type tcp-sequence-number)
    (%rcv.wnd :accessor tcp-connection-rcv.wnd :initarg :rcv.wnd)
-   (%mss :accessor tcp-connection-mss :initarg :mss)
+   (%snd.mss :accessor tcp-connection-snd.mss :initarg :snd.mss)
    (%rx-data :accessor tcp-connection-rx-data :initform '())
    ;; Doesn't need to be synchronized, only accessed from the network serial queue.
    (%rx-data-unordered :reader tcp-connection-rx-data-unordered
@@ -288,7 +288,7 @@ to wrap around logic"
    (%boot-id :reader tcp-connection-boot-id
              :initarg :boot-id))
   (:default-initargs
-   :mss *default-mss*
+   :snd.mss *default-snd.mss*
    :max.snd.wnd 0
    :last-ack-time nil
    :srtt nil
@@ -593,8 +593,8 @@ to wrap around logic"
                            (return))
                          (when (= kind +tcp-option-mss+)
                            (when (= length +tcp-option-mss-length+)
-                             (let ((mss (ub16ref/be packet (+ offset 2))))
-                               (setf (tcp-connection-mss connection) mss))))
+                             (let ((snd.mss (ub16ref/be packet (+ offset 2))))
+                               (setf (tcp-connection-snd.mss connection) snd.mss))))
                          (incf offset length))))))))
 
 (defun acceptable-segment-p (connection seg.seq seg.len)
@@ -1087,7 +1087,7 @@ to wrap around logic"
     (when syn-p
       (setf (aref header +tcp4-header-options+) 2
             (aref header (+ 1 +tcp4-header-options+)) 4
-            (ub16ref/be header (+ 2 +tcp4-header-options+)) *mss*))
+            (ub16ref/be header (+ 2 +tcp4-header-options+)) *rcv.mss*))
     ;; Compute the final checksum.
     (setf checksum (compute-ip-pseudo-header-partial-checksum
                     (mezzano.network.ip::ipv4-address-address src-ip)
@@ -1239,13 +1239,13 @@ to wrap around logic"
        (unless (tcp-connection-last-ack-time connection)
          (setf (tcp-connection-last-ack-time connection)
                (get-internal-run-time)))
-       (let ((mss (tcp-connection-mss connection)))
+       (let ((snd.mss (tcp-connection-snd.mss connection)))
          (cond ((>= start end))
-               ((> (- end start) mss)
+               ((> (- end start) snd.mss)
                 ;; Send multiple packets.
-                (loop :for offset :from start :by mss
-                      :while (> (- end offset) mss)
-                      :do (tcp-send-1 connection data offset (+ offset mss))
+                (loop :for offset :from start :by snd.mss
+                      :while (> (- end offset) snd.mss)
+                      :do (tcp-send-1 connection data offset (+ offset snd.mss))
                       :finally (tcp-send-1 connection data offset end :psh-p t)))
                (t
                 ;; Send one packet.
