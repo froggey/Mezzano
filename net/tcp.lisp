@@ -56,7 +56,7 @@
 ;;; Window and Segment Sizing
 (defparameter *initial-window-size* 8192 "Initial congestion window size in octets")
 (defparameter *default-mss* 536 "Default maximum segment size in octets")
-(defparameter *mss* 1460 "Maximum segment size in octets")
+(defparameter *mss* (- (mezzano.driver.network-card:mtu (first (mezzano.sync:watchable-set-items mezzano.driver.network-card::*nics*))) 40) "Maximum segment size in octets")
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Debugging and testing parameters
