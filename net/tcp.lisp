@@ -55,8 +55,8 @@
 
 ;;; Window and Segment Sizing
 (defparameter *initial-window-size* 8192 "Initial congestion window size in octets")
-(defparameter *default-max-seg-size* 536 "Default maximum segment size in octets")
-(defparameter *max-seg-size* 1460 "Maximum segment size in octets")
+(defparameter *default-mss* 536 "Default maximum segment size in octets")
+(defparameter *mss* 1460 "Maximum segment size in octets")
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Debugging and testing parameters
@@ -266,7 +266,7 @@ to wrap around logic"
              :initarg :rcv.nxt
              :type tcp-sequence-number)
    (%rcv.wnd :accessor tcp-connection-rcv.wnd :initarg :rcv.wnd)
-   (%max-seg-size :accessor tcp-connection-max-seg-size :initarg :max-seg-size)
+   (%mss :accessor tcp-connection-mss :initarg :mss)
    (%rx-data :accessor tcp-connection-rx-data :initform '())
    ;; Doesn't need to be synchronized, only accessed from the network serial queue.
    (%rx-data-unordered :reader tcp-connection-rx-data-unordered
@@ -288,7 +288,7 @@ to wrap around logic"
    (%boot-id :reader tcp-connection-boot-id
              :initarg :boot-id))
   (:default-initargs
-   :max-seg-size *default-max-seg-size*
+   :mss *default-mss*
    :max.snd.wnd 0
    :last-ack-time nil
    :srtt nil
@@ -594,7 +594,7 @@ to wrap around logic"
                          (when (= kind +tcp-option-mss+)
                            (when (= length +tcp-option-mss-length+)
                              (let ((mss (ub16ref/be packet (+ offset 2))))
-                               (setf (tcp-connection-max-seg-size connection) mss))))
+                               (setf (tcp-connection-mss connection) mss))))
                          (incf offset length))))))))
 
 (defun acceptable-segment-p (connection seg.seq seg.len)
@@ -1087,7 +1087,7 @@ to wrap around logic"
     (when syn-p
       (setf (aref header +tcp4-header-options+) 2
             (aref header (+ 1 +tcp4-header-options+)) 4
-            (ub16ref/be header (+ 2 +tcp4-header-options+)) *max-seg-size*))
+            (ub16ref/be header (+ 2 +tcp4-header-options+)) *mss*))
     ;; Compute the final checksum.
     (setf checksum (compute-ip-pseudo-header-partial-checksum
                     (mezzano.network.ip::ipv4-address-address src-ip)
@@ -1239,7 +1239,7 @@ to wrap around logic"
        (unless (tcp-connection-last-ack-time connection)
          (setf (tcp-connection-last-ack-time connection)
                (get-internal-run-time)))
-       (let ((mss (tcp-connection-max-seg-size connection)))
+       (let ((mss (tcp-connection-mss connection)))
          (cond ((>= start end))
                ((> (- end start) mss)
                 ;; Send multiple packets.
