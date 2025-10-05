@@ -56,6 +56,7 @@
 ;;; Window and Segment Sizing
 (defparameter *initial-window-size* 8192 "Initial congestion window size in octets")
 (defparameter *default-snd.mss* 536 "Default maximum segment size in octets")
+;; TODO: Make it less hacky
 (defparameter *rcv.mss* (- (mezzano.driver.network-card:mtu (first (mezzano.sync:watchable-set-items mezzano.driver.network-card::*nics*))) 40) "Maximum segment size in octets")
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -69,13 +70,8 @@
 Set to a value near 2^32 to test SND sequence number wrapping.")
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Connection state management
+;;; Type Definitions
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(defvar *tcp-connections* nil "List of active TCP connections")
-(defvar *tcp-connection-lock* (mezzano.supervisor:make-mutex "TCP connection list"))
-(defvar *tcp-listeners* nil "List of active TCP listeners")
-(defvar *tcp-listener-lock* (mezzano.supervisor:make-mutex "TCP listener list"))
 
 (deftype tcp-connection-state ()
   "Possible states that a TCP connection can have."
@@ -97,45 +93,51 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
 (deftype tcp-sequence-number ()
   '(unsigned-byte 32))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Sequence Number Arithmetic
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 (defun +u32 (x y)
+  "X + Y modulo 2^32 arithmetic"
   (ldb (byte 32 0) (+ x y)))
 
 (defun -u32 (x y)
+  "X - Y modulo 2^32 arithmetic"
   (ldb (byte 32 0) (- x y)))
 
 (defun <u32 (x y)
-  "Smaller wrapped y number may actually be considered greater than x due
-to wrap around logic"
+  "X < Y modulo 2^32 arithmetic"
   (or (and (< x y)
-           (< (- y x)
-              (ash 1 31)))
+           (< (- y x) (ash 1 31)))
       (and (> x y)
-           (> (- x y)
-              (ash 1 31)))))
+           (> (- x y) (ash 1 31)))))
 
 (defun >u32 (x y)
-  "Bigger wrapped y number may actually be considered smaller than x due
-to wrap around logic"
+  "X > Y modulo 2^32 arithmetic"
   (<u32 y x))
 
 (defun <=u32 (x y)
-  "Smaller wrapped y number may actually be considered greater than x due
-to wrap around logic"
+  "X <= Y modulo 2^32 arithmetic"
   (or (= x y)
       (<u32 x y)))
 
 (defun >=u32 (x y)
-  "Bigger wrapped y number may actually be considered smaller than x due
-to wrap around logic"
+  "X >= Y modulo 2^32 arithmetic"
   (<=u32 y x))
 
 (defun =< (a b c)
-  "a <= b <= c"
+  "a <= b <= c modulo 2^32 arithmetic"
   (if (< a c)
       (<= a b c)
-      ;; Sequence numbers wrapped.
       (or (<= a b)
           (<= b c))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; TCP Listener
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defvar *tcp-listeners* nil "List of active TCP listeners")
+(defvar *tcp-listener-lock* (mezzano.supervisor:make-mutex "TCP listener list"))
 
 ;; FIXME: Inbound connections need to timeout if state :syn-received don't change.
 ;; TODO: Better locking on this is probably needed. It looks like it is accesed
@@ -158,7 +160,10 @@ to wrap around logic"
                           :type integer)
    (backlog :reader tcp-listener-backlog
             :initarg :backlog))
-  (:default-initargs :n-pending-connections 0))
+  (:default-initargs
+   :pending-connections (make-hash-table :test 'equalp :synchronized t)
+   :connections (mezzano.sync:make-mailbox :name "TCP Listener")
+   :n-pending-connections 0))
 
 (defmethod mezzano.sync:get-object-event ((object tcp-listener))
   (mezzano.sync:get-object-event (tcp-listener-connections object)))
@@ -186,6 +191,16 @@ to wrap around logic"
   (mezzano.supervisor:with-mutex (*tcp-listener-lock*)
     (get-tcp-listener-without-lock local-ip local-port)))
 
+(defun find-available-port (port-check)
+  (loop :for port := (+ (random 32768) 32768)
+        :unless (funcall port-check port)
+          :do (return port)))
+
+(defun allocate-listener-local-port (source-address)
+  (find-available-port
+   #'(lambda (local-port)
+       (get-tcp-listener-without-lock source-address local-port))))
+
 (defun tcp-listen (local-host local-port &key backlog)
   (let* ((local-ip (mezzano.network:resolve-address local-host))
          (source-address (if (mezzano.network.ip:address-equal local-ip +ip-wildcard+)
@@ -194,18 +209,11 @@ to wrap around logic"
                               (nth-value 1 (mezzano.network.ip:ipv4-route local-ip))))))
     (mezzano.supervisor:with-mutex (*tcp-listener-lock*)
       (let* ((local-port (cond ((eql local-port +port-wildcard+)
-                                ;; find a suitable port number
-                                (loop :for local-port := (+ (random 32768) 32768)
-                                      :unless (get-tcp-listener-without-lock source-address local-port)
-                                      :do (return local-port)))
+                                (allocate-listener-local-port source-address))
                                ((get-tcp-listener-without-lock source-address local-port)
                                 (error "Server already listening on port ~D" local-port))
-                               (t
-                                local-port)))
+                               (t local-port)))
              (listener (make-instance 'tcp-listener
-                                      :pending-connections (make-hash-table :test 'equalp :synchronized t)
-                                      :connections (mezzano.sync:make-mailbox
-                                                    :name "TCP Listener")
                                       :backlog backlog
                                       :local-port local-port
                                       :local-ip source-address)))
@@ -216,12 +224,12 @@ to wrap around logic"
   (let ((connection (mezzano.sync:mailbox-receive
                      (tcp-listener-connections listener)
                      :wait-p wait-p)))
-    (cond (connection
-           (when (tcp-listener-backlog listener)
-             (decf (tcp-listener-n-pending-connections listener)))
-           (tcp4-accept-connection connection :element-type element-type :external-format external-format))
-          (t
-           nil))))
+    (when connection
+      (when (tcp-listener-backlog listener)
+        (decf (tcp-listener-n-pending-connections listener)))
+      (tcp4-accept-connection connection
+                              :element-type element-type
+                              :external-format external-format))))
 
 (defun close-tcp-listener (listener)
   (mezzano.supervisor:with-mutex (*tcp-listener-lock*)
@@ -233,10 +241,18 @@ to wrap around logic"
         :do (with-tcp-connection-locked connection
               (abort-connection connection))))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; TCP Connection
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defvar *tcp-connections* nil "List of active TCP connections")
+(defvar *tcp-connection-lock* (mezzano.supervisor:make-mutex "TCP connection list"))
+
 (defclass tcp-connection ()
   ((%state :accessor tcp-connection-state
            :initarg :state
            :type tcp-connection-state)
+   ;; Addressing
    (%local-port :reader tcp-connection-local-port
                 :initarg :local-port
                 :type tcp-port-number)
@@ -249,6 +265,7 @@ to wrap around logic"
    (%remote-ip :reader tcp-connection-remote-ip
                :initarg :remote-ip
                :type mezzano.network.ip::ipv4-address)
+   ;; Send sequence space
    (%snd.nxt :accessor tcp-connection-snd.nxt
              :initarg :snd.nxt
              :type tcp-sequence-number)
@@ -258,44 +275,59 @@ to wrap around logic"
              :initarg :snd.wnd)
    (%max.snd.wnd :accessor tcp-connection-max.snd.wnd
                  :initarg :max.snd.wnd)
+   ;; Receive sequence space
+   (%rcv.nxt :accessor tcp-connection-rcv.nxt
+             :initarg :rcv.nxt
+             :type tcp-sequence-number)
+   (%rcv.wnd :accessor tcp-connection-rcv.wnd
+             :initarg :rcv.wnd)
+   ;; Flow control and options
+   (%snd.mss :accessor tcp-connection-snd.mss
+             :initarg :snd.mss)
    (%snd.wl1 :accessor tcp-connection-snd.wl1
              :initarg :snd.wl1)
    (%snd.wl2 :accessor tcp-connection-snd.wl2
              :initarg :snd.wl2)
-   (%rcv.nxt :accessor tcp-connection-rcv.nxt
-             :initarg :rcv.nxt
-             :type tcp-sequence-number)
-   (%rcv.wnd :accessor tcp-connection-rcv.wnd :initarg :rcv.wnd)
-   (%snd.mss :accessor tcp-connection-snd.mss :initarg :snd.mss)
-   (%rx-data :accessor tcp-connection-rx-data :initform '())
+   ;; Data buffers
+   (%rx-data :accessor tcp-connection-rx-data
+             :initform '())
    ;; Doesn't need to be synchronized, only accessed from the network serial queue.
    (%rx-data-unordered :reader tcp-connection-rx-data-unordered
                        :initform (make-hash-table))
-   (%last-ack-time :accessor tcp-connection-last-ack-time :initarg :last-ack-time)
-   (%srtt :accessor tcp-connection-srtt :initarg :srtt)
-   (%rttvar :accessor tcp-connection-rttvar :initarg :rttvar)
-   (%rto :accessor tcp-connection-rto :initarg :rto)
-   (%retransmit-queue :accessor tcp-connection-retransmit-queue :initform '())
+   ;; Retransmission
+   (%retransmit-queue :accessor tcp-connection-retransmit-queue
+                      :initform '())
+   (%retransmit-timer :reader tcp-connection-retransmit-timer)
+   (%retransmit-source :reader tcp-connection-retransmit-source)
+   (%rto :accessor tcp-connection-rto
+         :initarg :rto)
+   ;; RTT estimation
+   (%srtt :accessor tcp-connection-srtt
+          :initarg :srtt)
+   (%rttvar :accessor tcp-connection-rttvar
+            :initarg :rttvar)
+   (%last-ack-time :accessor tcp-connection-last-ack-time
+                   :initarg :last-ack-time)
+   ;; Connection management
    (%lock :reader tcp-connection-lock)
    (%cvar :reader tcp-connection-cvar)
    (%receive-event :reader tcp-connection-receive-event)
-   (%pending-error :accessor tcp-connection-pending-error :initform nil)
-   (%retransmit-timer :reader tcp-connection-retransmit-timer)
-   (%retransmit-source :reader tcp-connection-retransmit-source)
+   (%pending-error :accessor tcp-connection-pending-error
+                   :initform nil)
    (%timeout-timer :reader tcp-connection-timeout-timer)
    (%timeout-source :reader tcp-connection-timeout-source)
    (%timeout :initarg :timeout :reader tcp-connection-timeout)
    (%boot-id :reader tcp-connection-boot-id
              :initarg :boot-id))
   (:default-initargs
-   :snd.mss *default-snd.mss*
    :max.snd.wnd 0
-   :last-ack-time nil
+   :snd.mss *default-snd.mss*
+   :rto *tcp-initial-retransmit-time*
    :srtt nil
    :rttvar nil
-   :rto *tcp-initial-retransmit-time*
-   :boot-id nil
-   :timeout nil))
+   :last-ack-time nil
+   :timeout nil
+   :boot-id nil))
 
 (defun (setf tcp-connection-timeout) (timeout connection)
   (with-tcp-connection-locked connection
@@ -320,7 +352,7 @@ to wrap around logic"
     (return-from retransmit-timer-handler))
   (mezzano.supervisor:with-mutex ((tcp-connection-lock connection))
     ;; Disarm it so it stops triggering the source
-    (mezzano.supervisor:timer-disarm (tcp-connection-retransmit-timer connection))
+    (disarm-retransmit-timer connection)
     ;; What're we retransmitting?
     (ecase (tcp-connection-state connection)
       (:syn-sent
@@ -328,27 +360,20 @@ to wrap around logic"
          (tcp4-send-packet connection seq 0 nil :ack-p nil :syn-p t)
          (arm-retransmit-timer connection)))
       (:syn-received
-       (let* ((iss (tcp-connection-snd.una connection))
-              (irs (tcp-connection-rcv.nxt connection)))
+       (let ((iss (tcp-connection-snd.una connection))
+             (irs (tcp-connection-rcv.nxt connection)))
          (tcp4-send-packet connection iss irs nil :syn-p t)
          (arm-retransmit-timer connection)))
-      ((:established
-        :close-wait
-        :last-ack
-        :fin-wait-1
-        :fin-wait-2
-        :closing
-        :time-wait)
+      ((:established :close-wait :last-ack :fin-wait-1 :fin-wait-2 :closing :time-wait)
        (let ((packet (first (tcp-connection-retransmit-queue connection))))
          (apply #'tcp4-send-packet connection packet)
          (setf (tcp-connection-rto connection)
                (min *maximum-rto* (* 2 (tcp-connection-rto connection))))
          (arm-retransmit-timer connection)))
-      (:closed))))
+      (:closed nil))))
 
 (defun arm-timeout-timer (seconds connection)
-  (mezzano.supervisor:timer-arm seconds
-                                (tcp-connection-timeout-timer connection))
+  (mezzano.supervisor:timer-arm seconds (tcp-connection-timeout-timer connection))
   (values))
 
 (defun disarm-timeout-timer (connection)
@@ -364,11 +389,8 @@ to wrap around logic"
     (return-from timeout-timer-handler))
   (mezzano.supervisor:with-mutex ((tcp-connection-lock connection))
     ;; Disarm it so it stops triggering the source
-    (mezzano.supervisor:timer-disarm (tcp-connection-timeout-timer connection))
-    (setf (tcp-connection-pending-error connection)
-          (make-condition 'connection-timed-out
-                          :host (tcp-connection-remote-ip connection)
-                          :port (tcp-connection-remote-port connection)))
+    (disarm-timeout-timer connection)
+    (set-connection-error 'connection-timed-out connection)
     (mezzano.supervisor:condition-notify (tcp-connection-cvar connection) t)
     (case (tcp-connection-state connection)
       ((:syn-sent :syn-received :time-wait)
@@ -505,8 +527,8 @@ to wrap around logic"
   ;; 1) It stops the timer from hanging around if it was active.
   ;; 2) If the source handler is pending, then it'll return immediately.
   (setf (tcp-connection-state connection) :closed)
-  (mezzano.supervisor:timer-disarm (tcp-connection-retransmit-timer connection))
-  (mezzano.supervisor:timer-disarm (tcp-connection-timeout-timer connection))
+  (disarm-retransmit-timer connection)
+  (disarm-timeout-timer connection)
   (mezzano.sync.dispatch:cancel (tcp-connection-retransmit-source connection))
   (mezzano.sync.dispatch:cancel (tcp-connection-timeout-source connection))
   (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
@@ -523,15 +545,15 @@ to wrap around logic"
   "Try to find any out-of-order data in CONNECTION that is now in-order."
   ;; Check if the next packet is in tcp-connection-rx-data-unordered
   (loop
-     :for (packet start end data-length)
-     := (gethash (tcp-connection-rcv.nxt connection)
-                 (tcp-connection-rx-data-unordered connection))
-     :always packet
-     :do (remhash (tcp-connection-rcv.nxt connection)
+    :for (packet start end data-length)
+      := (gethash (tcp-connection-rcv.nxt connection)
                   (tcp-connection-rx-data-unordered connection))
-     :do (append-data-packet connection (list packet start end))
-     :do (setf (tcp-connection-rcv.nxt connection)
-               (+u32 (tcp-connection-rcv.nxt connection) data-length))))
+    :always packet
+    :do (remhash (tcp-connection-rcv.nxt connection)
+                 (tcp-connection-rx-data-unordered connection))
+    :do (append-data-packet connection (list packet start end))
+    :do (setf (tcp-connection-rcv.nxt connection)
+              (+u32 (tcp-connection-rcv.nxt connection) data-length))))
 
 (defun tcp4-receive-data (connection data-length end header-length packet seq start)
   (cond ((= seq (tcp-connection-rcv.nxt connection))
@@ -715,10 +737,7 @@ to wrap around logic"
         (:syn-sent
          (cond ((logtest flags +tcp4-flag-rst+)
                 (when (acceptable-ack-p connection ack)
-                  (setf (tcp-connection-pending-error connection)
-                        (make-condition 'connection-reset
-                                        :host (tcp-connection-remote-ip connection)
-                                        :port (tcp-connection-remote-port connection)))
+                  (set-connection-error 'connection-reset connection)
                   (detach-tcp-connection connection)))
                ((and (logtest flags +tcp4-flag-ack+)
                      (not (acceptable-ack-p connection ack)))
@@ -764,10 +783,7 @@ to wrap around logic"
                        (detach-tcp-connection connection))
                       (t
                        ;; Connection comes from active OPEN
-                       (setf (tcp-connection-pending-error connection)
-                             (make-condition 'connection-refused
-                                             :host (tcp-connection-remote-ip connection)
-                                             :port (tcp-connection-remote-port connection)))
+                       (set-connection-error 'connection-refused connection)
                        (detach-tcp-connection connection))))
                ((logtest flags +tcp4-flag-syn+)
                 (cond ((and listener
@@ -810,10 +826,7 @@ to wrap around logic"
                   (tcp4-send-ack connection)))
                ((logtest flags +tcp4-flag-rst+)
                 (cond ((eql seq (tcp-connection-rcv.nxt connection))
-                       (setf (tcp-connection-pending-error connection)
-                             (make-condition 'connection-reset
-                                             :host (tcp-connection-remote-ip connection)
-                                             :port (tcp-connection-remote-port connection)))
+                       (set-connection-error 'connection-reset connection)
                        (detach-tcp-connection connection))
                       (t
                        (challenge-ack connection))))
@@ -842,10 +855,7 @@ to wrap around logic"
                   (tcp4-send-ack connection)))
                ((logtest flags +tcp4-flag-rst+)
                 (cond ((eql seq (tcp-connection-rcv.nxt connection))
-                       (setf (tcp-connection-pending-error connection)
-                             (make-condition 'connection-reset
-                                             :host (tcp-connection-remote-ip connection)
-                                             :port (tcp-connection-remote-port connection)))
+                       (set-connection-error 'connection-reset connection)
                        (detach-tcp-connection connection))
                       (t
                        (challenge-ack connection))))
@@ -890,10 +900,7 @@ to wrap around logic"
                   (tcp4-send-ack connection)))
                ((logtest flags +tcp4-flag-rst+)
                 (cond ((eql seq (tcp-connection-rcv.nxt connection))
-                       (setf (tcp-connection-pending-error connection)
-                             (make-condition 'connection-reset
-                                             :host (tcp-connection-remote-ip connection)
-                                             :port (tcp-connection-remote-port connection)))
+                       (set-connection-error 'connection-reset connection)
                        (detach-tcp-connection connection))
                       (t
                        (challenge-ack connection))))
@@ -930,10 +937,7 @@ to wrap around logic"
                   (tcp4-send-ack connection)))
                ((logtest flags +tcp4-flag-rst+)
                 (cond ((eql seq (tcp-connection-rcv.nxt connection))
-                       (setf (tcp-connection-pending-error connection)
-                             (make-condition 'connection-reset
-                                             :host (tcp-connection-remote-ip connection)
-                                             :port (tcp-connection-remote-port connection)))
+                       (set-connection-error 'connection-reset connection)
                        (detach-tcp-connection connection))
                       (t
                        (challenge-ack connection))))
@@ -1101,10 +1105,10 @@ to wrap around logic"
     (setf (ub16ref/be header +tcp4-header-checksum+) checksum)
     packet))
 
-(defun allocate-local-tcp-port (local-ip ip port)
-  (loop :for local-port := (+ (random 32768) 32768)
-        :do (unless (get-tcp-connection ip port local-ip local-port)
-              (return local-port))))
+(defun allocate-connection-local-port (local-ip ip port)
+  (find-available-port
+   #'(lambda (local-port)
+       (get-tcp-connection ip port local-ip local-port))))
 
 (define-condition connection-error (net:network-error)
   ((host :initarg :host :reader connection-error-host)
@@ -1131,6 +1135,13 @@ to wrap around logic"
 (define-condition connection-stale (connection-error)
   ())
 
+(defun set-connection-error (condition-type connection)
+  "Set a pending error condition on the TCP connection."
+  (setf (tcp-connection-pending-error connection)
+        (make-condition condition-type
+                        :host (tcp-connection-remote-ip connection)
+                        :port (tcp-connection-remote-port connection))))
+
 (defun flush-stale-connections ()
   ;; Called with snapshot inhibited to prevent more connections becoming stale.
   ;; Lock ordering note:
@@ -1147,10 +1158,7 @@ to wrap around logic"
               collect connection))))
     (dolist (connection stale-connections)
       (mezzano.supervisor:with-mutex ((tcp-connection-lock connection))
-        (setf (tcp-connection-pending-error connection)
-              (make-condition 'connection-stale
-                              :host (tcp-connection-remote-ip connection)
-                              :port (tcp-connection-remote-port connection)))
+        (set-connection-error 'connection-stale connection)
         (mezzano.supervisor:condition-notify (tcp-connection-cvar connection) t)
         (detach-tcp-connection connection)))))
 
@@ -1162,7 +1170,7 @@ to wrap around logic"
 (defun tcp-connect (ip port &key persist timeout)
   (let* ((interface (nth-value 1 (mezzano.network.ip:ipv4-route ip)))
          (source-address (mezzano.network.ip:ipv4-interface-address interface))
-         (source-port (allocate-local-tcp-port source-address ip port))
+         (source-port (allocate-connection-local-port source-address ip port))
          (iss (or *netmangler-iss*
                   (random #x100000000)))
          (connection (make-instance 'tcp-connection
@@ -1258,6 +1266,10 @@ to wrap around logic"
        (error 'connection-closed
               :host (tcp-connection-remote-ip connection)
               :port (tcp-connection-remote-port connection))))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; TCP Stream
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defclass tcp-octet-stream (gray:fundamental-binary-input-stream
                             gray:fundamental-binary-output-stream)
@@ -1411,15 +1423,9 @@ to wrap around logic"
 (defun abort-connection (connection)
   (ecase (tcp-connection-state connection)
     (:syn-sent
-     (setf (tcp-connection-pending-error connection)
-           (make-condition 'connection-reset
-                           :host (tcp-connection-remote-ip connection)
-                           :port (tcp-connection-remote-port connection))))
+     (set-connection-error 'connection-reset connection))
     ((:syn-received :established :fin-wait-1 :fin-wait-2 :close-wait)
-     (setf (tcp-connection-pending-error connection)
-           (make-condition 'connection-reset
-                           :host (tcp-connection-remote-ip connection)
-                           :port (tcp-connection-remote-port connection)))
+     (set-connection-error 'connection-reset connection)
      (tcp4-send-packet connection
                        (tcp-connection-snd.nxt connection)
                        (tcp-connection-rcv.nxt connection)
@@ -1434,72 +1440,41 @@ to wrap around logic"
   (mezzano.supervisor:condition-notify (tcp-connection-cvar connection) t)
   (detach-tcp-connection connection))
 
+(defun tcp4-send-fin (connection)
+  "Queue and send a FIN packet."
+  (let ((packet (list (tcp-connection-snd.nxt connection)
+                      (tcp-connection-rcv.nxt connection)
+                      nil
+                      :fin-p t
+                      :errors-escape t)))
+    (setf (tcp-connection-retransmit-queue connection)
+          (append (tcp-connection-retransmit-queue connection) (list packet))))
+  (arm-retransmit-timer connection)
+  (unless *netmangler-force-local-retransmit*
+    (tcp4-send-packet connection
+                      (tcp-connection-snd.nxt connection)
+                      (tcp-connection-rcv.nxt connection)
+                      nil
+                      :fin-p t
+                      :errors-escape t))
+  (setf (tcp-connection-snd.nxt connection)
+        (+u32 (tcp-connection-snd.nxt connection) 1)))
+
 (defun close-connection (connection)
   (ecase (tcp-connection-state connection)
     (:syn-sent
-     (setf (tcp-connection-pending-error connection)
-           (make-condition 'connection-closing
-                           :host (tcp-connection-remote-ip connection)
-                           :port (tcp-connection-remote-port connection)))
+     (set-connection-error 'connection-closing connection)
      (detach-tcp-connection connection))
     (:syn-received
      ;; TODO: If there is data to send queue for processing after entering ESTABLISHED state.
      (setf (tcp-connection-state connection) :fin-wait-1)
-     (setf (tcp-connection-retransmit-queue connection)
-           (append (tcp-connection-retransmit-queue connection)
-                   (list (list (tcp-connection-snd.nxt connection)
-                               (tcp-connection-rcv.nxt connection)
-                               nil
-                               :fin-p t
-                               :errors-escape t))))
-     (arm-retransmit-timer connection)
-     (unless *netmangler-force-local-retransmit*
-       (tcp4-send-packet connection
-                         (tcp-connection-snd.nxt connection)
-                         (tcp-connection-rcv.nxt connection)
-                         nil
-                         :fin-p t
-                         :errors-escape t))
-     (setf (tcp-connection-snd.nxt connection)
-           (+u32 (tcp-connection-snd.nxt connection) 1)))
+     (tcp4-send-fin connection))
     (:established
      (setf (tcp-connection-state connection) :fin-wait-1)
-     (setf (tcp-connection-retransmit-queue connection)
-           (append (tcp-connection-retransmit-queue connection)
-                   (list (list (tcp-connection-snd.nxt connection)
-                               (tcp-connection-rcv.nxt connection)
-                               nil
-                               :fin-p t
-                               :errors-escape t))))
-     (arm-retransmit-timer connection)
-     (unless *netmangler-force-local-retransmit*
-       (tcp4-send-packet connection
-                         (tcp-connection-snd.nxt connection)
-                         (tcp-connection-rcv.nxt connection)
-                         nil
-                         :fin-p t
-                         :errors-escape t))
-     (setf (tcp-connection-snd.nxt connection)
-           (+u32 (tcp-connection-snd.nxt connection) 1)))
+     (tcp4-send-fin connection))
     (:close-wait
      (setf (tcp-connection-state connection) :last-ack)
-     (setf (tcp-connection-retransmit-queue connection)
-           (append (tcp-connection-retransmit-queue connection)
-                   (list (list (tcp-connection-snd.nxt connection)
-                               (tcp-connection-rcv.nxt connection)
-                               nil
-                               :fin-p t
-                               :errors-escape t))))
-     (arm-retransmit-timer connection)
-     (unless *netmangler-force-local-retransmit*
-       (tcp4-send-packet connection
-                         (tcp-connection-snd.nxt connection)
-                         (tcp-connection-rcv.nxt connection)
-                         nil
-                         :fin-p t
-                         :errors-escape t))
-     (setf (tcp-connection-snd.nxt connection)
-           (+u32 (tcp-connection-snd.nxt connection) 1)))
+     (tcp4-send-fin connection))
     ((:last-ack :fin-wait-1 :fin-wait-2 :closing :time-wait :closed))))
 
 (defmethod close ((stream tcp-octet-stream) &key abort)
