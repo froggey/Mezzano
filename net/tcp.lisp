@@ -1,7 +1,9 @@
 ;;; TCP
 ;;;
-;;; Transmission Control Protocol - Protocol Specification
+;;; Transmission Control Protocol (TCP)
 ;;; https://datatracker.ietf.org/doc/html/rfc9293
+;;; Improving TCP's Robustness to Blind In-Window Attacks
+;;; https://datatracker.ietf.org/doc/html/rfc5961
 ;;;
 
 (in-package :mezzano.network.tcp)
