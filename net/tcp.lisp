@@ -1040,12 +1040,14 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
           (error c))))))
 
 (defun tcp4-send-ack (connection)
+  "Send a standard ACK segment in response to valid segments."
   (tcp4-send-packet connection
                     (tcp-connection-snd.nxt connection)
                     (tcp-connection-rcv.nxt connection)
                     nil))
 
 (defun challenge-ack (connection)
+  "Send a challenge ACK segment in response to suspicious segments (RFC5961)."
   (tcp4-send-packet connection
                     (tcp-connection-snd.nxt connection)
                     (tcp-connection-rcv.nxt connection)
