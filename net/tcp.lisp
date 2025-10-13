@@ -59,7 +59,7 @@
 (defparameter *initial-window-size* 8192 "Initial congestion window size in octets")
 (defparameter *default-snd.mss* 536 "Default maximum segment size in octets")
 ;; TODO: Make it less hacky
-(defparameter *rcv.mss* (- (mezzano.driver.network-card:mtu (first (mezzano.sync:watchable-set-items mezzano.driver.network-card::*nics*))) 40) "Maximum segment size in octets")
+(defparameter *mtu* (mezzano.driver.network-card:mtu (first (mezzano.sync:watchable-set-items mezzano.driver.network-card::*nics*))) "Maximum segment size in octets")
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Debugging and testing parameters
@@ -617,8 +617,9 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                            (return))
                          (when (= kind +tcp-option-mss+)
                            (when (= length +tcp-option-mss-length+)
-                             (let ((snd.mss (ub16ref/be packet (+ offset 2))))
-                               (setf (tcp-connection-snd.mss connection) snd.mss))))
+                             (let* ((snd.mss (ub16ref/be packet (+ offset 2)))
+                                    (eff.snd.mss (- (min (+ snd.mss 20) *mtu*) 20 20)))
+                               (setf (tcp-connection-snd.mss connection) eff.snd.mss))))
                          (incf offset length))))))))
 
 (defun acceptable-segment-p (connection seg.seq seg.len)
@@ -1092,11 +1093,10 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
           (ub16ref/be header +tcp4-header-checksum+) 0
           ;; Urgent pointer.
           (ub16ref/be header +tcp4-header-urgent-pointer+) 0)
-    ;; MSS TODO: MUST-16, SHLD-6 and MUST-67
     (when syn-p
       (setf (aref header +tcp4-header-options+) 2
             (aref header (+ 1 +tcp4-header-options+)) 4
-            (ub16ref/be header (+ 2 +tcp4-header-options+)) *rcv.mss*))
+            (ub16ref/be header (+ 2 +tcp4-header-options+)) (- *mtu* 20)))
     ;; Compute the final checksum.
     (setf checksum (compute-ip-pseudo-header-partial-checksum
                     (mezzano.network.ip::ipv4-address-address src-ip)
