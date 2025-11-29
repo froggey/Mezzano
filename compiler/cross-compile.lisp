@@ -160,9 +160,7 @@
       (cl:get-setf-expansion int env);Get setf expansion for int.
     (let ((btemp (gensym))     ;Temp var for byte specifier.
           (store (gensym))     ;Temp var for byte to store.
-          (stemp (first stores)) ;Temp var for int to store.
-          (bs-size (gensym))   ; Temp var for byte specifier size.
-          (bs-position (gensym))) ; Temp var for byte specifier position.
+          (stemp (first stores))) ;Temp var for int to store.
       (when (cdr stores) (error "Can't expand this."))
       ;; Return the setf expansion for LDB as five values.
       (values (cons btemp temps)       ;Temporary variables.
@@ -410,6 +408,7 @@
 (defvar *macroexpand-hook* 'funcall)
 
 (defun constantp (form &optional env)
+  (declare (ignore env))
   (if (or (eql form 'nil) (eql form 't)
           (keywordp form)
           (and (not (symbolp form))
@@ -526,6 +525,7 @@
 
 ;; TODO: Wrap form in a bunch of macrolets.
 (defun x-eval (form env)
+  (declare (ignore env))
   (when *compile-print*
     (let ((*print-length* 3)
           (*print-level* 2))
@@ -1133,7 +1133,6 @@
   (let* ((builtins (ecase target-architecture
                      (:x86-64 (mezzano.compiler.backend.x86-64::generate-builtin-functions))
                      (:arm64 (mezzano.compiler.backend.arm64::generate-builtin-functions))))
-         (*use-new-compiler* nil)
          (*target-architecture* target-architecture))
     (save-custom-compiled-file path
                                (lambda ()
@@ -1294,10 +1293,10 @@ This should only fill in the START- slots and ignore the END- slots.")
   (values))
 
 (defmacro mezzano.supervisor:with-rw-lock-read ((lock) &body body)
-  `(progn ,@body))
+  `(progn ,lock nil ,@body))
 
 (defmacro mezzano.supervisor:with-rw-lock-write ((lock) &body body)
-  `(progn ,@body))
+  `(progn ,lock nil ,@body))
 
 (defun mezzano.extensions:add-find-definitions-hook (hook)
   (declare (ignore hook))

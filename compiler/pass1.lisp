@@ -327,11 +327,6 @@
                   (pass1-form expansion env)
                   (pass1-function-form form env))))))))
 
-(defun function-name-p (thing)
-  (ignore-errors
-    (or (symbolp thing)
-        (typep thing '(cons (eql setf) (cons symbol null))))))
-
 (defun pass1-function-form (form env)
   (assert (symbolp (first form)))
   (let ((fn (find-function (first form) env))

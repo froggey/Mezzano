@@ -99,6 +99,7 @@
       (return t))))
 
 (defun unbox-phis-phi-is-candidate-p (backend-function uses defs bb bb-preds index phi)
+  (declare (ignore uses phi))
   (flet ((value-type (vreg)
            (let ((inst (first (gethash vreg defs))))
              (typecase inst

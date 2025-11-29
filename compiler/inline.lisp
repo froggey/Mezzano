@@ -90,6 +90,7 @@
   form)
 
 (defun expand-inline-function (form name arg-list architecture)
+  (declare (ignore architecture))
   (multiple-value-bind (inlinep expansion)
       (function-inline-info name)
     (when (and (or inlinep

@@ -398,6 +398,7 @@
   't)
 
 (defun %defconstant (environment symbol value &optional docstring)
+  (declare (ignore docstring))
   (setf (symbol-global-value environment symbol) value))
 
 (defmacro do-all-environment-symbols ((symbol environment &optional result) &body body)

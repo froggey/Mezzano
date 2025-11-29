@@ -7,3 +7,4 @@
 /*.vmdk
 /*.vdi
 /build-*
+.DS_Store

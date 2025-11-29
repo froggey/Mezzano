@@ -823,7 +823,7 @@
                          :source lhs
                          :destination lhs-unboxed))
     (cond ((and (constant-value-p rhs '(signed-byte 64))
-                (lap:encodable-bit-mask-p (fetch-constant-value rhs)))
+                (lap:encodable-bit-mask-p (fetch-constant-value rhs) 64))
            (emit (make-instance 'arm64-instruction
                                 :opcode 'lap:orr
                                 :operands (list result-unboxed
@@ -852,7 +852,7 @@
                          :source lhs
                          :destination lhs-unboxed))
     (cond ((and (constant-value-p rhs '(signed-byte 64))
-                (lap:encodable-bit-mask-p (fetch-constant-value rhs)))
+                (lap:encodable-bit-mask-p (fetch-constant-value rhs) 64))
            (emit (make-instance 'arm64-instruction
                                 :opcode 'lap:eor
                                 :operands (list result-unboxed
@@ -881,7 +881,7 @@
                          :source lhs
                          :destination lhs-unboxed))
     (cond ((and (constant-value-p rhs '(signed-byte 64))
-                (lap:encodable-bit-mask-p (fetch-constant-value rhs)))
+                (lap:encodable-bit-mask-p (fetch-constant-value rhs) 64))
            (emit (make-instance 'arm64-instruction
                                 :opcode 'lap:and
                                 :operands (list result-unboxed
@@ -1130,7 +1130,7 @@
                          :source lhs
                          :destination lhs-unboxed))
     (cond ((and (constant-value-p rhs '(signed-byte 64))
-                (lap:encodable-bit-mask-p (fetch-constant-value rhs)))
+                (lap:encodable-bit-mask-p (fetch-constant-value rhs) 64))
            (emit (make-instance 'arm64-instruction
                                 :opcode 'lap:orr
                                 :operands (list result-unboxed
@@ -1159,7 +1159,7 @@
                          :source lhs
                          :destination lhs-unboxed))
     (cond ((and (constant-value-p rhs '(signed-byte 64))
-                (lap:encodable-bit-mask-p (fetch-constant-value rhs)))
+                (lap:encodable-bit-mask-p (fetch-constant-value rhs) 64))
            (emit (make-instance 'arm64-instruction
                                 :opcode 'lap:eor
                                 :operands (list result-unboxed
@@ -1188,7 +1188,7 @@
                          :source lhs
                          :destination lhs-unboxed))
     (cond ((and (constant-value-p rhs '(signed-byte 64))
-                (lap:encodable-bit-mask-p (fetch-constant-value rhs)))
+                (lap:encodable-bit-mask-p (fetch-constant-value rhs) 64))
            (emit (make-instance 'arm64-instruction
                                 :opcode 'lap:and
                                 :operands (list result-unboxed

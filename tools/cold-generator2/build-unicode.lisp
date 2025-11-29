@@ -164,7 +164,7 @@ the seperator character."
 
 (defun add-name-to-trie (name value trie)
   ;; Remove spaces & medial hyphens from name and convert to a simple-base-string.
-  (let ((new-name (make-array (length name) :element-type 'base-string :fill-pointer 0))
+  (let ((new-name (make-array (length name) :fill-pointer 0))
 	(prev-was-letter t))
     (dotimes (i (length name))
       (let ((ch (char name i)))

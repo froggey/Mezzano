@@ -12,5 +12,6 @@ Interrupt handler restrictions:
 * No access to non-wired memory. Access to non-wired memory may cause a further interrupt as memory is paged in, or worse require that the page be read in from disk. This includes calling non-wired functions.
 * No allocation. Interrupt handlers may run during GC, which inhibits allocation. All allocation required by an interrupt handler must be performed ahead of time, not in the interrupt handler itself.
 * No standard error handling. Interrupt handlers must be correct, and any device-generated errors must be handled explictly.
+* No access to special variables. Variables must be either lexical, constant, or global.
 
 Restrictions for interrupt handlers are hard and fast. Your code is broken if it does not follow these restrictions and will cause panics.

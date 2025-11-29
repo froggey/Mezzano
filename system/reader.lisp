@@ -367,7 +367,6 @@
         ;; Work in double-precision.
         (decimal-part 0.0d0)
         (saw-integer-digits nil)
-        (saw-decimal-digits nil)
         (saw-decimal-point nil)
         (exponent nil)
         (exponent-sign 1)
@@ -412,7 +411,6 @@
           (loop
              (when (not (find (peek) *decimal-digits*))
                (return))
-             (setf saw-decimal-digits t)
              (consume))
           ;; Now works backwards and build the decimal part.
           (dotimes (i (- position first-decimal))
@@ -461,7 +459,6 @@
   ;;         = sign? digit+
   (let ((read-base *read-base*)
         (negative nil)
-        (saw-sign nil)
         (number 0)
         (start 0)
         (end (length token)))
@@ -472,8 +469,7 @@
     ;; Check for a leading sign.
     (when (or (plus-sign-p (char token 0))
               (minus-sign-p (char token 0)))
-      (setf saw-sign t
-            negative (minus-sign-p (char token 0))
+      (setf negative (minus-sign-p (char token 0))
             start (1+ start)))
     ;; If the token is empty, aside from the sign, then it isn't a number.
     (when (not (= (- end start) 0))
@@ -1078,7 +1074,7 @@
 (defvar *reader-form-locations* nil)
 
 (defun call-with-reader-location-tracking (thunk)
-  (let ((*reader-form-element-locations* (make-hash-table))
+  (let ((*reader-element-locations* (make-hash-table))
         (*reader-form-locations* (make-hash-table)))
     (funcall thunk)))
 
