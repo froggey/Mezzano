@@ -677,7 +677,6 @@
                          :source result-unboxed
                          :destination result))))
 
-
 ;;; Unsigned-byte 64 arithmetic
 
 (define-builtin mezzano.runtime::%fast-ub64-+ ((lhs rhs) result)
