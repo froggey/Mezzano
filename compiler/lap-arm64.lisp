@@ -995,6 +995,18 @@
 (define-logical-instruction eor eon #b10)
 (define-logical-instruction ands bics #b11)
 
+(define-instruction orr.v (size dst lhs rhs)
+  (let ((q (ecase size
+             (:8b 0)
+             (:16b 1))))
+    (emit-instruction
+     (logior #x0EA01C00
+             (ash q 30)
+             (ash (register-number rhs) +rm-shift+)
+             (ash (register-number lhs) +rn-shift+)
+             (ash (register-number dst) +rd-shift+)))
+    (return-from instruction t)))
+
 (defun emit-conditional-branch (condition target)
   (let ((imm-value (resolve-immediate target)))
     (mezzano.lap:emit-relocation :arm-pcrel
@@ -1618,30 +1630,43 @@
 (define-instruction fmov (lhs rhs)
   (let ((lhs-class (register-class lhs))
         (rhs-class (register-class rhs)))
-    (multiple-value-bind (sf type rmode opcode)
-        (cond ((and (eql lhs-class :fp-32)
-                    (eql rhs-class :gpr-32))
-               (values #b0 #b00 #b00 #b111))
-              ((and (eql lhs-class :gpr-32)
-                    (eql rhs-class :fp-32))
-               (values #b0 #b00 #b00 #b110))
-              ((and (eql lhs-class :fp-64)
-                    (eql rhs-class :gpr-64))
-               (values #b1 #b01 #b00 #b111))
-              ((and (eql lhs-class :gpr-64)
-                    (eql rhs-class :fp-64))
-               (values #b1 #b01 #b00 #b110))
-              (t
-               (error "Unsupported FMOV operand combination ~S and ~S."
-                      lhs rhs)))
-      (emit-instruction (logior (ash sf 31)
-                                #x1E260000
-                                (ash type 22)
-                                (ash rmode 19)
-                                (ash opcode 16)
-                                (ash (register-number rhs) +rn-shift+)
-                                (ash (register-number lhs) +rd-shift+)))
-      (return-from instruction t))))
+    (cond
+      ((and (member lhs-class '(:fp-32 :fp-64))
+            (eql lhs-class rhs-class))
+       (let ((type (ecase lhs-class
+                     (:fp-32 0)
+                     (:fp-64 1))))
+         (emit-instruction
+          (logior (ash type 22)
+                  #x1E204000
+                  (ash (register-number rhs) +rn-shift+)
+                  (ash (register-number lhs) +rd-shift+)))
+         (return-from instruction t)))
+      (t
+       (multiple-value-bind (sf type rmode opcode)
+           (cond ((and (eql lhs-class :fp-32)
+                       (eql rhs-class :gpr-32))
+                  (values #b0 #b00 #b00 #b111))
+                 ((and (eql lhs-class :gpr-32)
+                       (eql rhs-class :fp-32))
+                  (values #b0 #b00 #b00 #b110))
+                 ((and (eql lhs-class :fp-64)
+                       (eql rhs-class :gpr-64))
+                  (values #b1 #b01 #b00 #b111))
+                 ((and (eql lhs-class :gpr-64)
+                       (eql rhs-class :fp-64))
+                  (values #b1 #b01 #b00 #b110))
+                 (t
+                  (error "Unsupported FMOV operand combination ~S and ~S."
+                         lhs rhs)))
+         (emit-instruction (logior (ash sf 31)
+                                   #x1E260000
+                                   (ash type 22)
+                                   (ash rmode 19)
+                                   (ash opcode 16)
+                                   (ash (register-number rhs) +rn-shift+)
+                                   (ash (register-number lhs) +rd-shift+)))
+         (return-from instruction t))))))
 
 (define-instruction fcmp (lhs rhs)
   (let ((lhs-class (register-class lhs))
