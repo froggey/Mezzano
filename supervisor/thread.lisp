@@ -666,20 +666,27 @@ not and WAIT-P is false."
           (thread-state-r15 thread) 0))
   ;; Remove the thread from any potential run queue it may be on.
   (when (and (not (eql priority :idle))
-             (run-queue-linked-p thread))
+             (run-queue-linked-p thread)
+             (not (thread-wait-item thread)))
     (debug-print-line "Removing thread " thread " from rq "
                       (run-queue-for-priority (thread-priority thread))
                       " next is " (thread-queue-next thread)
                       " prev is " (thread-queue-prev thread)
                       " head is " (run-queue-head (run-queue-for-priority (thread-priority thread)))
                       " tail is " (run-queue-tail (run-queue-for-priority (thread-priority thread))))
-    ;; FIXME: Something funny is going on here...
-    ;; The disk io thread has nil (not :unlinked) in the next/prev fields but
-    ;; the supervisor run queue is empty.
-    ;; Hack around this bug ^
-    (when (run-queue-head (run-queue-for-priority (thread-priority thread)))
-      (run-queue-remove thread
-                        (run-queue-for-priority (thread-priority thread)))))
+    (run-queue-remove thread
+                      (run-queue-for-priority (thread-priority thread))))
+  ;; Remove the thread from any potential wait queue it may be on.
+  (when (and (wait-queue-linked-p thread)
+             (thread-wait-item thread))
+    (debug-print-line "Removing thread " thread " from wq "
+                      (thread-wait-item thread)
+                      " next is " (thread-queue-next thread)
+                      " prev is " (thread-queue-prev thread)
+                      " head is " (wait-queue-head (thread-wait-item thread))
+                      " tail is " (wait-queue-tail (thread-wait-item thread)))
+    (wait-queue-remove thread (thread-wait-item thread)))
+    ;; Remove from whatever wait queue too
   (setf (thread-state thread) state
         (thread-priority thread) (or priority :supervisor)
         (thread-special-stack-pointer thread) nil
