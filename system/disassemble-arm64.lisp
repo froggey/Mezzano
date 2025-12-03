@@ -463,19 +463,6 @@
                    :operands `(,(decode-fp (ldb +rd+ word) type)
                                ,(decode-fp (ldb +rn+ word) type)))))
 
-(defun fmov-general (context word)
-  (declare (ignore context))
-  (let ()
-    (if (logbitp 16 word)
-        (make-instance 'arm64-instruction
-                       :opcode 'a64:fmov
-                       :operands `(,(decode-fp (ldb +rd+ word) type)
-                                   ,(decode-gp (ldb +rn+ word) :sf sf)))
-        (make-instance 'arm64-instruction
-                       :opcode 'a64:fmov
-                       :operands `(,(decode-gp (ldb +rd+ word) :sf sf)
-                                   ,(decode-fp (ldb +rn+ word) type))))))
-
 (defun conversions-between-floating-point-and-integer (context word)
   (declare (ignore context))
   (let* ((sf (ldb (byte 1 31) word))
@@ -526,8 +513,6 @@
   (cond
     ((eql (logand word #xFF3FFC00) #x1E204000)
      (fmov-register context word))
-    ;((eql (logand word #x7F36FC00) #x1E260000)
-    ; (fmov-general context word))
     ((eql (logand word #xFF20FC17) #x1E202000)
      (let ((type (ldb (byte 2 22) word)))
        (make-instance 'arm64-instruction
