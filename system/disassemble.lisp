@@ -37,7 +37,9 @@
            #:code-end
            #:code-byte
 
-           #:label))
+           #:label
+
+           #:decode-object-from-integer))
 
 (in-package :mezzano.disassemble)
 
@@ -318,3 +320,19 @@
 
 (defun consume-sb64/le (context)
   (consume-word/le context 8 t))
+
+(defun decode-object-from-integer (value &optional (width 64))
+  (cond ((eql value (sys.int::lisp-object-address nil))
+         (values nil t))
+        ((eql value (sys.int::lisp-object-address t))
+         (values t t))
+        ((eql value (sys.int::lisp-object-address (sys.int::%unbound-value)))
+         (values (sys.int::%unbound-value) t))
+        ((eql value (sys.int::lisp-object-address (sys.int::%symbol-binding-cache-sentinel)))
+         (values (sys.int::%symbol-binding-cache-sentinel) t))
+        ((eql value (sys.int::lisp-object-address (sys.int::%layout-instance-header)))
+         (values (sys.int::%layout-instance-header) t))
+        ((not (logbitp 0 value))
+         (values (ash (sys.int::sign-extend value width) -1) t))
+        ((eql (logand value 15) sys.int::+tag-immediate+)
+         (values (sys.int::%%assemble-value value 0) t))))

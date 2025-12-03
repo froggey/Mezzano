@@ -1,4 +1,8 @@
+# Some random useful code snippets
+
 ## To get a disassembly in the cross-environment:
+
+Not actually a diassembly, it's the input to the assembler. Not a round-trip through the assembler & disassembler.
 
 ```lisp
 (let ((mezzano.compiler::*trace-asm* t))
