@@ -96,6 +96,8 @@
          `(lap:orr ,dest :xzr :xzr))
         ((<= 0 value 65535)
          `(lap:movz ,dest ,value))
+        ((<= 0 (lognot value) 65535)
+         `(lap:movn ,dest ,(lognot value)))
         (t
          `(lap:ldr ,dest ,(fetch-literal value)))))
 
