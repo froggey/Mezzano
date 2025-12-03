@@ -1561,28 +1561,49 @@
                             (ash (register-number rhs) +rm-shift+)))
   (return-from instruction t))
 
-(define-instruction bfi (lhs src lsb width)
-  (let ((is-64-bit (eql (register-class lhs) :gpr-64)))
-    (cond (is-64-bit
-           (check-register-class lhs :gpr-64)
-           (check-register-class src :gpr-64 :xzr)
-           (assert (<= 0 lsb 63))
-           (assert (<= 1 width (- 64 lsb))))
-          (t
-           (check-register-class lhs :gpr-32)
-           (check-register-class src :gpr-32 :wzr)
-           (assert (<= 0 lsb 31))
-           (assert (<= 1 width (- 32 lsb)))))
-    (emit-instruction (logior (if is-64-bit
-                                  #x80000000
-                                  #x00000000)
-                              #x33000000
-                              (if is-64-bit (ash 1 +n-shift+) 0)
-                              (ash (1- width) +imms-shift+)
-                              (ash (- (if is-64-bit 64 32) lsb) +immr-shift+)
-                              (ash (register-number src) +rn-shift+)
-                              (ash (register-number lhs) +rd-shift+)))
-    (return-from instruction t)))
+(defmacro define-bitfield-instruction (name opcode)
+  `(define-instruction ,name (lhs src immr imms)
+    (let ((is-64-bit (eql (register-class lhs) :gpr-64)))
+      (cond (is-64-bit
+             (check-register-class lhs :gpr-64)
+             (check-register-class src :gpr-64 :xzr)
+             (assert (<= 0 immr 63))
+             (assert (<= 0 imms 63)))
+            (t
+             (check-register-class lhs :gpr-32)
+             (check-register-class src :gpr-32 :wzr)
+             (assert (<= 0 immr 31))
+             (assert (<= 0 imms 31))))
+      (emit-instruction (logior (if is-64-bit
+                                    #x80000000
+                                    #x00000000)
+                                #x13000000
+                                ,(ash opcode 29)
+                                (if is-64-bit (ash 1 +n-shift+) 0)
+                                (ash imms +imms-shift+)
+                                (ash immr +immr-shift+)
+                                (ash (register-number src) +rn-shift+)
+                                (ash (register-number lhs) +rd-shift+)))
+      (return-from instruction t))))
+
+(define-bitfield-instruction sbfm 0)
+(define-bitfield-instruction bfm 1)
+(define-bitfield-instruction ubfm 2)
+
+(define-macro-instruction bfc (lhs lsb width)
+  (let* ((is-64-bit (eql (register-class lhs) :gpr-64))
+         (lim (if is-64-bit 64 32)))
+    (assert (<= lsb (1- lim)))
+    (assert (<= 1 width (- lim lsb)))
+    (list `(bfm ,lhs ,(if is-64-bit :xzr :wzr) src ,(- lim lsb) ,(1- width)))))
+
+(define-macro-instruction bfi (lhs src lsb width)
+  (let ((lim (if (eql (register-class lhs) :gpr-64)
+                 64
+                 32)))
+    (assert (<= lsb (1- lim)))
+    (assert (<= 1 width (- lim lsb)))
+    (list `(bfm ,lhs ,src ,(- lim lsb) ,(1- width)))))
 
 (define-instruction ubfx (lhs src lsb width)
   (let ((is-64-bit (eql (register-class lhs) :gpr-64)))

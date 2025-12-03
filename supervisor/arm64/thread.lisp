@@ -257,6 +257,7 @@
             (thread-state-rbp thread) (+ sp (* 16 8))
             (thread-full-save-p thread) nil))))
 
+;; FIXME: GC metadata is wrong for this.
 (sys.int::define-lap-function %%force-call-on-thread-return-thunk ()
   ;; There's a return address on the stack, pop it and return to it.
   ;; Needed to paper over calling convention differences.

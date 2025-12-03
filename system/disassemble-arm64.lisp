@@ -130,10 +130,7 @@
                                 'a64:ldp))
                          'a64:stp)))
          (reg-decoder (if simd&fp
-                          (ecase (ldb (byte 2 30) word)
-                            (0 #'decode-fp32)
-                            (1 #'decode-fp64)
-                            (2 #'decode-fp128))
+                          (lambda (reg) (decode-fp reg (ldb (byte 2 30) word)))
                           (ecase (ldb (byte 2 30) word)
                             (0 #'decode-gp32)
                             (1 #'decode-gp64)
@@ -251,8 +248,8 @@
          ;; FIXME: Address decode here is wrong, particularly around the shift count
          (address (list* (decode-gp64 (ldb +rn+ word) :sp t)
                          (if (logbitp 0 option)
-                             (decode-gp32 (ldb +rm+ word))
-                             (decode-gp64 (ldb +rm+ word)))
+                             (decode-gp64 (ldb +rm+ word))
+                             (decode-gp32 (ldb +rm+ word)))
                          (unless (and (eql option 3) (not s))
                            (list (case option
                                    (2 :uxtw)
@@ -400,6 +397,36 @@
                                ,@(if (not (and (eql extend :lsl) (zerop imm3)))
                                      (list extend imm3))))))
 
+(defun conditional-select (context word)
+  (declare (ignore context))
+  (let* ((sf (logbitp 31 word))
+         (op (logbitp 30 word))
+         (s (logbitp 29 word))
+         (cond (aref #(:eq :ne :cs :cc :mi :pl :vs :vc :hi :ls :ge :lt :gt :le :al nil)
+                     (ldb (byte 4 12) word)))
+         (op2 (ldb (byte 2 10) word))
+         (opcode (if (logbitp 0 op2)
+                     (if op
+                         :csneg
+                         :csinc)
+                     (if op
+                         :csinv
+                         :csel)))
+         (rm (decode-gp (ldb +rm+ word) :sf sf))
+         (rn (decode-gp (ldb +rn+ word) :sf sf))
+         (rd (decode-gp (ldb +rd+ word) :sf sf)))
+    (when (or (not cond)
+              (logbitp 1 op2)
+              s)
+      (return-from conditional-select
+        (values nil :conditional-select)))
+    (let ((opcode (intern
+                   (format nil "~A.~A" opcode cond)
+                   (find-package :mezzano.lap.arm64))))
+      (make-instance 'arm64-instruction
+                     :opcode opcode
+                     :operands (list rd rn rm)))))
+
 (defun data-processing-register (context word)
   (let ((op0 (ldb (byte 1 30) word))
         (op1 (ldb (byte 1 28) word))
@@ -422,7 +449,7 @@
           ((and (eql op1 1) (eql op2 2) (eql op3 1))
            (values nil :conditional-compare-immediate))
           ((and (eql op1 1) (eql op2 4))
-           (values nil :conditional-select))
+           (conditional-select context word))
           ((and (eql op1 1) (eql (logand op2 #x8) 8))
            (values nil :data-processing-3-source))
           (t
@@ -586,13 +613,52 @@
                                ,@(unless (zerop hw)
                                    `(:lsl ,(* hw 16)))))))
 
+(defun bitfield (context word)
+  (declare (ignore context))
+  (let* ((sf (ldb (byte 1 31) word))
+         (opc (ldb (byte 2 29) word))
+         (n (ldb (byte 1 22) word))
+         (rn (ldb +rn+ word))
+         (immr (ldb (byte 6 16) word))
+         (imms (ldb (byte 6 10) word))
+         (opcode (aref #(a64:sbfm a64:bfm a64:ubfm nil) opc)))
+    (when (or (not (eql sf n))
+              (not opcode))
+      (return-from bitfield
+        (values nil :bitfield)))
+    (cond
+      ((and (eql opcode 'a64:bfm)
+            (not (eql rn 31))
+            (< imms immr))
+       (make-instance 'arm64-instruction
+                      :opcode 'a64:bfi
+                      :operands (list (decode-gp (ldb +rd+ word) :sf sf)
+                                      (decode-gp rn :sf sf)
+                                      (- (if (zerop sf) 32 64) immr)
+                                      (1+ imms))))
+      ((and (eql opcode 'a64:bfm)
+            (eql rn 31)
+            (< imms immr))
+       (make-instance 'arm64-instruction
+                      :opcode 'a64:bfc
+                      :operands (list (decode-gp (ldb +rd+ word) :sf sf)
+                                      (- (if (zerop sf) 32 64) immr)
+                                      (1+ imms))))
+      (t
+       (make-instance 'arm64-instruction
+                      :opcode opcode
+                      :operands (list (decode-gp (ldb +rd+ word) :sf sf)
+                                      (decode-gp rn :sf sf)
+                                      immr
+                                      imms))))))
+
 (defun data-processing-immediate (context word)
   (case (ldb (byte 3 23) word)
     ((#x0 #x1) (pcrel-addressing context word))
     ((#x2 #x3) (add/sub-immediate context word))
     (#x4 (logical-immediate context word))
     (#x5 (move-wide-immediate context word))
-    (#x6 (values nil :bitfield))
+    (#x6 (bitfield context word))
     (#x7 (values nil :extract))))
 
 (defun conditional-branch-immediate (context word)
@@ -631,6 +697,71 @@
     (make-instance 'arm64-instruction
                  :opcode opcode
                  :operands (list (ldb (byte 16 5) word)))))
+
+(defun msr-immediate (context word)
+  (declare (ignore context))
+  (let* ((imm (ldb (byte 4 8) word))
+         (pstatefield (logior (ash (ldb (byte 3 16) word) 3)
+                              (ldb (byte 3 5) word)))
+         (name (case pstatefield
+                 (5 :spsel)
+                 (30 :daifset)
+                 (31 :daifclr)
+                 (t pstatefield))))
+    (make-instance 'arm64-instruction
+                   :opcode 'a64:msr
+                   :operands (list name imm))))
+
+(defun hint (context word)
+  (declare (ignore context))
+  (let* ((imm (ldb (byte 7 5) word))
+         (special (case imm
+                    (0 'a64:nop)
+                    (1 'a64:yield)
+                    (2 'a64:wfe)
+                    (3 'a64:wfi)
+                    (4 'a64:sev)
+                    (5 'a64:sevl))))
+    (if special
+        (make-instance 'arm64-instruction
+                       :opcode special
+                       :operands '())
+        (make-instance 'arm64-instruction
+                       :opcode :hint
+                       :operands (list imm)))))
+
+(defun msr/mrs (context word)
+  (declare (ignore context))
+  (let* ((op0 (ldb (byte 2 19) word))
+         (op1 (ldb (byte 3 16) word))
+         (crn (ldb (byte 4 12) word))
+         (crm (ldb (byte 4 8) word))
+         (op2 (ldb (byte 3 5) word))
+         (name (or (car (rassoc (list (list op0 op1 crn crm op2))
+                                a64::*system-registers*
+                                :test 'equal))
+                   (intern
+                    (format nil "S~D_~D_~D_~D_~D"
+                            op0 op1 crn crm op2)
+                    (find-package :keyword))))
+         (rt (decode-gp64 (ldb +rt+ word))))
+    (if (logbitp 21 word)
+        (make-instance 'arm64-instruction
+                       :opcode 'a64:mrs
+                       :operands (list rt name))
+        (make-instance 'arm64-instruction
+                       :opcode 'a64:msr
+                       :operands (list name rt)))))
+
+(defun system (context word)
+  (cond ((eql (logand word #xFFF8F01F) #xD500401F)
+         (msr-immediate context word))
+        ((eql (logand word #xFFFFF01F) #xD503201F)
+         (hint context word))
+        ((eql (logand word #xFFD00000) #xD5100000)
+         (msr/mrs context word))
+        (t
+         (values nil :system))))
 
 (defun unconditional-branch-register (context word)
   (declare (ignore context))
@@ -682,7 +813,7 @@
           ((and (eql op0 6) (eql (logand op1 #xC) 0))
            (exception-generation context word))
           ((and (eql op0 6) (eql op1 4))
-           (values nil :system))
+           (system context word))
           ((and (eql op0 6) (eql (logand op1 #x8) 8))
            (unconditional-branch-register context word))
           ((or (eql op0 0) (eql op0 4))
@@ -737,10 +868,11 @@
              ;; of terminator instruction (ret or br) then assume we're in the literal pool.
              (when (or (in-literal-pool-p context)
                        (and (eql (inst-opcode inst) :bad)
+                            (plusp (length (dis:context-instructions context)))
                             (member (inst-opcode
                                      (aref (dis:context-instructions context)
                                            (1- (length (dis:context-instructions context)))))
-                                    '(a64:ret a64:br))))
+                                    '(a64:ret a64:br a64:b))))
                (setf (in-literal-pool-p context) t)
                (cond ((logtest start 7)
                       ;; Literal pool always start 16b-aligned
