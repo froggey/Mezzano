@@ -740,8 +740,8 @@
       ;; Switch to the right GC mode.
       (emit-gc-info :pushed-values -5 :pushed-values-register :rcx :multiple-values 0)
       (emit loop-head
-            `(lap:ldr :x6 (:x28 :x11))
-            `(lap:str :x6 (:x12))
+            `(lap:ldr :x7 (:x28 :x11))
+            `(lap:str :x7 (:x12))
             `(lap:add :x12 :x12 8)
             `(lap:add :x11 :x11 8)
             `(lap:subs :x9 :x9 8)
@@ -789,8 +789,8 @@
       ;; Switch to the right GC mode.
       (emit-gc-info :pushed-values -5 :pushed-values-register :rcx :multiple-values 0)
       (emit loop-head
-            `(lap:ldr :x6 (:x28 :x11))
-            `(lap:str :x6 (:x12))
+            `(lap:ldr :x7 (:x28 :x11))
+            `(lap:str :x7 (:x12))
             `(lap:add :x12 :x12 8)
             `(lap:add :x11 :x11 8)
             `(lap:subs :x9 :x9 8)
