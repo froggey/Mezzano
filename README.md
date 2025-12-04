@@ -2,8 +2,6 @@
 
 ![Screenshot](doc/screenshot1.png)
 
-<span class="badge-patreon"><a href="https://patreon.com/froggey" title="Donate to this project using Patreon"><img src="https://img.shields.io/badge/patreon-donate-yellow.svg" alt="Patreon donate button" /></a></span>
-
 ## Pre-built images
 
 Demo releases are available through [GitHub](https://github.com/froggey/Mezzano/releases).
