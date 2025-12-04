@@ -88,7 +88,7 @@
                                    (push (format nil "slot ~D + ~S * ~S" slot (ea-index operand) (ea-scale operand)) annotations)
                                    (push (format nil "slot ~D" slot) annotations))))
                            (when (eql (ea-segment operand) :gs)
-                             (let ((thread-slot (slot-to-thread-slot-name (1+ (ea-disp operand)))))
+                             (let ((thread-slot (dis:slot-to-thread-slot-name (1+ (ea-disp operand)))))
                                (when thread-slot
                                  (push thread-slot annotations))))
                            (when (and (not (ea-index operand))

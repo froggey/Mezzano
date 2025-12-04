@@ -963,7 +963,12 @@
                                (integerp (second operand))
                                (eql (logand (second operand) 7) 7))
                       (let ((slot (truncate (+ (second operand) 1) 8)))
-                        (push (format nil "slot ~D" slot) annotations)))
+                        (push (format nil "slot ~D" slot) annotations))
+                      (when (and (eql (first operand) :x28)
+                                 (integerp (second operand)))
+                        (let ((thread-slot (dis:slot-to-thread-slot-name (1+ (second operand)))))
+                          (when thread-slot
+                            (push thread-slot annotations)))))
                     (when (and (listp operand)
                                (endp (cddr operand)))
                       (when (eql (second operand) (- int::+tag-cons+))

@@ -46,3 +46,13 @@ end
 (cold-generator:set-up-cross-compiler :architecture :arm64)
 (cold-generator::make-image "../../mezzano" :image-size (* 5 1024 1024 1024) :header-path "tools/disk-header.bin")
 ```
+
+Once the system boots up either:
+```lisp
+(snapshot-and-exit) ; take a snapshot and terminate the basic repl
+```
+or:
+```lisp
+(throw 'mezzano.supervisor::terminate-thread nil) ; just terminate the basic repl
+```
+or nothing and live with the basic repl hanging around, a snapshot is taken at the end of IPL anyway.
