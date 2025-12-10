@@ -463,6 +463,39 @@
                    :operands `(,(decode-fp (ldb +rd+ word) type)
                                ,(decode-fp (ldb +rn+ word) type)))))
 
+(defun highest-bit-set (n x)
+  (loop for i from (1- n) downto 0
+        when (logbitp i x)
+          return i
+        finally (return -1)))
+
+(defun rotate (value shift width)
+  (setf shift (- width (mod shift width)))
+  (if (zerop shift)
+      value
+      (logior (ash value (- shift))
+              (ash value (- width shift)))))
+
+(defun replicate (value width target-width)
+  (let ((result 0))
+    (dotimes (i (/ target-width width)
+                result)
+      (setf result (logior result (ash value (* i width)))))))
+
+(defun decode-bit-masks (m immn imms immr)
+  (let* ((len (highest-bit-set 7 (logior (ash immN 6) (ldb (byte 6 0) (lognot imms)))))
+         (levels (1- (ash 1 len)))
+         (s (logand imms levels))
+         (r (logand immr levels))
+         (diff (- s r))
+         (esize (ash 1 len))
+         (d (logand diff (1- (ash 1 (1- len)))))
+         (welem (1- (ash 1 (1+ s))))
+         (telem (1- (ash 1 (1+ d))))
+         (wmask (replicate (rotate welem (- r) esize) esize m))
+         (tmask (replicate telem esize m)))
+    (values wmask tmask)))
+
 (defun conversions-between-floating-point-and-integer (context word)
   (declare (ignore context))
   (let* ((sf (ldb (byte 1 31) word))
@@ -578,8 +611,8 @@
                    :opcode opcode
                    :operands `(,(decode-gp (ldb +rd+ word) :sf sf :sp t)
                                ,(decode-gp (ldb +rn+ word) :sf sf :sp t)
-                               ;; FIXME: Decode this properly
-                               ,immr ,imms))))
+                               ,(decode-bit-masks (if (zerop sf) 32 64)
+                                                  n imms immr)))))
 
 (defun move-wide-immediate (context word)
   (declare (ignore context))
