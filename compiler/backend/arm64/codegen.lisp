@@ -729,8 +729,7 @@
             ;; Clear stack slots.
             `(lap:add :x10 :sp :x9)
             clear-loop-head
-            `(lap:str :xzr (:x10 -8))
-            `(lap:subs :x10 :x10 8)
+            `(lap:str :xzr (:pre :x10 -8))
             `(lap:subs :xzr :sp :x10)
             `(lap:b.ne ,clear-loop-head)
             ;; Copy values.
@@ -741,11 +740,10 @@
       (emit-gc-info :pushed-values -5 :pushed-values-register :rcx :multiple-values 0)
       (emit loop-head
             `(lap:ldr :x7 (:x28 :x11))
-            `(lap:str :x7 (:x12))
-            `(lap:add :x12 :x12 8)
+            `(lap:str :x7 (:post :x12 8))
             `(lap:add :x11 :x11 8)
             `(lap:subs :x9 :x9 8)
-            `(lap:b.cc ,loop-head)
+            `(lap:b.ne ,loop-head)
             loop-exit)
       ;; All done with the MV area.
       (emit-gc-info :pushed-values -5 :pushed-values-register :rcx))
@@ -778,8 +776,7 @@
             ;; Clear stack slots.
             `(lap:add :x10 :sp :x9)
             clear-loop-head
-            `(lap:str :xzr (:x10 -8))
-            `(lap:subs :x10 :x10 8)
+            `(lap:str :xzr (:pre :x10 -8))
             `(lap:subs :xzr :sp :x10)
             `(lap:b.ne ,clear-loop-head)
             ;; Copy values.
@@ -790,11 +787,10 @@
       (emit-gc-info :pushed-values -5 :pushed-values-register :rcx :multiple-values 0)
       (emit loop-head
             `(lap:ldr :x7 (:x28 :x11))
-            `(lap:str :x7 (:x12))
-            `(lap:add :x12 :x12 8)
+            `(lap:str :x7 (:post :x12 8))
             `(lap:add :x11 :x11 8)
             `(lap:subs :x9 :x9 8)
-            `(lap:b.cc ,loop-head)
+            `(lap:b.ne ,loop-head)
             loop-exit)
       ;; All done with the MV area.
       (emit-gc-info :pushed-values -5 :pushed-values-register :rcx))
