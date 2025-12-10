@@ -233,7 +233,7 @@
       (()
        (debug-write-string "#<unknown>")
        (abandon-page-fault))
-    (cond ((sys.int::within-functin-area-p return-address)
+    (cond ((sys.int::within-function-area-p return-address)
            (let* ((function (sys.int::return-address-to-function return-address))
                   (info (sys.int::%object-header-data function))
                   (mc-size (ldb sys.int::+function-header-code-size+ info))
