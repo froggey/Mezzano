@@ -563,3 +563,8 @@
               (setf ,abnormal-return nil))
          (when ,abnormal-return
            ,@cleanup-forms)))))
+
+(defmacro lwhen ((name value) &body body)
+  `(let ((,name ,value))
+     (when ,name
+       ,@body)))

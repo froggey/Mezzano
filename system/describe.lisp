@@ -12,14 +12,39 @@
 
 (defmethod describe-object ((object symbol) stream)
   (format stream "~S is a symbol, with address ~X~%" object (lisp-object-address object))
-  (if (symbol-package object)
-      (format stream "  ~A is in the ~A package~%" object (package-name (symbol-package object))))
-  (if (boundp object)
-      (format stream "  ~A has the value ~S~%" object (symbol-value object)))
-  (if (fboundp object)
-      (format stream "  ~A is the function ~S~%" object (symbol-function object)))
-  (if (symbol-plist object)
-      (format stream "  ~A has the plist ~S~%" object (symbol-plist object)))
+  (when (symbol-package object)
+    (format stream "  ~A is in the ~A package~%" object (package-name (symbol-package object))))
+  (when (boundp object)
+    (format stream "  ~A has the value ~S~%" object (symbol-value object)))
+  (flet ((finfo (prefix)
+           (let ((name (if prefix (list prefix object) object))
+                 (*print-pretty* t))
+             (when (fboundp name)
+               (format stream "  ~A names the function ~S~%" name (fdefinition name))
+               (lwhen (cm (compiler-macro-function name))
+                 (format stream "    With compiler-macro ~S~%" cm))
+               (lwhen (info (function-info-for name nil))
+                 (lwhen (form (function-info-inline-form info))
+                   (format stream "    With inline form ~S~%" form))
+                 (lwhen (mode (function-info-inline-mode info))
+                   (format stream "    With inline mode ~S~%" mode))))
+             (when (gethash name (symbol-value
+                                  (find-symbol "*BUILTINS*"
+                                               (find-package :mezzano.compiler.backend.arm64))))
+               (format stream "  ~A has an Arm64 built-in function~%" name))
+             (when (gethash name (symbol-value
+                                  (find-symbol "*BUILTINS*"
+                                               (find-package :mezzano.compiler.backend.x86-64))))
+               (format stream "  ~A has an X86-64 built-in function~%" name)))))
+    (cond ((macro-function object)
+           (format stream "  ~A names the macro ~S~%" object (macro-function object)))
+          (t
+           (finfo nil)))
+    ;; TODO: Setf & Cas expanders.
+    (finfo 'setf)
+    (finfo 'cas))
+  (when (symbol-plist object)
+    (format stream "  ~A has the plist ~S~%" object (symbol-plist object)))
   (when (symbol-mode object)
     (format stream "  ~A is declared ~A~%" object (symbol-mode object))))
 
