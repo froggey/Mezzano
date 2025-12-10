@@ -1,3 +1,7 @@
+# Register assignments
+
+To ease porting arm64 registers were mapped directly to x86-64 registers.
+
 x0   First argument, r8 (value)
 x1   Second argument, r9 (value)
 x2   Third argument, r10 (value)
@@ -30,4 +34,15 @@ x28  Current thread (value-ish)
 x29  Frame pointer (integer)
 x30  Link register (integer), saved in cs field
 
-:extra-registers :rax indicates that the value in x9 is an interior pointer into x1
+fpsc/fpcr saved in ss field
+
+:extra-registers :rax indicates that the value in x9 is an interior pointer into x1, used for ll/sc
+
+# Saved state layout
+
+## Partial save
+sp saved in rsp
+x29(fp) saved in rbp, redundant and overriden by sp+0
+
+sp+0 = x29(fp)
+sp+8 = x30(lr)
