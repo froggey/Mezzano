@@ -1863,3 +1863,75 @@
                               (ash (register-number rhs) +rn-shift+)
                               (ash (register-number lhs) +rd-shift+)))
     (return-from instruction t)))
+
+(defmacro define-cas-instruction (name l o0 size class single-bit)
+  `(define-instruction ,name (old new address)
+     (destructuring-bind (base) address
+       (check-register-class base :gpr-64 :sp)
+       (check-register-class old ,class)
+       (assert (eql (register-class old) (register-class new)))
+       (emit-instruction (logior #x08207C00
+                                 ,(ash single-bit 23)
+                                 ,(ash size 30)
+                                 ,(ash l 22)
+                                 ,(ash o0 15)
+                                 (ash (register-number base) +rn-shift+)
+                                 (ash (register-number new) +rt-shift+)
+                                 (ash (register-number old) +rs-shift+)))
+       (return-from instruction t))))
+
+;; Always full 64-bit registers
+(define-cas-instruction cas 0 0 #b11 :gpr-64 1)
+(define-cas-instruction casa 1 0 #b11 :gpr-64 1)
+(define-cas-instruction casal 1 1 #b11 :gpr-64 1)
+(define-cas-instruction casl 0 1 #b11 :gpr-64 1)
+
+;; Always 32-bit registers.
+(define-cas-instruction casw 0 0 #b10 :gpr-32 1)
+(define-cas-instruction casaw 1 0 #b10 :gpr-32 1)
+(define-cas-instruction casalw 1 1 #b10 :gpr-32 1)
+(define-cas-instruction caslw 0 1 #b10 :gpr-32 1)
+
+(define-cas-instruction casb 0 0 #b00 :gpr-32 1)
+(define-cas-instruction casab 1 0 #b00 :gpr-32 1)
+(define-cas-instruction casalb 1 1 #b00 :gpr-32 1)
+(define-cas-instruction caslb 0 1 #b00 :gpr-32 1)
+
+(define-cas-instruction cash 0 0 #b01 :gpr-32 1)
+(define-cas-instruction casah 1 0 #b01 :gpr-32 1)
+(define-cas-instruction casalh 1 1 #b01 :gpr-32 1)
+(define-cas-instruction caslh 0 1 #b01 :gpr-32 1)
+
+(define-cas-instruction casp 0 0 #b01 :gpr-64 0)
+(define-cas-instruction caspa 1 0 #b01 :gpr-64 0)
+(define-cas-instruction caspal 1 1 #b01 :gpr-64 0)
+(define-cas-instruction caspl 0 1 #b01 :gpr-64 0)
+
+(defmacro define-atomic-op (name a r size opc class)
+  `(define-instruction ,name (xs xt address)
+     (destructuring-bind (base) address
+       (check-register-class base :gpr-64 :sp)
+       (check-register-class xs ,class)
+       (assert (eql (register-class xs) (register-class xt)))
+       (emit-instruction (logior #x38200000
+                                 ,(ash size 30)
+                                 ,(ash a 23)
+                                 ,(ash r 22)
+                                 ,(ash opc 12)
+                                 (ash (register-number base) +rn-shift+)
+                                 (ash (register-number xt) +rt-shift+)
+                                 (ash (register-number xs) +rs-shift+)))
+       (return-from instruction t))))
+
+(defmacro define-atomic-ops (name opc)
+  (list*
+   'progn
+   (loop
+     for (size-name size class) in '(("" #b11 :gpr-64) ("W" #b10 :gpr-32)
+                                     ("H" #b01 :gpr-32) ("B" #b00 :gpr-32))
+     append (loop for (order-name a r) in '(("" 0 0) ("A" 1 0) ("L" 0 1) ("AL" 1 1))
+                  for final-name = (intern (format nil "~A~A~A" name order-name size-name))
+                  collect `(define-atomic-op ,final-name ,a ,r ,size ,opc ,class)))))
+
+(define-atomic-ops swp #b1000)
+(define-atomic-ops ldadd #b000)

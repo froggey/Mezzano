@@ -432,17 +432,13 @@
   ;; If a garbage collection occurs, it must rewind IP back here.
   (:gc :no-frame :layout #* :restart t)
   ;; Fetch and increment the current bump pointer.
-  (mezzano.lap.arm64:add :x6 :xzr :x2 :lsl 3) ; words * 8
+  (mezzano.lap.arm64:add :x10 :xzr :x2 :lsl 3) ; words * 8
   ;; Address generation.
   ;; Linked GC mode is not needed as this will be repeated due to the restart region.
   (mezzano.lap.arm64:add :x9 :x7 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+symbol-value-cell-value+ 8)))
-  ;; Atomic add. Blech, load/store linked suck.
-  ATOMIC-RETRY
-  (mezzano.lap.arm64:ldaxr :x10 (:x9))
-  (mezzano.lap.arm64:add :x11 :x10 :x6)
-  (mezzano.lap.arm64:orr :x6 :xzr :x10)
-  (mezzano.lap.arm64:stlxr :w10 :x11 (:x9))
-  (mezzano.lap.arm64:cbnz :x10 ATOMIC-RETRY)
+  ;; Release atomic add to increment the bump pointer
+  (mezzano.lap.arm64:ldaddl :x10 :x6 (:x9))
+  (mezzano.lap.arm64:add :x11 :x6 :x10)
   ;; X6 is old bump pointer, the address of the cons.
   ;; X11 is the new bump pointer.
   ;; Test against limit.
@@ -496,12 +492,10 @@
   ;; Address generation.
   ;; Linked GC mode is not needed as this will be repeated due to the restart region.
   (mezzano.lap.arm64:add :x9 :x7 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+symbol-value-cell-value+ 8)))
-  ;; Atomic add. Blech, load/store linked suck.
-  ATOMIC-RETRY
-  (mezzano.lap.arm64:ldaxr :x6 (:x9))
-  (mezzano.lap.arm64:add :x11 :x6 #.(ash 16 #.sys.int::+n-fixnum-bits+)) ; 16, size of cons
-  (mezzano.lap.arm64:stlxr :w10 :x11 (:x9))
-  (mezzano.lap.arm64:cbnz :x10 ATOMIC-RETRY)
+  ;; Release atomic add to increment the bump pointer
+  (mezzano.lap.arm64:movz :x10 #.(ash 16 #.sys.int::+n-fixnum-bits+)) ; 16, size of cons
+  (mezzano.lap.arm64:ldaddl :x10 :x6 (:x9))
+  (mezzano.lap.arm64:add :x11 :x6 :x10)
   ;; RBX is old bump pointer, the address of the cons.
   ;; X11 is the new bump pointer.
   ;; Test against limit.
@@ -646,56 +640,38 @@
   ;; Convert offset to unboxed integer (scaled appropriately), with tag adjustment.
   (mezzano.lap.arm64:add :x9 :xzr :x1 :lsl #.(- 3 sys.int::+n-fixnum-bits+))
   (mezzano.lap.arm64:add-imm :x9 :x9 #.(- 8 sys.int::+tag-object+)) ; offset of first slot
-  ;; Load new-2 out of the argument area
-  (mezzano.lap.arm64:ldr :x1 (:sp))
-  ;; Spill new-1 and new-2, need the registers.
-  (mezzano.lap.arm64:stp :x4 :x1 (:pre :sp -16))
-  (:gc :no-frame :layout #*11)
-  ;; Generate the address.
   ;; object must be in x1 for the gc
   (mezzano.lap.arm64:orr :x1 :xzr :x0)
+  ;; Load new-2 out of the argument area
+  (mezzano.lap.arm64:ldr :x7 (:sp))
+  ;; And new-1 into an adjacent register
+  (mezzano.lap.arm64:orr :x6 :xzr :x4)
+  ;; Save old values
+  (mezzano.lap.arm64:orr :x0 :xzr :x2)
+  (mezzano.lap.arm64:orr :x4 :xzr :x3)
+  ;; Generate the address.
   (mezzano.lap.arm64:add :x9 :x1 :x9)
   ;; Move to linked gc mode.
   ;; x9 is interior pointer into x1.
-  (:gc :no-frame :layout #*11 :extra-registers :rax)
-  ;; x0 = free (will be cur-1)
+  (:gc :no-frame :layout #* :extra-registers :rax)
+  ;; x0 = saved old-1
   ;; x1 = object
-  ;; x2 = old-1
-  ;; x3 = old-2
-  ;; x4 = free (will be cur-2)
+  ;; x2 = old-1 (will become cmp-1)
+  ;; x3 = old-2 (will become cmp-2)
+  ;; x4 = saved old-2
+  ;; x6 = new-1
+  ;; x7 = new-2
   ;; x9 = slot-address (linked to x1)
-  ;; [sp 0] = new-1
-  ;; [sp 8] = new-2
-  LOOP
-  ;; Load current values
-  (mezzano.lap.arm64:ldaxp :x0 :x4 (:x9))
-  ;; Compare values.
-  (mezzano.lap.arm64:subs :xzr :x0 :x2)
-  (mezzano.lap.arm64:b.ne FAIL)
-  (mezzano.lap.arm64:subs :xzr :x4 :x3)
-  (mezzano.lap.arm64:b.ne FAIL)
-  ;; Success! Reload the new values
-  (mezzano.lap.arm64:ldp :x4 :x1 (:sp))
-  ;; Store linked new value, status in X10.
-  (mezzano.lap.arm64:stlxp :w10 :x4 :x1 (:x9))
-  ;; Retry on failure.
-  (mezzano.lap.arm64:cbnz :x10 LOOP)
-  ;; Success!
-  (mezzano.lap.arm64:ldr :x0 (:constant t)) ; first return value, T
-  (mezzano.lap.arm64:orr :x1 :xzr :x2) ; second return value, old-1
-  (mezzano.lap.arm64:orr :x2 :xzr :x3) ; third return value, old-2
-  (mezzano.lap.arm64:movz :x5 #.(ash 3 sys.int::+n-fixnum-bits+)) ; three return values
-  ;; pop saved new values
-  (mezzano.lap.arm64:add :sp :sp 16)
+  (mezzano.lap.arm64:caspal :x2 :x6 (:x9))
   (:gc :no-frame :layout #*)
-  (mezzano.lap.arm64:ret)
-  FAIL
-  (:gc :no-frame :layout #*11)
-  (mezzano.lap.arm64:orr :x0 :xzr :x26) ; first return value, NIL
-  (mezzano.lap.arm64:orr :x1 :xzr :x0) ; second return value, cur-1
-  (mezzano.lap.arm64:orr :x2 :xzr :x4) ; third return value, cur-2
+  ;; Compare values to generate the success result.
+  (mezzano.lap.arm64:ldr :x1 (:constant t)) ; first return value, T
+  (mezzano.lap.arm64:subs :xzr :x2 :x0) ; old-1 vs cmp-1
+  (mezzano.lap.arm64:csel.eq :x0 :x1 :x26)
+  (mezzano.lap.arm64:subs :xzr :x3 :x4) ; old-2 vs cmp-2
+  (mezzano.lap.arm64:csel.eq :x0 :x0 :x26)
+  ;; Set up for return.
+  (mezzano.lap.arm64:orr :x1 :xzr :x2) ; second return value, cmp-1
+  (mezzano.lap.arm64:orr :x2 :xzr :x3) ; third return value, cmp-2
   (mezzano.lap.arm64:movz :x5 #.(ash 3 sys.int::+n-fixnum-bits+)) ; three return values
-  ;; pop saved new values
-  (mezzano.lap.arm64:add :sp :sp 16)
-  (:gc :no-frame :layout #*)
   (mezzano.lap.arm64:ret))

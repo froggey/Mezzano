@@ -42,7 +42,10 @@
 
 ;; TODO: (cas memref-t) & dcas memref-t. the cmpxchg ir instructions currently only support object-relative accesses
 
-(defmacro define-memref-integer-accessor (name read-op write-op read-ex-op write-ex-op scale box-op unbox-op)
+;; TODO: Convert this to use the cas instructions. This will require a small amount of
+;; work as they modify their inputs, need to be made to be SSA-safe. Not urgent, these
+;; are only used in a few small places.
+(defmacro define-memref-integer-accessor (name read-op write-op cas-op scale box-op unbox-op)
   `(progn
      (define-builtin ,name ((address index) result)
        (let ((temp (make-instance 'ir:virtual-register :kind :integer)))
@@ -74,11 +77,7 @@
              (new-unboxed (make-instance 'ir:virtual-register :kind :integer))
              (current-unboxed (make-instance 'ir:virtual-register :kind :integer))
              (address-unboxed (make-instance 'ir:virtual-register :kind :integer))
-             (generated-address (make-instance 'ir:virtual-register :kind :integer))
-             (store-status (make-instance 'ir:virtual-register :kind :integer))
-             (loop-label (make-instance 'ir:label))
-             (store-label (make-instance 'ir:label))
-             (exit-label (make-instance 'ir:label)))
+             (generated-address (make-instance 'ir:virtual-register :kind :integer)))
          (emit (make-instance ',unbox-op
                               :source old
                               :destination old-unboxed))
@@ -94,55 +93,32 @@
                                 :operands (list generated-address address-unboxed scaled-index)
                                 :inputs (list address-unboxed scaled-index)
                                 :outputs (list generated-address))))
-         (emit (make-instance 'ir:jump-instruction :target loop-label))
-         (emit loop-label)
-         (emit (make-instance 'arm64-instruction
-                              :opcode ',read-ex-op
-                              :operands (list current-unboxed (list generated-address))
-                              :inputs (list generated-address)
-                              :outputs (list current-unboxed)))
-         (emit (make-instance 'arm64-instruction
-                              :opcode 'lap:subs
-                              :operands (list :xzr current-unboxed old-unboxed)
-                              :inputs (list current-unboxed old-unboxed)
-                              :outputs (list)))
-         (emit (make-instance 'arm64-branch-instruction
-                              :opcode 'lap:b.ne
-                              :true-target exit-label
-                              :false-target store-label))
-         (emit store-label)
-         (emit (make-instance 'arm64-instruction
-                              :opcode ',write-ex-op
-                              :operands (list store-status new-unboxed (list generated-address))
-                              :inputs (list new-unboxed generated-address)
-                              :outputs (list store-status)))
-         (emit (make-instance 'arm64-branch-instruction
-                              :opcode 'lap:cbnz
-                              :operands (list store-status)
-                              :inputs (list store-status)
-                              :true-target loop-label
-                              :false-target exit-label))
-         (emit exit-label)
+         (emit (make-instance 'arm64-cas-mem-instruction
+                              :opcode ',cas-op
+                              :address generated-address
+                              :old-value old-unboxed
+                              :new-value new-unboxed
+                              :current-value current-unboxed))
          (emit (make-instance ',box-op
                               :source current-unboxed
                               :destination result))))))
 
-(define-memref-integer-accessor sys.int::%memref-unsigned-byte-8  lap:ldrb  lap:strb lap:ldaxrb lap:stlxrb 1 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
-(define-memref-integer-accessor sys.int::%memref-unsigned-byte-16 lap:ldrh  lap:strh lap:ldaxrh lap:stlxrh 2 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
-(define-memref-integer-accessor sys.int::%memref-unsigned-byte-32 lap:ldrw  lap:strw lap:ldaxrw lap:stlxrw 4 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
-(define-memref-integer-accessor sys.int::%memref-unsigned-byte-64 lap:ldr   lap:str  lap:ldaxr  lap:stlxr  8 ir:box-unsigned-byte-64-instruction ir:unbox-unsigned-byte-64-instruction)
+(define-memref-integer-accessor sys.int::%memref-unsigned-byte-8  lap:ldrb  lap:strb lap:casalb 1 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
+(define-memref-integer-accessor sys.int::%memref-unsigned-byte-16 lap:ldrh  lap:strh lap:casalh 2 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
+(define-memref-integer-accessor sys.int::%memref-unsigned-byte-32 lap:ldrw  lap:strw lap:casalw 4 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
+(define-memref-integer-accessor sys.int::%memref-unsigned-byte-64 lap:ldr   lap:str  lap:casal  8 ir:box-unsigned-byte-64-instruction ir:unbox-unsigned-byte-64-instruction)
 
-(define-memref-integer-accessor sys.int::%memref-signed-byte-8    lap:ldrsb lap:strb lap:ldaxrb lap:stlxrb 1 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
-(define-memref-integer-accessor sys.int::%memref-signed-byte-16   lap:ldrsh lap:strh lap:ldaxrh lap:stlxrh 2 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
-(define-memref-integer-accessor sys.int::%memref-signed-byte-32   lap:ldrsw lap:strw lap:ldaxrw lap:stlxrw 4 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
-(define-memref-integer-accessor sys.int::%memref-signed-byte-64   lap:ldr   lap:str  lap:ldaxr  lap:stlxr  8 ir:box-signed-byte-64-instruction ir:unbox-signed-byte-64-instruction)
+(define-memref-integer-accessor sys.int::%memref-signed-byte-8    lap:ldrsb lap:strb lap:casalb 1 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
+(define-memref-integer-accessor sys.int::%memref-signed-byte-16   lap:ldrsh lap:strh lap:casalh 2 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
+(define-memref-integer-accessor sys.int::%memref-signed-byte-32   lap:ldrsw lap:strw lap:casalw 4 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
+(define-memref-integer-accessor sys.int::%memref-signed-byte-64   lap:ldr   lap:str  lap:casal   8 ir:box-signed-byte-64-instruction ir:unbox-signed-byte-64-instruction)
 
-(define-memref-integer-accessor sys.int::%memref-unsigned-byte-8-unscaled  lap:ldrb  lap:strb lap:ldaxrb lap:stlxrb 1 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
-(define-memref-integer-accessor sys.int::%memref-unsigned-byte-16-unscaled lap:ldrh  lap:strh lap:ldaxrh lap:stlxrh 1 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
-(define-memref-integer-accessor sys.int::%memref-unsigned-byte-32-unscaled lap:ldrw  lap:strw lap:ldaxrw lap:stlxrw 1 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
-(define-memref-integer-accessor sys.int::%memref-unsigned-byte-64-unscaled lap:ldr   lap:str  lap:ldaxr  lap:stlxr  1 ir:box-unsigned-byte-64-instruction ir:unbox-unsigned-byte-64-instruction)
+(define-memref-integer-accessor sys.int::%memref-unsigned-byte-8-unscaled  lap:ldrb  lap:strb lap:casalb 1 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
+(define-memref-integer-accessor sys.int::%memref-unsigned-byte-16-unscaled lap:ldrh  lap:strh lap:casalh 1 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
+(define-memref-integer-accessor sys.int::%memref-unsigned-byte-32-unscaled lap:ldrw  lap:strw lap:casalw 1 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
+(define-memref-integer-accessor sys.int::%memref-unsigned-byte-64-unscaled lap:ldr   lap:str  lap:casal   1 ir:box-unsigned-byte-64-instruction ir:unbox-unsigned-byte-64-instruction)
 
-(define-memref-integer-accessor sys.int::%memref-signed-byte-8-unscaled    lap:ldrsb lap:strb lap:ldaxrb lap:stlxrb 1 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
-(define-memref-integer-accessor sys.int::%memref-signed-byte-16-unscaled   lap:ldrsh lap:strh lap:ldaxrh lap:stlxrh 1 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
-(define-memref-integer-accessor sys.int::%memref-signed-byte-32-unscaled   lap:ldrsw lap:strw lap:ldaxrw lap:stlxrw 1 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
-(define-memref-integer-accessor sys.int::%memref-signed-byte-64-unscaled   lap:ldr   lap:str  lap:ldaxr  lap:stlxr  1 ir:box-signed-byte-64-instruction ir:unbox-signed-byte-64-instruction)
+(define-memref-integer-accessor sys.int::%memref-signed-byte-8-unscaled    lap:ldrsb lap:strb lap:casalb 1 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
+(define-memref-integer-accessor sys.int::%memref-signed-byte-16-unscaled   lap:ldrsh lap:strh lap:casalh 1 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
+(define-memref-integer-accessor sys.int::%memref-signed-byte-32-unscaled   lap:ldrsw lap:strw lap:casalw 1 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
+(define-memref-integer-accessor sys.int::%memref-signed-byte-64-unscaled   lap:ldr   lap:str  lap:casal   1 ir:box-signed-byte-64-instruction ir:unbox-signed-byte-64-instruction)
