@@ -213,6 +213,8 @@
     "compiler/backend/arm64/misc.lisp"
     "compiler/backend/arm64/object.lisp"
     "compiler/backend/arm64/number.lisp"
+    "compiler/backend/arm64/memory.lisp"
+    "compiler/backend/arm64/cons.lisp"
     ("runtime/simd.lisp" :x86-64)
     "system/numbers/nibbles.lisp"
     "system/file-compiler.lisp"
