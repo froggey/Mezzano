@@ -10,6 +10,12 @@
                     sys.int::*arm64-exception-vector-base*))
   (setf *cpus* '()))
 
+(defconstant +spsr-ss+ 21)
+
+(defconstant +mdscr-ss+ 0)
+(defconstant +mdscr-kde+ 13)
+(defconstant +mdscr-mde+ 15)
+
 (sys.int::define-lap-function %load-cpu-bits ((sp-el1 cpu-data vbar-el1))
   (:gc :no-frame :layout #*)
   ;; Switch to SP_EL1.
@@ -25,6 +31,13 @@
   ;; Set VBAR_EL1.
   (mezzano.lap.arm64:add :x9 :xzr :x2 :asr #.sys.int::+n-fixnum-bits+)
   (mezzano.lap.arm64:msr :vbar-el1 :x9)
+  (mezzano.lap.arm64:isb)
+  ;; Configure MDSCR_EL1, enable KDE, & MDE. Delay enabling SS until we actually
+  ;; want to single-step something.
+  (mezzano.lap.arm64:mrs :x9 :mdscr-el1)
+  (mezzano.lap.arm64:orr :x9 :x9 #.(ash 1 +mdscr-kde+))
+  (mezzano.lap.arm64:orr :x9 :x9 #.(ash 1 +mdscr-mde+))
+  (mezzano.lap.arm64:msr :mdscr-el1 :x9)
   (mezzano.lap.arm64:isb)
   (mezzano.lap.arm64:ret))
 
@@ -70,6 +83,11 @@
   (mezzano.lap.arm64:str :x9 (:sp #x88))
   ;; Save x30.
   (mezzano.lap.arm64:str :x30 (:sp #x80))
+  ;; Clear MDSCR_EL1.SS
+  (mezzano.lap.arm64:mrs :x9 :mdscr-el1)
+  (mezzano.lap.arm64:bfc :x9 #.+mdscr-ss+ 1)
+  (mezzano.lap.arm64:msr :mdscr-el1 :x9)
+  (mezzano.lap.arm64:isb)
   ;; Set up for call to handler.
   (mezzano.lap.arm64:orr :x7 :xzr :x29)
   (mezzano.lap.arm64:movz :x5 #.(ash 1 sys.int::+n-fixnum-bits+)) ; 1 arg.
@@ -96,6 +114,13 @@
   ;; Restore SPSR_EL1
   (mezzano.lap.arm64:ldr :x9 (:sp #x88))
   (mezzano.lap.arm64:msr :spsr-el1 :x9)
+  ;; Enable MDSCR.SS if we're single-stepping.
+  (mezzano.lap.arm64:tbz :x9 #.+spsr-ss+ L1)
+  (mezzano.lap.arm64:mrs :x9 :mdscr-el1)
+  (mezzano.lap.arm64:orr :x9 :x9 #.(ash 1 +mdscr-ss+))
+  (mezzano.lap.arm64:msr :mdscr-el1 :x9)
+  (mezzano.lap.arm64:isb)
+  L1
   ;; Restore ELR_EL1
   (mezzano.lap.arm64:ldr :x9 (:sp #x78))
   (mezzano.lap.arm64:msr :elr-el1 :x9)
@@ -144,6 +169,11 @@
   (mezzano.lap.arm64:str :x9 (:sp #x88))
   ;; Save x30.
   (mezzano.lap.arm64:str :x30 (:sp #x80))
+  ;; Clear MDSCR_EL1.SS
+  (mezzano.lap.arm64:mrs :x9 :mdscr-el1)
+  (mezzano.lap.arm64:bfc :x9 #.+mdscr-ss+ 1)
+  (mezzano.lap.arm64:msr :mdscr-el1 :x9)
+  (mezzano.lap.arm64:isb)
   ;; Set up for call to handler.
   (mezzano.lap.arm64:orr :x7 :xzr :x29)
   (mezzano.lap.arm64:movz :x5 #.(ash 1 sys.int::+n-fixnum-bits+)) ; 1 arg.

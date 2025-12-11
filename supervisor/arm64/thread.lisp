@@ -106,6 +106,13 @@
   (mezzano.lap.arm64:movz :x9 (:object-literal #.+thread-state-rflags+))
   (mezzano.lap.arm64:ldr :x9 (:x0 :x9))
   (mezzano.lap.arm64:msr :spsr-el1 :x9)
+  ;; Enable MDSCR.SS if we're single-stepping.
+  (mezzano.lap.arm64:tbz :x9 #.+spsr-ss+ L1)
+  (mezzano.lap.arm64:mrs :x9 :mdscr-el1)
+  (mezzano.lap.arm64:orr :x9 :x9 #.(ash 1 +mdscr-ss+))
+  (mezzano.lap.arm64:msr :mdscr-el1 :x9)
+  (mezzano.lap.arm64:isb)
+  L1
   (mezzano.lap.arm64:movz :x9 (:object-literal #.+thread-state-rip+))
   (mezzano.lap.arm64:ldr :x9 (:x0 :x9))
   (mezzano.lap.arm64:msr :elr-el1 :x9)
@@ -251,37 +258,89 @@
       (setf (sys.int::memref-unsigned-byte-64 sp) (sys.int::%object-ref-unsigned-byte-64
                                                    #'%%partial-save-return-thunk
                                                    sys.int::+function-entry-point+))
-      ;; Realign stack
+      ;; Push frame pointer, keeping the stack aligned
       (decf sp 8)
+      (setf (sys.int::memref-unsigned-byte-64 sp) (+ sp (* 16 8)))
       (setf (thread-state-rsp thread) sp
             (thread-state-rbp thread) (+ sp (* 16 8))
             (thread-full-save-p thread) nil))))
 
-;; FIXME: GC metadata is wrong for this.
-(sys.int::define-lap-function %%force-call-on-thread-return-thunk ()
-  ;; There's a return address on the stack, pop it and return to it.
-  ;; Needed to paper over calling convention differences.
-  (:gc :no-frame :layout #*00)
-  (mezzano.lap.arm64:ldp :x9 :x30 (:post :sp 16))
-  (:gc :no-frame :layout #*)
-  (mezzano.lap.arm64:ret))
+(defun convert-thread-to-full-save (thread)
+  (when (not (thread-full-save-p thread))
+    ;; Pop saved fp & lr off the stack.
+    (let ((fp (sys.int::memref-unsigned-byte-64 (thread-state-rsp thread) 0))
+          (lr (sys.int::memref-unsigned-byte-64 (thread-state-rsp thread) 1)))
+      (incf (thread-state-rsp thread) 16)
+      ;; Make sure to flush the value registers
+      ;; and also set up for a 0-value return.
+      (setf (thread-state-rcx-value thread) 0
+            (thread-state-rbx-value thread) nil
+            (thread-state-r8-value thread) nil
+            (thread-state-r9-value thread) nil
+            (thread-state-r10-value thread) nil
+            (thread-state-r11-value thread) nil
+            (thread-state-r12-value thread) nil
+            (thread-state-r13-value thread) nil
+            (thread-state-cs thread) lr ; lr
+            (thread-state-rip thread) lr
+            (thread-state-rbp thread) fp
+            (thread-state-ss thread) +initial-fpsr/fpcr+
+            (thread-state-rflags thread) +initial-spsr+
+            (thread-full-save-p thread) t))))
 
 (defun force-call-on-thread (thread function &optional (argument nil argumentp))
   (convert-thread-to-partial-save thread)
-  (setf (thread-state-rip thread) (sys.int::%object-ref-unsigned-byte-64
-                                   function
-                                   sys.int::+function-entry-point+)
-        (thread-state-rcx-value thread) (if argumentp 1 0)
-        (thread-state-rbx-value thread) function
-        (thread-state-r8-value thread) argument
-        (thread-state-r9-value thread) nil
-        (thread-state-r10-value thread) nil
-        (thread-state-r11-value thread) nil
-        (thread-state-r12-value thread) nil
-        (thread-state-r13-value thread) nil
-        (thread-state-cs thread) (sys.int::%object-ref-unsigned-byte-64
-                                   #'%%force-call-on-thread-return-thunk
-                                   sys.int::+function-entry-point+)
-        (thread-state-ss thread) +initial-fpsr/fpcr+
-        (thread-state-rflags thread) +initial-spsr+
-        (thread-full-save-p thread) t))
+  ;; Pop saved fp & lr off the stack.
+  (let ((fp (sys.int::memref-unsigned-byte-64 (thread-state-rsp thread) 0))
+        (lr (sys.int::memref-unsigned-byte-64 (thread-state-rsp thread) 1)))
+    (incf (thread-state-rsp thread) 16)
+    (setf (thread-state-rip thread) (sys.int::%object-ref-unsigned-byte-64
+                                     function
+                                     sys.int::+function-entry-point+)
+          (thread-state-rcx-value thread) (if argumentp 1 0)
+          (thread-state-rbx-value thread) function
+          (thread-state-r8-value thread) argument
+          (thread-state-r9-value thread) nil
+          (thread-state-r10-value thread) nil
+          (thread-state-r11-value thread) nil
+          (thread-state-r12-value thread) nil
+          (thread-state-r13-value thread) nil
+          (thread-state-ss thread) +initial-fpsr/fpcr+
+          (thread-state-rflags thread) +initial-spsr+
+          (thread-state-cs thread) lr
+          (thread-state-rbp thread) fp
+          (thread-full-save-p thread) t)))
+
+(defun stop-thread-for-single-step (interrupt-frame)
+  (let ((self (current-thread)))
+    (acquire-global-thread-lock)
+    (setf (thread-state self) :stopped
+          (thread-wait-item self) :single-step-trap))
+  (%reschedule-via-interrupt interrupt-frame))
+
+(defun wait-for-thread-stop (thread)
+  (loop
+     ;; Take the global thread lock when inspecting the state to
+     ;; synchronize properly with STOP-THREAD-FOR-SINGLE-STEP.
+     (let ((sync-state (safe-without-interrupts (thread)
+                         (with-global-thread-lock ()
+                           (thread-state thread)))))
+       (when (member sync-state '(:stopped :dead))
+         (return)))
+     (thread-yield)))
+
+(defun single-step-thread (thread)
+  (check-type thread thread)
+  (assert (eql (thread-state thread) :stopped))
+  ;; If the thread is not in the full-save state, then convert it.
+  (convert-thread-to-full-save thread)
+  ;; Set the single-step bit in spsr
+  (setf (thread-state-rflags thread) (logior (thread-state-rflags thread)
+                                             (ash 1 +spsr-ss+)))
+  ;; Resume the thread & wait for it to stop.
+  (resume-thread thread :single-step)
+  (wait-for-thread-stop thread)
+  ;; Clear the single-step bit.
+  (setf (thread-state-rflags thread) (logand (thread-state-rflags thread)
+                                             (lognot (ash 1 +spsr-ss+))))
+  (values))

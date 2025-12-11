@@ -54,13 +54,17 @@
        (apply call-me args)
     (mezzano.supervisor::stop-current-thread)))
 
+(defun safe-return-address-to-function (address)
+  (assert (within-function-area-p address))
+  (return-address-to-function address))
+
 (defun safe-single-step-thread (thread &key report-skipped-functions)
   (check-type thread mezzano.supervisor:thread)
   (assert (eql (mezzano.supervisor:thread-state thread) :stopped))
   ;; If the thread is not in the full-save state, then convert it.
   (mezzano.supervisor::convert-thread-to-full-save thread)
   (let* ((rip (mezzano.supervisor:thread-state-rip thread))
-         (fn (return-address-to-function rip)))
+         (fn (safe-return-address-to-function rip)))
     (cond ((member fn *step-special-functions* :key #'fdefinition)
            (when (not (eql rip (%object-ref-unsigned-byte-64 fn +function-entry-point+)))
              (cerror "Step anyway"
@@ -80,14 +84,14 @@
            (mezzano.supervisor::single-step-thread thread)))))
 
 (defun step-until-next-call-or-return (thread &optional (limit 1000))
-  (let ((prev-fn (return-address-to-function
+  (let ((prev-fn (safe-return-address-to-function
                   (mezzano.supervisor:thread-state-rip thread)))
         (iters 0))
     (loop
        (dump-thread-state thread)
        (safe-single-step-thread thread)
        (let* ((rip (mezzano.supervisor:thread-state-rip thread))
-              (fn (return-address-to-function rip)))
+              (fn (safe-return-address-to-function rip)))
          (when (eql rip (%object-ref-unsigned-byte-64 fn +function-entry-point+))
            (format t "Entered function ~S with arguments ~:S.~%"
                    (cond ((eql fn *funcallable-instance-trampoline*)
@@ -142,12 +146,16 @@
          (format t "Partial-save state:~%")
          (format t " rsp: ~8,'0X~%" (mezzano.supervisor:thread-state-rsp thread))
          (format t " rbp: ~8,'0X~%" (mezzano.supervisor:thread-state-rbp thread))
-         (format t " rip: ~8,'0X~%" (sys.int::memref-unsigned-byte-64 (mezzano.supervisor:thread-state-rsp thread) 0))))
+         (format t " rip: ~8,'0X~%"
+                 (sys.int::memref-unsigned-byte-64
+                  (mezzano.supervisor:thread-state-rsp thread)
+                  #+x86-64 0
+                  #+arm64 1))))
   (values))
 
 (defun backtrace-next-frame (thread stack-pointer frame-pointer return-address)
   (multiple-value-bind (fn fn-offset)
-      (return-address-to-function return-address)
+      (safe-return-address-to-function return-address)
     (multiple-value-bind (framep interruptp pushed-values pushed-values-register
                           layout-address layout-length
                           multiple-values incoming-arguments
@@ -198,7 +206,7 @@
                       0))))
     (loop
        (multiple-value-bind (fn fn-offset)
-           (return-address-to-function return-address)
+           (safe-return-address-to-function return-address)
          (funcall function stack-pointer frame-pointer return-address fn fn-offset))
        (setf (values stack-pointer frame-pointer return-address)
              (backtrace-next-frame thread stack-pointer frame-pointer return-address))
@@ -298,7 +306,7 @@ If TRIM-STEPPER-NOISE is true, then instructions executed as part of the trace p
             (safe-single-step-thread thread :report-skipped-functions print-instructions)
             (let ((rip (mezzano.supervisor:thread-state-rip thread)))
               (multiple-value-bind (fn offset)
-                  (return-address-to-function rip)
+                  (safe-return-address-to-function rip)
                 (when (and (not entry-sp)
                            prestart
                            (eql fn fundamental-function))

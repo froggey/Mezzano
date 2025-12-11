@@ -1091,6 +1091,22 @@
     (emit-instruction 0)
     (return-from instruction t)))
 
+(define-instruction tbz (reg bit target)
+  (check-register-class reg :gpr-64 :gpr-32)
+  (let ((is-64-bit (eql (register-class reg) :gpr-64))
+        (imm-value (resolve-immediate target)))
+    (if is-64-bit
+        (assert (<= 0 bit 63))
+        (assert (<= 0 bit 31)))
+    (mezzano.lap:emit-relocation :arm-pcrel-imm14
+                             (or imm-value target)
+                             (logior #x36000000
+                                     (ash (ldb (byte 1 5) bit) 31)
+                                     (ash (ldb (byte 5 0) bit) 19)
+                                     (ash (register-number reg) +rt-shift+)))
+    (emit-instruction 0)
+    (return-from instruction t)))
+
 (define-instruction tbnz (reg bit target)
   (check-register-class reg :gpr-64 :gpr-32)
   (let ((is-64-bit (eql (register-class reg) :gpr-64))
@@ -1274,7 +1290,8 @@
     (:dczid-el0        (#b11 #b011 #b0000 #b0000 #b111))
     (:sctlr-el1        (#b11 #b000 #b0001 #b0000 #b000))
     (:actlr-el1        (#b11 #b000 #b0001 #b0000 #b001))
-    (:cpacr-el1        (#b11 #b000 #b0001 #b0000 #b010))))
+    (:cpacr-el1        (#b11 #b000 #b0001 #b0000 #b010))
+    (:mdscr-el1        (#b10 #b000 #b0000 #b0010 #b010))))
 
 (defun decode-msr-name (name)
   "Returns op0, op1, crn, crm, op2."
@@ -1595,7 +1612,7 @@
          (lim (if is-64-bit 64 32)))
     (assert (<= lsb (1- lim)))
     (assert (<= 1 width (- lim lsb)))
-    (list `(bfm ,lhs ,(if is-64-bit :xzr :wzr) src ,(- lim lsb) ,(1- width)))))
+    (list `(bfm ,lhs ,(if is-64-bit :xzr :wzr) ,(mod (- lsb) lim) ,(1- width)))))
 
 (define-macro-instruction bfi (lhs src lsb width)
   (let ((lim (if (eql (register-class lhs) :gpr-64)

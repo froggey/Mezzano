@@ -197,6 +197,8 @@
             (partial-save-return-helper interrupt-frame))
            (t
             (unhandled-interrupt interrupt-frame "brk")))))
+      (#x33 ; Software Step exception taken without a change in Exception level
+       (stop-thread-for-single-step interrupt-frame))
       (t
        (unhandled-interrupt interrupt-frame "synchronous-el0")))))
 
