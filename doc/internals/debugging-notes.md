@@ -21,6 +21,10 @@ Not actually a diassembly, it's the input to the assembler. Not a round-trip thr
 
 Most of this can be done through options when starting gdb
 
+```sh
+aarch64-elf-gdb -ex "source tools/gdb.scm" -ex "gu (load-symbols \"../mezzano.map\")" -ex "target remote :1234"
+```
+
 ### Useful gdb ops
 
 `display /i $pc` - print current pc & instruction every step
@@ -56,3 +60,18 @@ or:
 (throw 'mezzano.supervisor::terminate-thread nil) ; just terminate the basic repl
 ```
 or nothing and live with the basic repl hanging around, a snapshot is taken at the end of IPL anyway.
+
+## Low-Level DeBugger (LLDB)
+
+lldb (in system/lldb.lisp) is roughly equivalent to gdb in terms of how it works, in the sense
+that it operates directly on threads at the assembly level, as opposed to the "normal" style of
+Common Lisp debugger that operates within a thread on conditions, signals, and restarts (plus
+maybe some other extra stuff, like backtraces, frame inspection, restarting and resumption, etc)
+
+It has a small suite of building blocks for manipulating threads at a low-level. Primarily
+stopping threads, single-stepping at the instruction level, and register inspection.
+
+The only high-level tool provided here is `trace-execution`. It takes a function to call,
+and steps through it printing every instruction executed. This was originally developed
+for profiling CLOS dispatch. Unlike the statistical profiler, this gives an exact trace
+of instructions and functions executed.
