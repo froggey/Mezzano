@@ -10,9 +10,8 @@
 ;; temporary variable for the old value of place
 ;; temporary variable for the new value of place
 ;; form using the aforementioned temporaries which performs the compare-and-swap operation on place
-;; form using the aforementioned temporaries with which to perform a volatile read of place
-;;
-;; A volatile write form might be nice as well, for unlocking spinlocks...
+;; form using the aforementioned temporaries with which to perform an atomic read of place
+;; form using the aforementioned temporaries with which to perform an atomic write of place
 (defun get-cas-expansion (place &optional environment)
   (let ((expansion (macroexpand place environment)))
     (cond ((symbolp expansion)
@@ -36,7 +35,8 @@
                         old
                         new
                         `(funcall #'(cas symbol-global-value) ,old ,new ',expansion)
-                        `(symbol-global-value ',expansion))))
+                        `(symbol-global-value ',expansion)
+                        `(setf (symbol-global-value ',expansion) ,new))))
              ((:special nil)
               ;; Fall back on CAS of SYMBOL-VALUE.
               (let ((old (gensym "OLD"))
@@ -46,7 +46,8 @@
                         old
                         new
                         `(funcall #'(cas symbol-value) ,old ,new ',expansion)
-                        `(symbol-value ',expansion))))))
+                        `(symbol-value ',expansion)
+                        `(setf (symbol-value ',expansion) ,new))))))
           (t
            ;; All other CAS forms are currently functions!
            (let ((old (gensym "OLD"))
@@ -59,7 +60,8 @@
                      old
                      new
                      `(funcall #'(cas ,(first expansion)) ,old ,new ,@vars)
-                     `(,(first expansion) ,@vars)))))))
+                     `(,(first expansion) ,@vars)
+                     `(setf (,(first expansion) ,@vars) ,new)))))))
 
 )
 

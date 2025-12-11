@@ -80,9 +80,14 @@ RETURN-FROM/GO must not be used to leave this form."
                   (return)))))
          (values)))))
 
-(defmacro release-place-spinlock (place)
-  `(progn (setf ,place :unlocked)
-          (values)))
+(defmacro release-place-spinlock (place &environment environment)
+  (multiple-value-bind (vars vals old-sym new-sym cas-form read-form write-form)
+      (sys.int::get-cas-expansion place environment)
+    (declare (ignore old-sym cas-form read-form))
+    `(let (,@(mapcar #'list vars vals)
+           (,new-sym :unlocked))
+       ,write-form
+       (values))))
 
 (defmacro with-place-spinlock ((place) &body body)
   `(progn
