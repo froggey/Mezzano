@@ -1238,7 +1238,6 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                         :psh-p psh-p
                         :errors-escape t))))
 
-;; TODO: Respect the send window, buffer data when it fills up.
 (defun tcp-send (connection data &optional (start 0) end)
   (setf end (or end (length data)))
   (with-tcp-connection-locked connection
@@ -1255,17 +1254,22 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
        (unless (tcp-connection-last-ack-time connection)
          (setf (tcp-connection-last-ack-time connection)
                (get-internal-run-time)))
-       (let ((snd.mss (tcp-connection-snd.mss connection)))
-         (cond ((>= start end))
-               ((> (- end start) snd.mss)
-                ;; Send multiple packets.
-                (loop :for offset :from start :by snd.mss
-                      :while (> (- end offset) snd.mss)
-                      :do (tcp-send-1 connection data offset (+ offset snd.mss))
-                      :finally (tcp-send-1 connection data offset end :psh-p t)))
-               (t
-                ;; Send one packet.
-                (tcp-send-1 connection data start end :psh-p t)))))
+       (loop :with offset := start
+             :for segment-size := (min (tcp-connection-snd.mss connection)
+                                       (- end offset)
+                                       (-u32 (+u32 (tcp-connection-snd.una connection)
+                                                   (tcp-connection-snd.wnd connection))
+                                             (tcp-connection-snd.nxt connection)))
+             :while (< offset end)
+             :do (cond ((= segment-size 0)
+                        (mezzano.supervisor:condition-wait-for ((tcp-connection-cvar connection)
+                                                                (tcp-connection-lock connection))
+                          (<u32 (tcp-connection-snd.nxt connection)
+                                (+u32 (tcp-connection-snd.una connection)
+                                      (tcp-connection-snd.wnd connection)))))
+                       (t
+                        (tcp-send-1 connection data offset (+ offset segment-size) :psh-p (= (+ offset segment-size) end))
+                        (incf offset segment-size)))))
       ((:fin-wait-1 :fin-wait-2 :closing :last-ack :time-wait)
        (error 'connection-closing
               :host (tcp-connection-remote-ip connection)
