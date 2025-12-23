@@ -1,17 +1,14 @@
-;;;; Copyright (c) 2019 Philip Mueller (phil.mueller@fittestbits.com)
+;;;; Copyright (c) 2019, 2020, 2021 Philip Mueller (phil.mueller@fittestbits.com)
 ;;;; This code is licensed under the MIT license.
 
 ;;======================================================================
 ;;
 ;; HID (Human Interface Device) Class Driver
 ;;
-;; This file is made up of three broad sections:
-;;     1. The HID device drivers
-;;     2. Code that generates a function that decodes interrupt
-;;        buffers (input reports) using the data structure generated
-;;        by section 3.
-;;     3. Code that creates a data structure for use by section 2
-;;        above by parsing the raw report description.
+;;  The HID class driver searchs for a HID driver for each interface
+;;  the HID device provides. It does this by reading and parsing the
+;;  report descriptors to see if there are any HID drivers registered
+;;  for the reports.
 ;;
 ;;======================================================================
 
@@ -22,15 +19,12 @@
 
 (in-package :mezzano.driver.usb.hid)
 
-(defvar *trace-stream* t #+nil sys.int::*cold-stream*)
+(defvar *trace-stream* sys.int::*cold-stream*)
 (defvar *trace* 0)
 
 (defmacro with-trace-level ((trace-level) &body body)
   `(when (>= *trace* ,trace-level)
      ,@body))
-
-;; submit mouse function name, compositor package not defined when
-;; drivers are loaded, generate the symbol at first hid mouse probe
 
 (defstruct hid-endpt
   type                     ; :mouse or :keyboard
@@ -50,10 +44,7 @@
     (usbd driver endpoint device endpt-desc callback)
   ;; get buffer size from report in interface
   ;; get packet size from endpt-desc
-  (let* ((address (aref endpt-desc +ed-address+))
-         (endpt-in (ldb-test +ed-direction-field+ address))
-         (endpt-num (ldb +ed-endpt-num-field+ address)))
-
+  (let* ((endpt-num (ldb +ed-endpt-num-field+ (aref endpt-desc +ed-address+))))
     (ecase (aref endpt-desc +ed-attributes+)
       (#.+ed-attr-interrupt+
        (create-interrupt-endpt usbd
@@ -73,524 +64,40 @@
   )
 
 ;;======================================================================
-;; HID Mouse Driver
-;;======================================================================
-
-(defvar *submit-mouse* nil)
-
-(defun probe-hid-mouse (usbd device iface-desc configs)
-  (when (/= (aref iface-desc +id-num-endpoints+) 1)
-    (sup:debug-print-line "HID Probe failed because "
-                          "mouse interface descriptor has "
-                          (aref iface-desc +id-num-endpoints+)
-                          " endpoints. Only exactly 1 supported.")
-    (throw :probe-failed nil))
-
-  (when (not *submit-mouse*)
-    (setf *submit-mouse* (intern "SUBMIT-MOUSE" :mezzano.gui.compositor)))
-
-  (let ((iface-num (aref iface-desc +id-number+))
-        (hid-desc (pop configs))
-        (endpoint (make-hid-endpt :type :mouse)))
-    (when (or (null hid-desc)
-              (/= (aref hid-desc +hd-type+) +desc-type-hid+))
-      (sup:debug-print-line
-       "HID Probe failed because "
-       "mouse interface descriptor not followed by HID descriptor.")
-      (throw :probe-failed nil))
-
-    (let ((type (aref hid-desc +hd-descriptor-type+))
-          (size (get-unsigned-word/16 hid-desc +hd-descriptor-length+)))
-      (when (/= type +desc-type-report+)
-        (sup:debug-print-line "HID probe failed because descriptor type "
-                              type
-                              " not report, the only type supported.")
-        (throw :probe-failed nil))
-
-      (let ((state (parse-report-descriptor usbd device iface-num size)))
-        (multiple-value-bind (buf-size function) (generate-mouse-buf-code state)
-          (setf (hid-endpt-buf-size endpoint) buf-size
-                (hid-endpt-parse-state endpoint) state
-                (hid-endpt-function endpoint) function))))
-
-    (let ((endpt-desc (pop configs)))
-      (when (or (null endpt-desc)
-                (/= (aref endpt-desc +ed-type+) +desc-type-endpoint+))
-        (sup:debug-print-line "HID probe failed because "
-                              "found descriptor type "
-                              (aref endpt-desc +ed-type+)
-                              " instead of endpoint descriptor.")
-        (throw :probe-failed nil))
-      (let* ((driver (make-hid-driver
-                      :usbd usbd
-                      :device device
-                      :endpoints (make-array 32 :initial-element NIL)))
-             (endpt-num
-              (parse-endpt-descriptor
-               usbd driver endpoint device endpt-desc 'mouse-int-callback)))
-        (setf (aref (hid-driver-endpoints driver) endpt-num) endpoint)
-        (values configs driver)))))
-
-(define-usb-class-driver "HID Mouse" 'probe-hid-mouse
-  '((#.+id-class-hid+ #.+hid-subclass-none+ #.+id-protocol-mouse+)
-    (#.+id-class-hid+ #.+hid-subclass-boot+ #.+id-protocol-mouse+)))
-
-;;======================================================================
+;; Human Interface Device (HID) report parser
 ;;
-;; At some point these variables (*threshold* and *multiplier*) and
-;; the function (adjust-motion) should be settable from a user
-;; configuration GUI so that users can customize their pointer's
-;; operation. (Of course the (declaim (inline ...)) will have to be
-;; removed. Aug. 11, 2019
-;;
-;;======================================================================
-
-(defvar *threshold* 50)
-(defvar *multiplier* 3)
-
-(declaim (inline adjust-motion))
-
-(defun adjust-motion (motion)
-  (cond ((>= motion *threshold*)
-         (- (* *multiplier* motion) (* (1- *multiplier*) *threshold*)))
-        ((>= motion (- *threshold*))
-         motion)
-        (T
-         (+ (* *multiplier* motion) (* (1- *multiplier*) *threshold*)))))
-
-(defun mouse-event (buttons x-motion y-motion wheel-motion)
-  (funcall *submit-mouse*
-           (logior buttons
-                   (if (> wheel-motion 0)
-                       #b00001000
-                       0)
-                   (if (< wheel-motion 0)
-                       #b00010000
-                       0))
-           (adjust-motion x-motion)
-           (adjust-motion y-motion))
-  (when (/= wheel-motion 0)
-    ;; button up event for buttons 4 and 5
-    (funcall *submit-mouse* buttons 0 0)))
-
-(defvar *mouse-ints* NIL) ;; for debug
-
-(defun mouse-int-callback (driver endpoint-num status length buf)
-  (unwind-protect
-       (cond ((eq status :success)
-              (let ((endpoint (aref (hid-driver-endpoints driver) endpoint-num)))
-                (funcall (hid-endpt-function endpoint) length buf)))
-             (T
-              (format sys.int::*cold-stream*
-                      "Interrupt error ~A on endpoint number ~D~%"
-                      status endpoint-num)))
-    (with-trace-level (7)
-      (push (format nil "~D: ~A" length buf) *mouse-ints*))
-    (free-buffer buf)))
-
-;;======================================================================
-;; HID Keyboard Driver
-;;======================================================================
-
-(defun probe-hid-keyboard (usbd driver device iface-desc configs)
-  (when (/= (aref iface-desc +id-num-endpoints+) 1)
-    (sup:debug-print-line "HID Probe failed because "
-                          "keyboard interface descriptor has "
-                          (aref iface-desc +id-num-endpoints+)
-                          " endpoints. Only exactly 1 supported.")
-    (throw :probe-failed nil))
-
-  (let ((iface-num (aref iface-desc +id-number+))
-        (hid-desc (pop configs))
-        (endpoint (make-hid-endpt :type :keyboard)))
-
-    (when (or (null hid-desc)
-              (/= (aref hid-desc +hd-type+) +desc-type-hid+))
-      (sup:debug-print-line
-       "HID Probe failed because "
-       "keyboard interface descriptor not followed by HID descriptor.")
-      (throw :probe-failed nil))
-
-    (let ((type (aref hid-desc +hd-descriptor-type+))
-          (size (get-unsigned-word/16 hid-desc +hd-descriptor-length+)))
-      (when (/= type +desc-type-report+)
-        (sup:debug-print-line "HID probe failed because descriptor type "
-                              type
-                              " not report, the only type supported.")
-        (throw :probe-failed nil))
-
-      (let ((state (parse-report-descriptor
-                    usbd driver device iface-num size)))
-        (multiple-value-bind (buf-size function)
-            (generate-keyboard-buf-code state)
-          (setf (hid-endpt-buf-size endpoint) buf-size
-              (hid-endpt-parse-state endpoint) state
-              (hid-endpt-function endpoint) function))))
-
-    (let ((endpt-desc (pop configs)))
-      (when (or (null endpt-desc)
-                (/= (aref endpt-desc +ed-type+) +desc-type-endpoint+))
-        (sup:debug-print-line "HID probe failed because "
-                              "found descriptor type "
-                              (aref endpt-desc +ed-type+)
-                              " instead of endpoint descriptor.")
-        (throw :probe-failed nil))
-      ;; TODO write keyboard-int-callback
-      #+nil
-      (let ((endpt-num (parse-endpt-descriptor usbd
-                                               endpoint
-                                               device
-                                               endpt-desc
-                                               'keyboard-int-callback)))
-        (setf (aref (hid-driver-endpoints driver) endpt-num) endpoint))))
-  configs)
-
-#+nil
-(define-usb-class-driver "HID Keyboard" 'probe-hid-keyboard
-  '((#.+id-class-hid+ #.+hid-subclass-none+ #.+id-protocol-keyboard+)
-    (#.+id-class-hid+ #.+hid-subclass-boot+ #.+id-protocol-keyboard+)))
-
-
-;;======================================================================
-;; Structures used to parse HID Report descriptor and to generate code
-;; that decodes interrupt buffers (input reports).
+;; This code parses USB HID report descriptors which describe the HID
+;; including the type of device and a description of the messages the
+;; device sends and receives. The report descriptor is defined in
+;; setion 6.2.2 of USB Device Class Definition for Human Interface
+;; Devices version 1.11 6/27/2001
 ;; ======================================================================
 
-(defstruct report-field
-  name
-  byte-offset
-  bit-offset
-  num-bits
-  count
-  minimum
-  maximum
-  values)
-
-(defun find-report-field (report name)
-  (dolist (field report)
-    (when (eql (report-field-name field) name)
-      (return field))))
-
-(defstruct report-info
-  byte-offset
-  bit-offset
-  format)
-
-(defstruct parse-info
-  input              ; report-info for input report
-  output             ; report-info for output report
-  feature            ; report-info for feature report
-  input-reports
-  output-reports
-  feature-reports
-  state                                 ; plist
-  )
-
-(defun parse-state-value (state indicator)
-  (getf (parse-info-state state) indicator))
-
-(defun (setf parse-state-value) (value state indicator)
-  (setf (getf (parse-info-state state) indicator) value))
-
-(defun increment-position (report-info num-bits)
-  (multiple-value-bind (bytes bit-pos)
-      (truncate (+ (report-info-bit-offset report-info) num-bits) 8)
-    (incf (report-info-byte-offset report-info) bytes)
-    (setf (report-info-bit-offset report-info) bit-pos)))
-
-(defun get-buffer-size (report-info)
-  (if (= (report-info-bit-offset report-info) 0)
-      (report-info-byte-offset report-info)
-      (1+ (report-info-byte-offset report-info))))
-
 ;;======================================================================
+;; Pages info
 ;;
-;; Generate a function which parses the mouse interrupt buffer and
-;; returns the buttons state, x-motion and y-motion
+;; Implement a sparse 2^32 entry array as hash table, this
+;; implementation may change later without affecting the parser.
 ;;
-;;======================================================================
-
-(defun generate-array-index (offset offset-var)
-  (if offset-var
-      `(+ ,offset-var ,offset)
-      offset))
-
-(defun generate-single-button (bit-offset button offset-var)
-  (let ((index (generate-array-index
-                (report-field-byte-offset button)
-                offset-var)))
-    (cond ((null button) 0)
-          ((or (/= (report-field-num-bits button) 1)
-               (/= (report-field-count button) 1))
-           (error "Multi-bit button unsuported size/count: ~D/~D"
-                  (report-field-num-bits button)
-                  (report-field-count button)))
-          ((= (report-field-bit-offset button) bit-offset)
-           `(logand (aref buf ,index)
-                    ,(ash 1 bit-offset)))
-          (T
-           `(ash (logand (aref buf ,index)
-                         ,(ash 1 (report-field-bit-offset button)))
-                 ,(- bit-offset (report-field-bit-offset button)))))))
-
-(defun generate-button-code (report offset-var)
-  ;; generate code to extract up to the first three buttons
-  (let ((button1 (find-report-field report :button1))
-        (button2 (find-report-field report :button2))
-        (button3 (find-report-field report :button3)))
-    (when (or (and button1 (not(= (report-field-num-bits button1)
-                                  (report-field-count button1)
-                                  1)))
-              (and button2 (not(= (report-field-num-bits button2)
-                                  (report-field-count button2)
-                                  1)))
-              (and button3 (not(= (report-field-num-bits button3)
-                                  (report-field-count button3)
-                                  1))))
-      (error "Multi-bit button unsupported"))
-    (cond ((and button1 button2 button3  ;; 3 button mouse
-                ;; all in the same byte
-                (= (report-field-byte-offset button1)
-                   (report-field-byte-offset button2)
-                   (report-field-byte-offset button3))
-                ;; bits are sequential
-                (= (+ (report-field-bit-offset button1) 2)
-                   (+ (report-field-bit-offset button2) 1)
-                   (report-field-bit-offset button3)))
-           ;; optimum cases - 3 sequental bits
-           (let ((index (generate-array-index
-                         (report-field-byte-offset button1)
-                         offset-var)))
-             (if (= (report-field-bit-offset button1) 0)
-                 `(logand (aref buf ,index) #x07)
-                 `(ldb (byte 3 ,(report-field-bit-offset  button1))
-                       (aref buf ,index)))))
-
-          ((and button1 button2 (null button3)  ;; 2 button mouse
-                ;; all in the same byte
-                (= (report-field-byte-offset button1)
-                   (report-field-byte-offset button2))
-                ;; all single bit
-                (= (caddr button1) (caddr button2) 1)
-                ;; bits are sequential
-                (= (+ (report-field-bit-offset button1) 1)
-                   (report-field-bit-offset button2)))
-           ;; optimum cases - 2 sequential bits
-           (let ((index (generate-array-index
-                         (report-field-byte-offset button1)
-                         offset-var)))
-             (if (= (report-field-bit-offset button1) 0)
-                 `(logand (aref buf ,index) #x03)
-                 `(ldb (byte 2 ,(report-field-bit-offset  button1))
-                       (aref buf ,index)))))
-
-          ((and button1 (null button2) (null button3)  ;; 1 button mouse
-                ;; single bit
-                (= (caddr button1) 1))
-           (let ((index (generate-array-index
-                         (report-field-byte-offset button1)
-                         offset-var)))
-             ;; optimum cases
-             (if (= (report-field-bit-offset button1) 0)
-                 `(logand (aref buf ,index) #x01)
-                 `(ldb (byte 1 ,(report-field-bit-offset  button1))
-                       (aref buf ,index)))))
-
-          (T    ;; treat each button individually
-           `(logior ,(generate-single-button 0 button1 offset-var)
-                    ,(generate-single-button 1 button2 offset-var)
-                    ,(generate-single-button 2 button3 offset-var))))))
-
-(defun generate-get-bits-code (byte-offset bit-offset bits count offset-var)
-  ;; TODO need to handle count
-  (when (/= count 1)
-    (sup:debug-print-line "HID Probe failed because "
-                          "count is " count " not equal to 1.")
-    (throw :probe-failed nil))
-  (let ((index (generate-array-index byte-offset offset-var))
-        (1+index (generate-array-index (1+ byte-offset) offset-var))
-        (2+index (generate-array-index (+ byte-offset 2) offset-var)))
-    ;; Generate code to extract a bit field from the buffer
-    (cond ((and (= bit-offset 0) (= bits 8))
-           `(aref buf ,index))
-          ((and (= bit-offset 0) (< bits 8))
-           `(logand (aref buf ,index) ,(1- (expt 2 bits))))
-          ((<= (+ bit-offset bits) 8)
-           `(ldb (byte ,bits ,bit-offset) (aref buf ,index)))
-          ((and (= bit-offset 0) (= bits 16))
-           `(dpb (aref buf ,1+index) (byte 8 8) (aref buf ,index)))
-          ((and (= bit-offset 0) (< bits 16))
-           `(dpb (ldb (byte ,(- bits 8) 0) (aref buf ,1+index))
-                 (byte ,(- bits 8) 8)
-                 (aref buf ,index)))
-          ((<= (+ bit-offset bits) 16)
-           `(dpb (aref buf ,1+index)
-                 (byte ,(- bits (- 8 bit-offset)) ,(- 8 bit-offset))
-                 (ldb (byte ,(- 8 bit-offset) ,bit-offset)
-                      (aref buf ,index))))
-          ((<= bits 16)
-           `(dpb (aref buf ,2+index)
-                 (byte ,(- bits (+ 8 (- 8 bit-offset))) ,(+ 8 (- 8 bit-offset)))
-                 (dpb (aref buf ,1+index)
-                      (byte 8 ,(- 8 bit-offset))
-                      (ldb (byte ,(- 8 bit-offset) ,bit-offset)
-                           (aref buf ,index)))))
-          (T
-           (sup:debug-print-line "HID Probe failed because "
-                                 "field with size "
-                                 bits
-                                 " not supported.")
-           (throw :probe-failed nil)))))
-
-(defun signed-field-p (bits min max)
-  ;; if msb of min is 1 and msb of max is 0, assume field is signed.
-  (and (logbitp (1- bits) min) (not (logbitp (1- bits) max))))
-
-(defun generate-field-value-code
-    (report field-name offset-var &optional (required-p T))
-  ;; generate code to return the value of a field
-  (let ((field-format (find-report-field report field-name)))
-    (cond ((null field-format)
-           (when required-p
-             (format sys.int::*cold-stream*
-                     "HID Probe failed because field ~A undefined in report."
-                     field-name)
-             (throw :probe-failed nil))
-           0)
-          (T
-           (let* ((byte-offset (report-field-byte-offset field-format))
-                  (bit-offset (report-field-bit-offset field-format))
-                  (num-bits (report-field-num-bits field-format))
-                  (count (report-field-count field-format))
-                  (min (report-field-minimum field-format))
-                  (max (report-field-maximum field-format))
-                  (value (generate-get-bits-code
-                          byte-offset bit-offset num-bits count offset-var))
-                  (sym (gensym "X-")))
-             (cond ((signed-field-p num-bits min max)
-                    `(let ((,sym ,value))
-                       (if (logbitp ,(1- num-bits) ,sym)
-                           (- (1+ (logxor ,(1- (expt 2 num-bits)) ,sym)))
-                           ,sym)))
-                   (T value)))))))
-
-(defun input-reports-buf-size (input-reports)
-  (let ((sum 0))
-    (dolist (report-plist input-reports)
-      (incf sum (getf report-plist :buf-size)))
-    ;; buffer should be large enough to receive all of the reports at
-    ;; once but might as well allow up to 64 bytes if the sum is less
-    ;; than that. A larger buffer shouldn't hurt ... August 9, 2019
-    (max sum 64)))
-
-(defun generate-mouse-case-code (input-reports offset-var)
-  (let ((results NIL)     ; list of "case" entries
-        (mouse-case NIL))
-    (dolist (report-plist input-reports)
-      (let ((type (second (getf report-plist :report)))
-            (report-id (first (getf report-plist :report)))
-            (buf-size (getf report-plist :buf-size))
-            (fields (getf report-plist :fields)))
-        (cond ((eq type :mouse)
-               (when mouse-case
-                 (sup:debug-print-line "HID probe failed because "
-                                       "there are multiple mouse reports")
-                 (throw :probe-failed nil))
-               (setf mouse-case
-                     `(,report-id
-                       (mouse-event
-                        ,(generate-button-code fields offset-var)
-                        ,(generate-field-value-code fields :x offset-var)
-                        ,(generate-field-value-code fields :y offset-var)
-                        ,(generate-field-value-code
-                          fields :wheel offset-var nil))
-                       (incf ,offset-var ,buf-size))))
-              (T
-               (push `(,report-id
-                       (incf ,offset-var ,buf-size)) results)))))
-    (when (null mouse-case)
-      (sup:debug-print-line "HID probe failed because "
-                            "there is no mouse report")
-      (throw :probe-failed nil))
-    ;; make mouse case the first case
-    (cons mouse-case results)))
-
-(defun generate-mouse-buf-code (state)
-  ;; Use the parsed report descriptor to generate a function that
-  ;; extracts the buttons state, x motion and y motion for a mouse
-  ;; from a buffer. The function returns (values button-state x-motion
-  ;; y-motion).
-  (cond ((report-info-format (parse-info-input state))
-         ;; simple case - single report with NO report ID
-
-         (let* ((fields (report-info-format (parse-info-input state)))
-                (buf-size (get-buffer-size (parse-info-input state)))
-                (result `(lambda (length buf)
-                           (declare (ignore length))
-                           (mouse-event
-                            ,(generate-button-code fields nil)
-                            ,(generate-field-value-code fields :x nil)
-                            ,(generate-field-value-code fields :y nil)
-                            ,(generate-field-value-code
-                              fields :wheel nil nil)))))
-           (with-trace-level (3)
-             (format *trace-stream* "~A~%" result))
-           (values buf-size (compile nil result))))
-        ((= (length (parse-info-input-reports state)) 1)
-         ;; next most simple case - single report with report ID
-         (let* ((report-plist (car (parse-info-input-reports state)))
-                (type (second (getf report-plist :report)))
-                (buf-size (getf report-plist :buf-size))
-                (fields (getf report-plist :fields)))
-
-           (when (not (eq type :mouse))
-             (format
-              sys.int::*cold-stream*
-              "HID Probe failed because report type is ~A instead of :mouse."
-              type)
-             (throw :probe-failed nil))
-
-           (let ((result `(function (lambda (length buf)
-                           (declare (ignore length))
-                            (mouse-event
-                             ,(generate-button-code fields nil)
-                             ,(generate-field-value-code fields :x nil)
-                             ,(generate-field-value-code fields :y nil)
-                             ,(generate-field-value-code
-                               fields :wheel nil nil))))))
-             (with-trace-level (3)
-               (format *trace-stream* "~A~%" result))
-             (values buf-size (eval result)))))
-        (T ;; complex case - multiple reports with report IDs
-         (let* ((input-reports (parse-info-input-reports state))
-                (buf-size (input-reports-buf-size input-reports))
-                (result `(function (lambda (length buf)
-                           (do ((offset 0))
-                               ((>= offset length))
-                             (case (aref buf offset)
-                               ,@(generate-mouse-case-code input-reports
-                                                           'offset)
-                               ))))))
-           (with-trace-level (3)
-             (format *trace-stream* "~A~%" result))
-           (values buf-size (eval result))))))
-
-(defun generate-keyboard-buf-code (state)
-  ;; TODO create generate-keyboard-buf-code
-  (values nil nil))
-
-;;======================================================================
-;; Code that parses HID reports
-;;======================================================================
-
-;;======================================================================
-;; Pages info - implement sparse array as hash table - may change later
-;;======================================================================
-
-;; This looks like it might be read by multiple threads, but only written
-;; here during initialization and only invariant keys are used.
-;; It is safe to leave it unsynchronized with invariant keys.
-(defvar *pages* (make-hash-table :test 'equal :enforce-gc-invariant-keys t))
+;; The table values come from the document USB HID Usage Tables
+;; version 1.12 10/28/2004
+;;
+;; This is a read-only table, it is only written here during
+;; initialized and the keys are a list of two integers between 0
+;; and #x3FFF (which combined would be the index into the 2^32 entry
+;; array). Even though this table may be accessed by multiple threads,
+;; because it is read-only and the keys are invariant, it is safe to
+;; leave it unsynchronized.
+;;
+;; The first 256 entries of page 0x07 of this table are implemented as
+;; an array in hid-keyboard.lisp. It is used to translate input bytes
+;; from USB keyboards to characters. The few items of page 0x07
+;; defined below may be used for parsing report descriptors as the
+;; "shift" keys are often handled separately from the other keys.
+;; ======================================================================
+(defvar *pages* (make-hash-table
+                 :test 'equal
+                 #+mezzano :enforce-gc-invariant-keys #+mezzano t))
 
 (setf
  (gethash (list 1 #x01) *pages*) :pointer
@@ -656,7 +163,32 @@
  (gethash (list 9 #x10) *pages*) :button16
 
  (gethash (list 12 #x001) *pages*) :consumer-control
- (gethash (list 12 #x238) *pages*) :ac-pan
+ (gethash (list 12 #x0B0) *pages*) :play
+ (gethash (list 12 #x0B1) *pages*) :pause
+ (gethash (list 12 #x0B2) *pages*) :record
+ (gethash (list 12 #x0B3) *pages*) :fast-forward
+ (gethash (list 12 #x0B4) *pages*) :rewind
+ (gethash (list 12 #x0B5) *pages*) :scan-next-track
+ (gethash (list 12 #x0B6) *pages*) :scan-previous-track
+ (gethash (list 12 #x0B7) *pages*) :stop
+ (gethash (list 12 #x0B8) *pages*) :eject
+ (gethash (list 12 #x0CD) *pages*) :pause-play
+ (gethash (list 12 #x0E2) *pages*) :mute
+ (gethash (list 12 #x0E9) *pages*) :volume-increment
+ (gethash (list 12 #x0EA) *pages*) :volume-decrement
+ (gethash (list 12 #x183) *pages*) :app-launch-ctl-config
+ (gethash (list 12 #x18A) *pages*) :app-launch-email-reader
+ (gethash (list 12 #x192) *pages*) :app-launch-calculator
+ (gethash (list 12 #x194) *pages*) :app-launch-machine-browser
+ (gethash (list 12 #x221) *pages*) :app-ctl-search
+ (gethash (list 12 #x222) *pages*) :app-ctl-go-to
+ (gethash (list 12 #x223) *pages*) :app-ctl-home
+ (gethash (list 12 #x224) *pages*) :app-ctl-back
+ (gethash (list 12 #x225) *pages*) :app-ctl-forward
+ (gethash (list 12 #x226) *pages*) :app-ctl-stop
+ (gethash (list 12 #x227) *pages*) :app-ctl-refresh
+ (gethash (list 12 #x22A) *pages*) :app-ctl-bookmarks
+ (gethash (list 12 #x238) *pages*) :app-ctl-pan
  )
 
 (defun get-page-entry (page item)
@@ -671,7 +203,58 @@
            result))))
 
 ;;======================================================================
+;; Structures used to parse HID Report descriptor used by HID drivers
+;; to decode interrupt buffers (input reports).
+;; ======================================================================
+
+(defstruct parse-fields
+  (report-count nil)
+  (report-size nil)
+  (logical-minimum nil)
+  (logical-maximum nil)
+  (usage-minimum nil)
+  (usage-maximum nil)
+  (usage-page nil)
+  (usage nil))
+
+(defstruct parse-info
+  (global-fields (make-parse-fields))
+  (local-fields (make-parse-fields))
+  collection
+  results)
+
+(defun reset-parse-fields (fields)
+  (setf (parse-fields-report-count fields) nil
+        (parse-fields-report-size fields) nil
+        (parse-fields-logical-minimum fields) nil
+        (parse-fields-logical-maximum fields) nil
+        (parse-fields-usage-minimum fields) nil
+        (parse-fields-usage-maximum fields) nil
+        (parse-fields-usage-page fields) nil
+        (parse-fields-usage fields) nil))
+
+;; Define accessors of the form parse-info-<field name> which gives
+;; priority to the local value over the global value
+(macrolet
+    ((def-parse-info-field (&rest field-names)
+       (let ((results '(progn)))
+         (dolist (field-name field-names (reverse results))
+           (let ((info-name (intern (concatenate 'string
+                                                 "PARSE-INFO-"
+                                                 (symbol-name field-name))))
+                 (accessor-name (intern (concatenate 'string
+                                                     "PARSE-FIELDS-"
+                                                     (symbol-name field-name)))))
+             (push `(defun ,info-name (info)
+                      (or (,accessor-name (parse-info-local-fields info))
+                          (,accessor-name (parse-info-global-fields info))))
+                   results))))))
+  (def-parse-info-field report-count report-size logical-minimum logical-maximum
+                        usage-minimum usage-maximum usage-page usage))
+
 ;;======================================================================
+;; Start of parser code
+;; ======================================================================
 
 (defun parse-item (state buf offset)
   (let ((header (aref buf offset)))
@@ -694,235 +277,113 @@
              *trace-stream* state buf offset header size type data))
           (values type tag data (+ offset size 1))))))
 
-(defun parse-fields (state report-info data)
-  (cond ((logbitp 0 data)
-         ;; constant field - want to ignore
-         (let ((num-bits (* (parse-state-value state :report-size)
-                            (parse-state-value state :report-count))))
-           (push
-            (make-report-field
-             :name :constant
-             :byte-offset (report-info-byte-offset report-info)
-             :bit-offset (report-info-bit-offset report-info)
-             :num-bits num-bits
-             :count 1
-             :minimum NIL
-             :maximum NIL
-             :values NIL)
-            (report-info-format report-info))
-           (increment-position report-info num-bits)))
-        ((logbitp 1 data)
-         ;; variable
-         (loop
-            with usage-count = (or (parse-state-value state :usage-count)
-                                   (parse-state-value state :report-count))
-            for idx from
-              (1- usage-count) downto 0
-            with num-bits = (parse-state-value state :report-size)
-            with symbols = (parse-state-value state :usage)
-            do (push
-                (make-report-field
-                 :name (nth idx symbols)
-                 :byte-offset (report-info-byte-offset report-info)
-                 :bit-offset (report-info-bit-offset report-info)
-                 :num-bits num-bits
-                 :count 1
-                 :minimum (parse-state-value state :logical-minimum)
-                 :maximum (parse-state-value state :logical-maximum)
-                 :values NIL)
-                (report-info-format report-info))
-              (increment-position report-info num-bits)
-            finally
-              (when (and (parse-state-value state :usage-count)
-                         (/= (parse-state-value state :usage-count)
-                             (parse-state-value state :report-count)))
-                (increment-position report-info
-                                    (- (parse-state-value state :report-count)
-                                       (parse-state-value state :usage-count))))
-
-              (setf (parse-state-value state :usage)
-                    (nthcdr usage-count symbols)
-                    (parse-state-value state :usage-count)
-                    NIL)))
-        ((not (logbitp 1 data))
-         ;; Array number of used entries = max - min + 1
-         (let* ((num-bits (parse-state-value state :report-size))
-                (count (parse-state-value state :report-count))
-                (num-entries
-                 (1+ (- (parse-state-value state :logical-maximum)
-                        (parse-state-value state :logical-minimum))))
-                (symbols (last (reverse (parse-state-value state :usage))
-                               num-entries)))
-           (push
-            (make-report-field
-             :name (nth num-entries (parse-state-value state :usage))
-             :byte-offset (report-info-byte-offset report-info)
-             :bit-offset (report-info-bit-offset report-info)
-             :num-bits num-bits
-             :count count
-             :minimum (parse-state-value state :logical-minimum)
-             :maximum (parse-state-value state :logical-maximum)
-             :values symbols)
-            (report-info-format report-info))
-           (setf (parse-state-value state :usage)
-                 (nthcdr (1+ num-entries)
-                         (parse-state-value state :usage))
-                 (parse-state-value state :usage-count)
-                 NIL)
-           (increment-position report-info (* num-bits count))))
-        ))
+(defun parse-main-data (tag data)
+  (let ((result nil))
+    (push (if (logbitp 8 data) :buffered-bytes :bit-field) result)
+    (when (or (= tag #x09) (= tag #x0B))
+      (push (if (logbitp 7 data) :volatile :non-volatile) result))
+    (when (logbitp 6 data)
+      (push :null-state result))
+    (when (not (logbitp 5 data))
+      (push :preferred-state result))
+    (when (logbitp 4 data)
+      (push :non-linear result))
+    (when (logbitp 3 data)
+      (push :wrap result))
+    (push (if (logbitp 2 data) :relative :absolute) result)
+    (push (if (logbitp 1 data) :variable :array) result)
+    (push (if (logbitp 0 data) :constant :data) result)
+    result))
 
 (defun parse-main (state tag data)
   (case tag
-    (#x08 ; Input
-     (parse-fields state (parse-info-input state) data))
-    (#x09 ; Output
-     (parse-fields state (parse-info-output state) data))
+    ((#x08 #x09 #x0B) ; Input, Output or Feature
+     (nconc (car (parse-info-collection state))
+            (list (case tag (#x08 :input) (#x09 :output) (#x0B :feature))
+                  (list :type (parse-main-data tag data)
+                        :count (parse-info-report-count state)
+                        :size (parse-info-report-size state)
+                        :logical-minimum (parse-info-logical-minimum state)
+                        :logical-maximum (parse-info-logical-maximum state)
+                        :usage-minimum (parse-info-usage-minimum state)
+                        :usage-maximum (parse-info-usage-maximum state)
+                        :usage (reverse (parse-info-usage state)))))
+     (reset-parse-fields (parse-info-local-fields state)))
     (#x0A ; Collection
-     (case data
-       (#x00
-        (push :physical (parse-state-value state :collection)))
-       (#x01
-        (push :application (parse-state-value state :collection)))
-       ))
-    (#x0B ; Feature
-     (parse-fields state (parse-info-feature state) data))
-    (#x0C ;; End Collection
-     (pop (parse-state-value state :collection))
-     (pop (parse-state-value state :usage)))
-    ))
-
-(defun end-of-report-id (state)
-  (let ((report-info (parse-info-input state)))
-    (when (report-info-format report-info)
-      ;; It was an input report
-      (push (list :report (parse-state-value state :report-id)
-                  :buf-size (get-buffer-size report-info)
-                  :fields (report-info-format report-info))
-            (parse-info-input-reports state))))
-  (setf (parse-info-input state)
-        (make-report-info :byte-offset 0
-                          :bit-offset 0
-                          :format nil))
-
-  (let ((report-info(parse-info-output state)))
-    (when (report-info-format report-info)
-      ;; It was an output report
-      (push (list :report (parse-state-value state :report-id)
-                  :buf-size (get-buffer-size report-info)
-                  :fields (report-info-format report-info))
-            (parse-info-output-reports state))))
-  (setf (parse-info-output state)
-        (make-report-info :byte-offset 0
-                          :bit-offset 0
-                          :format nil))
-
-  (let ((report-info (parse-info-feature state)))
-    (when (report-info-format report-info)
-      ;; It was an feature report
-      (push (list :report (parse-state-value state :report-id)
-                  :buf-size (get-buffer-size report-info)
-                  :fields (report-info-format report-info))
-            (parse-info-feature-reports state))))
-  (setf (parse-info-feature state)
-        (make-report-info :byte-offset 0
-                          :bit-offset 0
-                          :format nil)))
+     (push (list (case data
+                   (#x00 :physical)
+                   (#x01 :application)
+                   (#x02 :logical)
+                   (#x03 :report)
+                   (#x04 :named-array)
+                   (#x05 :usage-switch)
+                   (#x06 :usage-modifier))
+                 (car (parse-info-usage state)))
+           (parse-info-collection state))
+     (setf (parse-fields-usage (parse-info-local-fields state)) nil))
+    (#x0C ; End Collection
+     (let ((collection (pop (parse-info-collection state))))
+       (cond ((null (parse-info-collection state))
+              (push collection (parse-info-results state))
+              (setf (parse-info-collection state) nil)
+              (reset-parse-fields (parse-info-local-fields state))
+              (reset-parse-fields (parse-info-global-fields state)))
+             (T
+              (nconc (car (parse-info-collection state))
+                     (list :collection collection))))))))
 
 (defun parse-global (state tag data)
-  (case tag
-    (#x00 ; usage page
-     (setf (parse-state-value state :page) data))
-    (#x01
-     (setf (parse-state-value state :logical-minimum) data))
-    (#x02
-     (setf (parse-state-value state :logical-maximum) data))
-    (#x07
-     (setf (parse-state-value state :report-size) data))
-    (#x08
-     (when (parse-state-value state :report-id)
-       ;; start of new report - end of previous report
-       (end-of-report-id state))
-     (setf (parse-state-value state :report-id)
-           (list data (car (parse-state-value state :usage)))
-           (report-info-byte-offset (parse-info-input state)) 1
-           (report-info-byte-offset (parse-info-output state)) 1
-           (report-info-byte-offset (parse-info-feature state)) 1))
-    (#x09
-     (setf (parse-state-value state :report-count) data))
-    ))
+  (let ((fields (parse-info-global-fields state)))
+    (case tag
+      (#x00
+       (setf (parse-fields-usage-page fields) data))
+      (#x01
+       (setf (parse-fields-logical-minimum fields) data))
+      (#x02
+       (setf (parse-fields-logical-maximum fields) data))
+      (#x07
+       (setf (parse-fields-report-size fields) data))
+      (#x08
+       (setf (getf (car (parse-info-collection state)) :report-id) data))
+      (#x09
+       (setf (parse-fields-report-count fields) data)))))
 
 (defun parse-local (state tag data)
-  (case tag
-    (#x00 ; usage
-     (push (get-page-entry (parse-state-value state :page) data)
-           (parse-state-value state :usage)))
-    (#x01
-     (let ((max (parse-state-value state :usage-maximum)))
-       (cond (max
-              (remf  (parse-info-state state) :usage-maximum)
-              (loop for idx from data to max
-                 do (push
-                     (get-page-entry (parse-state-value state :page) idx)
-                     (parse-state-value state :usage)))
-              (setf (parse-state-value state :usage-count)
-                    (1+ (- max data))))
-             (T
-              (setf (parse-state-value state :usage-minimum) data)))))
-    (#x02
-     (let ((min (parse-state-value state :usage-minimum)))
-       (cond (min
-              (remf  (parse-info-state state) :usage-minimum)
-              (loop for idx from min to data
-                 do (push
-                     (get-page-entry (parse-state-value state :page) idx)
-                     (parse-state-value state :usage)))
-              (setf (parse-state-value state :usage-count)
-                    (1+ (- data min))))
-             (T
-              (setf (parse-state-value state :usage-maximum) data)))))
-    ))
-
-(defun parse-report-finish (state)
-  (when (parse-state-value state :report-id)
-    ;;end of report descriptor - end of previous report
-    (end-of-report-id state))
-
-  (with-trace-level (6)
-    (format *trace-stream* "~A~%~%" state)))
+  (let ((fields (parse-info-local-fields state)))
+    (case tag
+      (#x00
+       (push (get-page-entry (parse-info-usage-page state) data)
+             (parse-fields-usage fields)))
+      (#x01
+       (setf (parse-fields-usage-minimum fields) data))
+      (#x02
+       (setf (parse-fields-usage-maximum fields) data)))))
 
 (defun %parse-report-descriptor (buf size)
-  ;; Returns number of bytes and list of report fields for input,
-  ;; output and features.
-  (do ((offset 0)
-       (state (make-parse-info :input (make-report-info :byte-offset 0
-                                                        :bit-offset 0
-                                                        :format nil)
-                               :output (make-report-info :byte-offset 0
-                                                         :bit-offset 0
-                                                         :format nil)
-                               :feature (make-report-info :byte-offset 0
-                                                          :bit-offset 0
-                                                          :format nil)
-                               :input-reports nil
-                               :output-reports nil
-                               :feature-reports nil
-                               :state NIL)))
-      ((>= offset size) (parse-report-finish state) state)
-    (multiple-value-bind (type tag data new-offset)
-        (parse-item state buf offset)
-      (setf offset new-offset)
-      (case type
-        (:main
-         (parse-main state tag data))
-        (:global
-         (parse-global state tag data))
-        (:local
-         (parse-local state tag data))
-        )
-      (with-trace-level (6)
-        (format *trace-stream* "~A~%~%" state))
-      )))
+  ;; Returns data structure defining report fields
+  (loop
+     with offset = 0
+     with state = (make-parse-info)
+     when (>= offset size) do
+       (let ((result (nreverse (parse-info-results state))))
+         (with-trace-level (1)
+           (format *trace-stream* "report-descriptor:~%~S~%~%" result))
+         (return result))
+     do
+       (multiple-value-bind (type tag data new-offset)
+           (parse-item state buf offset)
+         (setf offset new-offset)
+         (case type
+           (:main
+            (parse-main state tag data))
+           (:global
+            (parse-global state tag data))
+           (:local
+            (parse-local state tag data))
+           )
+         (with-trace-level (6)
+           (format *trace-stream* "~A~%~%" state))
+         )))
 
 (defun parse-report-descriptor (usbd device iface-num size)
   (sup:debug-print-line "iface num " iface-num)
@@ -947,9 +408,61 @@
                             " bytes instead of "
                             size
                             ".")
-        (throw :probe-failed nil)))
+        (throw :probe-failed :failed)))
 
     (with-trace-level (3)
       (format sys.int::*cold-stream* "report descriptor: ~%")
       (print-buffer sys.int::*cold-stream* report-buf :indent "    "))
     (%parse-report-descriptor report-buf size)))
+
+;;======================================================================
+;;======================================================================
+
+(defvar *hid-probe-fcns* NIL)
+
+(defun register-hid-device-function (device-type function)
+  (setf (getf *hid-probe-fcns* device-type) function))
+
+;;======================================================================
+;;
+;; Probe HID device, parse the report descriptor, and call appropriate
+;; HID device driver based on the application type.
+;;
+;;======================================================================
+
+(defun probe-hid-device (usbd device iface-desc configs)
+  (when (/= (aref iface-desc +id-num-endpoints+) 1)
+    (sup:debug-print-line "HID Probe failed because "
+                          "interface descriptor has "
+                          (aref iface-desc +id-num-endpoints+)
+                          " endpoints. Only exactly 1 supported.")
+    (throw :probe-failed :failed))
+
+  (let ((iface-num (aref iface-desc +id-number+))
+        (hid-desc (pop configs)))
+    (when (or (null hid-desc)
+              (/= (aref hid-desc +hd-type+) +desc-type-hid+))
+      (sup:debug-print-line
+       "HID Probe failed because "
+       "interface descriptor not followed by HID descriptor.")
+      (throw :probe-failed :failed))
+    (let ((type (aref hid-desc +hd-descriptor-type+))
+          (size (get-unsigned-word/16 hid-desc +hd-descriptor-length+)))
+      (when (/= type +desc-type-report+)
+        (sup:debug-print-line "HID probe failed because descriptor type "
+                              type
+                              " not report, the only type supported.")
+        (throw :probe-failed :failed))
+      (let* ((descriptors (parse-report-descriptor usbd device iface-num size)))
+        (loop
+           for descriptor in descriptors
+           for probe-fcn = (getf *hid-probe-fcns* (getf descriptor :application))
+           when probe-fcn do
+             (multiple-value-bind (%configs driver)
+                 (funcall probe-fcn usbd device configs descriptors)
+               (when driver
+                 (return-from probe-hid-device (values %configs driver)))))))
+    (values configs NIL)))
+
+(define-usb-class-driver "HID" 'probe-hid-device
+  '((#.+id-class-hid+ NIL NIL)))

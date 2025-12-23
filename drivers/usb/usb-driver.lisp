@@ -335,7 +335,6 @@
 ;;======================================================================
 ;; Code for USB device driver registration
 ;;
-;; classes: list of (class subclass) pairs
 ;; products: list of (<vendor id> <product id>) pairs
 ;;
 ;;======================================================================
@@ -386,19 +385,61 @@
        do (loop for (driver-class driver-subclass driver-protocol) in
                (driver-classes driver)
              when (and (= class driver-class)
-                       (= subclass driver-subclass)
-                       (= protocol driver-protocol)) do
+                       (or (null driver-subclass)
+                           (= subclass driver-subclass))
+                       (or (null driver-protocol)
+                           (= protocol driver-protocol))) do
                (return-from find-usb-class-driver driver)))))
 
-(defun probe-usb-driver (usbd device buf)
-  (let* ((vendor-id (dpb (aref buf +dd-vendor-id-high+)
-                         (byte 8 8)
-                         (aref buf +dd-vendor-id-low+)))
-         (product-id (dpb (aref buf +dd-product-id-high+)
-                          (byte 8 8)
-                          (aref buf +dd-product-id-low+)))
-         (class (aref buf +dd-device-class+))
-         (subclass (aref buf +dd-device-sub-class+))
+(defun probe-interface (usbd device descriptors)
+  (let ((iface-desc (car descriptors)))
+    (if (= (aref iface-desc +id-type+) +desc-type-interface+)
+        (let ((driver (find-usb-class-driver (aref iface-desc +id-class+)
+                                             (aref iface-desc +id-sub-class+)
+                                             (aref iface-desc +id-protocol+))))
+          (if driver
+              (multiple-value-bind (result1 result2)
+                  (catch :probe-failed (funcall (driver-probe driver)
+                                                usbd
+                                                device
+                                                iface-desc
+                                                (cdr descriptors)))
+                (if (eq result1 :failed)
+                    (values (cdr descriptors) NIL)
+                    (values result1 result2)))
+              (values (cdr descriptors) NIL)))
+        (values (cdr descriptors) NIL))))
+
+(defun probe-configuration (usbd device config config-idx)
+  ;; config is a list of descriptors for this particular configuration
+  ;; Some devices seem to require that the configuration be set before
+  ;; getting the report descriptor, so set the configuration here.
+  (let ((config-desc (car config)))
+    (when (/= (aref config-desc +cd-type+) +desc-type-configuration+)
+      (sup:debug-print-line
+       "probe-configuration for configuration index "
+       config-idx
+       " failed because first descritor is type "
+       (aref config-desc +cd-type+)
+       " which is not a configuration descriptor.")
+      (return-from probe-configuration))
+    (set-configuration usbd device (aref config-desc +cd-config-value+)))
+
+  ;; Use probe-interface to try the class driver for each interface
+  (loop
+     with descriptors = (cdr config)
+     with driver
+     while descriptors do
+       (multiple-value-setq (descriptors driver)
+         (probe-interface usbd device descriptors))
+       (when driver
+         (push driver (usb-device-drivers device)))))
+
+(defun probe-usb-driver (usbd device device-desc)
+  (let* ((vendor-id (sys.int::ub16ref/le device-desc +dd-vendor-id-low+))
+         (product-id (sys.int::ub16ref/le device-desc +dd-product-id-low+))
+         (class (aref device-desc +dd-device-class+))
+         (subclass (aref device-desc +dd-device-sub-class+))
          (driver (find-usb-driver vendor-id product-id class subclass)))
 
     (setf (slot-value device 'vendor-id) vendor-id
@@ -408,102 +449,71 @@
 
     (sup:debug-print-line "vendor id " vendor-id " product id " product-id)
 
+    ;; if there's a device specific driver, try to use it.
     (when driver
-      (let ((probe-result (funcall (driver-probe driver) usbd device)))
-        (when probe-result
-          (push probe-result (usb-device-drivers device))
-          (return-from probe-usb-driver T))))
+      (setf (usb-device-drivers device)
+            (funcall (driver-probe driver) usbd device))
+      (when (usb-device-drivers device)
+        (return-from probe-usb-driver T)))
 
     ;; Either there was no driver, or the device specific driver didn't
-    ;; accept the device. Try the class drivers.
-    (catch :probe-failed
-      (let ((configuration (get-configuration usbd device)))
-        (setf (usb-device-configuration device) configuration)
-        (do ((desc (car configuration) (car configs))
-             (configs (cdr configuration) (cdr configs))
-             (config-set-p NIL))
-            ((null desc))
-
-          ;; Some devices seem to require that the configuration be
-          ;; set before getting the report descriptor, so set the
-          ;; configuration here. But, then what to do if there are
-          ;; multiple configurations? Error for now.
-          (when (= (aref desc +dd-type+) +desc-type-configuration+)
-            (when config-set-p
-              (sup:debug-print-line
-               "Probe failed because "
-               "multiple configuration descriptors are not supported")
-              (delete-device usbd device)
-              (return-from probe-usb-driver NIL))
-            (setf config-set-p T)
-            (set-configuration usbd device (aref desc +cd-config-value+)))
-
-          (when (= (aref desc +dd-type+) +desc-type-interface+)
-            (let ((driver (find-usb-class-driver (aref desc +id-class+)
-                                                 (aref desc +id-sub-class+)
-                                                 (aref desc +id-protocol+))))
-              (when driver
-                (multiple-value-bind (remaining-configs probe-result)
-                    (funcall (driver-probe driver) usbd device desc configs)
-                  (when probe-result
-                    (push probe-result (usb-device-drivers device))
-                    (setf configs remaining-configs))))))))
-
-      ;; Loop exited normally
-      (cond ((null (usb-device-drivers device))
-             ;; No driver accepted the device, delete it.
-             (delete-device usbd device)
-             (return-from probe-usb-driver NIL))
-            (T
-             ;; One or more drivers accepted the device, keep it
+    ;; accept the device. Try the class drivers for each configuartion.
+    (loop
+       for config-idx upto (1- (aref device-desc +dd-num-configurations+))
+       for config = (get-configuration usbd device config-idx)
+       do
+         (when config
+           (probe-configuration usbd device config config-idx)
+           (when (usb-device-drivers device)
              (return-from probe-usb-driver T))))
 
-    ;; Loop exited via the catch - probe failed
+    ;; No driver accepted the device, delete it and return failure
     (delete-device usbd device)
     NIL))
 
-(defun %get-configuration (usbd device length buf)
+(defun %get-configuration (usbd device idx length buf)
   (let ((num-bytes (get-descriptor usbd device
-                                   +desc-type-configuration+ 0
+                                   +desc-type-configuration+ idx
                                    length buf)))
-    (when (/= num-bytes length)
-      ;; Unable to get configuration descriptor
-      (sup:debug-print-line "HID Probe failed because "
-                            "unable to get config descriptor, only got "
-                            num-bytes
-                            " bytes instead of "
-                            length
-                            ".")
-      (throw :probe-failed nil))))
+    (if (= num-bytes length)
+        T
+        (progn
+          ;; Unable to get configuration descriptor
+          (sup:debug-print-line "Probe failed because "
+                                "unable to get config descriptor, only got "
+                                num-bytes
+                                " bytes instead of "
+                                length
+                                ".")
+          NIL))))
 
-(defun get-configuration (usbd device)
+(defun get-configuration (usbd device idx)
   (with-buffers ((buf-pool usbd) (buf /8 9))
     ;; Get first configuration descriptor - need full descriptor length
-    (%get-configuration usbd device 9 buf)
+    (%get-configuration usbd device idx 9 buf)
 
     (let ((length (aref buf 2)))
       (with-buffers ((buf-pool usbd) (config-buf /8 length))
         ;; Get full descriptor
-        (%get-configuration usbd device length config-buf)
+        (when (%get-configuration usbd device idx length config-buf)
+          (with-trace-level (3)
+            (print-descriptor mezzano.internals::*cold-stream* config-buf))
 
-        (with-trace-level (3)
-          (print-descriptor mezzano.internals::*cold-stream* config-buf))
-
-        ;; split configuration descriptor into separate descriptors
-        (do* ((offset 0 (+ offset (aref config-buf offset)))
-              (result nil))
-             ((>= offset length) (nreverse result))
-          (let ((size (aref config-buf offset)))
-            (when (= size 0)
-              (sup:debug-print-line "HID Probe failed because "
-                                    "of an invalid descriptor with size = 0.")
-              (throw :probe-failed nil))
-            (push (loop
-                     for idx from 0 to (1- size)
-                     with desc = (make-array size)
-                     do (setf (aref desc idx)
-                              (aref config-buf (+ offset idx)))
-                     finally (return desc)) result)))))))
+          ;; split configuration descriptor into separate descriptors
+          (do* ((offset 0 (+ offset (aref config-buf offset)))
+                (result nil))
+               ((>= offset length) (nreverse result))
+            (let ((size (aref config-buf offset)))
+              (when (= size 0)
+                (sup:debug-print-line "Probe failed because "
+                                      "of an invalid descriptor with size = 0.")
+                (return-from get-configuration NIL))
+              (push (loop
+                       for idx from 0 to (1- size)
+                       with desc = (make-array size)
+                       do (setf (aref desc idx)
+                                (aref config-buf (+ offset idx)))
+                       finally (return desc)) result))))))))
 
 ;;======================================================================
 ;;

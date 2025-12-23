@@ -76,6 +76,8 @@
   :description "Class drivers"
   :depends-on ("mezzano-usb")
   :components ((:file "hid")
+               (:file "hid-mouse" :depends-on ("hid"))
+               (:file "hid-keyboard" :depends-on ("hid"))
                (:file "mass-storage")))
 
 (defsystem "mezzano-usb/debug"
