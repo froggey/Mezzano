@@ -685,6 +685,9 @@
            #:dma-buffer-n-sg-entries
            #:dma-buffer-sg-entry
            #:dma-buffer-sg-entry-list
+
+           #:initialize-debug-serial
+           #:initialize-debug-serial-reads
            ))
 
 ;;; Runtime contains a bunch of low-level and common functions required to

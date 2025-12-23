@@ -108,7 +108,9 @@
 (sys.int::defglobal *debug-serial-read-fn*)
 (sys.int::defglobal *debug-serial-write-fn*)
 (sys.int::defglobal *debug-serial-lock*)
-(sys.int::defglobal *serial-at-line-start*)
+(sys.int::defglobal *debug-serial-at-line-start*)
+(sys.int::defglobal *debug-serial-irq*)
+(sys.int::defglobal *debug-serial-irq-handler*)
 
 ;; Low-level byte functions.
 
@@ -142,11 +144,11 @@
 ;; end of the port uses UTF-8 with CRLF newlines.
 
 (defun debug-serial-write-char (char)
-  (setf *serial-at-line-start* nil)
+  (setf *debug-serial-at-line-start* nil)
   ;; FIXME: Should write all the bytes to the buffer in one go.
   ;; Other processes may interfere.
   (cond ((eql char #\Newline)
-         (setf *serial-at-line-start* t)
+         (setf *debug-serial-at-line-start* t)
          ;; Turn #\Newline into CRLF
          (debug-serial-write-byte #x0D)
          (debug-serial-write-byte #x0A))
@@ -160,12 +162,12 @@
       (dotimes (i (string-length string))
         (let ((char (char string i)))
           (cond ((eql char #\Newline)
-                 (setf *serial-at-line-start* t)
+                 (setf *debug-serial-at-line-start* t)
                  ;; Turn #\Newline into CRLF
                  (debug-serial-write-byte-1 #x0D)
                  (debug-serial-write-byte-1 #x0A))
                 (t
-                 (setf *serial-at-line-start* nil)
+                 (setf *debug-serial-at-line-start* nil)
                  (with-utf-8-bytes (char byte)
                    (debug-serial-write-byte-1 byte)))))))))
 
@@ -179,36 +181,37 @@
         (dotimes (i (cdr buf))
           (let ((byte (aref buf-data (the fixnum i))))
             (cond ((eql byte #.(char-code #\Newline))
-                   (setf *serial-at-line-start* t)
+                   (setf *debug-serial-at-line-start* t)
                    ;; Turn #\Newline into CRLF
                    (debug-serial-write-byte-1 #x0D)
                    (debug-serial-write-byte-1 #x0A))
                   (t
-                   (setf *serial-at-line-start* nil)
+                   (setf *debug-serial-at-line-start* nil)
                    (debug-serial-write-byte-1 byte)))))))))
 
 (defun debug-serial-stream (op &optional arg)
   (ecase op
-    (:read-char (panic "Serial read char not implemented."))
+    (:read-char (debug-serial-read-char))
     (:clear-input)
     (:write-char (debug-serial-write-char arg))
     (:write-string (debug-serial-write-string arg))
     (:flush-buffer (debug-serial-flush-buffer arg))
     (:force-output)
-    (:start-line-p *serial-at-line-start*)))
+    (:start-line-p *debug-serial-at-line-start*)))
 
 (defun initialize-debug-serial (io-port io-shift io-read-fn io-write-fn irq baud &optional (reinit t))
-  (declare (ignore irq))
   (setf *debug-serial-io-port* io-port
         *debug-serial-io-shift* io-shift
         *debug-serial-read-fn* io-read-fn
         *debug-serial-write-fn* io-write-fn
         *debug-serial-lock* :unlocked
-        *serial-at-line-start* t)
+        *debug-serial-at-line-start* t)
   ;; Initialize port.
   (when reinit
     (let ((divisor (truncate 115200 baud)))
       (setf
+       *debug-serial-irq* irq
+       *debug-serial-irq-handler* nil
        ;; Turn interrupts off.
        (uart-16550-reg +serial-IER+) #x00
        ;; DLAB on.
@@ -231,3 +234,52 @@
        ;; Enable RX interrupts.
        (uart-16550-reg +serial-IER+) +serial-ier-received-data-available+)))
   (debug-set-output-pseudostream 'debug-serial-stream))
+
+(defun debug-serial-read-byte-1-blocking ()
+  ;; Wait for the RX FIFO to have data available.
+  (loop
+        until (logbitp +serial-lsr-data-available+
+                       (uart-16550-reg +serial-LSR+)))
+  ;; Read byte.
+  (uart-16550-reg +serial-THR+))
+
+(defun initialize-debug-serial-reads ()
+  ;; IRQ initialization cannot be done in initialize-debug-serial
+  ;; because it is called very early during boot, before interrupt
+  ;; objects exist.  Calling make-simple-irq there causes the boot to
+  ;; hang just before "Hello, Debug World!" is printed.  Initialize
+  ;; IRQ during the first debug-serial-read-byte call instead.
+  (unless *debug-serial-irq-handler*
+    (setf *debug-serial-irq-handler* (make-simple-irq *debug-serial-irq*))
+    (simple-irq-attach *debug-serial-irq-handler*)
+    (simple-irq-unmask *debug-serial-irq-handler*)))
+
+(defun debug-serial-read-byte ()
+  (mezzano.sync::wait-for-objects *debug-serial-irq-handler*)
+  (prog1 (debug-serial-read-byte-1-blocking)
+    (mezzano.supervisor:simple-irq-unmask *debug-serial-irq-handler*)))
+
+(defun utf8-sequence-length (byte)
+  (cond
+    ((eql (logand byte #x80) #x00)
+     (values 1 byte))
+    ((eql (logand byte #xE0) #xC0)
+     (values 2 (logand byte #x1F)))
+    ((eql (logand byte #xF0) #xE0)
+     (values 3 (logand byte #x0F)))
+    ((eql (logand byte #xF8) #xF0)
+     (values 4 (logand byte #x07)))
+    (t (error "Invalid UTF-8 lead byte ~S." byte))))
+
+(defun debug-serial-read-char ()
+  (multiple-value-bind (length value)
+      (utf8-sequence-length (debug-serial-read-byte))
+    ;; Read remaining bytes. They must all be continuation bytes.
+    (dotimes (i (1- length))
+      (let ((byte (debug-serial-read-byte)))
+        (unless (eql (logand byte #xC0) #x80)
+          (error "Invalid UTF-8 continuation byte ~S." byte))
+        (setf value (logior (ash value 6) (logand byte #x3F)))))
+    (let ((result (code-char value)))
+      (debug-serial-write-char result)
+      result)))
