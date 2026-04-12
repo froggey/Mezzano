@@ -305,7 +305,7 @@ The total access width must be at least 8 bits and no larger than 128 bits."
                         ((:optimize (= safety 0) (= speed 3)))
                       `(the sse-vector (progn
                                          ,(c::insert-bounds-check vector array-type index index-type :adjust (1- ,n-lanes))
-                                         (c::call ,',access-fn ,sse-vector ,vector (c::call c::%fast-fixnum-* ,index ',',(/ width 8))))))))))
+                                         (c::call (setf ,',access-fn) ,sse-vector ,vector (c::call c::%fast-fixnum-* ,index ',',(/ width 8))))))))))
     (def 8 nil)
     (def 16 nil)
     (def 32 nil)
