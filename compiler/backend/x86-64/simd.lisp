@@ -389,7 +389,7 @@
                                 :source index))
            (emit (make-instance 'x86-instruction
                                 :opcode 'lap:movd
-                                :operands (list result-unboxed `(:object-unscaled ,object 0 ,index-unboxed))
+                                :operands (list result-unboxed `(:object ,object 0 ,index-unboxed 1))
                                 :inputs (list object index-unboxed)
                                 :outputs (list result-unboxed)))))
     (emit (make-instance 'box-sse-vector-instruction
@@ -414,7 +414,7 @@
                                 :source index))
            (emit (make-instance 'x86-instruction
                                 :opcode 'lap:movd
-                                :operands (list `(:object-unscaled ,object 0 ,index-unboxed) value-unboxed)
+                                :operands (list `(:object ,object 0 ,index-unboxed 1) value-unboxed)
                                 :inputs (list object index-unboxed value-unboxed)
                                 :outputs (list)))))
     (emit (make-instance 'ir:move-instruction
@@ -436,7 +436,7 @@
                                 :source index))
            (emit (make-instance 'x86-instruction
                                 :opcode 'lap:movq
-                                :operands (list result-unboxed `(:object-unscaled ,object 0 ,index-unboxed))
+                                :operands (list result-unboxed `(:object ,object 0 ,index-unboxed 1))
                                 :inputs (list object index-unboxed)
                                 :outputs (list result-unboxed)))))
     (emit (make-instance 'box-sse-vector-instruction
@@ -461,7 +461,7 @@
                                 :source index))
            (emit (make-instance 'x86-instruction
                                 :opcode 'lap:movq
-                                :operands (list `(:object-unscaled ,object 0 ,index-unboxed) value-unboxed)
+                                :operands (list `(:object ,object 0 ,index-unboxed 1) value-unboxed)
                                 :inputs (list object index-unboxed value-unboxed)
                                 :outputs (list)))))
     (emit (make-instance 'ir:move-instruction
@@ -483,7 +483,7 @@
                                 :source index))
            (emit (make-instance 'x86-instruction
                                 :opcode 'lap:movdqu
-                                :operands (list result-unboxed `(:object-unscaled ,object 0 ,index-unboxed))
+                                :operands (list result-unboxed `(:object ,object 0 ,index-unboxed 1))
                                 :inputs (list object index-unboxed)
                                 :outputs (list result-unboxed)))))
     (emit (make-instance 'box-sse-vector-instruction
@@ -508,7 +508,7 @@
                                 :source index))
            (emit (make-instance 'x86-instruction
                                 :opcode 'lap:movdqu
-                                :operands (list `(:object-unscaled ,object 0 ,index-unboxed) value-unboxed)
+                                :operands (list `(:object ,object 0 ,index-unboxed 1) value-unboxed)
                                 :inputs (list object index-unboxed value-unboxed)
                                 :outputs (list)))))
     (emit (make-instance 'ir:move-instruction
