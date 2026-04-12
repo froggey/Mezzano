@@ -220,11 +220,24 @@
 (defun pci-programming-interface (device)
   (ldb (byte 8 8) (pci-config/32 device +pci-config-revid+)))
 
-(defun pci-bar (device bar)
+(defun pci-bar-register (device bar)
   (pci-config/32 device (+ +pci-config-bar-start+ (* bar 4))))
 
-(defun (setf pci-bar) (value device bar)
+(defun (setf pci-bar-register) (value device bar)
   (setf (pci-config/32 device (+ +pci-config-bar-start+ (* bar 4))) value))
+
+(defun pci-bar (device bar)
+  (let ((bar-data (pci-bar-register device bar)))
+    (case (decode-pci-bar-type bar-data)
+      (:mmio-64
+       ;; Preserve the low BAR attribute bits so callers can still tell this
+       ;; is a 64-bit MMIO BAR and skip probing the upper half as a separate BAR.
+       (logior bar-data
+               (ash (pci-bar-register device (1+ bar)) 32)))
+      (t bar-data))))
+
+(defun (setf pci-bar) (value device bar)
+  (setf (pci-bar-register device bar) value))
 
 (defun decode-pci-bar-type (bar-data)
   "Returns the basic type of the BAR (IO/MMIO + address limits) and prefetchablility."
@@ -245,38 +258,38 @@ Returns NIL if the BAR has an unknown type."
   (sup:safe-without-interrupts (device bar)
     (when (eql (pci-device-boot-id device) (sup:current-boot-id))
       (let ((old-command (pci-config/16 device +pci-config-command+))
-            (bar-data (pci-bar device bar))
+            (bar-data (pci-bar-register device bar))
             (size nil))
         ;; Disable address decoding as we're changing the addresses in the BAR.
         (setf (pci-config/16 device +pci-config-command+) 0)
         (case (decode-pci-bar-type bar-data)
           (:io
            ;; IO memory.
-           (setf (pci-bar device bar) #xFFFFFFFF)
-           (let ((lo (logxor (logand (pci-bar device bar) #xFFFE) #xFFFF)))
-             (unless (eql lo #xFFFF)
-               (setf size (1+ lo)))))
+            (setf (pci-bar-register device bar) #xFFFFFFFF)
+            (let ((lo (logxor (logand (pci-bar-register device bar) #xFFFE) #xFFFF)))
+              (unless (eql lo #xFFFF)
+                (setf size (1+ lo)))))
           (:mmio-32
-           ;; 32-bit memory.
-           (setf (pci-bar device bar) #xFFFFFFFF)
-           (let ((lo (logxor (logand (pci-bar device bar) #xFFFFFFF0) #xFFFFFFFF)))
-             (unless (eql lo #xFFFFFFFF)
-               (setf size (1+ lo)))))
+            ;; 32-bit memory.
+            (setf (pci-bar-register device bar) #xFFFFFFFF)
+            (let ((lo (logxor (logand (pci-bar-register device bar) #xFFFFFFF0) #xFFFFFFFF)))
+              (unless (eql lo #xFFFFFFFF)
+                (setf size (1+ lo)))))
           (:mmio-64
-           ;; 64-bit memory.
-           (let ((bar-data-hi (pci-bar device (1+ bar))))
-             (setf (pci-bar device bar) #xFFFFFFFF)
-             (setf (pci-bar device (1+ bar)) #xFFFFFFFF)
-             ;; Be careful and avoid constructing a bignum here, stick
-             ;; with the separate 32-bit halves as long as possible.
-             (let ((lo (logxor (logand (pci-bar device bar) #xFFFFFFF0) #xFFFFFFFF))
-                   (hi (logxor (pci-bar device (1+ bar)) #xFFFFFFFF)))
-               (unless (and (eql lo #xFFFFFFFF)
-                            (eql hi #xFFFFFFFF))
-                 (setf size (1+ (logior lo (ash hi 32))))))
-             (setf (pci-bar device (1+ bar)) bar-data-hi))))
+            ;; 64-bit memory.
+            (let ((bar-data-hi (pci-bar-register device (1+ bar))))
+              (setf (pci-bar-register device bar) #xFFFFFFFF)
+              (setf (pci-bar-register device (1+ bar)) #xFFFFFFFF)
+              ;; Be careful and avoid constructing a bignum here, stick
+              ;; with the separate 32-bit halves as long as possible.
+              (let ((lo (logxor (logand (pci-bar-register device bar) #xFFFFFFF0) #xFFFFFFFF))
+                    (hi (logxor (pci-bar-register device (1+ bar)) #xFFFFFFFF)))
+                (unless (and (eql lo #xFFFFFFFF)
+                             (eql hi #xFFFFFFFF))
+                  (setf size (1+ (logior lo (ash hi 32))))))
+              (setf (pci-bar-register device (1+ bar)) bar-data-hi))))
         ;; Restore old bar value & reenable decoding.
-        (setf (pci-bar device bar) bar-data
+        (setf (pci-bar-register device bar) bar-data
               (pci-config/16 device +pci-config-command+) old-command)
         size))))
 
