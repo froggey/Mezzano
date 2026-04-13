@@ -333,7 +333,7 @@
   sector-size
   sector-count)
 
-(defconstant +ahci-irq-state-buffer-size+ 8)
+(defconstant +ahci-irq-state-buffer-size+ 16)
 
 (defun ahci-port (ahci port)
   (svref (ahci-ports ahci) port))
