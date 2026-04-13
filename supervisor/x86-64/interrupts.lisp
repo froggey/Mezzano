@@ -265,6 +265,10 @@ If clear, the fault occured in supervisor mode.")
     ;; be delivered to the system and don't need an EOI.
     (with-symbol-spinlock (*i8259-spinlock*)
       (when (i8259-irq-spurious-p irq)
+        ;; Spurious IRQ 15 still requires an EOI to the master PIC because the
+        ;; cascade on IRQ 2 was serviced even though the slave had no in-service bit.
+        (when (eql irq 15)
+          (setf (sys.int::io-port/8 #x20) #x20))
         (when (not *i8259-reported-spurious-interrupt*)
           (setf *i8259-reported-spurious-interrupt* t)
           (debug-print-line "Spurious i8259 IRQ " irq ". Further spurious IRQs will not be reported."))
