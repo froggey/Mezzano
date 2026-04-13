@@ -322,6 +322,8 @@
   received-fis
   command-table
   irq-latch
+  (irq-count 0)
+  irq-state
   irq-timeout-timer
   irq-watcher
   atapi-p
@@ -431,11 +433,6 @@
         1)
   (sup:debug-print-line "Port reset complete."))
 
-(defun ahci-set-port-atapi (ahci port atapi-p)
-  (setf (ldb (byte 1 +ahci-PxCMD-ATAPI+)
-             (ahci-port-register ahci port +ahci-register-PxCMD+))
-        (if atapi-p 1 0)))
-
 (defun ahci-issue-packet-command (port-info cdb result-buffer result-len)
   (sup:ensure (ahci-port-atapi-p port-info))
   ;; FIXME: Bounce buffer on non-64-bit capable HBAs
@@ -513,7 +510,6 @@
   (let* ((port-info (ahci-port ahci port))
          (identify-data-phys (+ (ahci-port-command-table port-info) #x100))
          (identify-data (sup::convert-to-pmap-address identify-data-phys)))
-    (ahci-set-port-atapi ahci port t)
     (ahci-setup-buffer ahci port identify-data-phys 512 nil nil)
     (ahci-dump-port-registers ahci port)
     (ahci-run-command ahci port ata:+ata-command-identify-packet+)
@@ -559,7 +555,6 @@
   (let* ((port-info (ahci-port ahci port))
          (identify-data-phys (+ (ahci-port-command-table port-info) #x100))
          (identify-data (sup::convert-to-pmap-address identify-data-phys)))
-    (ahci-set-port-atapi ahci port nil)
     (ahci-setup-buffer ahci port identify-data-phys 512 nil nil)
     (ahci-dump-port-registers ahci port)
     (ahci-run-command ahci port ata:+ata-command-identify+)
@@ -669,7 +664,8 @@
 
 (defun ahci-run-command (ahci port command)
   (let* ((port-info (ahci-port ahci port))
-         (irq-timeout-timer (ahci-port-irq-timeout-timer port-info)))
+         (irq-timeout-timer (ahci-port-irq-timeout-timer port-info))
+         (start-irq-count 0))
     ;; Reset PRDBC, stop it accumulating over commands. I'm not sure how the HBA actually uses this,
     ;; if it keeps track of DMA progress or if it's just for reporting.
     (setf (sup::physical-memref-unsigned-byte-32 (ahci-port-command-list port-info) +ahci-ch-PRDBC+) 0)
@@ -677,19 +673,32 @@
     (setf (ahci-fis ahci port +sata-register-fis-type+) +sata-fis-register-h2d+
           (ahci-fis ahci port +sata-register-command-register-update-field+) (ash 1 +sata-register-command-register-update-bit+)
           (ahci-fis ahci port +sata-register-command+) command)
+    ;; Clear any stale interrupt state before issuing a new command. AHCI's
+    ;; taskfile ERR bit is sticky enough that using it as a completion
+    ;; condition causes later commands to fail spuriously.
+    (let ((state (ahci-port-register ahci port +ahci-register-PxIS+)))
+      (when (not (zerop state))
+        (setf (ahci-port-register ahci port +ahci-register-PxIS+) state)))
+    (when (logbitp port (ahci-global-register ahci +ahci-register-IS+))
+      (setf (ahci-global-register ahci +ahci-register-IS+) (ash 1 port)))
+    (setf (ahci-port-irq-state port-info) 0
+          start-irq-count (ahci-port-irq-count port-info))
     ;; Start command 1.
     (setf (ahci-port-register ahci port +ahci-register-PxCI+) 1)
     ;; Wait for it... Wait for it...
     (sup:timer-arm 30 irq-timeout-timer)
     (loop
-       ;; AHCI polled completion is defined by the issued command slot bit
-       ;; clearing in PxCI. Linux's ahci_exec_polled_cmd() waits on CI[0]
-       ;; alone and checks taskfile/error state after completion.
+       ;; Success is still determined by hardware command state. Error exit is
+       ;; driven by a new TFES interrupt for this port, not by the sticky TFD
+       ;; ERR bit.
        (let* ((pxci (ahci-port-register ahci port +ahci-register-PxCI+))
-              (tfd (ahci-port-register ahci port +ahci-register-PxTFD+))
-              (sts (ldb (byte +ahci-PxTFD-STS-size+ +ahci-PxTFD-STS-position+) tfd)))
-         (when (or (not (logbitp 0 pxci))
-                   (logtest sts ata:+ata-err+))
+               (tfd (ahci-port-register ahci port +ahci-register-PxTFD+))
+               (sts (ldb (byte +ahci-PxTFD-STS-size+ +ahci-PxTFD-STS-position+) tfd)))
+         (when (or (and (not (logbitp 0 pxci))
+                        (not (or (logtest sts ata:+ata-bsy+)
+                                 (logtest sts ata:+ata-drq+))))
+                   (and (/= (ahci-port-irq-count port-info) start-irq-count)
+                        (logbitp +ahci-PxIS-TFES+ (ahci-port-irq-state port-info))))
            (return)))
        (when (sup:timer-expired-p irq-timeout-timer)
          ;; FIXME: Do something better than this.
@@ -796,6 +805,8 @@
       ;; Ack interrupts.
       (setf (ahci-port-register ahci port +ahci-register-PxIS+) state)
       ;; Need to do something with error interrupts here as well.
+      (setf (ahci-port-irq-state (ahci-port ahci port)) state)
+      (incf (ahci-port-irq-count (ahci-port ahci port)))
       ;; Wake sleepers.
       (setf (sup:event-state (ahci-port-irq-latch (ahci-port ahci port))) t))))
 
