@@ -433,6 +433,11 @@
         1)
   (sup:debug-print-line "Port reset complete."))
 
+(defun ahci-set-port-atapi (ahci port atapi-p)
+  (setf (ldb (byte 1 +ahci-PxCMD-ATAPI+)
+             (ahci-port-register ahci port +ahci-register-PxCMD+))
+        (if atapi-p 1 0)))
+
 (defun ahci-issue-packet-command (port-info cdb result-buffer result-len)
   (sup:ensure (ahci-port-atapi-p port-info))
   ;; FIXME: Bounce buffer on non-64-bit capable HBAs
@@ -510,6 +515,7 @@
   (let* ((port-info (ahci-port ahci port))
          (identify-data-phys (+ (ahci-port-command-table port-info) #x100))
          (identify-data (sup::convert-to-pmap-address identify-data-phys)))
+    (ahci-set-port-atapi ahci port t)
     (ahci-setup-buffer ahci port identify-data-phys 512 nil nil)
     (ahci-dump-port-registers ahci port)
     (ahci-run-command ahci port ata:+ata-command-identify-packet+)
@@ -555,6 +561,7 @@
   (let* ((port-info (ahci-port ahci port))
          (identify-data-phys (+ (ahci-port-command-table port-info) #x100))
          (identify-data (sup::convert-to-pmap-address identify-data-phys)))
+    (ahci-set-port-atapi ahci port nil)
     (ahci-setup-buffer ahci port identify-data-phys 512 nil nil)
     (ahci-dump-port-registers ahci port)
     (ahci-run-command ahci port ata:+ata-command-identify+)
