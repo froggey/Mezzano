@@ -122,6 +122,8 @@
   (let* ((disk (disk-request-disk request))
          (buffer (disk-request-buffer request))
          (direction (disk-request-direction request))
+         (n-bytes (* (disk-request-n-sectors request)
+                     (disk-sector-size disk)))
          (bounce-buffer nil)
          (real-buffer nil))
     (when *log-disk-requests*
@@ -151,26 +153,27 @@
                   ;; Must be a wired simple ub8 vector.
                   ;; Be very careful when checking the type here.
                   ;; Check that it is an object first, then wired,
-                  ;; then the exact type.
-                  ;; This stops the disk-thread from touching memory that might not be
-                  ;; wired.
-                  ((and (sys.int::%value-has-tag-p buffer sys.int::+tag-object+)
-                        (< (sys.int::lisp-object-address buffer) sys.int::*wired-area-bump*)
-                        (eql (sys.int::%object-tag buffer) sys.int::+object-tag-array-unsigned-byte-8+))
-                   ;; Reading or writing into an array, allocate a bounce buffer.
-                   ;; TODO: Do this without the bounce buffer.
-                   (setf bounce-buffer (allocate-physical-pages
-                                        (ceiling (* (disk-request-n-sectors request)
-                                                    (disk-sector-size disk))
-                                                 +4k-page-size+)))
-                   (when (not bounce-buffer)
-                     (return-from process-one-disk-request
-                       (values nil "Unable to allocate disk bounce buffer.")))
-                   (setf real-buffer (convert-to-pmap-address (* bounce-buffer +4k-page-size+)))
-                   (when (eql direction :write)
-                     (dotimes (i (sys.int::%object-header-data buffer))
-                       (setf (sys.int::memref-unsigned-byte-8 real-buffer i)
-                             (sys.int::%object-ref-unsigned-byte-8 buffer i)))))
+                   ;; then the exact type.
+                   ;; This stops the disk-thread from touching memory that might not be
+                   ;; wired.
+                   ((and (sys.int::%value-has-tag-p buffer sys.int::+tag-object+)
+                         (< (sys.int::lisp-object-address buffer) sys.int::*wired-area-bump*)
+                         (eql (sys.int::%object-tag buffer) sys.int::+object-tag-array-unsigned-byte-8+))
+                    (when (< (sys.int::%object-header-data buffer) n-bytes)
+                      (return-from process-one-disk-request
+                        (values nil "Disk buffer is smaller than the request size.")))
+                    ;; Reading or writing into an array, allocate a bounce buffer.
+                    ;; TODO: Do this without the bounce buffer.
+                    (setf bounce-buffer (allocate-physical-pages
+                                         (ceiling n-bytes +4k-page-size+)))
+                    (when (not bounce-buffer)
+                      (return-from process-one-disk-request
+                        (values nil "Unable to allocate disk bounce buffer.")))
+                    (setf real-buffer (convert-to-pmap-address (* bounce-buffer +4k-page-size+)))
+                    (when (eql direction :write)
+                      (dotimes (i n-bytes)
+                        (setf (sys.int::memref-unsigned-byte-8 real-buffer i)
+                              (sys.int::%object-ref-unsigned-byte-8 buffer i)))))
                   (t ;; Weird buffer type. Give up.
                    (return-from process-one-disk-request
                      (values nil "Bad disk buffer type."))))
@@ -187,14 +190,12 @@
                   (when bounce-buffer
                     (when (and successp
                                (eql direction :read))
-                      (dotimes (i (sys.int::%object-header-data buffer))
+                      (dotimes (i n-bytes)
                         (setf (sys.int::%object-ref-unsigned-byte-8 buffer i)
                               (sys.int::memref-unsigned-byte-8 real-buffer i))))
                     (release-physical-pages bounce-buffer
-                                            (ceiling (* (disk-request-n-sectors request)
-                                                        (disk-sector-size disk))
-                                                     +4k-page-size+)))
-                  (values successp error))))
+                                            (ceiling n-bytes +4k-page-size+)))
+                   (values successp error))))
       (case direction
         (:read (set-disk-read-light nil))
         ((:write :flush) (set-disk-write-light nil))))))
