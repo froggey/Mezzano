@@ -736,16 +736,24 @@
        ;; ERR bit.
        (let* ((errorp nil)
               (pxci (ahci-port-register ahci port +ahci-register-PxCI+))
-               (tfd (ahci-port-register ahci port +ahci-register-PxTFD+))
-               (sts (ldb (byte +ahci-PxTFD-STS-size+ +ahci-PxTFD-STS-position+) tfd)))
+              (tfd (ahci-port-register ahci port +ahci-register-PxTFD+))
+              (sts (ldb (byte +ahci-PxTFD-STS-size+ +ahci-PxTFD-STS-position+) tfd)))
           (loop
              (multiple-value-bind (state validp)
                  (ahci-pop-irq-state port-info)
                (unless validp
                  (return))
-               (when (logbitp +ahci-PxIS-TFES+ state)
-                 (setf errorp t)
-                 (return))))
+                (when (logbitp +ahci-PxIS-TFES+ state)
+                  ;; Re-check the live port state before attributing a queued
+                  ;; TFES to the current command. A delayed TFES from the
+                  ;; previous command can arrive after the next command starts.
+                  (let* ((current-pxci (ahci-port-register ahci port +ahci-register-PxCI+))
+                         (current-tfd (ahci-port-register ahci port +ahci-register-PxTFD+))
+                         (current-sts (ldb (byte +ahci-PxTFD-STS-size+ +ahci-PxTFD-STS-position+) current-tfd)))
+                    (when (or (not (logbitp 0 current-pxci))
+                              (logtest current-sts ata:+ata-err+))
+                      (setf errorp t)))
+                  (return))))
           (when errorp
             (return))
           (when (and (not (logbitp 0 pxci))
