@@ -322,8 +322,9 @@
   received-fis
   command-table
   irq-latch
-  (irq-count 0)
-  irq-state
+  irq-state-buffer
+  (irq-state-read-index 0)
+  (irq-state-write-index 0)
   irq-timeout-timer
   irq-watcher
   atapi-p
@@ -331,6 +332,8 @@
   lba48-capable
   sector-size
   sector-count)
+
+(defconstant +ahci-irq-state-buffer-size+ 8)
 
 (defun ahci-port (ahci port)
   (svref (ahci-ports ahci) port))
@@ -669,10 +672,44 @@
           (sup::physical-memref-unsigned-byte-32 (+ ct +ahci-ct-PRDT+) +ahci-PRDT-DBAU+) (ldb (byte 32 32) buffer))
     (setf (sup::physical-memref-unsigned-byte-32 (+ ct +ahci-ct-PRDT+) +ahci-PRDT-descriptor-information+) (ash (1- length) +ahci-PRDT-di-DBC-position+))))
 
+(defun ahci-clear-irq-state-buffer (port-info)
+  (sup:without-interrupts
+    (setf (ahci-port-irq-state-read-index port-info)
+          (ahci-port-irq-state-write-index port-info))))
+
+(defun ahci-push-irq-state (port-info state)
+  (let* ((buffer (ahci-port-irq-state-buffer port-info))
+         (write-index (ahci-port-irq-state-write-index port-info))
+         (next-index (if (= write-index (1- +ahci-irq-state-buffer-size+))
+                         0
+                         (1+ write-index))))
+    (setf (svref buffer write-index) state)
+    (when (= next-index (ahci-port-irq-state-read-index port-info))
+      (setf (ahci-port-irq-state-read-index port-info)
+            (if (= (ahci-port-irq-state-read-index port-info)
+                   (1- +ahci-irq-state-buffer-size+))
+                0
+                (1+ (ahci-port-irq-state-read-index port-info)))))
+    (setf (ahci-port-irq-state-write-index port-info) next-index)))
+
+(defun ahci-pop-irq-state (port-info)
+  (let ((state 0)
+        (validp nil))
+    (sup:without-interrupts
+      (let ((read-index (ahci-port-irq-state-read-index port-info))
+            (write-index (ahci-port-irq-state-write-index port-info)))
+        (when (not (= read-index write-index))
+          (setf state (svref (ahci-port-irq-state-buffer port-info) read-index)
+                validp t
+                (ahci-port-irq-state-read-index port-info)
+                (if (= read-index (1- +ahci-irq-state-buffer-size+))
+                    0
+                    (1+ read-index))))))
+    (values state validp)))
+
 (defun ahci-run-command (ahci port command)
   (let* ((port-info (ahci-port ahci port))
-         (irq-timeout-timer (ahci-port-irq-timeout-timer port-info))
-         (start-irq-count 0))
+         (irq-timeout-timer (ahci-port-irq-timeout-timer port-info)))
     ;; Reset PRDBC, stop it accumulating over commands. I'm not sure how the HBA actually uses this,
     ;; if it keeps track of DMA progress or if it's just for reporting.
     (setf (sup::physical-memref-unsigned-byte-32 (ahci-port-command-list port-info) +ahci-ch-PRDBC+) 0)
@@ -688,8 +725,7 @@
         (setf (ahci-port-register ahci port +ahci-register-PxIS+) state)))
     (when (logbitp port (ahci-global-register ahci +ahci-register-IS+))
       (setf (ahci-global-register ahci +ahci-register-IS+) (ash 1 port)))
-    (setf (ahci-port-irq-state port-info) 0
-          start-irq-count (ahci-port-irq-count port-info))
+    (ahci-clear-irq-state-buffer port-info)
     ;; Start command 1.
     (setf (ahci-port-register ahci port +ahci-register-PxCI+) 1)
     ;; Wait for it... Wait for it...
@@ -698,15 +734,24 @@
        ;; Success is still determined by hardware command state. Error exit is
        ;; driven by a new TFES interrupt for this port, not by the sticky TFD
        ;; ERR bit.
-       (let* ((pxci (ahci-port-register ahci port +ahci-register-PxCI+))
+       (let* ((errorp nil)
+              (pxci (ahci-port-register ahci port +ahci-register-PxCI+))
                (tfd (ahci-port-register ahci port +ahci-register-PxTFD+))
                (sts (ldb (byte +ahci-PxTFD-STS-size+ +ahci-PxTFD-STS-position+) tfd)))
-         (when (or (and (not (logbitp 0 pxci))
-                        (not (or (logtest sts ata:+ata-bsy+)
-                                 (logtest sts ata:+ata-drq+))))
-                   (and (/= (ahci-port-irq-count port-info) start-irq-count)
-                        (logbitp +ahci-PxIS-TFES+ (ahci-port-irq-state port-info))))
-           (return)))
+          (loop
+             (multiple-value-bind (state validp)
+                 (ahci-pop-irq-state port-info)
+               (unless validp
+                 (return))
+               (when (logbitp +ahci-PxIS-TFES+ state)
+                 (setf errorp t)
+                 (return))))
+          (when errorp
+            (return))
+          (when (and (not (logbitp 0 pxci))
+                     (not (or (logtest sts ata:+ata-bsy+)
+                              (logtest sts ata:+ata-drq+))))
+            (return)))
        (when (sup:timer-expired-p irq-timeout-timer)
          ;; FIXME: Do something better than this.
          (sup:debug-print-line "*** AHCI-RUN-COMMAND TIMEOUT EXPIRED! ***")
@@ -812,8 +857,7 @@
       ;; Ack interrupts.
       (setf (ahci-port-register ahci port +ahci-register-PxIS+) state)
       ;; Need to do something with error interrupts here as well.
-      (setf (ahci-port-irq-state (ahci-port ahci port)) state)
-      (incf (ahci-port-irq-count (ahci-port ahci port)))
+      (ahci-push-irq-state (ahci-port ahci port) state)
       ;; Wake sleepers.
       (setf (sup:event-state (ahci-port-irq-latch (ahci-port ahci port))) t))))
 
@@ -875,12 +919,14 @@
       (when (logbitp i (ahci-global-register ahci +ahci-register-PI+))
         (sup:debug-print-line "Port " i)
         (let* ((port (make-ahci-port :ahci ahci :id i))
+               (irq-state-buffer (sys.int::make-simple-vector +ahci-irq-state-buffer-size+ :wired))
                (irq-latch (sup:make-event :name port))
                (irq-timeout-timer (sup:make-timer :name port))
                (irq-watcher (sup:make-watcher :name port)))
           (setf (svref (ahci-ports ahci) i) port)
           ;; Set up a watcher with a timer to deal with timeouts waiting for IRQs
-          (setf (ahci-port-irq-latch port) irq-latch
+          (setf (ahci-port-irq-state-buffer port) irq-state-buffer
+                (ahci-port-irq-latch port) irq-latch
                 (ahci-port-irq-timeout-timer port) irq-timeout-timer
                 (ahci-port-irq-watcher port) irq-watcher)
           (sup:watcher-add-object irq-latch irq-watcher)
