@@ -431,6 +431,11 @@
         1)
   (sup:debug-print-line "Port reset complete."))
 
+(defun ahci-set-port-atapi (ahci port atapi-p)
+  (setf (ldb (byte 1 +ahci-PxCMD-ATAPI+)
+             (ahci-port-register ahci port +ahci-register-PxCMD+))
+        (if atapi-p 1 0)))
+
 (defun ahci-issue-packet-command (port-info cdb result-buffer result-len)
   (sup:ensure (ahci-port-atapi-p port-info))
   ;; FIXME: Bounce buffer on non-64-bit capable HBAs
@@ -508,6 +513,7 @@
   (let* ((port-info (ahci-port ahci port))
          (identify-data-phys (+ (ahci-port-command-table port-info) #x100))
          (identify-data (sup::convert-to-pmap-address identify-data-phys)))
+    (ahci-set-port-atapi ahci port t)
     (ahci-setup-buffer ahci port identify-data-phys 512 nil nil)
     (ahci-dump-port-registers ahci port)
     (ahci-run-command ahci port ata:+ata-command-identify-packet+)
@@ -553,6 +559,7 @@
   (let* ((port-info (ahci-port ahci port))
          (identify-data-phys (+ (ahci-port-command-table port-info) #x100))
          (identify-data (sup::convert-to-pmap-address identify-data-phys)))
+    (ahci-set-port-atapi ahci port nil)
     (ahci-setup-buffer ahci port identify-data-phys 512 nil nil)
     (ahci-dump-port-registers ahci port)
     (ahci-run-command ahci port ata:+ata-command-identify+)
@@ -662,7 +669,6 @@
 
 (defun ahci-run-command (ahci port command)
   (let* ((port-info (ahci-port ahci port))
-         (irq-latch (ahci-port-irq-latch port-info))
          (irq-timeout-timer (ahci-port-irq-timeout-timer port-info)))
     ;; Reset PRDBC, stop it accumulating over commands. I'm not sure how the HBA actually uses this,
     ;; if it keeps track of DMA progress or if it's just for reporting.
@@ -671,20 +677,20 @@
     (setf (ahci-fis ahci port +sata-register-fis-type+) +sata-fis-register-h2d+
           (ahci-fis ahci port +sata-register-command-register-update-field+) (ash 1 +sata-register-command-register-update-bit+)
           (ahci-fis ahci port +sata-register-command+) command)
-    ;; Reset latch before starting the command.
-    (setf (sup:event-state irq-latch) nil)
     ;; Start command 1.
     (setf (ahci-port-register ahci port +ahci-register-PxCI+) 1)
     ;; Wait for it... Wait for it...
     (sup:timer-arm 30 irq-timeout-timer)
     (loop
-       (when (or (sup:event-state irq-latch)
-                 (and (zerop (ahci-port-register ahci port +ahci-register-PxCI+))
-                      (let* ((tfd (ahci-port-register ahci port +ahci-register-PxTFD+))
-                             (sts (ldb (byte +ahci-PxTFD-STS-size+ +ahci-PxTFD-STS-position+) tfd)))
-                        (not (or (logtest sts ata:+ata-bsy+)
-                                 (logtest sts ata:+ata-drq+))))))
-         (return))
+       ;; AHCI polled completion is defined by the issued command slot bit
+       ;; clearing in PxCI. Linux's ahci_exec_polled_cmd() waits on CI[0]
+       ;; alone and checks taskfile/error state after completion.
+       (let* ((pxci (ahci-port-register ahci port +ahci-register-PxCI+))
+              (tfd (ahci-port-register ahci port +ahci-register-PxTFD+))
+              (sts (ldb (byte +ahci-PxTFD-STS-size+ +ahci-PxTFD-STS-position+) tfd)))
+         (when (or (not (logbitp 0 pxci))
+                   (logtest sts ata:+ata-err+))
+           (return)))
        (when (sup:timer-expired-p irq-timeout-timer)
          ;; FIXME: Do something better than this.
          (sup:debug-print-line "*** AHCI-RUN-COMMAND TIMEOUT EXPIRED! ***")
