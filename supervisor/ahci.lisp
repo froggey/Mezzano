@@ -312,7 +312,6 @@
              (:area :wired))
   location
   abar
-  irq-handler-function
   (ports (sys.int::make-simple-vector +ahci-maximum-n-ports+ :wired)))
 
 (defstruct (ahci-port
@@ -664,8 +663,7 @@
 (defun ahci-run-command (ahci port command)
   (let* ((port-info (ahci-port ahci port))
          (irq-latch (ahci-port-irq-latch port-info))
-         (irq-timeout-timer (ahci-port-irq-timeout-timer port-info))
-         (irq-watcher (ahci-port-irq-watcher port-info)))
+         (irq-timeout-timer (ahci-port-irq-timeout-timer port-info)))
     ;; Reset PRDBC, stop it accumulating over commands. I'm not sure how the HBA actually uses this,
     ;; if it keeps track of DMA progress or if it's just for reporting.
     (setf (sup::physical-memref-unsigned-byte-32 (ahci-port-command-list port-info) +ahci-ch-PRDBC+) 0)
@@ -679,11 +677,18 @@
     (setf (ahci-port-register ahci port +ahci-register-PxCI+) 1)
     ;; Wait for it... Wait for it...
     (sup:timer-arm 30 irq-timeout-timer)
-    (sup:watcher-wait irq-watcher)
-    (when (not (sup:event-state irq-latch))
-      (sup:ensure (sup:timer-expired-p irq-timeout-timer))
-      ;; FIXME: Do something better than this.
-      (sup:debug-print-line "*** AHCI-RUN-COMMAND TIMEOUT EXPIRED! ***"))
+    (loop
+       (when (or (sup:event-state irq-latch)
+                 (and (zerop (ahci-port-register ahci port +ahci-register-PxCI+))
+                      (let* ((tfd (ahci-port-register ahci port +ahci-register-PxTFD+))
+                             (sts (ldb (byte +ahci-PxTFD-STS-size+ +ahci-PxTFD-STS-position+) tfd)))
+                        (not (or (logtest sts ata:+ata-bsy+)
+                                 (logtest sts ata:+ata-drq+))))))
+         (return))
+       (when (sup:timer-expired-p irq-timeout-timer)
+         ;; FIXME: Do something better than this.
+         (sup:debug-print-line "*** AHCI-RUN-COMMAND TIMEOUT EXPIRED! ***")
+         (return)))
     ;; -absolute is non-consing
     (sup:timer-disarm-absolute irq-timeout-timer)))
 
@@ -792,22 +797,21 @@
   (let ((pending (ahci-global-register ahci +ahci-register-IS+))
         (ports (ahci-ports ahci)))
     #+(or)(sup:debug-print-line "AHCI IRQ " pending)
+    (when (zerop pending)
+      (return-from ahci-irq-handler nil))
     (dotimes (i 32)
       (when (and (svref ports i)
                  (logbitp i pending))
         (ahci-port-irq-handler ahci i)))
     ;; And clear any pending interrupts that were handled.
-    (setf (ahci-global-register ahci +ahci-register-IS+) pending)))
+    (setf (ahci-global-register ahci +ahci-register-IS+) pending)
+    t))
 
 (defun pci::ahci-pci-register (location)
   ;; Wired allocation required for the IRQ handler closure.
   (declare (mezzano.compiler::closure-allocation :wired))
   (let ((ahci (make-ahci :location location
                          :abar (pci:pci-io-region location 5))))
-    (setf (ahci-irq-handler-function ahci) (lambda (interrupt-frame irq)
-                                             (declare (ignore interrupt-frame irq))
-                                             (ahci-irq-handler ahci)
-                                             :completed))
     (sup:debug-print-line "Detected AHCI ABAR at " (ahci-abar ahci))
     (sup:debug-print-line "AHCI IRQ is " (pci:pci-intr-line location))
     (ahci-dump-global-registers ahci)
@@ -824,7 +828,11 @@
     ;; Attach interrupt handler.
     (sup:debug-print-line "Handler: " (ahci-irq-handler ahci))
     (sup:irq-attach (sup:platform-irq (pci:pci-intr-line location))
-                    (ahci-irq-handler-function ahci)
+                    (lambda (interrupt-frame irq)
+                      (declare (ignore interrupt-frame irq))
+                      (if (ahci-irq-handler ahci)
+                          :completed
+                          :rejected))
                     ahci)
     ;; Make sure to enable PCI bus mastering for this device.
     (sup:debug-print-line "Config register: " (pci:pci-config/16 location pci:+pci-config-command+))
