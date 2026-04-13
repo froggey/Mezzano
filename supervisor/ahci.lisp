@@ -627,6 +627,12 @@
          (ct (+ command-table +ahci-ct-CFIS+)))
     (setf (sup::physical-memref-unsigned-byte-8 ct offset) value)))
 
+(defun ahci-rfis (ahci port offset)
+  "Read an octet from the received D2H Register FIS for PORT."
+  (let* ((received-fis (ahci-port-received-fis (ahci-port ahci port)))
+         (rfis (+ received-fis +ahci-rfis-RFIS+)))
+    (sup::physical-memref-unsigned-byte-8 rfis offset)))
+
 (defun ahci-setup-lba28 (ahci port lba count)
   "Set registers in the FIS for an LBA28 command."
   ;; FIXME: Limit checking LBA & COUNT and if COUNT = MAX, then handle that.
@@ -749,9 +755,11 @@
                   ;; previous command can arrive after the next command starts.
                   (let* ((current-pxci (ahci-port-register ahci port +ahci-register-PxCI+))
                          (current-tfd (ahci-port-register ahci port +ahci-register-PxTFD+))
-                         (current-sts (ldb (byte +ahci-PxTFD-STS-size+ +ahci-PxTFD-STS-position+) current-tfd)))
-                    (when (or (not (logbitp 0 current-pxci))
-                              (logtest current-sts ata:+ata-err+))
+                         (current-sts (ldb (byte +ahci-PxTFD-STS-size+ +ahci-PxTFD-STS-position+) current-tfd))
+                         (rfis-status (ahci-rfis ahci port +sata-register-status+)))
+                    (when (or (logtest current-sts ata:+ata-err+)
+                              (and (not (logbitp 0 current-pxci))
+                                   (logtest rfis-status ata:+ata-err+)))
                       (setf errorp t)))
                   (return))))
           (when errorp
