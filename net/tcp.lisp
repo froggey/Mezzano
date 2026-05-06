@@ -673,31 +673,27 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
          (arm-timeout-timer timeout connection))))))
 
 (defun initial-rtt-measurement (connection)
-  (let ((delta-time (float (/ (- (get-internal-run-time) (tcp-connection-last-ack-time connection))
-                              internal-time-units-per-second))))
-    (setf (tcp-connection-srtt connection) delta-time
-          (tcp-connection-rttvar connection) (/ delta-time 2))
-    (setf (tcp-connection-rto connection)
-          (min *maximum-rto*
-               (max *minimum-rto*
-                    (+ (tcp-connection-srtt connection)
-                       (max 0.01 (* 4 (tcp-connection-rttvar connection))))))
+  (let* ((delta-time (float (/ (- (get-internal-run-time) (tcp-connection-last-ack-time connection))
+                               internal-time-units-per-second)))
+         (rttvar (/ delta-time 2))
+         (srtt delta-time)
+         (rto (min *maximum-rto* (max *minimum-rto* (+ srtt (max 0.01 (* 4 rttvar)))))))
+    (setf (tcp-connection-rttvar connection) rttvar
+          (tcp-connection-srtt connection) srtt
+          (tcp-connection-rto connection) rto
           (tcp-connection-last-ack-time connection) nil)))
 
 (defun subsequent-rtt-measurement (connection)
-  (let ((delta-time (float (/ (- (get-internal-run-time) (tcp-connection-last-ack-time connection))
-                              internal-time-units-per-second))))
-    (setf (tcp-connection-rttvar connection)
-          (+ (* 0.75 (tcp-connection-rttvar connection))
-             (* 0.25 (- (tcp-connection-srtt connection) delta-time))))
-    (setf (tcp-connection-srtt connection)
-          (+ (* 0.875 (tcp-connection-srtt connection))
-             (* 0.125 delta-time)))
-    (setf (tcp-connection-rto connection)
-          (min *maximum-rto*
-               (max *minimum-rto*
-                    (+ (tcp-connection-srtt connection)
-                       (max 0.01 (* 4 (tcp-connection-rttvar connection))))))
+  (let* ((delta-time (float (/ (- (get-internal-run-time) (tcp-connection-last-ack-time connection))
+                               internal-time-units-per-second)))
+         (rttvar (+ (* 0.75 (tcp-connection-rttvar connection))
+                    (* 0.25 (- (tcp-connection-srtt connection) delta-time))))
+         (srtt (+ (* 0.875 (tcp-connection-srtt connection))
+                  (* 0.125 delta-time)))
+         (rto (min *maximum-rto* (max *minimum-rto* (+ srtt (max 0.01 (* 4 rttvar)))))))
+    (setf (tcp-connection-rttvar connection) rttvar
+          (tcp-connection-srtt connection) srtt
+          (tcp-connection-rto connection) rto
           (tcp-connection-last-ack-time connection) nil)))
 
 (defun when-acceptable-ack-p (connection ack seq wnd)
