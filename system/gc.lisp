@@ -165,7 +165,8 @@ If FULL is true, then a major collection will be forced."
                        (total-time (- gc-end gc-start))
                        (total-seconds (/ total-time (float internal-time-units-per-second))))
                   (gc-log "GC took " (truncate (* total-seconds 1000)) "ms")
-                  (incf *gc-time* total-seconds)))
+                  (incf *gc-time* total-seconds))
+		(fixup-tlabs))
            (setf *gc-in-progress* nil)))
        ;; TODO: catch & report errors.
        (run-finalizers))))
@@ -2473,3 +2474,8 @@ No type information will be provided."
          ;; Leave the weak pointer completely empty.
          ;; No references to any other object.
          (setf (%object-ref-t finalizer +weak-pointer-finalizer+) nil))))
+
+(defun fixup-tlabs ()
+  (dolist (cpu mezzano.supervisor::*cpus*)
+    (setf (mezzano.supervisor::cpu-tlab-limit cpu) 0
+	  (mezzano.supervisor::cpu-tlab-bump cpu) 0)))

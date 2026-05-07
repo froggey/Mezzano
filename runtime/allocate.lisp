@@ -55,6 +55,10 @@
 
 (sys.int::defglobal *bytes-consed*)
 
+
+(defconstant sys.int::+tlab-size+ (* 256 1024))
+(defconstant sys.int::+tlab-object-size-limit+ (* 64 1024))
+
 (defvar *maximum-allocation-attempts* 5
   "GC this many times before giving up on an allocation.")
 
@@ -437,7 +441,31 @@
              (mezzano.supervisor:debug-print-line "A-M-R failed."))
            nil))))
 
+(defun %do-get-new-tlab ()
+  (let* ((size (* sys.int::+tlab-size+ 8))
+         (old-bump (sys.int::%atomic-fixnum-add-symbol 'sys.int::*general-area-young-gen-bump*
+                                                        size))
+         (new-bump (+ old-bump size)))
+    (and (<= new-bump sys.int::*general-area-young-gen-limit*)
+         old-bump)))
+
+(defun %get-new-tlab (words)
+  (when (or (zerop sys.int::*general-area-young-gen-bump*)
+            (> words sys.int::+tlab-object-size-limit+))
+    (return-from %get-new-tlab nil))
+  (let ((result (%do-get-new-tlab)))
+    (when result
+      (let ((cpu (mezzano.supervisor::local-cpu))
+            (limit (+ result (* sys.int::+tlab-size+ 8))))
+        (setf (mezzano.supervisor::cpu-tlab-bump cpu) result
+              (mezzano.supervisor::cpu-tlab-limit cpu) limit)
+        t))))
+
 (defun %slow-allocate-from-general-area (tag data words)
+    ;; TLAB ran out. Try getting a new one.
+  (when (%get-new-tlab words)
+    (return-from %slow-allocate-from-general-area
+      (%allocate-from-general-area tag data words)))
   (let ((gc-count 0)
         (start-time (mezzano.supervisor:get-high-precision-timer)))
     (tagbody
@@ -446,30 +474,33 @@
          (mezzano.supervisor:inhibit-thread-pool-blocking-hijack
            (mezzano.supervisor:with-mutex (*allocator-lock*)
              (mezzano.supervisor:with-pseudo-atomic
-               (tagbody
+	       (tagbody
                 INNER-LOOP
                   (multiple-value-bind (result ignore1 ignore2 failurep)
-                      (%do-allocate-from-general-area tag data words)
+		      (%do-slow-allocate-from-general-area tag data words)
                     (declare (ignore ignore1 ignore2))
                     (when (not failurep)
-                      (update-allocation-time start-time)
-                      (return-from %slow-allocate-from-general-area
+		      (update-allocation-time start-time)
+		      ;; (mezzano.supervisor::debug-print-line "what")
+		      (return-from %slow-allocate-from-general-area
                         result)))
-                  ;; No memory. If there's memory available, then expand the area, otherwise run the GC.
-                  ;; Running the GC cannot be done when pseudo-atomic.
-                  (cond ((expand-allocation-area :general
-                                                 (* words 8)
-                                                 '*general-area-expansion-granularity*
-                                                 'sys.int::*general-area-young-gen-limit*
-                                                 sys.int::+address-tag-general+)
-                         ;; Successfully expanded the area. Retry the allocation.
-                         (go INNER-LOOP))
-                        (t
-                         ;; No memory do expand, bail out and run the GC.
-                         ;; This cannot be done when pseudo-atomic.
-                         (when sys.int::*gc-enable-logging*
-                           (mezzano.supervisor:debug-print-line "General area expansion failed, performing GC."))
-                         (go DO-GC))))))))
+                  (cond 
+		    ;; No memory. If there's memory available, then expand the area, otherwise run the GC.
+		    ;; Running the GC cannot be done when pseudo-atomic.
+		    ((expand-allocation-area :general
+                                             (* sys.int::+tlab-size+ 8)
+					     ;; (* words 8)
+                                             '*general-area-expansion-granularity*
+                                             'sys.int::*general-area-young-gen-limit*
+                                             sys.int::+address-tag-general+)
+                     ;; Successfully expanded the area. Retry the allocation.
+                     (go INNER-LOOP))
+                    (t
+                     ;; No memory do expand, bail out and run the GC.
+                     ;; This cannot be done when pseudo-atomic.
+                     (when sys.int::*gc-enable-logging*
+		       (mezzano.supervisor:debug-print-line "General area expansion failed, performing GC."))
+                     (go DO-GC))))))))
      DO-GC
        ;; Must occur outside the locks.
        (when (> gc-count *maximum-allocation-attempts*)
@@ -486,12 +517,13 @@
     (when (oddp words)
       (incf words))
     (let ((bytes (* words 8)))
-      (sys.int::%atomic-fixnum-add-symbol '*bytes-consed* bytes)
+      ;; (sys.int::%atomic-fixnum-add-symbol '*bytes-consed* bytes)
       ;; ### This won't accurately track if the thread gets footholded
       ;; partway through the add...
       (incf (mezzano.supervisor:thread-bytes-consed
              (mezzano.supervisor:current-thread))
             bytes))
+    ;; (mezzano.supervisor:debug-print-line "b " (mezzano.supervisor::cpu-tlab-bump (mezzano.supervisor::local-cpu)))
     (ecase area
       ((nil)
        (%allocate-from-general-area tag data words))
@@ -508,11 +540,11 @@
      (cons car cdr))
     (:pinned
      (log-allocation-profile-entry 2)
-     (sys.int::%atomic-fixnum-add-symbol '*bytes-consed* 32)
+     ;; (sys.int::%atomic-fixnum-add-symbol '*bytes-consed* 32)
      (%cons-in-pinned-area car cdr))
     (:wired
      (log-allocation-profile-entry 2)
-     (sys.int::%atomic-fixnum-add-symbol '*bytes-consed* 32)
+     ;; (sys.int::%atomic-fixnum-add-symbol '*bytes-consed* 32)
      (%cons-in-wired-area car cdr))))
 
 #-(or x86-64 arm64)
@@ -691,7 +723,7 @@
      for i from 0 do
        (let ((result (%allocate-function-1 tag data words wiredp)))
          (when result
-           (sys.int::%atomic-fixnum-add-symbol '*bytes-consed* (* words 8))
+           ;; (sys.int::%atomic-fixnum-add-symbol '*bytes-consed* (* words 8))
            (update-allocation-time start-time)
            (return result)))
        (when (not (eql i 0))
@@ -886,7 +918,8 @@ This area exists below the stack and is never allocated or mapped.")
      :finalizer (lambda ()
                   (when stack-address
                     (release-memory-range stack-address size)
-                    (sys.int::%atomic-fixnum-add-symbol 'sys.int::*bytes-allocated-to-stacks* (- size))))
+                    ;; (sys.int::%atomic-fixnum-add-symbol 'sys.int::*bytes-allocated-to-stacks* (- size))
+		    ))
      :area :wired)
     (tagbody
      RETRY
@@ -920,7 +953,7 @@ This area exists below the stack and is never allocated or mapped.")
                     (if wired
                         (setf sys.int::*wired-stack-area-bump* (align-up (+ bump size) +stack-region-alignment+))
                         (setf sys.int::*stack-area-bump* (align-up (+ bump size) +stack-region-alignment+)))
-                    (sys.int::%atomic-fixnum-add-symbol 'sys.int::*bytes-allocated-to-stacks* size)
+                    ;; (sys.int::%atomic-fixnum-add-symbol 'sys.int::*bytes-allocated-to-stacks* size)
                     (setf (stack-base stack) addr
                           ;; Notify the finalizer that the stack has been allocated & should be freed.
                           stack-address addr)
