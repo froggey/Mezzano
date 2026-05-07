@@ -112,7 +112,9 @@
   irq-stack
   page-fault-stack
   lapic-timer-active
-  page-fault-hook)
+  page-fault-hook
+  (tlab-bump 0)
+  (tlab-limit 0))
 
 (defconstant +ap-trampoline-physical-address+ #x7000
   "Where the AP trampoline should be copied to in physical memory.
