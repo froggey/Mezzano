@@ -659,29 +659,6 @@ the GC must be deferred during FILL-WORDS."
   (:gc :no-frame :layout #*0 :incoming-arguments :rcx)
   (sys.lap-x86:jmp (:named-call %slow-allocate-from-general-area)))
 
-(sys.int::define-lap-function %old-allocate-from-general-area ((tag data words))
-  (:gc :no-frame :layout #*0 :incoming-arguments :rcx)
-  ;; Attempt to quickly allocate from the general area. Will call
-  ;; %SLOW-ALLOCATE-FROM-GENERAL-AREA if things get too hairy.
-  ;; R8 = tag; R9 = data; R10 = words
-  ;; Check argument count.
-  (sys.lap-x86:cmp64 :rcx #.(ash 3 #.sys.int::+n-fixnum-bits+))
-  (sys.lap-x86:jne SLOW-PATH-BAD-ARGS)
-  (:gc :no-frame :layout #*0)
-  ;; Try the real fast allocator.
-  (sys.lap-x86:call (:named-call %do-slow-allocate-from-general-area))
-  (sys.lap-x86:cmp64 :rcx #.(ash 1 #.sys.int::+n-fixnum-bits+))
-  (sys.lap-x86:jne SLOW-PATH)
-  ;; Done. Return everything.
-  (sys.lap-x86:mov32 :ecx #.(ash 1 #.sys.int::+n-fixnum-bits+))
-  (sys.lap-x86:ret)
-  SLOW-PATH
-  ;; Tail call into %SLOW-ALLOCATE-FROM-GENERAL-AREA.
-  (sys.lap-x86:mov32 :ecx #.(ash 3 #.sys.int::+n-fixnum-bits+))
-  SLOW-PATH-BAD-ARGS
-  (:gc :no-frame :layout #*0 :incoming-arguments :rcx)
-  (sys.lap-x86:jmp (:named-call %slow-allocate-from-general-area)))
-
 (sys.int::define-lap-function do-cons ((car cdr))
   (:gc :no-frame :layout #*0)
   ;; Attempt to quickly allocate a cons.
