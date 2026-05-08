@@ -114,7 +114,12 @@
   lapic-timer-active
   page-fault-hook
   (tlab-bump 0)
-  (tlab-limit 0))
+  (tlab-limit 0)
+  (bytes-consed 0)
+  (cons-allocation-count 0)
+  (cons-fast-path-hits 0)
+  (general-allocation-count 0)
+  (general-fast-path-hits 0))
 
 (defconstant +ap-trampoline-physical-address+ #x7000
   "Where the AP trampoline should be copied to in physical memory.
