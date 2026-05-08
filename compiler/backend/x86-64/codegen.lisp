@@ -223,7 +223,7 @@
               (t
                (emit `(lap:test32 :ecx :ecx)
                      `(lap:jz ,args-ok))
-               (emit-arg-error)))))))
+               (emit-arg-error)))))
   ;; Spill count.
   (flet ((usedp (reg)
            (or (typep reg 'mezzano.compiler.backend.register-allocator::physical-register)
@@ -262,13 +262,13 @@
                  (t
                   ;; Load into register.
                   (when (usedp opt)
-                    (emit `(lap:cmov64le ,opt :r14)))))))
+                    (emit `(lap:cmov64le ,opt :r14))))))))
     ;; &rest generation.
     (when (and (ir:argument-setup-rest instruction)
                (usedp (ir:argument-setup-rest instruction)))
       ;; Only emit when used.
       (emit-dx-rest-list instruction)
-      (emit `(lap:mov64 ,(effective-address (ir:argument-setup-rest instruction)) :r13))))
+      (emit `(lap:mov64 ,(effective-address (ir:argument-setup-rest instruction)) :r13)))))
 
 (defun emit-dx-rest-list (argument-setup)
   (let* ((regular-argument-count (+ (length (ir:argument-setup-required argument-setup))
