@@ -19,6 +19,8 @@
   wired-stack
   (sp-el1 0)
   page-fault-hook
+  (tlab-bump 0)
+  (tlab-limit 0)
   (bytes-consed 0)
   (cons-allocation-count 0)
   (cons-fast-path-hits 0)
@@ -81,6 +83,18 @@
 
 (defun local-cpu ()
   (local-cpu-info))
+
+(defun cpu-tlab-bump (cpu)
+  (arm64-cpu-tlab-bump cpu))
+
+(defun (setf cpu-tlab-bump) (value cpu)
+  (setf (arm64-cpu-tlab-bump cpu) value))
+
+(defun cpu-tlab-limit (cpu)
+  (arm64-cpu-tlab-limit cpu))
+
+(defun (setf cpu-tlab-limit) (value cpu)
+  (setf (arm64-cpu-tlab-limit cpu) value))
 
 (defun initialize-cpu ()
   (setf (arm64-cpu-cpu-id *bsp-cpu*) (fdt-boot-cpuid))
