@@ -16,7 +16,7 @@
   (sys.lap-x86:mov64 :rsp :r8)
   (sys.lap-x86:mov64 :rbp :r9)
   (sys.lap-x86:xor32 :ecx :ecx)
-  (sys.lap-x86:mov64 :r8 nil)
+  (sys.lap-x86:mov64 :r8 :r14)
   (sys.lap-x86:sti)
   (:gc :no-frame :layout #*0)
   (sys.lap-x86:ret))
@@ -85,7 +85,7 @@
   (:gc :no-frame :layout #*0)
   ;; No value return.
   (sys.lap-x86:xor32 :ecx :ecx)
-  (sys.lap-x86:mov64 :r8 nil)
+  (sys.lap-x86:mov64 :r8 :r14)
   ;; Return, restoring RIP.
   (sys.lap-x86:ret))
 
