@@ -420,6 +420,13 @@
   (mezzano.lap.arm64:ldr :x4 (:object :x6 #.sys.int::+symbol-value-cell-value+))
   (mezzano.lap.arm64:subs :xzr :x4 :x26)
   (mezzano.lap.arm64:b.ne SLOW-PATH)
+  ;; Check if object exceeds the TLAB size limit.
+  (mezzano.lap.arm64:ldr :x6 (:symbol-global-cell sys.int::+tlab-object-size-limit+))
+  (mezzano.lap.arm64:ldr :x4 (:object :x6 #.sys.int::+symbol-value-cell-value+))
+  (mezzano.lap.arm64:add :x4 :xzr :x4 :lsr #.sys.int::+n-fixnum-bits+)
+  (mezzano.lap.arm64:add :x6 :xzr :x2 :lsr #.sys.int::+n-fixnum-bits+)
+  (mezzano.lap.arm64:subs :xzr :x6 :x4)
+  (mezzano.lap.arm64:b.hi TOO-LARGE)
   ;; Try the real fast allocator.
   (mezzano.lap.arm64:named-call %do-allocate-from-general-area)
   (mezzano.lap.arm64:subs :xzr :x5 #.(ash 1 #.sys.int::+n-fixnum-bits+))
@@ -428,6 +435,16 @@
   (mezzano.lap.arm64:ldr :x9 (:object :x27 #.mezzano.supervisor::+arm64-cpu-general-fast-path-hits+))
   (mezzano.lap.arm64:add :x9 :x9 #.(ash 1 sys.int::+n-fixnum-bits+))
   (mezzano.lap.arm64:str :x9 (:object :x27 #.mezzano.supervisor::+arm64-cpu-general-fast-path-hits+))
+  (mezzano.lap.arm64:movz :x5 #.(ash 1 #.sys.int::+n-fixnum-bits+))
+  (mezzano.lap.arm64:ldp :x29 :x30 (:post :sp 16))
+  (:gc :no-frame :layout #*)
+  (mezzano.lap.arm64:ret)
+  TOO-LARGE
+  (:gc :no-frame :layout #*00)
+  ;; Object is too large for the TLAB. Use the global allocator directly.
+  (mezzano.lap.arm64:named-call %do-slow-allocate-from-general-area)
+  (mezzano.lap.arm64:subs :xzr :x5 #.(ash 1 #.sys.int::+n-fixnum-bits+))
+  (mezzano.lap.arm64:b.ne SLOW-PATH)
   (mezzano.lap.arm64:movz :x5 #.(ash 1 #.sys.int::+n-fixnum-bits+))
   (mezzano.lap.arm64:ldp :x29 :x30 (:post :sp 16))
   (:gc :no-frame :layout #*)
@@ -441,9 +458,9 @@
   (:gc :no-frame :layout #* :incoming-arguments :rcx)
   (mezzano.lap.arm64:named-tail-call %slow-allocate-from-general-area))
 
-(sys.int::define-lap-function %do-allocate-from-general-area ((tag data words))
+(sys.int::define-lap-function %do-slow-allocate-from-general-area ((tag data words))
   (:gc :no-frame :layout #*)
-  ;; Attempt to quickly allocate from the general area.
+  ;; Attempt to allocate from the global general area using atomic operations.
   ;; Returns (values tag data words t) on failure, just the object on success.
   ;; X0 = tag; X1 = data; X2 = words.
   ;; Fetch symbol value cells.
@@ -464,7 +481,7 @@
   ;; Release atomic add to increment the bump pointer
   (mezzano.lap.arm64:ldaddl :x10 :x6 (:x9))
   (mezzano.lap.arm64:add :x11 :x6 :x10)
-  ;; X6 is old bump pointer, the address of the cons.
+  ;; X6 is old bump pointer, the address of the allocation.
   ;; X11 is the new bump pointer.
   ;; Test against limit.
   (mezzano.lap.arm64:ldr :x10 (:object :x3 #.sys.int::+symbol-value-cell-value+))
@@ -475,11 +492,64 @@
   (mezzano.lap.arm64:add :x6 :xzr :x6 :lsr #.sys.int::+n-fixnum-bits+)
   ;; Set address bits and the tag bits.
   ;; Set address bits, tag bits, and the mark bit.
+  (mezzano.lap.arm64:ldr :x9 (:pc global-address-object-tag))
+  (mezzano.lap.arm64:orr :x6 :x6 :x9)
+  (mezzano.lap.arm64:ldr :x9 (:object :x4 #.sys.int::+symbol-value-cell-value+))
+  (mezzano.lap.arm64:orr :x6 :x6 :x9)
+  ;; Write back the header.
+  (mezzano.lap.arm64:str :x12 (:object :x6 -1))
+  ;; Leave restart region.
+  (:gc :no-frame :layout #*)
+  ;; Done. Return everything.
+  (mezzano.lap.arm64:orr :x0 :xzr :x6)
+  (mezzano.lap.arm64:movz :x5 #.(ash 1 #.sys.int::+n-fixnum-bits+))
+  (mezzano.lap.arm64:ret)
+  SLOW-PATH
+  (mezzano.lap.arm64:ldr :x3 (:constant t))
+  (mezzano.lap.arm64:movz :x5 #.(ash 4 #.sys.int::+n-fixnum-bits+))
+  (mezzano.lap.arm64:ret)
+  (:align 16)
+  global-address-object-tag
+  (:d64/le #.(logior (ash sys.int::+address-tag-general+ sys.int::+address-tag-shift+)
+                     sys.int::+tag-object+)))
+
+(sys.int::define-lap-function %do-allocate-from-general-area ((tag data words))
+  (:gc :no-frame :layout #*)
+  ;; Attempt to quickly allocate from the general area using the per-CPU TLAB.
+  ;; Returns (values tag data words t) on failure, just the object on success.
+  ;; X0 = tag; X1 = data; X2 = words.
+  ;; Load per-CPU TLAB limit and newspace bit.
+  (mezzano.lap.arm64:ldr :x3 (:object :x27 #.mezzano.supervisor::+arm64-cpu-tlab-limit+))
+  (mezzano.lap.arm64:ldr :x4 (:symbol-global-cell sys.int::*young-gen-newspace-bit-raw*))
+  ;; X3 = tlab limit. X4 = newspace-bit.
+  ;; Assemble the final header value in X12.
+  (mezzano.lap.arm64:add :x12 :xzr :x0 :lsl #.(- sys.int::+object-type-shift+ sys.int::+n-fixnum-bits+))
+  (mezzano.lap.arm64:add :x12 :x12 :x1 :lsl #.(- sys.int::+object-data-shift+ sys.int::+n-fixnum-bits+))
+  ;; If a garbage collection occurs, it must rewind IP back here.
+  (:gc :no-frame :layout #* :restart t)
+  ;; Fetch and increment the per-CPU TLAB bump pointer.
+  (mezzano.lap.arm64:add :x10 :xzr :x2 :lsl 3) ; words * 8
+  ;; Address generation for the per-CPU tlab-bump slot.
+  ;; Linked GC mode is not needed as this will be repeated due to the restart region.
+  (mezzano.lap.arm64:add :x9 :x27 #.(+ (- sys.int::+tag-object+) 8 (* mezzano.supervisor::+arm64-cpu-tlab-bump+ 8)))
+  ;; Release atomic add to increment the bump pointer
+  (mezzano.lap.arm64:ldaddl :x10 :x6 (:x9))
+  (mezzano.lap.arm64:add :x11 :x6 :x10)
+  ;; X6 is old bump pointer, the address of the allocation.
+  ;; X11 is the new bump pointer.
+  ;; Test against per-CPU TLAB limit.
+  (mezzano.lap.arm64:subs :xzr :x11 :x3)
+  (mezzano.lap.arm64:b.hi SLOW-PATH)
+  ;; Generate the object.
+  ;; Unfixnumize address. This still looks like a fixnum due to alignment.
+  (mezzano.lap.arm64:add :x6 :xzr :x6 :lsr #.sys.int::+n-fixnum-bits+)
+  ;; Set address bits and the tag bits.
+  ;; Set address bits, tag bits, and the mark bit.
   (mezzano.lap.arm64:ldr :x9 (:pc general-address-object-tag))
   (mezzano.lap.arm64:orr :x6 :x6 :x9)
   (mezzano.lap.arm64:ldr :x9 (:object :x4 #.sys.int::+symbol-value-cell-value+))
   (mezzano.lap.arm64:orr :x6 :x6 :x9)
-  ;; RBX now points to a 0-element simple-vector, followed by however much empty space is required.
+  ;; X6 now points to a 0-element simple-vector, followed by however much empty space is required.
   ;; The gc metadata at this point has :restart t, so if a GC occurs before
   ;; writing the final header, this process will be restarted from the beginning.
   ;; This is required as the GC will only copy 2 words, leaving the rest of the memory in an invalid state.

@@ -2478,4 +2478,4 @@ No type information will be provided."
 (defun fixup-tlabs ()
   (dolist (cpu mezzano.supervisor::*cpus*)
     (setf (mezzano.supervisor::cpu-tlab-limit cpu) 0
-	  (mezzano.supervisor::cpu-tlab-bump cpu) 0)))
+          (mezzano.supervisor::cpu-tlab-bump cpu) 0)))
