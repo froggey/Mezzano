@@ -205,7 +205,7 @@
   (cond ((constant-value-p rhs '(eql nil))
          (emit (make-instance 'x86-instruction
                               :opcode 'lap:cmp64
-                              :operands (list lhs nil)
+                              :operands (list lhs :r14)
                               :inputs (list lhs)
                               :outputs '())))
         ((constant-value-p rhs '(eql t))

@@ -1292,12 +1292,12 @@
                                 :opcode 'lap:cmov64p
                                 :result temp-result2
                                 :lhs temp-result1
-                                :rhs `(:constant nil)))
+                                :rhs :r14))
            (emit (make-instance 'x86-fake-three-operand-instruction
                                 :opcode 'lap:cmov64ne
                                 :result result
                                 :lhs temp-result2
-                                :rhs `(:constant nil)))))
+                                :rhs :r14))))
         (t
          (let ((lhs-unboxed (make-instance 'ir:virtual-register :kind :single-float))
                (rhs-unboxed (make-instance 'ir:virtual-register :kind :single-float))
@@ -1321,12 +1321,12 @@
                                 :opcode 'lap:cmov64p
                                 :result temp-result2
                                 :lhs temp-result1
-                                :rhs `(:constant nil)))
+                                :rhs :r14))
            (emit (make-instance 'x86-fake-three-operand-instruction
                                 :opcode 'lap:cmov64ne
                                 :result result
                                 :lhs temp-result2
-                                :rhs `(:constant nil)))))))
+                                :rhs :r14))))))
 
 (define-builtin sys.int::%%truncate-single-float ((value) result)
   (let ((value-unboxed (make-instance 'ir:virtual-register :kind :single-float))
@@ -1525,12 +1525,12 @@
                                 :opcode 'lap:cmov64p
                                 :result temp-result2
                                 :lhs temp-result1
-                                :rhs `(:constant nil)))
+                                :rhs :r14))
            (emit (make-instance 'x86-fake-three-operand-instruction
                                 :opcode 'lap:cmov64ne
                                 :result result
                                 :lhs temp-result2
-                                :rhs `(:constant nil)))))
+                                :rhs :r14))))
         (t
          (let ((lhs-unboxed (make-instance 'ir:virtual-register :kind :double-float))
                (rhs-unboxed (make-instance 'ir:virtual-register :kind :double-float))
@@ -1554,12 +1554,12 @@
                                 :opcode 'lap:cmov64p
                                 :result temp-result2
                                 :lhs temp-result1
-                                :rhs `(:constant nil)))
+                                :rhs :r14))
            (emit (make-instance 'x86-fake-three-operand-instruction
                                 :opcode 'lap:cmov64ne
                                 :result result
                                 :lhs temp-result2
-                                :rhs `(:constant nil)))))))
+                                :rhs :r14))))))
 
 (define-builtin sys.int::%%truncate-double-float ((value) result)
   (let ((value-unboxed (make-instance 'ir:virtual-register :kind :double-float))
