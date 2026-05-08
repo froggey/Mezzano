@@ -632,18 +632,15 @@ the GC must be deferred during FILL-WORDS."
   (sys.lap-x86:cmp64 :rax :r11)
   (sys.lap-x86:ja TOO-LARGE)
   ;; Update allocation meter.
-  ;; *BYTES-CONSED* is updated elsewhere.
-  ;; (sys.lap-x86:mov64 :rbx (:symbol-global-cell *general-allocation-count*))
-  ;; (sys.lap-x86:lock)
-  ;; (sys.lap-x86:add64 (:object :rbx #.sys.int::+symbol-value-cell-value+) #.(ash 1 sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:fs)
+  (sys.lap-x86:add64 (:object-location nil #.mezzano.supervisor::+cpu-general-allocation-count+) #.(ash 1 sys.int::+n-fixnum-bits+))
   ;; Try the real fast allocator.
   (sys.lap-x86:call (:named-call %do-allocate-from-general-area))
   (sys.lap-x86:cmp64 :rcx #.(ash 1 #.sys.int::+n-fixnum-bits+))
   (sys.lap-x86:jne SLOW-PATH)
   ;; Done. Return everything.
-  ;; (sys.lap-x86:mov64 :rbx (:symbol-global-cell *general-fast-path-hits*))
-  ;; (sys.lap-x86:lock)
-  ;; (sys.lap-x86:add64 (:object :rbx #.sys.int::+symbol-value-cell-value+) #.(ash 1 sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:fs)
+  (sys.lap-x86:add64 (:object-location nil #.mezzano.supervisor::+cpu-general-fast-path-hits+) #.(ash 1 sys.int::+n-fixnum-bits+))
   (sys.lap-x86:mov32 :ecx #.(ash 1 #.sys.int::+n-fixnum-bits+))
   (sys.lap-x86:ret)
   TOO-LARGE
@@ -712,13 +709,11 @@ the GC must be deferred during FILL-WORDS."
   (sys.lap-x86:jne SLOW-PATH-BAD-ARGS)
   (:gc :no-frame :layout #*0)
   ;; Update allocation meter.
-  ;; (sys.lap-x86:mov64 :rbx (:symbol-global-cell *cons-allocation-count*))
-  ;; (sys.lap-x86:lock)
-  ;; (sys.lap-x86:add64 (:object :rbx #.sys.int::+symbol-value-cell-value+) #.(ash 1 sys.int::+n-fixnum-bits+))
-  ;; (sys.lap-x86:mov64 :rbx (:symbol-global-cell *bytes-consed*))
-  ;; (sys.lap-x86:lock)
-  ;; (sys.lap-x86:add64 (:object :rbx #.sys.int::+symbol-value-cell-value+)
-  ;;                    #.(ash 16 sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:fs)
+  (sys.lap-x86:add64 (:object-location nil #.mezzano.supervisor::+cpu-cons-allocation-count+) #.(ash 1 sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:fs)
+  (sys.lap-x86:add64 (:object-location nil #.mezzano.supervisor::+cpu-bytes-consed+)
+                     #.(ash 16 sys.int::+n-fixnum-bits+))
   (sys.lap-x86:gs)
   (sys.lap-x86:add64 (:object nil #.mezzano.supervisor::+thread-bytes-consed+)
                      #.(ash 16 sys.int::+n-fixnum-bits+))
@@ -735,9 +730,8 @@ the GC must be deferred during FILL-WORDS."
   (sys.lap-x86:cmp64 :rcx #.(ash 1 #.sys.int::+n-fixnum-bits+))
   (sys.lap-x86:jne SLOW-PATH)
   ;; Done. Return everything.
-  ;; (sys.lap-x86:mov64 :rbx (:symbol-global-cell *cons-fast-path-hits*))
-  ;; (sys.lap-x86:lock)
-  ;; (sys.lap-x86:add64 (:object :rbx #.sys.int::+symbol-value-cell-value+) #.(ash 1 sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:fs)
+  (sys.lap-x86:add64 (:object-location nil #.mezzano.supervisor::+cpu-cons-fast-path-hits+) #.(ash 1 sys.int::+n-fixnum-bits+))
   (sys.lap-x86:mov32 :ecx #.(ash 1 #.sys.int::+n-fixnum-bits+))
   (sys.lap-x86:ret)
   SLOW-PATH

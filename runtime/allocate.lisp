@@ -48,12 +48,25 @@
 (sys.int::defglobal *general-area-expansion-granularity*)
 (sys.int::defglobal *cons-area-expansion-granularity*)
 
-(sys.int::defglobal *general-fast-path-hits*)
-(sys.int::defglobal *general-allocation-count*)
-(sys.int::defglobal *cons-fast-path-hits*)
-(sys.int::defglobal *cons-allocation-count*)
+(defun bytes-consed ()
+  (loop for cpu in mezzano.supervisor::*cpus*
+        sum (mezzano.supervisor::cpu-bytes-consed cpu)))
 
-(sys.int::defglobal *bytes-consed*)
+(defun general-allocation-count ()
+  (loop for cpu in mezzano.supervisor::*cpus*
+        sum (mezzano.supervisor::cpu-general-allocation-count cpu)))
+
+(defun general-fast-path-hits ()
+  (loop for cpu in mezzano.supervisor::*cpus*
+        sum (mezzano.supervisor::cpu-general-fast-path-hits cpu)))
+
+(defun cons-allocation-count ()
+  (loop for cpu in mezzano.supervisor::*cpus*
+        sum (mezzano.supervisor::cpu-cons-allocation-count cpu)))
+
+(defun cons-fast-path-hits ()
+  (loop for cpu in mezzano.supervisor::*cpus*
+        sum (mezzano.supervisor::cpu-cons-fast-path-hits cpu)))
 
 
 (defconstant sys.int::+tlab-size+ (* 256 1024))
@@ -94,11 +107,6 @@
         *enable-allocation-profiling* nil
         *general-area-expansion-granularity* sys.int::+allocation-minimum-alignment+
         *cons-area-expansion-granularity* sys.int::+allocation-minimum-alignment+
-        *general-fast-path-hits* 0
-        *general-allocation-count* 0
-        *cons-fast-path-hits* 0
-        *cons-allocation-count* 0
-        *bytes-consed* 0
         *allocator-lock* (mezzano.supervisor:make-mutex "Allocator")
         *allocation-fudge* (* 8 1024 1024)
         sys.int::*generation-size-ratio* 2)
@@ -336,7 +344,7 @@
 
 #-(or x86-64 arm64)
 (defun %allocate-from-general-area (tag data words)
-  (sys.int::%atomic-fixnum-add-symbol '*general-allocation-count* 1)
+  (incf (mezzano.supervisor::cpu-general-allocation-count (mezzano.supervisor::local-cpu)) 1)
   (%slow-allocate-from-general-area tag data words))
 
 #-(or x86-64 arm64)
@@ -517,9 +525,8 @@
     (when (oddp words)
       (incf words))
     (let ((bytes (* words 8)))
-      ;; (sys.int::%atomic-fixnum-add-symbol '*bytes-consed* bytes)
-      ;; ### This won't accurately track if the thread gets footholded
-      ;; partway through the add...
+      (incf (mezzano.supervisor::cpu-bytes-consed (mezzano.supervisor::local-cpu))
+            bytes)
       (incf (mezzano.supervisor:thread-bytes-consed
              (mezzano.supervisor:current-thread))
             bytes))
@@ -539,18 +546,21 @@
     ((nil)
      (cons car cdr))
     (:pinned
-     (log-allocation-profile-entry 2)
-     ;; (sys.int::%atomic-fixnum-add-symbol '*bytes-consed* 32)
-     (%cons-in-pinned-area car cdr))
+      (log-allocation-profile-entry 2)
+      (incf (mezzano.supervisor::cpu-bytes-consed (mezzano.supervisor::local-cpu)) 32)
+      (incf (mezzano.supervisor:thread-bytes-consed (mezzano.supervisor:current-thread)) 32)
+      (%cons-in-pinned-area car cdr))
     (:wired
-     (log-allocation-profile-entry 2)
-     ;; (sys.int::%atomic-fixnum-add-symbol '*bytes-consed* 32)
-     (%cons-in-wired-area car cdr))))
+      (log-allocation-profile-entry 2)
+      (incf (mezzano.supervisor::cpu-bytes-consed (mezzano.supervisor::local-cpu)) 32)
+      (incf (mezzano.supervisor:thread-bytes-consed (mezzano.supervisor:current-thread)) 32)
+      (%cons-in-wired-area car cdr))))
 
 #-(or x86-64 arm64)
 (defun cons (car cdr)
-  (sys.int::%atomic-fixnum-add-symbol '*cons-allocation-count* 1)
-  (sys.int::%atomic-fixnum-add-symbol '*bytes-consed* 16)
+  (incf (mezzano.supervisor::cpu-cons-allocation-count (mezzano.supervisor::local-cpu)) 1)
+  (incf (mezzano.supervisor::cpu-bytes-consed (mezzano.supervisor::local-cpu)) 16)
+  (incf (mezzano.supervisor:thread-bytes-consed (mezzano.supervisor:current-thread)) 16)
   (slow-cons car cdr))
 
 #-(or x86-64 arm64)
@@ -722,10 +732,12 @@
      with inhibit-gc = nil
      for i from 0 do
        (let ((result (%allocate-function-1 tag data words wiredp)))
-         (when result
-           ;; (sys.int::%atomic-fixnum-add-symbol '*bytes-consed* (* words 8))
-           (update-allocation-time start-time)
-           (return result)))
+           (when result
+             (let ((cbytes (* words 8)))
+               (incf (mezzano.supervisor::cpu-bytes-consed (mezzano.supervisor::local-cpu)) cbytes)
+               (incf (mezzano.supervisor:thread-bytes-consed (mezzano.supervisor:current-thread)) cbytes))
+             (update-allocation-time start-time)
+            (return result)))
        (when (not (eql i 0))
          ;; The GC has been run at least once.
          (when (expand-function-area words wiredp)
