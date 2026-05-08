@@ -139,6 +139,7 @@
           (thread-state-r11-value thread) nil
           (thread-state-r12-value thread) nil
           (thread-state-r13-value thread) nil
+;	  (thread-state-r14-value thread) nil
           (thread-state-rip thread) (sys.int::%object-ref-unsigned-byte-64
                                      #'%%full-save-return-thunk
                                      sys.int::+function-entry-point+)
@@ -230,6 +231,8 @@
         (thread-state-r11-value thread) nil
         (thread-state-r12-value thread) nil
         (thread-state-r13-value thread) nil
+	(thread-state-r14-value thread) (sys.int::%object-ref-unsigned-byte-64
+                                   nil 0)
         (thread-state-cs thread) #x08
         (thread-state-ss thread) #x00
         (thread-state-rflags thread) #x202

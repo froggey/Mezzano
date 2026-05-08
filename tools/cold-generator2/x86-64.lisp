@@ -153,7 +153,7 @@
      (lap:mov64 :r13 (:function ,handler)))
    (if error-code-p
        '((lap:lea64 :r9 (:rax :rax))) ; Convert error code to fixnum.
-       '((lap:mov32 :r9d nil))) ; Nothing interesting
+       '((lap:mov32 :r9d :r14d))) ; Nothing interesting
    '((lap:jmp interrupt-common))))
 
 (defun create-user-interrupt-isr (index)

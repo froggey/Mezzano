@@ -138,7 +138,8 @@
                 `(lap:push :rbp)
                 `(:gc :no-frame :incoming-arguments :rcx :layout #*00)
                 `(lap:mov64 :rbp :rsp)
-                `(:gc :frame :incoming-arguments :rcx))
+                `(:gc :frame :incoming-arguments :rcx)
+		`(lap:mov64 :r14 nil))
           (let ((stack-size (length *current-frame-layout*)))
             (when (oddp stack-size)
               (incf stack-size))
@@ -148,7 +149,7 @@
                for i from 0
                for elt across *current-frame-layout*
                do (when (not (zerop elt))
-                    (emit `(lap:mov64 (:stack ,i) nil)))))
+                    (emit `(lap:mov64 (:stack ,i) :r14)))))
           (emit-gc-info :incoming-arguments :rcx)
           (ir:do-instructions (inst-or-label backend-function)
             (emit-debug-info (gethash inst-or-label debug-map '()) *spill-locations*)
@@ -177,51 +178,52 @@
 
 (defmethod emit-lap (backend-function (instruction ir:argument-setup-instruction) uses defs)
   ;; Check the argument count.
-  (let ((args-ok (mezzano.lap:make-label :args-ok)))
-    (flet ((emit-arg-error ()
-             ;; If this is a closure, then it must have been invoked using
-             ;; the closure calling convention and the closure object will
-             ;; still be in RBX. For non-closures, reconstruct the function
-             ;; object and put that in RBX.
-             (when (not (c:lambda-information-environment-arg (ir::ast backend-function)))
-               (emit `(lap:lea64 :rbx (:rip (+ (- entry-point 16) ,sys.int::+tag-object+)))))
-             ;; Tail call through to RAISE-INVALID-ARGUMENT-ERROR, leaving
-             ;; the arguments in place.
-             (emit `(lap:leave)
-                   `(:gc :no-frame :incoming-arguments :rcx :layout #*0)
-                   `(lap:jmp (:named-call sys.int::raise-invalid-argument-error))
-                   args-ok)
-             (emit-gc-info :incoming-arguments :rcx)))
-      (cond ((ir:argument-setup-rest instruction)
-             ;; If there are no required parameters, then don't generate a lower-bound check.
-             (when (ir:argument-setup-required instruction)
-               ;; Minimum number of arguments.
+  (unless (zerop (getf (mezzano.compiler::ast-optimize (mezzano.compiler.backend::ast backend-function)) 'safety 3))  
+    (let ((args-ok (mezzano.lap:make-label :args-ok)))
+      (flet ((emit-arg-error ()
+               ;; If this is a closure, then it must have been invoked using
+               ;; the closure calling convention and the closure object will
+               ;; still be in RBX. For non-closures, reconstruct the function
+               ;; object and put that in RBX.
+               (when (not (c:lambda-information-environment-arg (ir::ast backend-function)))
+		 (emit `(lap:lea64 :rbx (:rip (+ (- entry-point 16) ,sys.int::+tag-object+)))))
+               ;; Tail call through to RAISE-INVALID-ARGUMENT-ERROR, leaving
+               ;; the arguments in place.
+               (emit `(lap:leave)
+                     `(:gc :no-frame :incoming-arguments :rcx :layout #*0)
+                     `(lap:jmp (:named-call sys.int::raise-invalid-argument-error))
+                     args-ok)
+               (emit-gc-info :incoming-arguments :rcx)))
+	(cond ((ir:argument-setup-rest instruction)
+               ;; If there are no required parameters, then don't generate a lower-bound check.
+               (when (ir:argument-setup-required instruction)
+		 ;; Minimum number of arguments.
+		 (emit `(lap:cmp32 :ecx ,(c::fixnum-to-raw (length (ir:argument-setup-required instruction))))
+                       `(lap:jnl ,args-ok))
+		 (emit-arg-error)))
+              ((and (ir:argument-setup-required instruction)
+                    (ir:argument-setup-optional instruction))
+               ;; A range.
+               (emit `(lap:mov32 :eax :ecx)
+                     `(lap:sub32 :eax ,(c::fixnum-to-raw (length (ir:argument-setup-required instruction))))
+                     `(lap:cmp32 :eax ,(c::fixnum-to-raw (length (ir:argument-setup-optional instruction))))
+                     `(lap:jna ,args-ok))
+               (emit-arg-error))
+              ((ir:argument-setup-optional instruction)
+               ;; Maximum number of arguments.
+               (emit `(lap:cmp32 :ecx ,(c::fixnum-to-raw (length (ir:argument-setup-optional instruction))))
+                     `(lap:jna ,args-ok))
+               (emit-arg-error))
+              ((ir:argument-setup-required instruction)
+               ;; Exact number of arguments.
                (emit `(lap:cmp32 :ecx ,(c::fixnum-to-raw (length (ir:argument-setup-required instruction))))
-                     `(lap:jnl ,args-ok))
-               (emit-arg-error)))
-            ((and (ir:argument-setup-required instruction)
-                  (ir:argument-setup-optional instruction))
-             ;; A range.
-             (emit `(lap:mov32 :eax :ecx)
-                   `(lap:sub32 :eax ,(c::fixnum-to-raw (length (ir:argument-setup-required instruction))))
-                   `(lap:cmp32 :eax ,(c::fixnum-to-raw (length (ir:argument-setup-optional instruction))))
-                   `(lap:jna ,args-ok))
-             (emit-arg-error))
-            ((ir:argument-setup-optional instruction)
-             ;; Maximum number of arguments.
-             (emit `(lap:cmp32 :ecx ,(c::fixnum-to-raw (length (ir:argument-setup-optional instruction))))
-                   `(lap:jna ,args-ok))
-             (emit-arg-error))
-            ((ir:argument-setup-required instruction)
-             ;; Exact number of arguments.
-             (emit `(lap:cmp32 :ecx ,(c::fixnum-to-raw (length (ir:argument-setup-required instruction))))
-                   `(lap:je ,args-ok))
-             (emit-arg-error))
-            ;; No arguments
-            (t
-             (emit `(lap:test32 :ecx :ecx)
-                   `(lap:jz ,args-ok))
-             (emit-arg-error)))))
+                     `(lap:je ,args-ok))
+               (emit-arg-error))
+              ;; No arguments
+              (t
+               (emit `(lap:test32 :ecx :ecx)
+                     `(lap:jz ,args-ok))
+               (emit-arg-error)))))))
   ;; Spill count.
   (flet ((usedp (reg)
            (or (typep reg 'mezzano.compiler.backend.register-allocator::physical-register)
@@ -253,20 +255,20 @@
            (cond ((typep opt 'ir:virtual-register)
                   ;; Load from stack.
                   (when (usedp opt)
-                    (emit `(lap:mov64 :r13 nil)
+                    (emit `(lap:mov64 :r13 :r14)
                           `(lap:cmov64nle :r13 (:rbp ,(* (+ stack-argument-index 2) 8)))
                           `(lap:mov64 ,(effective-address opt) :r13)))
                   (incf stack-argument-index))
                  (t
                   ;; Load into register.
                   (when (usedp opt)
-                    (emit `(lap:cmov64le ,opt (:constant nil))))))))
+                    (emit `(lap:cmov64le ,opt :r14)))))))
     ;; &rest generation.
     (when (and (ir:argument-setup-rest instruction)
                (usedp (ir:argument-setup-rest instruction)))
       ;; Only emit when used.
       (emit-dx-rest-list instruction)
-      (emit `(lap:mov64 ,(effective-address (ir:argument-setup-rest instruction)) :r13)))))
+      (emit `(lap:mov64 ,(effective-address (ir:argument-setup-rest instruction)) :r13))))
 
 (defun emit-dx-rest-list (argument-setup)
   (let* ((regular-argument-count (+ (length (ir:argument-setup-required argument-setup))
@@ -288,7 +290,7 @@
     ;; be used later.
     (emit-gc-info :incoming-arguments saved-argument-count)
     ;; The cons cells are allocated in one single chunk.
-    (emit `(lap:mov64 :r13 nil))
+    (emit `(lap:mov64 :r13 :r14))
     ;; Remove required/optional arguments from the count.
     ;; If negative or zero, the &REST list is empty.
     (cond ((zerop regular-argument-count)
@@ -324,7 +326,7 @@
     (emit `(lap:sub64 :rdx ,(c::fixnum-to-raw 1)))
     (emit `(lap:ja ,rest-clear-loop-head))
     ;; Set the cdr of the final cons to NIL.
-    (emit `(lap:mov64 (:rdi -8) nil))
+    (emit `(lap:mov64 (:rdi -8) :r14))
     ;; Create the DX root object for the vector.
     (emit `(lap:lea64 :rax (:rsp ,sys.int::+tag-dx-root-object+)))
     (emit `(lap:mov64 (:stack ,rest-dx-root) :rax))
@@ -623,13 +625,37 @@
         `(lap:leave)
         ;; Don't use emit-gc-info, using a custom layout.
         `(:gc :no-frame :layout #*0)
-        `(lap:ret)))
+        `(lap:ret))
+  ;; (loop for i in *emitted-lap*
+  ;; 	if (and (listp i)
+  ;; 		(> (length i) 2)
+  ;; 		(null (elt i 2)))
+  ;; 	  do (cond ((member (car i)
+  ;; 			    '(mezzano.lap.x86:cmp32 mezzano.lap.x86:mov32))
+  ;; 		    (setf (elt i 2) :r14d))
+  ;; 		   ((member (car i)
+  ;; 			    '(mezzano.lap.x86:push mezzano.lap.x86:cmp64 mezzano.lap.x86:mov64))
+  ;; 		    (setf (elt i 2) :r14))
+  ;; 		   (t nil)))
+  )
 
 (defmethod emit-lap (backend-function (instruction ir:return-multiple-instruction) uses defs)
   (emit `(lap:leave)
         ;; Don't use emit-gc-info, using a custom layout.
         `(:gc :no-frame :layout #*0 :multiple-values 0)
-        `(lap:ret)))
+        `(lap:ret))
+  ;; (loop for i in *emitted-lap*
+  ;; 	if (and (listp i)
+  ;; 		(> (length i) 2)
+  ;; 		(null (elt i 2)))
+  ;; 	  do (cond ((member (car i)
+  ;; 			    '(mezzano.lap.x86:cmp32 mezzano.lap.x86:mov32))
+  ;; 		    (setf (elt i 2) :r14d))
+  ;; 		   ((member (car i)
+  ;; 			    '(mezzano.lap.x86:push mezzano.lap.x86:cmp64 mezzano.lap.x86:mov64))
+  ;; 		    (setf (elt i 2) :r14))
+  ;; 		   (t nil)))
+  )
 
 (defmethod emit-lap (backend-function (instruction ir:unreachable-instruction) uses defs)
   (emit `(lap:ud2)))
@@ -650,7 +676,7 @@
        do (emit `(:d64/le (- ,(resolve-label target) ,jump-table))))))
 
 (defmethod emit-lap (backend-function (instruction ir:branch-instruction) uses defs)
-  (emit `(lap:cmp64 ,(ir:branch-value instruction) nil))
+  (emit `(lap:cmp64 ,(ir:branch-value instruction) :r14))
   (emit-branch backend-function
                instruction
                'lap:jne
@@ -870,7 +896,7 @@
   ;; stack pointer will always be below the live/not-yet-flushed roots.
   (emit `(lap:mov64 :rdx (:rax 24))) ; rbp
   (dolist (dx-root (gethash region *dx-root-visibility*))
-    (emit `(lap:mov64 (:rdx ,(- (* (1+ dx-root) 8))) nil)))
+    (emit `(lap:mov64 (:rdx ,(- (* (1+ dx-root) 8))) :r14)))
   (if multiple-values-p
       (emit-gc-info :block-or-tagbody-thunk :rax :multiple-values 0)
       (emit-gc-info :block-or-tagbody-thunk :rax))
@@ -930,7 +956,7 @@
     (emit `(lap:jmp ,save-done))
     ;; Slow path
     (emit full-save)
-    (emit `(lap:mov64 (:stack ,(+ register-only-area 0)) nil))
+    (emit `(lap:mov64 (:stack ,(+ register-only-area 0)) :r14))
     ;; Allocate an appropriately sized DX simple vector.
     ;; Add one for the header, then round the count up to an even number.
     (emit `(lap:lea64 :rax (:rcx ,(c::fixnum-to-raw 2))))
@@ -996,7 +1022,7 @@
          (full-restore (mezzano.lap:make-label :values-full-restore))
          (restore-done (mezzano.lap:make-label :values-restore-done)))
     ;; See if the fast register path was used.
-    (emit `(lap:cmp64 (:stack ,(+ register-only-area 0)) nil))
+    (emit `(lap:cmp64 (:stack ,(+ register-only-area 0)) :r14))
     (emit `(lap:je ,full-restore))
     (emit `(lap:mov64 :rcx (:stack ,(+ register-only-area 0))))
     (emit `(lap:mov64 :r8 (:stack ,(+ register-only-area 1))))
@@ -1016,10 +1042,10 @@
     (emit-gc-info :multiple-values 0)
     (emit restore-done)
     ;; Kill the dx root, restore the old stack pointer, and wipe the register area
-    (emit `(lap:mov64 (:stack ,sv-save-area) nil))
+    (emit `(lap:mov64 (:stack ,sv-save-area) :r14))
     (emit `(lap:mov64 :rsp (:stack ,saved-stack-pointer)))
     (dotimes (i 6)
-      (emit `(lap:mov64 (:stack ,(+ register-only-area i)) nil)))))
+      (emit `(lap:mov64 (:stack ,(+ register-only-area i)) :r14)))))
 
 (defmethod emit-lap (backend-function (instruction ir:forget-multiple-instruction) uses defs)
   (let* ((save-data (gethash (ir:forget-multiple-context instruction) *saved-multiple-values*))
@@ -1027,10 +1053,10 @@
          (saved-stack-pointer (second save-data))
          (register-only-area (third save-data)))
     ;; Kill the dx root, restore the old stack pointer, and wipe the register area
-    (emit `(lap:mov64 (:stack ,sv-save-area) nil))
+    (emit `(lap:mov64 (:stack ,sv-save-area) :r14))
     (emit `(lap:mov64 :rsp (:stack ,saved-stack-pointer)))
     (dotimes (i 6)
-      (emit `(lap:mov64 (:stack ,(+ register-only-area i)) nil)))))
+      (emit `(lap:mov64 (:stack ,(+ register-only-area i)) :r14)))))
 
 (defmethod emit-lap (backend-function (instruction ir:multiple-value-bind-instruction) uses defs)
   (loop
@@ -1041,9 +1067,9 @@
        (cond (regs
               (let ((reg (pop regs)))
                 (emit `(lap:cmp64 :rcx ,(c::fixnum-to-raw i))
-                      `(lap:cmov64le ,reg (:constant nil)))))
+                      `(lap:cmov64le ,reg :r14))))
              (t
-              (emit `(lap:mov64 :r13 nil)
+              (emit `(lap:mov64 :r13 :r14)
                     `(lap:cmp64 :rcx ,(c::fixnum-to-raw i))
                     `(lap:gs)
                     `(lap:cmov64nle :r13 (,(+ (- 8 sys.int::+tag-object+)
@@ -1054,7 +1080,7 @@
 
 (defmethod emit-lap (backend-function (instruction ir:values-instruction) uses defs)
   (cond ((endp (ir:values-values instruction))
-         (emit `(lap:mov64 :r8 nil)
+         (emit `(lap:mov64 :r8 :r14)
                `(lap:xor32 :ecx :ecx)))
         (t
          (emit `(lap:mov32 :ecx ,(c::fixnum-to-raw (min 5 (length (ir:values-values instruction))))))
@@ -1082,9 +1108,9 @@
     (emit `(lap:mov64 (:stack ,(+ slots 3)) ,(logior (ash 3 sys.int::+object-data-shift+)
                                                      (ash (ir:push-special-stack-tag instruction)
                                                           sys.int::+object-type-shift+)))
-          `(lap:mov64 (:stack ,(+ slots 2)) nil)
-          `(lap:mov64 (:stack ,(+ slots 1)) nil)
-          `(lap:mov64 (:stack ,(+ slots 0)) nil))
+          `(lap:mov64 (:stack ,(+ slots 2)) :r14)
+          `(lap:mov64 (:stack ,(+ slots 1)) :r14)
+          `(lap:mov64 (:stack ,(+ slots 0)) :r14))
     ;; Store bits.
     (emit `(lap:mov64 (:stack ,(+ slots 1)) ,(ir:push-special-stack-a-value instruction))
           `(lap:mov64 (:stack ,(+ slots 0)) ,(ir:push-special-stack-b-value instruction)))
@@ -1137,7 +1163,7 @@
         `(lap:mov64 :rbx (:object nil ,mezzano.supervisor::+thread-special-stack-pointer+))
         `(lap:mov64 :r13 (:object :rbx 1))
         `(lap:mov64 :rax (:object :rbx 2))
-        `(lap:mov64 (:object :r13 0 :rax ,(/ 8 (ash 1 sys.int::+n-fixnum-bits+))) nil)
+        `(lap:mov64 (:object :r13 0 :rax ,(/ 8 (ash 1 sys.int::+n-fixnum-bits+))) :r14)
         `(lap:mov64 :rbx (:object :rbx 0))
         `(lap:gs)
         `(lap:mov64 (:object nil ,mezzano.supervisor::+thread-special-stack-pointer+) :rbx)))

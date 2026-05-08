@@ -506,7 +506,7 @@ Interrupts must be off and the global thread lock must be held."
             (thread-state-r11 thread) 0
             (thread-state-r12 thread) 0
             (thread-state-r13 thread) 0
-            (thread-state-r14 thread) 0
+            (thread-state-r14 thread) (sys.int::%object-ref-signed-byte-64 nil 0)
             (thread-state-r15 thread) 0))
     (setf (thread-full-save-p thread) t
           (thread-state thread) :runnable)
