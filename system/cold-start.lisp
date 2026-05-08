@@ -266,7 +266,8 @@ structures to exist, and for memory to be allocated, but not much beyond that."
                      :mezzano
                      :ieee-floating-point
                      :ansi-cl
-                     :common-lisp)
+                     :common-lisp
+		     :64-bit)
         *macroexpand-hook* 'funcall
         most-positive-fixnum #.(- (expt 2 (- 64 +n-fixnum-bits+ 1)) 1)
         most-negative-fixnum #.(- (expt 2 (- 64 +n-fixnum-bits+ 1)))

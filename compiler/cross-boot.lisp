@@ -266,7 +266,7 @@
 (alexandria:define-constant sys.int::lambda-list-keywords
     '(&allow-other-keys &aux &body &environment &key &optional &rest &whole sys.int::&closure)
   :test 'equal)
-(defvar sys.int::*features* '(:unicode :little-endian :mezzano :ieee-floating-point :ansi-cl :common-lisp))
+(defvar sys.int::*features* '(:unicode :little-endian :mezzano :ieee-floating-point :ansi-cl :common-lisp :64-bit))
 
 ;; Replicated from system/package.lisp. Needed to define packages in package.lisp
 (in-package :mezzano.internals)
