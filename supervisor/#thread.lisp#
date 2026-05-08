@@ -250,10 +250,7 @@ can be reprotected.")
   (run-queue-pop-front rq))
 
 (defun pop-run-queue ()
-  ;; FIXME, HACK! Virtio drivers seem to be broken when the run outside the first PE on A64
-  ;; This constrains supervisor threads to just that PE.
-  (or (and #+arm64 (eql (local-cpu-info) *bsp-cpu*)
-           (pop-run-queue-1 *supervisor-priority-run-queue*))
+  (or (pop-run-queue-1 *supervisor-priority-run-queue*)
       (pop-run-queue-1 *high-priority-run-queue*)
       (pop-run-queue-1 *normal-priority-run-queue*)
       (pop-run-queue-1 *low-priority-run-queue*)))
@@ -296,10 +293,8 @@ Interrupts must be off and the global thread lock must be held."
            ;; World is stopped, the only runnable threads are the world stopper
            ;; or any thread at :supervisor priority.
            ;; Supervisor priority threads first.
-           (cond ((and #+arm64 (eql (local-cpu-info) *bsp-cpu*)
-                       (pop-run-queue-1 *supervisor-priority-run-queue*)))
-                 ((and #+arm64 (eql (local-cpu-info) *bsp-cpu*)
-                       (eql (thread-state *world-stopper*) :runnable))
+           (cond ((pop-run-queue-1 *supervisor-priority-run-queue*))
+                 ((eql (thread-state *world-stopper*) :runnable)
                   ;; The world stopper is ready.
                   *world-stopper*)
                  (t ;; Switch to idle.
@@ -667,31 +662,24 @@ not and WAIT-P is false."
           (thread-state-r11 thread) 0
           (thread-state-r12 thread) 0
           (thread-state-r13 thread) 0
-          (thread-state-r14-value thread) nil
+          (thread-state-r14 thread) 0
           (thread-state-r15 thread) 0))
   ;; Remove the thread from any potential run queue it may be on.
   (when (and (not (eql priority :idle))
-             (run-queue-linked-p thread)
-             (not (thread-wait-item thread)))
+             (run-queue-linked-p thread))
     (debug-print-line "Removing thread " thread " from rq "
                       (run-queue-for-priority (thread-priority thread))
                       " next is " (thread-queue-next thread)
                       " prev is " (thread-queue-prev thread)
                       " head is " (run-queue-head (run-queue-for-priority (thread-priority thread)))
                       " tail is " (run-queue-tail (run-queue-for-priority (thread-priority thread))))
-    (run-queue-remove thread
-                      (run-queue-for-priority (thread-priority thread))))
-  ;; Remove the thread from any potential wait queue it may be on.
-  (when (and (wait-queue-linked-p thread)
-             (thread-wait-item thread))
-    (debug-print-line "Removing thread " thread " from wq "
-                      (thread-wait-item thread)
-                      " next is " (thread-queue-next thread)
-                      " prev is " (thread-queue-prev thread)
-                      " head is " (wait-queue-head (thread-wait-item thread))
-                      " tail is " (wait-queue-tail (thread-wait-item thread)))
-    (wait-queue-remove thread (thread-wait-item thread)))
-    ;; Remove from whatever wait queue too
+    ;; FIXME: Something funny is going on here...
+    ;; The disk io thread has nil (not :unlinked) in the next/prev fields but
+    ;; the supervisor run queue is empty.
+    ;; Hack around this bug ^
+    (when (run-queue-head (run-queue-for-priority (thread-priority thread)))
+      (run-queue-remove thread
+                        (run-queue-for-priority (thread-priority thread)))))
   (setf (thread-state thread) state
         (thread-priority thread) (or priority :supervisor)
         (thread-special-stack-pointer thread) nil

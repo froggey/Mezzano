@@ -645,6 +645,8 @@ TLB shootdown must be protected by the VM lock."
   (sys.lap-x86:xor32 :ebp :ebp)
   ;; No arguments
   (sys.lap-x86:xor32 :ecx :ecx)
+  ;; Initialize the nil register.
+  (sys.lap-x86:mov64 :r14 nil)
   (sys.lap-x86:lea64 :rax (:object :rax #.sys.int::+fref-code+))
   (sys.lap-x86:jmp :rax)
   (:align 16)
