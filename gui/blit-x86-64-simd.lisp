@@ -102,8 +102,8 @@
                   (vec-zero (mezzano.simd.x86-64:make-sse-vector 0))
                   (src-words (mezzano.simd.x86-64:punpcklbw vec-src vec-zero))
                   (dst-words (mezzano.simd.x86-64:punpcklbw vec-dst vec-zero))
-                   (alpha-splat (mezzano.simd.x86-64:pshuflw src-words src-words #xFF))
-                   (alpha-words (mezzano.simd.x86-64:pshufhw alpha-splat alpha-splat #xFF))
+                  (alpha-splat (mezzano.simd.x86-64:pshuflw src-words src-words #xFF))
+                  (alpha-words (mezzano.simd.x86-64:pshufhw alpha-splat alpha-splat #xFF))
                   (inv-alpha-words (mezzano.simd.x86-64:psubw
                                     (mezzano.simd.x86-64:make-sse-vector #x00FF00FF00FF00FF00FF00FF00FF00FF)
                                     alpha-words))
@@ -159,25 +159,3 @@
   (alpha-blend-quad source (+ source-offset 8) to (+ to-offset 8))
   (alpha-blend-quad source (+ source-offset 12) to (+ to-offset 12))
   nil)
-
-(defun %bitblt-blend-line (to to-offset ncols from from-offset)
-  (declare (type (simple-array (unsigned-byte 32) (*)) to from)
-           (type fixnum ncols to-offset from-offset)
-           (optimize speed (safety 0) (debug 0)))
-  (loop
-    while (>= ncols 16)
-    do (alpha-blend-interleaved from from-offset to to-offset)
-       (decf ncols 16)
-       (incf to-offset 16)
-       (incf from-offset 16))
-  (loop
-    while (>= ncols 4)
-    do (alpha-blend-quad from from-offset to to-offset)
-       (decf ncols 4)
-       (incf to-offset 4)
-       (incf from-offset 4))
-  (loop
-     for i fixnum below ncols
-     for to-ofs fixnum from to-offset
-     for from-ofs fixnum from from-offset
-     do (%%alpha-blend-one-argb8888-argb8888 (aref from from-ofs) to to-ofs)))

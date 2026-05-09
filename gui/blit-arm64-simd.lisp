@@ -154,29 +154,3 @@
         (setf (mezzano.simd.arm64:u8.16-aref-4-interleaved-in-u32 to to-offset)
               (values bb bg br ba)))))
   nil)
-
-;; TODO: Be more smart with alignment here.
-(defun %bitblt-blend-line (to to-offset ncols from from-offset)
-  (declare (type (simple-array (unsigned-byte 32) (*)) to from)
-           (type fixnum ncols to-offset from-offset)
-           (optimize speed (safety 0) (debug 0)))
-  ;; Blast whole chunks of 16 pixels at once
-  (loop
-    while (>= ncols 16)
-    do (alpha-blend-interleaved from from-offset to to-offset)
-       (decf ncols 16)
-       (incf to-offset 16)
-       (incf from-offset 16))
-  ;; 4 at a time
-  (loop
-    while (>= ncols 4)
-    do (alpha-blend-quad from from-offset to to-offset)
-       (decf ncols 4)
-       (incf to-offset 4)
-       (incf from-offset 4))
-  ;; Finish off the remaining tail
-  (loop
-     for i fixnum below ncols
-     for to-ofs fixnum from to-offset
-     for from-ofs fixnum from from-offset
-     do (%%alpha-blend-one-argb8888-argb8888 (aref from from-ofs) to to-ofs)))
