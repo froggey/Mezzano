@@ -315,6 +315,33 @@ The total access width must be at least 8 bits and no larger than 128 bits."
     (def 32 t)
     (def 64 t)))
 
+(declaim (inline u32.4-aref (setf u32.4-aref)))
+
+(defun u32.4-aref (vector index)
+  (declare (optimize (speed 3) (safety 0) (debug 0))
+           (type (simple-array (unsigned-byte 32) (*)) vector)
+           (type fixnum index))
+  "Load 4 consecutive (UNSIGNED-BYTE 32) values from VECTOR at INDEX into an SSE-VECTOR."
+  (sse-vector-ref vector 4 index))
+
+(defun (setf u32.4-aref) (value vector index)
+  (declare (optimize (speed 3) (safety 0) (debug 0))
+           (type mezzano.simd.x86-64:sse-vector value)
+           (type (simple-array (unsigned-byte 32) (*)) vector)
+           (type fixnum index))
+  "Store an SSE-VECTOR into 4 consecutive (UNSIGNED-BYTE 32) values in VECTOR at INDEX."
+  (setf (sse-vector-ref vector 4 index) value)
+  value)
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (export 'u32.4-aref)
+  (c::define-transform u32.4-aref ((vector (simple-array (unsigned-byte 32) (*)) array-type) (index fixnum index-type))
+      ((:optimize (= safety 0) (= speed 3)))
+    `(the sse-vector (c::call %%object-ref-sse-vector/128-unscaled ,vector (c::call c::%fast-fixnum-* ,index '4))))
+  (c::define-transform (setf u32.4-aref) ((sse-vector sse-vector) (vector (simple-array (unsigned-byte 32) (*)) array-type) (index fixnum index-type))
+      ((:optimize (= safety 0) (= speed 3)))
+    `(the sse-vector (c::call (setf %%object-ref-sse-vector/128-unscaled) ,sse-vector ,vector (c::call c::%fast-fixnum-* ,index '4)))))
+
 (declaim (inline make-sse-vector-single-float))
 (defun make-sse-vector-single-float (&optional (a 0.0) (b 0.0) (c 0.0) (d 0.0))
   "Construct an SSE-VECTOR from 4 SINGLE-FLOAT values.

@@ -128,11 +128,11 @@
     (assert (simple-ub32-vector-p to))
     (when (> ncols 0)
       (dotimes (y nrows)
-        #+arm64
+        #+(or arm64 x86-64)
         (%bitblt-blend-line to to-offset
                             ncols
                             from from-offset)
-        #-arm64
+        #-(or arm64 x86-64)
         (%bitblt-line #'%%alpha-blend-one-argb8888-argb8888
                       to to-offset
                       ncols
