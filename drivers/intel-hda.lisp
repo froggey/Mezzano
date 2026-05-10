@@ -199,8 +199,8 @@
 (defconstant +dmap-entry-size+ 4)
 (defconstant +bdl-entry-size+ 16)
 (defconstant +max-bdl-entries+ 256)
-(defconstant +playback-period-bytes+ #x0800)
-(defconstant +playback-period-count+ 4)
+(defconstant +playback-period-bytes+ #x0100)
+(defconstant +playback-period-count+ 3)
 
 (defconstant +corb-offset+ 0)
 (defconstant +rirb-offset+ (+ +corb-offset+ +corb-max-size+))

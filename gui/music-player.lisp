@@ -53,7 +53,7 @@
 
 (defun worker (player)
   (unwind-protect
-       (let* ((data-buffer (make-array #x2000 :element-type '(unsigned-byte 8)))
+       (let* ((data-buffer (make-array #x200 :element-type '(unsigned-byte 8)))
               (stream (player-stream player))
               (riff-chunks (wav:read-wav-file stream
                                               :chunk-data-reader (wrap-data-chunk-data-samples-reader)))
@@ -85,13 +85,13 @@
                            (member sample-size '(8 16))))
              (format t "Unsupported wav file. ~S ~S ~S ~S ~S~%" fmt compression channels sample-rate sample-size)
              (return-from worker))
-           (file-position stream data-file-position)
-           (let ((audio-sink (mezzano.driver.sound:make-sound-output-sink
-                              :buffer-duration 1.0
-                              :format (ecase sample-size
-                                        (8 :pcm-u8)
-                                        (16 :pcm-s16le))))
-                 (current-position 0))
+            (file-position stream data-file-position)
+            (let ((audio-sink (mezzano.driver.sound:make-sound-output-sink
+                               :buffer-duration 0.05
+                               :format (ecase sample-size
+                                         (8 :pcm-u8)
+                                         (16 :pcm-s16le))))
+                  (current-position 0))
              (unwind-protect
                   (loop
                      (when (>= current-position data-size)
