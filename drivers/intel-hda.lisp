@@ -199,7 +199,6 @@
 (defconstant +dmap-entry-size+ 4)
 (defconstant +bdl-entry-size+ 16)
 (defconstant +max-bdl-entries+ 256)
-(defconstant +playback-period-bytes+ #x0100)
 (defconstant +playback-period-count+ 3)
 
 (defparameter *hda-min-period-bytes* 512
@@ -228,7 +227,8 @@
    (irq :initarg :irq :accessor hda-irq)
    (dma-buffer-phys :initarg :dma-buffer-phys :accessor hda-dma-buffer-phys)
    (dma-buffer-virt :initarg :dma-buffer-virt :accessor hda-dma-buffer-virt)
-   (dma-buffer-size :initarg :dma-buffer-size :accessor hda-dma-buffer-size))
+   (dma-buffer-size :initarg :dma-buffer-size :accessor hda-dma-buffer-size)
+   (period-bytes :initarg :period-bytes :accessor hda-period-bytes))
   (:default-initargs :codecs (make-array 15 :initial-element nil)))
 
 (define-condition device-disconnect () ())
@@ -965,10 +965,19 @@ One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
   (with-hda-access (hda)
     (gcap-oss (global-reg/16 hda +gcap+))))
 
+(defun compute-period-bytes (hda stream-id)
+  (with-hda-access (hda)
+    (let* ((fifo-size (sd-reg/16 hda stream-id +sdnfifos+))
+           (fifo-aligned (* (ceiling fifo-size 128) 128))
+           (period-bytes (max fifo-aligned *hda-min-period-bytes*)))
+      (mezzano.supervisor:debug-print-line
+       "HDA stream " stream-id " FIFO " fifo-size " period " period-bytes)
+      period-bytes)))
+
 (defun start-playback (hda buffer buffer-size codec dac pin &optional mixer
                        &key
-                         (period-bytes +playback-period-bytes+)
-                         (period-count +playback-period-count+))
+                          (period-bytes (compute-period-bytes hda (first-output-stream hda)))
+                          (period-count +playback-period-count+))
   (with-hda-access (hda)
     (stream-reset hda (first-output-stream hda))
     (dotimes (i period-count)
@@ -1088,15 +1097,16 @@ Returns NIL if there is no output path."
 (defmethod mezzano.driver.sound:sound-card-run ((hda hda) buffer-fill-callback)
   (handler-case
       (let* ((buffer (hda-dma-buffer-phys hda))
-             (period-bytes (max +playback-period-bytes+ *hda-min-period-bytes*))
+             (output-stream (first-output-stream hda))
+             (period-bytes (compute-period-bytes hda output-stream))
              (period-count +playback-period-count+)
              (buf-len (* period-bytes period-count))
              (n-samples (truncate period-bytes 2)) ; bytes to stereo 16-bit samples
              (float-sample-buffer (make-array n-samples :element-type 'single-float))
              (output-pin (default-output-pin hda))
-             (output-stream (first-output-stream hda))
              (buffer-offset 0)
              (stop-countdown nil))
+        (setf (hda-period-bytes hda) period-bytes)
         (unless output-pin
           (error "No HDA output pin with a playback path found."))
         (labels ((store-sample (sample offset)
@@ -1160,10 +1170,11 @@ Returns NIL if there is no output path."
                     ;; Underrun detection — increment period on FIFO or descriptor error.
                     (when (logtest sts (logior (ash 1 27) (ash 1 28)))
                       (let* ((step 64)
-                             (new-bytes (min (+ period-bytes step) 4096)))
+                             (new-bytes (max (min (+ period-bytes step) 4096) *hda-min-period-bytes*)))
                         (mezzano.supervisor:debug-print-line
                          "HDA underrun, period " period-bytes " → " new-bytes)
                         (setf period-bytes new-bytes
+                              (hda-period-bytes hda) period-bytes
                               buf-len (* period-bytes period-count)
                               n-samples (truncate period-bytes 2)
                               float-sample-buffer (make-array n-samples :element-type 'single-float)
