@@ -202,6 +202,11 @@
 (defconstant +playback-period-bytes+ #x0100)
 (defconstant +playback-period-count+ 3)
 
+(defparameter *hda-min-period-bytes* 512
+  "Minimum size of each HDA audio period in bytes. Larger values reduce
+  glitching at the cost of higher latency. Must be a multiple of 128.
+  Default: 256 bytes = 64 stereo frames = ~1.45ms at 44100Hz.")
+
 (defconstant +corb-offset+ 0)
 (defconstant +rirb-offset+ (+ +corb-offset+ +corb-max-size+))
 (defconstant +dmap-offset+ (+ +rirb-offset+ +rirb-max-size+))
@@ -926,11 +931,11 @@ One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
          (virt (+ mezzano.supervisor::+physical-map-base+ phys)))
     (setf (sys.int::memref-unsigned-byte-32 virt (* stream 2)) value)))
 
-(defun prep-stream (hda stream-id bdl-base bdl-length cb-length &optional (sdnfmt #x4011))
+(defun prep-stream (hda stream-id bdl-base bdl-length cb-length)
   (let ((bdl (+ (hda-corb/rirb/dmap-physical hda) +bdl-offset+ (* bdl-base 16))))
     (setf (sd-reg/32 hda stream-id +sdnbdpl+) (ldb (byte 32 0) bdl)
           (sd-reg/32 hda stream-id +sdnbdpu+) (ldb (byte 32 32) bdl))
-    (setf (sd-reg/16 hda stream-id +sdnfmt+) sdnfmt
+    (setf (sd-reg/16 hda stream-id +sdnfmt+) #x4011
           ;; LVI is the last valid descriptor index, not the descriptor count.
           (sd-reg/16 hda stream-id +sdnlvi+) (1- bdl-length)
           (sd-reg/32 hda stream-id +sdncbl+) cb-length)))
@@ -963,25 +968,24 @@ One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
 (defun start-playback (hda buffer buffer-size codec dac pin &optional mixer
                        &key
                          (period-bytes +playback-period-bytes+)
-                         (period-count +playback-period-count+)
-                         (sdnfmt #x4011))
+                         (period-count +playback-period-count+))
   (with-hda-access (hda)
     (stream-reset hda (first-output-stream hda))
     (dotimes (i period-count)
       (write-bdl hda i
                  (+ buffer (* i period-bytes))
                  period-bytes))
-    (prep-stream hda (first-output-stream hda) 0 period-count buffer-size sdnfmt)
+    (prep-stream hda (first-output-stream hda) 0 period-count buffer-size)
     (when mixer
       (command hda codec mixer #x3F07F)) ; unmute L/R out/in
     (command hda codec dac #x70610) ; stream=1
-    (command hda codec dac (logior (ash #x2 16) sdnfmt)) ; format
-    (command hda codec dac #x3b07f) ; unmute L/R out
-    (command hda codec pin #x3b07f) ; unmute L/R out
-    (command hda codec pin #x70740) ; enable output
-    ;; Enable global and stream interrupts.
-    (setf (global-reg/32 hda +intctl+) (logior #xC0000000 (ash 1 (first-output-stream hda))))
-    (stream-go hda (first-output-stream hda))))
+     (command hda codec dac #x24011) ; format
+     (command hda codec dac #x3b07f) ; unmute L/R out
+     (command hda codec pin #x3b07f) ; unmute L/R out
+     (command hda codec pin #x70740) ; enable output
+     ;; Enable global and stream interrupts.
+     (setf (global-reg/32 hda +intctl+) (logior #xC0000000 (ash 1 (first-output-stream hda))))
+     (stream-go hda (first-output-stream hda))))
 
 (defun clear-pending-interrupt (hda stream)
   ;; Clear any latched stream status in the status byte. qemu is picky and
@@ -1083,102 +1087,118 @@ Returns NIL if there is no output path."
 ;; of a single pin.
 (defmethod mezzano.driver.sound:sound-card-run ((hda hda) buffer-fill-callback)
   (handler-case
-      (let* ((output-pin (default-output-pin hda))
-             (output-stream (first-output-stream hda)))
+      (let* ((buffer (hda-dma-buffer-phys hda))
+             (period-bytes (max +playback-period-bytes+ *hda-min-period-bytes*))
+             (period-count +playback-period-count+)
+             (buf-len (* period-bytes period-count))
+             (n-samples (truncate period-bytes 2)) ; bytes to stereo 16-bit samples
+             (float-sample-buffer (make-array n-samples :element-type 'single-float))
+             (output-pin (default-output-pin hda))
+             (output-stream (first-output-stream hda))
+             (buffer-offset 0)
+             (stop-countdown nil))
         (unless output-pin
           (error "No HDA output pin with a playback path found."))
-        (multiple-value-bind (converter mixer)
-            (output-path output-pin)
-          (unless converter
-            (error "HDA output pin ~D has no converter." (nid output-pin)))
-          (log-selected-output-path output-pin converter mixer)
-          (set-widget-power-state-d0 output-pin)
-          (set-widget-power-state-d0 converter)
-          (when mixer
-            (set-widget-power-state-d0 mixer))
-          (maybe-enable-eapd output-pin)
-          ;; Determine buffer sizes from the stream's FIFO size.
-          ;; SDnFIFOS reports FIFO depth in DWords (32-bit units).
-          ;; Cap the FIFO at a realistic 64 DWords (256 bytes) — QEMU
-          ;; reports 256 DWords but no real HDA output stream has that.
-          (let* ((raw-fifo-dwords (sd-reg/16 hda output-stream +sdnfifos+))
-                 (fifo-dwords (min raw-fifo-dwords 64))
-                 (period-bytes (logand (+ (max (* fifo-dwords 4) 256) 127)
-                                       (lognot 127)))
-                 (period-count 3)
-                 (buf-len (* period-bytes period-count))
-                 (n-samples (truncate period-bytes 2)) ; bytes to 16-bit samples
-                 (float-sample-buffer (make-array n-samples :element-type 'single-float))
-                 (buffer (hda-dma-buffer-phys hda))
-                 (buffer-offset 0)
-                 (stop-countdown nil))
-            (mezzano.supervisor:debug-print-line
-             "HDA FIFO " raw-fifo-dwords " DWords (capped to " fifo-dwords
-             "), period " period-bytes " B × " period-count " = " buf-len " B total")
-            (start-playback hda buffer buf-len
-                            (cad output-pin) (nid converter) (nid output-pin) (and mixer (nid mixer))
+        (labels ((store-sample (sample offset)
+                   ;; Clamp to limits, don't wrap.
+                   (let* ((sample-clamped (max (min sample 1.0f0) -1.0f0))
+                          (sample-rescaled (if (< sample-clamped 0.0f0)
+                                               (* sample-clamped 32768.0f0)
+                                               (* sample-clamped 32767.0f0)))
+                          (sample-16bit (truncate sample-rescaled)))
+                     (declare (optimize speed (safety 0))
+                              (type single-float sample-clamped sample-rescaled)
+                              (type fixnum sample-16bit))
+                     (setf (mezzano.supervisor::physical-memref-unsigned-byte-8 buffer (+ buffer-offset offset offset)) (ldb (byte 8 0) sample-16bit)
+                           (mezzano.supervisor::physical-memref-unsigned-byte-8 buffer (+ buffer-offset offset offset 1)) (ldb (byte 8 8) sample-16bit))))
+                 (refill-fifo ()
+                   (cond ((funcall buffer-fill-callback float-sample-buffer 0 n-samples)
+                          (setf stop-countdown nil))
+                         ((not stop-countdown)
+                          (setf stop-countdown 2048)))
+                    (with-hda-access (hda)
+                      (locally
+                          (declare (optimize speed (safety 0))
+                                   (type (simple-array single-float (*)) float-sample-buffer)
+                                   (type fixnum n-samples))
+                        (dotimes (i n-samples)
+                          (store-sample (aref float-sample-buffer i) i))))
+                    (setf buffer-offset (rem (+ buffer-offset period-bytes)
+                                             buf-len))))
+          ;; Zero the DMA buffer so stale data from previous runs doesn't play.
+          (dotimes (i buf-len)
+            (setf (mezzano.supervisor::physical-memref-unsigned-byte-8 buffer i) 0))
+          ;; Prepopulate the initial buffer.
+          (dotimes (i period-count)
+            (refill-fifo))
+          (with-hda-access (hda)
+            ;; Unmask the interrupt, flush any pending IRQs.
+            (clear-pending-interrupt hda output-stream)
+            (mezzano.supervisor:simple-irq-unmask (hda-irq hda)))
+          ;; Begin playback.
+          (multiple-value-bind (converter mixer)
+              (output-path output-pin)
+            (unless converter
+              (error "HDA output pin ~D has no converter." (nid output-pin)))
+            (log-selected-output-path output-pin converter mixer)
+            (set-widget-power-state-d0 output-pin)
+            (set-widget-power-state-d0 converter)
+            (when mixer
+              (set-widget-power-state-d0 mixer))
+            (maybe-enable-eapd output-pin)
+            (start-playback hda buffer buf-len (cad output-pin) (nid converter) (nid output-pin) (and mixer (nid mixer))
                             :period-bytes period-bytes
-                            :period-count period-count)
-            (labels ((store-sample (sample offset)
-                       ;; Clamp to limits, don't wrap.
-                       (let* ((sample-clamped (max (min sample 1.0f0) -1.0f0))
-                              (sample-rescaled (if (< sample-clamped 0.0f0)
-                                                   (* sample-clamped 32768.0f0)
-                                                   (* sample-clamped 32767.0f0)))
-                              (sample-16bit (truncate sample-rescaled)))
-                         (declare (optimize speed (safety 0))
-                                  (type single-float sample-clamped sample-rescaled)
-                                  (type fixnum sample-16bit))
-                         (setf (mezzano.supervisor::physical-memref-unsigned-byte-8 buffer (+ buffer-offset offset offset)) (ldb (byte 8 0) sample-16bit)
-                               (mezzano.supervisor::physical-memref-unsigned-byte-8 buffer (+ buffer-offset offset offset 1)) (ldb (byte 8 8) sample-16bit))))
-                     (refill-fifo ()
-                       (cond ((funcall buffer-fill-callback float-sample-buffer 0 n-samples)
-                              (setf stop-countdown nil))
-                             ((not stop-countdown)
-                              (setf stop-countdown 4)))
-                       (with-hda-access (hda)
-                         (locally
-                             (declare (optimize speed (safety 0))
-                                      (type (simple-array single-float (*)) float-sample-buffer)
-                                      (type fixnum n-samples))
-                           (dotimes (i n-samples)
-                             (store-sample (aref float-sample-buffer i) i))))
-                       (setf buffer-offset (rem (+ buffer-offset period-bytes)
-                                                buf-len))))
-              ;; Prepopulate the initial buffer.
-              (dotimes (i period-count)
-                (refill-fifo))
-              (with-hda-access (hda)
-                ;; Unmask the interrupt, flush any pending IRQs.
-                (clear-pending-interrupt hda output-stream)
-                (mezzano.supervisor:simple-irq-unmask (hda-irq hda)))
-              (unwind-protect
-                   (loop
-                      ;; Wait for the dma position to move from the
-                      ;; current period to the next period.
-                      (let* ((dmap (dma-position hda output-stream))
-                             (lpib (sd-reg/32 hda output-stream +sdnlpib+))
-                             (sts (sd-reg/32 hda output-stream +sdnctlsts+))
-                             (current-offset (truncate dmap period-bytes)))
-                        (when (and (zerop dmap)
-                                   (zerop lpib)
-                                   (not (logtest sts (ash 1 1))))
-                          (mezzano.supervisor:debug-print-line
-                           "HDA stream stalled: dmap=" dmap
-                           " lpib=" lpib
-                           " ctlsts=#x" sts
-                           " intsts=#x" (global-reg/32 hda +intsts+)))
-                        (when (not (eql current-offset (truncate buffer-offset period-bytes)))
-                          (when stop-countdown
-                            (when (zerop stop-countdown)
-                              (return))
-                            (decf stop-countdown))
-                          ;; Refill buffer.
-                          (refill-fifo)))
-                      (wait-for-buffer-interrupt hda))
-                (with-hda-access (hda)
-                  (stream-reset hda (first-output-stream hda))
-                  (mezzano.supervisor:simple-irq-mask (hda-irq hda))))))))
+                            :period-count period-count))
+          (unwind-protect
+               (loop
+                  ;; Wait for the dma position to move from the
+                  ;; current period to the next period.
+                  (let* ((dmap (dma-position hda output-stream))
+                         (lpib (sd-reg/32 hda output-stream +sdnlpib+))
+                         (sts (sd-reg/32 hda output-stream +sdnctlsts+))
+                         (current-offset (truncate dmap period-bytes)))
+                    ;; Underrun detection — increment period on FIFO or descriptor error.
+                    (when (logtest sts (logior (ash 1 27) (ash 1 28)))
+                      (let* ((step 64)
+                             (new-bytes (min (+ period-bytes step) 4096)))
+                        (mezzano.supervisor:debug-print-line
+                         "HDA underrun, period " period-bytes " → " new-bytes)
+                        (setf period-bytes new-bytes
+                              buf-len (* period-bytes period-count)
+                              n-samples (truncate period-bytes 2)
+                              float-sample-buffer (make-array n-samples :element-type 'single-float)
+                              buffer-offset 0)
+                        (with-hda-access (hda)
+                          (stream-reset hda output-stream)
+                          (dotimes (i period-count)
+                            (write-bdl hda i
+                                       (+ buffer (* i period-bytes))
+                                       period-bytes))
+                          (prep-stream hda output-stream 0 period-count buf-len)
+                          (dotimes (i period-count)
+                            (refill-fifo))
+                          (clear-pending-interrupt hda output-stream)
+                          (mezzano.supervisor:simple-irq-unmask (hda-irq hda))
+                          (stream-go hda output-stream))))
+                    (when (and (zerop dmap)
+                               (zerop lpib)
+                               (not (logtest sts (ash 1 1))))
+                      (mezzano.supervisor:debug-print-line
+                       "HDA stream stalled: dmap=" dmap
+                       " lpib=" lpib
+                       " ctlsts=#x" sts
+                       " intsts=#x" (global-reg/32 hda +intsts+)))
+                    (when (not (eql current-offset (truncate buffer-offset period-bytes)))
+                      (when stop-countdown
+                        (when (zerop stop-countdown)
+                          (return))
+                        (decf stop-countdown))
+                      ;; Refill buffer.
+                      (refill-fifo)))
+                  (wait-for-buffer-interrupt hda))
+            (with-hda-access (hda)
+              (stream-reset hda (first-output-stream hda))
+              (mezzano.supervisor:simple-irq-mask (hda-irq hda))))))
     (device-disconnect ()
       (format t "HDA ~S disconnected.~%" hda)
       (throw 'mezzano.supervisor:terminate-thread nil))))
