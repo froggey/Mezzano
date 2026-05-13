@@ -53,8 +53,7 @@
 
 (defun worker (player)
   (unwind-protect
-       (let* ((data-buffer (make-array #x200 :element-type '(unsigned-byte 8)))
-              (stream (player-stream player))
+       (let* ((stream (player-stream player))
               (riff-chunks (wav:read-wav-file stream
                                               :chunk-data-reader (wrap-data-chunk-data-samples-reader)))
               (riff (find "RIFF" riff-chunks
@@ -85,26 +84,48 @@
                            (member sample-size '(8 16))))
              (format t "Unsupported wav file. ~S ~S ~S ~S ~S~%" fmt compression channels sample-rate sample-size)
              (return-from worker))
-            (file-position stream data-file-position)
-            (let ((audio-sink (mezzano.driver.sound:make-sound-output-sink
-                               :buffer-duration 0.05
-                               :format (ecase sample-size
-                                         (8 :pcm-u8)
-                                         (16 :pcm-s16le))))
-                  (current-position 0))
-             (unwind-protect
-                  (loop
-                     (when (>= current-position data-size)
-                       (format t "Reached EOF.~%")
-                       (return))
-                     (let ((n-bytes (min (length data-buffer)
-                                         (- data-size current-position))))
-                       (read-sequence data-buffer stream :end n-bytes)
-                       (mezzano.driver.sound:output-sound data-buffer audio-sink :end n-bytes)
-                       (incf current-position n-bytes))))
-             (mezzano.driver.sound:flush-sink audio-sink))))
-    (mezzano.supervisor:fifo-push (make-instance 'worker-exited)
-                                  (fifo player))))
+               (file-position stream data-file-position)
+               (let* ((chunk-size #x4000)
+                      (audio-sink (mezzano.driver.sound:make-sound-output-sink
+                                   :buffer-duration 0.01
+                                   :format (ecase sample-size
+                                             (8 :pcm-u8)
+                                             (16 :pcm-s16le))))
+                      (current-position 0)
+                      (chunk-fifo (mezzano.supervisor:make-fifo 4)))
+                 ;; Pre-fill: push first chunks so the sink has data
+                 ;; immediately when the sound worker starts playback.
+                 (dotimes (i 4)
+                   (when (>= current-position data-size) (return))
+                   (let* ((n-bytes (min chunk-size (- data-size current-position)))
+                          (buf (make-array n-bytes :element-type '(unsigned-byte 8))))
+                     (read-sequence buf stream)
+                     (mezzano.driver.sound:output-sound buf audio-sink :end n-bytes)
+                     (incf current-position n-bytes)))
+                 ;; Reader thread: reads remaining chunks into FIFO while
+                 ;; the main thread pushes them to the sink. Reading and
+                 ;; playback overlap, so a slow read never drains the sink.
+                 (mezzano.supervisor:make-thread
+                  (lambda ()
+                    (unwind-protect
+                         (loop
+                            (when (>= current-position data-size) (return))
+                            (let* ((n-bytes (min chunk-size (- data-size current-position)))
+                                   (buf (make-array n-bytes :element-type '(unsigned-byte 8))))
+                              (read-sequence buf stream)
+                              (incf current-position n-bytes)
+                              (mezzano.supervisor:fifo-push buf chunk-fifo)))
+                      (mezzano.supervisor:fifo-push nil chunk-fifo)))
+                  :name (format nil "Audio reader for ~S" player))
+                 (unwind-protect
+                      (loop
+                         (let ((buf (mezzano.supervisor:fifo-pop chunk-fifo)))
+                           (when (null buf) (return))
+                           (mezzano.driver.sound:output-sound buf audio-sink
+                                                              :end (length buf))))
+                   (mezzano.driver.sound:flush-sink audio-sink)))))
+     (mezzano.supervisor:fifo-push (make-instance 'worker-exited)
+                                   (fifo player))))
 
 (defun main (path)
   (with-simple-restart (abort "Close music player")
