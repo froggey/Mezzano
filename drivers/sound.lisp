@@ -131,25 +131,28 @@
                (type fixnum start end))
     (fill buffer 0.0 :start start :end end))
   (prog1
-      (mezzano.supervisor:with-mutex (*sink-lock*)
-        (cond ((endp *sinks*)
-               ;; No more sinks, stop the card.
-               nil)
-              (t
-               ;; Fill buffer from sinks as much as possible.
-               (dolist (sink *sinks*)
-                 (mix-out-of-sink sink buffer start end))
-               ;; Remove all empty sinks.
-               (setf *sinks* (delete-if
-                              (lambda (sink)
-                                (buffer-empty sink))
-                              *sinks*))
-               (when (endp *sinks*)
-                 (setf (sup:event-state *sinks-present-event*) nil))
-               ;; Samples have been consumed, wake fillers.
-               (mezzano.supervisor:condition-notify *sink-cvar* t)
-               ;; Leave the card running.
-               t)))))
+      ;; Try-lock the sink mutex. If the music player holds it (inside
+      ;; output-sound's transcode path), return T immediately — the
+      ;; buffer is already zeroed, so the HDA plays silence for this
+      ;; period. Next period will retry.
+      (if (mezzano.supervisor:acquire-mutex *sink-lock* nil)
+          (let ((result
+                  (cond ((endp *sinks*)
+                         nil)
+                        (t
+                         (dolist (sink *sinks*)
+                           (mix-out-of-sink sink buffer start end))
+                         (setf *sinks* (delete-if
+                                        (lambda (sink)
+                                          (buffer-empty sink))
+                                        *sinks*))
+                         (when (endp *sinks*)
+                           (setf (sup:event-state *sinks-present-event*) nil))
+                         (mezzano.supervisor:condition-notify *sink-cvar* t)
+                         t))))
+            (mezzano.supervisor:release-mutex *sink-lock*)
+            result)
+          t)))
 
 (defun sound-worker (device)
   (loop
@@ -307,11 +310,13 @@
   (mezzano.supervisor:with-mutex (*sink-lock*)
     (let ((offset start))
       (loop
-         (when (buffer-empty sink)
-           ;; Buffer is currently empty, sink is not live.
-           (assert (not (member sink *sinks*)))
-           (setf (sup:event-state *sinks-present-event*) t)
-           (push sink *sinks*))
+          (when (buffer-empty sink)
+            ;; Buffer is currently empty, sink is not live.
+            ;; Only add to the sink list if not already present — the
+            ;; callback may have left it if it was re-filled concurrently.
+            (unless (member sink *sinks*)
+              (setf (sup:event-state *sinks-present-event*) t)
+              (push sink *sinks*)))
          ;; Fill the buffer as much as possible.
          (multiple-value-bind (total-samples-copied
                                total-elements-consumed)
