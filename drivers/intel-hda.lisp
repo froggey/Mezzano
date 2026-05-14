@@ -967,7 +967,7 @@ One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
 
 (defun compute-period-bytes (hda stream-id)
   (with-hda-access (hda)
-    (let* ((fifo-size (sd-reg/16 hda stream-id +sdnfifos+))
+    (let* ((fifo-size (1+ (sd-reg/16 hda stream-id +sdnfifos+)))
            (fifo-aligned (* (ceiling fifo-size 128) 128))
            (period-bytes (max fifo-aligned *hda-min-period-bytes*)))
       (mezzano.supervisor:debug-print-line
