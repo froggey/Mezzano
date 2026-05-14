@@ -206,6 +206,15 @@
   glitching at the cost of higher latency. Must be a multiple of 128.
   Default: 256 bytes = 64 stereo frames = ~1.45ms at 44100Hz.")
 
+(defparameter *i-want-garbage* nil
+  "When true, skip the startup silence delay. The first ~100ms of audio
+  may be garbled while the host audio backend initializes.")
+
+(defparameter *hda-startup-periods* 90
+  "Number of periods to run silently at startup before unmuting.
+  The DMA buffer is pre-filled and the SRC adapts during this window.
+  Total startup silence = *hda-startup-periods* × (period-bytes / 176400) seconds.")
+
 (defconstant +corb-offset+ 0)
 (defconstant +rirb-offset+ (+ +corb-offset+ +corb-max-size+))
 (defconstant +dmap-offset+ (+ +rirb-offset+ +rirb-max-size+))
@@ -987,7 +996,9 @@ One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
 (defun start-playback (hda buffer buffer-size codec dac pin &optional mixer
                        &key
                           (period-bytes (compute-period-bytes hda (first-output-stream hda)))
-                          (period-count +playback-period-count+))
+                          (period-count +playback-period-count+)
+                          (startup-delay-seconds 0)
+                          (mute-for-startup nil))
   (with-hda-access (hda)
     (stream-reset hda (first-output-stream hda))
     (clear-pending-interrupt hda (first-output-stream hda))
@@ -996,17 +1007,25 @@ One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
                  (+ buffer (* i period-bytes))
                  period-bytes))
     (prep-stream hda (first-output-stream hda) 0 period-count buffer-size)
-    (when mixer
-      (command hda codec mixer #x3F07F)) ; unmute L/R out/in
     (command hda codec dac #x70610) ; stream=1
     (command hda codec dac #x24011) ; format
-    (command hda codec dac #x3b07f) ; unmute L/R out
-    (command hda codec pin #x3b07f) ; unmute L/R out
-    (command hda codec pin #x70740) ; enable output
+    (when mixer
+      (command hda codec mixer #x3F07F)) ; unmute L/R out/in
+    (if mute-for-startup
+        (progn
+          ;; Mute the DAC output so the SRC can adapt silently while
+          ;; the host audio backend initializes.
+          (command hda codec dac #x3b0ff)) ; mute
+        (progn
+          (command hda codec dac #x3b07f) ; unmute L/R out
+          (command hda codec pin #x3b07f) ; unmute L/R out
+          (command hda codec pin #x70740))) ; enable output
     ;; Enable global and stream interrupts.
     (setf (global-reg/32 hda +intctl+) (logior #x80000000 (ash 1 (first-output-stream hda))))
     (mezzano.supervisor:simple-irq-unmask (hda-irq hda))
     (sys.int::dma-write-barrier)
+    (when (plusp startup-delay-seconds)
+      (sleep startup-delay-seconds))
     (stream-go hda (first-output-stream hda))))
 
 (defun clear-pending-interrupt (hda stream)
@@ -1119,7 +1138,15 @@ Returns NIL if there is no output path."
              (output-pin (default-output-pin hda))
              (buffer-offset 0)
              (stop-countdown nil)
-             (fifo-size 0))
+             (fifo-size 0)
+             (mute-startup (not *i-want-garbage*))
+             (startup-delay (if *i-want-garbage* 0 *hda-startup-periods*))
+             (startup-delay-seconds (if *i-want-garbage* 0.0
+                                       (/ (* period-bytes *hda-startup-periods*)
+                                          176400.0)))
+             (startup-dac-nid nil)
+             (startup-pin-nid nil)
+             (startup-cad nil))
         (setf (hda-period-bytes hda) period-bytes)
         (unless output-pin
           (error "No HDA output pin with a playback path found."))
@@ -1135,7 +1162,11 @@ Returns NIL if there is no output path."
                      (setf (mezzano.supervisor::physical-memref-unsigned-byte-8 buffer (+ buffer-offset offset offset)) (ldb (byte 8 0) sample-16bit)
                            (mezzano.supervisor::physical-memref-unsigned-byte-8 buffer (+ buffer-offset offset offset 1)) (ldb (byte 8 8) sample-16bit))))
                  (refill-fifo ()
-                   (cond ((funcall buffer-fill-callback float-sample-buffer 0 n-samples)
+                   (cond ((plusp startup-delay)
+                          ;; Still in muted startup: fill with silence, don't
+                          ;; consume real audio from the sink.
+                          (fill float-sample-buffer 0.0))
+                         ((funcall buffer-fill-callback float-sample-buffer 0 n-samples)
                           (setf stop-countdown nil))
                          ((not stop-countdown)
                           (setf stop-countdown (* 4 period-count))))
@@ -1155,9 +1186,10 @@ Returns NIL if there is no output path."
             (clear-pending-interrupt hda output-stream)
             (mezzano.supervisor:simple-irq-unmask (hda-irq hda))
             (setf fifo-size (1+ (sd-reg/16 hda output-stream +sdnfifos+))))
-          ;; Pre-fill all periods before starting DMA.
-          (dotimes (i period-count)
-            (refill-fifo))
+           ;; Pre-fill all periods before starting DMA.
+           (unless mute-startup
+             (dotimes (i period-count)
+               (refill-fifo)))
           ;; Begin playback.
           (multiple-value-bind (converter mixer)
               (output-path output-pin)
@@ -1169,9 +1201,15 @@ Returns NIL if there is no output path."
             (when mixer
               (set-widget-power-state-d0 mixer))
             (maybe-enable-eapd output-pin)
+            (when mute-startup
+              (setf startup-dac-nid (nid converter)
+                    startup-pin-nid (nid output-pin)
+                    startup-cad (cad output-pin)))
             (start-playback hda buffer buf-len (cad output-pin) (nid converter) (nid output-pin) (and mixer (nid mixer))
                             :period-bytes period-bytes
-                            :period-count period-count))
+                            :period-count period-count
+                            :startup-delay-seconds startup-delay-seconds
+                            :mute-for-startup mute-startup))
           (mezzano.supervisor:debug-print-line
            "HDA entering loop, lpib=" (sd-reg/32 hda output-stream +sdnlpib+))
           (unwind-protect
@@ -1186,7 +1224,16 @@ Returns NIL if there is no output path."
                          (when stop-countdown
                            (when (zerop stop-countdown) (return))
                            (decf stop-countdown))
-                         (refill-fifo))))))
+                         (refill-fifo)
+                         (when (plusp startup-delay)
+                           (decf startup-delay)
+                           (when (zerop startup-delay)
+                             (mezzano.supervisor:debug-print-line
+                              "HDA startup complete, unmuting")
+                             (with-hda-access (hda)
+                               (command hda startup-cad startup-dac-nid #x3b07f)
+                               (command hda startup-cad startup-pin-nid #x3b07f)
+                               (command hda startup-cad startup-pin-nid #x70740)))))))))
             (with-hda-access (hda)
               (stream-reset hda (first-output-stream hda))
               (mezzano.supervisor:simple-irq-mask (hda-irq hda))))))
