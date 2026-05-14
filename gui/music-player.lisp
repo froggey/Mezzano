@@ -10,6 +10,7 @@
   ((%fifo :initarg :fifo :reader fifo)
    (%window :initarg :window :reader window)
    (%audio-thread :initarg :audio-thread :accessor audio-thread)
+   (%reader-thread :initarg :reader-thread :accessor reader-thread)
    (%font :initarg :font :reader font)
    (%frame :initarg :frame :reader frame)
    (%stream :initarg :stream :reader player-stream)
@@ -105,18 +106,19 @@
                  ;; Reader thread: reads remaining chunks into FIFO while
                  ;; the main thread pushes them to the sink. Reading and
                  ;; playback overlap, so a slow read never drains the sink.
-                 (mezzano.supervisor:make-thread
-                  (lambda ()
-                    (unwind-protect
-                         (loop
-                            (when (>= current-position data-size) (return))
-                            (let* ((n-bytes (min chunk-size (- data-size current-position)))
-                                   (buf (make-array n-bytes :element-type '(unsigned-byte 8))))
-                              (read-sequence buf stream)
-                              (incf current-position n-bytes)
-                              (mezzano.supervisor:fifo-push buf chunk-fifo)))
-                      (mezzano.supervisor:fifo-push nil chunk-fifo)))
-                  :name (format nil "Audio reader for ~S" player))
+                 (setf (reader-thread player)
+                       (mezzano.supervisor:make-thread
+                         (lambda ()
+                           (unwind-protect
+                                (loop
+                                 (when (>= current-position data-size) (return))
+                                 (let* ((n-bytes (min chunk-size (- data-size current-position)))
+                                        (buf (make-array n-bytes :element-type '(unsigned-byte 8))))
+                                   (read-sequence buf stream)
+                                   (incf current-position n-bytes)
+                                   (mezzano.supervisor:fifo-push buf chunk-fifo)))
+                             (mezzano.supervisor:fifo-push nil chunk-fifo)))
+                        :name (format nil "Audio reader for ~S" player)))
                  (unwind-protect
                       (loop
                          (let ((buf (mezzano.supervisor:fifo-pop chunk-fifo)))
@@ -186,7 +188,8 @@
                         (mezzano.gui.widgets:close-button-clicked ()
                           (return-from main)))))
               (when (audio-thread player)
-                (mezzano.supervisor:terminate-thread (audio-thread player)))
+                (mezzano.supervisor:terminate-thread (audio-thread player))
+                (mezzano.supervisor:terminate-thread (reader-thread player)))
               (mezzano.supervisor:with-mutex ((worker-comm-lock player))
                 (setf (playback-state player) :exit)
                 (mezzano.supervisor:condition-notify (worker-comm-cvar player))))))))))
