@@ -215,6 +215,11 @@
   The DMA buffer is pre-filled and the SRC adapts during this window.
   Total startup silence = *hda-startup-periods* × (period-bytes / 176400) seconds.")
 
+(defparameter *hda-idle-periods* 12
+  "Number of silent periods after the sink drains before stopping the stream.
+  Higher values keep the HDA initialized longer, avoiding startup delays on
+  the next playback at the cost of keeping the IRQ active.")
+
 (defconstant +corb-offset+ 0)
 (defconstant +rirb-offset+ (+ +corb-offset+ +corb-max-size+))
 (defconstant +dmap-offset+ (+ +rirb-offset+ +rirb-max-size+))
@@ -1169,7 +1174,7 @@ Returns NIL if there is no output path."
                          ((funcall buffer-fill-callback float-sample-buffer 0 n-samples)
                           (setf stop-countdown nil))
                          ((not stop-countdown)
-                          (setf stop-countdown (* 4 period-count))))
+                          (setf stop-countdown *hda-idle-periods*)))
                    (with-hda-access (hda)
                      (locally
                          (declare (optimize speed (safety 0))
