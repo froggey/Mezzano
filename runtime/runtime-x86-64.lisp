@@ -602,7 +602,7 @@ the GC must be deferred during FILL-WORDS."
   ;; Write back the header.
   ;; This must be done in a single write so the GC always sees a correct header.
   (sys.lap-x86:mov64 (:object :rbx -1) :rdi)
-  (sys.lap-x86:prefetcht0 (:rsi))
+  (sys.lap-x86:prefetchnta (:rsi))
   ;; Leave restart region.
   (:gc :no-frame :layout #*0)
   ;; Done. Return everything.
