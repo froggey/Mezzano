@@ -158,6 +158,19 @@
           (if value 1 0))
     value))
 
+(defun virtio-pci-transport-isr-status (device)
+  (multiple-value-bind (loc real-offset)
+      (virtio-pci-access (virtio-pci-device-isr-cfg device) 0)
+    (pci:pci-io-region/8 loc real-offset)))
+
+(defun virtio-pci-transport-device-irq (device)
+  (pci:pci-intr-line (virtio-pci-device-pci-device device)))
+
+(defun virtio-pci-transport-ack-irq (device status)
+  ;; Reading ISR status acknowledges the interrupt for modern virtio-pci.
+  (declare (ignore device status))
+  nil)
+
 (defun virtio-pci-transport-kick (device vq-id)
   "Notify the device that new buffers have been added to VQ-ID."
   (setf (virtio-pci-common-cfg-queue-select device) vq-id)

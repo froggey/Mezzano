@@ -241,6 +241,12 @@ must not be allocated by virgl.")
           (sys.int::memref-unsigned-byte-64 (+ addr +virtio-gpu-ctrl-hdr-fence-id+) 0) fence-id
           (sys.int::memref-unsigned-byte-32 (+ addr +virtio-gpu-ctrl-hdr-ctx-id+) 0) ctx-id)))
 
+(defun virtio-gpu-irq-handler (gpu)
+  (let* ((device (virtio-gpu-virtio-device gpu))
+         (events (virtio:virtio-device-specific-header/32 device +virtio-gpu-config-events-read+)))
+    (when (not (zerop events))
+      (setf (virtio:virtio-device-specific-header/32 device +virtio-gpu-config-events-clear+) events))))
+
 (defun virtio-gpu-issue-command (gpu command-length response-length)
   (let* ((req-phys (virtio-gpu-request-phys gpu))
          (dev (virtio-gpu-virtio-device gpu))
@@ -306,7 +312,9 @@ must not be allocated by virgl.")
           (base (virtio-gpu-response-address gpu))
           (pmode nil)
           (pmode-width nil)
-          (pmode-height nil))
+          (pmode-height nil)
+          (min-width 1024)
+          (min-height 768))
       (when (not (eql resp-type +virtio-gpu-resp-ok-display-info+))
         (sup:debug-print-line "virtio-gpu: Invalid response during get-display-info: " resp-type)
         (return-from virtio-gpu-get-display-info nil))
@@ -319,14 +327,11 @@ must not be allocated by virgl.")
                (enabled (sys.int::memref-unsigned-byte-32 (+ base offset +virtio-gpu-display-enabled+) 0))
                (flags (sys.int::memref-unsigned-byte-32 (+ base offset +virtio-gpu-display-flags+) 0)))
           (sup:debug-print-line "Display " i ": x:" x " y:" y " w: " width " h:" height " en:" enabled " flg:" flags)
-          (when (not pmode)
-            #++
+          (when (and (not pmode)
+                     (not (zerop enabled)))
             (setf pmode i
-                  pmode-width width
-                  pmode-height height)
-            (setf pmode i
-                  pmode-width 1024
-                  pmode-height 768))))
+                  pmode-width (max width min-width)
+                  pmode-height (max height min-height)))))
       (values pmode pmode-width pmode-height))))
 
 (define-virtio-gpu-command virtio-gpu-resource-create-2d
@@ -543,6 +548,10 @@ must not be allocated by virgl.")
   (let ((gpu (make-virtio-gpu :virtio-device device)))
     (setf (virtio-gpu-command-lock gpu)
           (sup:make-mutex gpu))
+    (virtio:virtio-attach-irq device
+                              (lambda (interrupt-frame irq)
+                                (declare (ignore interrupt-frame irq))
+                                (virtio-gpu-irq-handler gpu)))
     ;; Allocate some memory for the request header & footer.
     (let* ((frame (or (sup::allocate-physical-pages 1)
                       (panic "Unable to allocate memory for virtio gpu request")))

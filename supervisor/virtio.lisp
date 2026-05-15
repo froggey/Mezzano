@@ -513,10 +513,12 @@
   (sup:irq-attach (sup:platform-irq (virtio-device-irq device))
                   (lambda (interrupt-frame irq)
                     (let ((status (virtio-isr-status device)))
-                      (when (logbitp 0 status)
-                        (funcall handler interrupt-frame irq))
-                      (virtio-ack-irq device status))
-                    :completed)
+                      (cond ((zerop status)
+                             :rejected)
+                            (t
+                             (funcall handler interrupt-frame irq)
+                             (virtio-ack-irq device status)
+                             :completed))))
                   device))
 
 ;; FIXME: Access to this needs to be protected.
