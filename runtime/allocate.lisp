@@ -482,32 +482,31 @@
          (mezzano.supervisor:inhibit-thread-pool-blocking-hijack
            (mezzano.supervisor:with-mutex (*allocator-lock*)
              (mezzano.supervisor:with-pseudo-atomic
-	       (tagbody
+               (tagbody
                 INNER-LOOP
                   (multiple-value-bind (result ignore1 ignore2 failurep)
-		      (%do-slow-allocate-from-general-area tag data words)
+                      (%do-slow-allocate-from-general-area tag data words)
                     (declare (ignore ignore1 ignore2))
                     (when (not failurep)
-		      (update-allocation-time start-time)
+                      (update-allocation-time start-time)
 		      ;; (mezzano.supervisor::debug-print-line "what")
-		      (return-from %slow-allocate-from-general-area
+                      (return-from %slow-allocate-from-general-area
                         result)))
-                  (cond 
-		    ;; No memory. If there's memory available, then expand the area, otherwise run the GC.
-		    ;; Running the GC cannot be done when pseudo-atomic.
-		    ((expand-allocation-area :general
-                                             (* sys.int::+tlab-size+ 8)
-					     ;; (* words 8)
-                                             '*general-area-expansion-granularity*
-                                             'sys.int::*general-area-young-gen-limit*
-                                             sys.int::+address-tag-general+)
+                  ;; No memory. If there's memory available, then expand the area, otherwise run the GC.
+                  ;; Running the GC cannot be done when pseudo-atomic.
+                  (cond ((expand-allocation-area :general
+                                                 (* sys.int::+tlab-size+ 8)
+                                                 ;; (* words 8)
+                                                 '*general-area-expansion-granularity*
+                                                 'sys.int::*general-area-young-gen-limit*
+                                                 sys.int::+address-tag-general+)
                      ;; Successfully expanded the area. Retry the allocation.
                      (go INNER-LOOP))
                     (t
                      ;; No memory do expand, bail out and run the GC.
                      ;; This cannot be done when pseudo-atomic.
                      (when sys.int::*gc-enable-logging*
-		       (mezzano.supervisor:debug-print-line "General area expansion failed, performing GC."))
+                       (mezzano.supervisor:debug-print-line "General area expansion failed, performing GC."))
                      (go DO-GC))))))))
      DO-GC
        ;; Must occur outside the locks.
