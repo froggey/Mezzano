@@ -193,13 +193,13 @@
                      `(lap:jmp (:named-call sys.int::raise-invalid-argument-error))
                      args-ok)
                (emit-gc-info :incoming-arguments :rcx)))
-	(cond ((ir:argument-setup-rest instruction)
+        (cond ((ir:argument-setup-rest instruction)
                ;; If there are no required parameters, then don't generate a lower-bound check.
                (when (ir:argument-setup-required instruction)
-		 ;; Minimum number of arguments.
-		 (emit `(lap:cmp32 :ecx ,(c::fixnum-to-raw (length (ir:argument-setup-required instruction))))
+                 ;; Minimum number of arguments.
+                 (emit `(lap:cmp32 :ecx ,(c::fixnum-to-raw (length (ir:argument-setup-required instruction))))
                        `(lap:jnl ,args-ok))
-		 (emit-arg-error)))
+                 (emit-arg-error)))
               ((and (ir:argument-setup-required instruction)
                     (ir:argument-setup-optional instruction))
                ;; A range.
@@ -222,7 +222,7 @@
               (t
                (emit `(lap:test32 :ecx :ecx)
                      `(lap:jz ,args-ok))
-                (emit-arg-error))))))
+               (emit-arg-error))))))
   ;; Spill count.
   (flet ((usedp (reg)
            (or (typep reg 'mezzano.compiler.backend.register-allocator::physical-register)
