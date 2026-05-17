@@ -69,8 +69,7 @@
 
 (sys.int::define-lap-function local-cpu-info (())
   (:gc :no-frame :layout #*)
-  (mezzano.lap.arm64:orr :x9 :xzr :x27)
-  (mezzano.lap.arm64:ldr :x0 (:x9))
+  (mezzano.lap.arm64:ldr :x0 (:x27))
   (mezzano.lap.arm64:movz :x5 #.(ash 1 sys.int::+n-fixnum-bits+))
   (mezzano.lap.arm64:ret))
 

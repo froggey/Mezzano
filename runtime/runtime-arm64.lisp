@@ -406,9 +406,10 @@
   (mezzano.lap.arm64:b.ne SLOW-PATH-BAD-ARGS)
   (:gc :no-frame :layout #*00)
   ;; Update allocation meter.
-  (mezzano.lap.arm64:ldr :x9 (:object-location :x27 #.mezzano.supervisor::+arm64-cpu-general-allocation-count+))
+  (mezzano.lap.arm64:ldr :x10 (:x27)) ; load cpu object
+  (mezzano.lap.arm64:ldr :x9 (:object-location :x10 #.mezzano.supervisor::+arm64-cpu-general-allocation-count+))
   (mezzano.lap.arm64:add :x9 :x9 #.(ash 1 sys.int::+n-fixnum-bits+))
-  (mezzano.lap.arm64:str :x9 (:object-location :x27 #.mezzano.supervisor::+arm64-cpu-general-allocation-count+))
+  (mezzano.lap.arm64:str :x9 (:object-location :x10 #.mezzano.supervisor::+arm64-cpu-general-allocation-count+))
   ;; Check *ENABLE-ALLOCATION-PROFILING*
   ;; FIXME: This only tests the global value.
   (mezzano.lap.arm64:ldr :x6 (:symbol-global-cell *enable-allocation-profiling*))
@@ -432,9 +433,10 @@
   (mezzano.lap.arm64:subs :xzr :x5 #.(ash 1 #.sys.int::+n-fixnum-bits+))
   (mezzano.lap.arm64:b.ne SLOW-PATH)
   ;; Done. Return everything.
-  (mezzano.lap.arm64:ldr :x9 (:object-location :x27 #.mezzano.supervisor::+arm64-cpu-general-fast-path-hits+))
+  (mezzano.lap.arm64:ldr :x10 (:x27)) ; load cpu object
+  (mezzano.lap.arm64:ldr :x9 (:object-location :x10 #.mezzano.supervisor::+arm64-cpu-general-fast-path-hits+))
   (mezzano.lap.arm64:add :x9 :x9 #.(ash 1 sys.int::+n-fixnum-bits+))
-  (mezzano.lap.arm64:str :x9 (:object-location :x27 #.mezzano.supervisor::+arm64-cpu-general-fast-path-hits+))
+  (mezzano.lap.arm64:str :x9 (:object-location :x10 #.mezzano.supervisor::+arm64-cpu-general-fast-path-hits+))
   (mezzano.lap.arm64:movz :x5 #.(ash 1 #.sys.int::+n-fixnum-bits+))
   (mezzano.lap.arm64:ldp :x29 :x30 (:post :sp 16))
   (:gc :no-frame :layout #*)
@@ -519,7 +521,8 @@
   ;; Returns (values tag data words t) on failure, just the object on success.
   ;; X0 = tag; X1 = data; X2 = words.
   ;; Load per-CPU TLAB limit and newspace bit.
-  (mezzano.lap.arm64:ldr :x3 (:object-location :x27 #.mezzano.supervisor::+arm64-cpu-tlab-limit+))
+  (mezzano.lap.arm64:ldr :x10 (:x27)) ; load cpu object
+  (mezzano.lap.arm64:ldr :x3 (:object-location :x10 #.mezzano.supervisor::+arm64-cpu-tlab-limit+))
   (mezzano.lap.arm64:ldr :x4 (:symbol-global-cell sys.int::*young-gen-newspace-bit-raw*))
   ;; X3 = tlab limit. X4 = newspace-bit.
   ;; Assemble the final header value in X12.
@@ -531,7 +534,8 @@
   (mezzano.lap.arm64:add :x10 :xzr :x2 :lsl 3) ; words * 8
   ;; Address generation for the per-CPU tlab-bump slot.
   ;; Linked GC mode is not needed as this will be repeated due to the restart region.
-  (mezzano.lap.arm64:add :x9 :x27 #.(+ (- sys.int::+tag-object+) 8 (mezzano.runtime::location-offset mezzano.supervisor::+arm64-cpu-tlab-bump+)))
+  (mezzano.lap.arm64:ldr :x9 (:x27)) ; load cpu object
+  (mezzano.lap.arm64:add :x9 :x9 #.(+ (- sys.int::+tag-object+) 8 (mezzano.runtime::location-offset mezzano.supervisor::+arm64-cpu-tlab-bump+)))
   ;; Release atomic add to increment the bump pointer
   (mezzano.lap.arm64:ldaddl :x10 :x6 (:x9))
   (mezzano.lap.arm64:add :x11 :x6 :x10)
@@ -634,12 +638,13 @@
   (mezzano.lap.arm64:b.ne SLOW-PATH-BAD-ARGS)
   (:gc :no-frame :layout #*00)
   ;; Update allocation meter.
-  (mezzano.lap.arm64:ldr :x9 (:object-location :x27 #.mezzano.supervisor::+arm64-cpu-cons-allocation-count+))
+  (mezzano.lap.arm64:ldr :x10 (:x27)) ; load cpu object
+  (mezzano.lap.arm64:ldr :x9 (:object-location :x10 #.mezzano.supervisor::+arm64-cpu-cons-allocation-count+))
   (mezzano.lap.arm64:add :x9 :x9 #.(ash 1 sys.int::+n-fixnum-bits+))
-  (mezzano.lap.arm64:str :x9 (:object-location :x27 #.mezzano.supervisor::+arm64-cpu-cons-allocation-count+))
-  (mezzano.lap.arm64:ldr :x9 (:object-location :x27 #.mezzano.supervisor::+arm64-cpu-bytes-consed+))
+  (mezzano.lap.arm64:str :x9 (:object-location :x10 #.mezzano.supervisor::+arm64-cpu-cons-allocation-count+))
+  (mezzano.lap.arm64:ldr :x9 (:object-location :x10 #.mezzano.supervisor::+arm64-cpu-bytes-consed+))
   (mezzano.lap.arm64:add :x9 :x9 #.(ash 16 sys.int::+n-fixnum-bits+))
-  (mezzano.lap.arm64:str :x9 (:object-location :x27 #.mezzano.supervisor::+arm64-cpu-bytes-consed+))
+  (mezzano.lap.arm64:str :x9 (:object-location :x10 #.mezzano.supervisor::+arm64-cpu-bytes-consed+))
   (mezzano.lap.arm64:ldr :x9 (:object :x28 #.mezzano.supervisor::+thread-bytes-consed+))
   (mezzano.lap.arm64:add :x9 :x9 #.(ash 16 sys.int::+n-fixnum-bits+))
   (mezzano.lap.arm64:str :x9 (:object :x28 #.mezzano.supervisor::+thread-bytes-consed+))
@@ -661,9 +666,10 @@
   (mezzano.lap.arm64:subs :xzr :x5 #.(ash 1 #.sys.int::+n-fixnum-bits+))
   (mezzano.lap.arm64:b.ne SLOW-PATH)
   ;; Done. Return everything.
-  (mezzano.lap.arm64:ldr :x9 (:object-location :x27 #.mezzano.supervisor::+arm64-cpu-cons-fast-path-hits+))
+  (mezzano.lap.arm64:ldr :x10 (:x27)) ; load cpu object
+  (mezzano.lap.arm64:ldr :x9 (:object-location :x10 #.mezzano.supervisor::+arm64-cpu-cons-fast-path-hits+))
   (mezzano.lap.arm64:add :x9 :x9 #.(ash 1 sys.int::+n-fixnum-bits+))
-  (mezzano.lap.arm64:str :x9 (:object-location :x27 #.mezzano.supervisor::+arm64-cpu-cons-fast-path-hits+))
+  (mezzano.lap.arm64:str :x9 (:object-location :x10 #.mezzano.supervisor::+arm64-cpu-cons-fast-path-hits+))
   (mezzano.lap.arm64:movz :x5 #.(ash 1 #.sys.int::+n-fixnum-bits+))
   (mezzano.lap.arm64:ldp :x29 :x30 (:post :sp 16))
   (:gc :no-frame :layout #*)
