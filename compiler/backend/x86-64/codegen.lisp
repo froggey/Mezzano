@@ -185,7 +185,7 @@
                ;; still be in RBX. For non-closures, reconstruct the function
                ;; object and put that in RBX.
                (when (not (c:lambda-information-environment-arg (ir::ast backend-function)))
-		 (emit `(lap:lea64 :rbx (:rip (+ (- entry-point 16) ,sys.int::+tag-object+)))))
+                 (emit `(lap:lea64 :rbx (:rip (+ (- entry-point 16) ,sys.int::+tag-object+)))))
                ;; Tail call through to RAISE-INVALID-ARGUMENT-ERROR, leaving
                ;; the arguments in place.
                (emit `(lap:leave)
@@ -624,37 +624,13 @@
         `(lap:leave)
         ;; Don't use emit-gc-info, using a custom layout.
         `(:gc :no-frame :layout #*0)
-        `(lap:ret))
-  ;; (loop for i in *emitted-lap*
-  ;; 	if (and (listp i)
-  ;; 		(> (length i) 2)
-  ;; 		(null (elt i 2)))
-  ;; 	  do (cond ((member (car i)
-  ;; 			    '(mezzano.lap.x86:cmp32 mezzano.lap.x86:mov32))
-  ;; 		    (setf (elt i 2) :r14d))
-  ;; 		   ((member (car i)
-  ;; 			    '(mezzano.lap.x86:push mezzano.lap.x86:cmp64 mezzano.lap.x86:mov64))
-  ;; 		    (setf (elt i 2) :r14))
-  ;; 		   (t nil)))
-  )
+        `(lap:ret)))
 
 (defmethod emit-lap (backend-function (instruction ir:return-multiple-instruction) uses defs)
   (emit `(lap:leave)
         ;; Don't use emit-gc-info, using a custom layout.
         `(:gc :no-frame :layout #*0 :multiple-values 0)
-        `(lap:ret))
-  ;; (loop for i in *emitted-lap*
-  ;; 	if (and (listp i)
-  ;; 		(> (length i) 2)
-  ;; 		(null (elt i 2)))
-  ;; 	  do (cond ((member (car i)
-  ;; 			    '(mezzano.lap.x86:cmp32 mezzano.lap.x86:mov32))
-  ;; 		    (setf (elt i 2) :r14d))
-  ;; 		   ((member (car i)
-  ;; 			    '(mezzano.lap.x86:push mezzano.lap.x86:cmp64 mezzano.lap.x86:mov64))
-  ;; 		    (setf (elt i 2) :r14))
-  ;; 		   (t nil)))
-  )
+        `(lap:ret)))
 
 (defmethod emit-lap (backend-function (instruction ir:unreachable-instruction) uses defs)
   (emit `(lap:ud2)))
