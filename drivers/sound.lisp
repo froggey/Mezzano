@@ -136,22 +136,21 @@
       ;; buffer is already zeroed, so the HDA plays silence for this
       ;; period. Next period will retry.
       (if (mezzano.supervisor:acquire-mutex *sink-lock* nil)
-          (let ((result
-                  (cond ((endp *sinks*)
-                         nil)
-                        (t
-                         (dolist (sink *sinks*)
-                           (mix-out-of-sink sink buffer start end))
-                         (setf *sinks* (delete-if
-                                        (lambda (sink)
-                                          (buffer-empty sink))
-                                        *sinks*))
-                         (when (endp *sinks*)
-                           (setf (sup:event-state *sinks-present-event*) nil))
-                         (mezzano.supervisor:condition-notify *sink-cvar* t)
-                         t))))
-            (mezzano.supervisor:release-mutex *sink-lock*)
-            result)
+          (unwind-protect
+               (cond ((endp *sinks*)
+                      nil)
+                     (t
+                      (dolist (sink *sinks*)
+                        (mix-out-of-sink sink buffer start end))
+                      (setf *sinks* (delete-if
+                                     (lambda (sink)
+                                       (buffer-empty sink))
+                                     *sinks*))
+                      (when (endp *sinks*)
+                        (setf (sup:event-state *sinks-present-event*) nil))
+                      (mezzano.supervisor:condition-notify *sink-cvar* t)
+                      t))
+            (mezzano.supervisor:release-mutex *sink-lock*))
           t)))
 
 (defun sound-worker (device)
