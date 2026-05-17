@@ -567,7 +567,7 @@ the GC must be deferred during FILL-WORDS."
   ;; R8 = tag; R9 = data; R10 = words.
   ;; Fetch symbol value cells.
   (sys.lap-x86:mov64 :r12 (:symbol-global-cell sys.int::*young-gen-newspace-bit-raw*))
-  (sys.lap-x86:fs) (sys.lap-x86:mov64 :r11 (:object-location nil #.mezzano.supervisor::+cpu-tlab-limit+)) ; Allocation limit for the CPU
+  (sys.lap-x86:fs) (sys.lap-x86:mov64 :r11 (:object-location nil #.mezzano.supervisor::+x86-64-cpu-tlab-limit+)) ; Allocation limit for the CPU
 
   ;; R12 = newspace-bit. R11 = limit.
   ;; Assemble the final header value in RDI.
@@ -578,7 +578,7 @@ the GC must be deferred during FILL-WORDS."
   (:gc :no-frame :layout #*0 :restart t)
   ;; Fetch and increment the current bump pointer.
   (sys.lap-x86:lea64 :rbx ((:r10 8))) ; words * 8
-  (sys.lap-x86:fs) (sys.lap-x86:xadd64 (:object-location nil #.mezzano.supervisor::+cpu-tlab-bump+) :rbx) ; We're incrementing the slot in local-cpu's struct, hence the fs
+  (sys.lap-x86:fs) (sys.lap-x86:xadd64 (:object-location nil #.mezzano.supervisor::+x86-64-cpu-tlab-bump+) :rbx) ; We're incrementing the slot in local-cpu's struct, hence the fs
   ;; RBX is old bump pointer, the address of the cons.
   ;; Find the new bump pointer.
   (sys.lap-x86:lea64 :rsi (:rbx (:r10 8)))
@@ -633,14 +633,14 @@ the GC must be deferred during FILL-WORDS."
   (sys.lap-x86:ja TOO-LARGE)
   ;; Update allocation meter.
   (sys.lap-x86:fs)
-  (sys.lap-x86:add64 (:object-location nil #.mezzano.supervisor::+cpu-general-allocation-count+) #.(ash 1 sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:add64 (:object-location nil #.mezzano.supervisor::+x86-64-cpu-general-allocation-count+) #.(ash 1 sys.int::+n-fixnum-bits+))
   ;; Try the real fast allocator.
   (sys.lap-x86:call (:named-call %do-allocate-from-general-area))
   (sys.lap-x86:cmp64 :rcx #.(ash 1 #.sys.int::+n-fixnum-bits+))
   (sys.lap-x86:jne SLOW-PATH)
   ;; Done. Return everything.
   (sys.lap-x86:fs)
-  (sys.lap-x86:add64 (:object-location nil #.mezzano.supervisor::+cpu-general-fast-path-hits+) #.(ash 1 sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:add64 (:object-location nil #.mezzano.supervisor::+x86-64-cpu-general-fast-path-hits+) #.(ash 1 sys.int::+n-fixnum-bits+))
   (sys.lap-x86:mov32 :ecx #.(ash 1 #.sys.int::+n-fixnum-bits+))
   (sys.lap-x86:ret)
   TOO-LARGE
@@ -710,9 +710,9 @@ the GC must be deferred during FILL-WORDS."
   (:gc :no-frame :layout #*0)
   ;; Update allocation meter.
   (sys.lap-x86:fs)
-  (sys.lap-x86:add64 (:object-location nil #.mezzano.supervisor::+cpu-cons-allocation-count+) #.(ash 1 sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:add64 (:object-location nil #.mezzano.supervisor::+x86-64-cpu-cons-allocation-count+) #.(ash 1 sys.int::+n-fixnum-bits+))
   (sys.lap-x86:fs)
-  (sys.lap-x86:add64 (:object-location nil #.mezzano.supervisor::+cpu-bytes-consed+)
+  (sys.lap-x86:add64 (:object-location nil #.mezzano.supervisor::+x86-64-cpu-bytes-consed+)
                      #.(ash 16 sys.int::+n-fixnum-bits+))
   (sys.lap-x86:gs)
   (sys.lap-x86:add64 (:object nil #.mezzano.supervisor::+thread-bytes-consed+)
@@ -731,7 +731,7 @@ the GC must be deferred during FILL-WORDS."
   (sys.lap-x86:jne SLOW-PATH)
   ;; Done. Return everything.
   (sys.lap-x86:fs)
-  (sys.lap-x86:add64 (:object-location nil #.mezzano.supervisor::+cpu-cons-fast-path-hits+) #.(ash 1 sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:add64 (:object-location nil #.mezzano.supervisor::+x86-64-cpu-cons-fast-path-hits+) #.(ash 1 sys.int::+n-fixnum-bits+))
   (sys.lap-x86:mov32 :ecx #.(ash 1 #.sys.int::+n-fixnum-bits+))
   (sys.lap-x86:ret)
   SLOW-PATH

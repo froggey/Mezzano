@@ -18,14 +18,7 @@
   idle-thread
   wired-stack
   (sp-el1 0)
-  page-fault-hook
-  (tlab-bump 0)
-  (tlab-limit 0)
-  (bytes-consed 0)
-  (cons-allocation-count 0)
-  (cons-fast-path-hits 0)
-  (general-allocation-count 0)
-  (general-fast-path-hits 0))
+  page-fault-hook)
 
 (defun initialize-boot-cpu ()
   (setf (arm64-cpu-self *bsp-cpu*) *bsp-cpu*)
