@@ -152,6 +152,9 @@ The bootloader is loaded to #x7C00, so #x7000 should be safe.")
 (defconstant +magic-button-ipi-vector+ #x84
   "Sent to CPUs when the magic debug button is pressed.")
 
+(defconstant +reschedule-ipi-vector+ #x85
+  "Sent to a specific CPU to request rescheduling.")
+
 (defun set-idt-entry (cpu idt-index
                       &key (offset 0) (segment #x0008)
                         (present t) (dpl 0) (ist nil)
@@ -331,6 +334,18 @@ Protected by the world stop lock."
   (declare (ignore info))
   (magic-button-ipi-handler-1 interrupt-frame)
   (lapic-eoi))
+
+(defun reschedule-ipi-handler (interrupt-frame info)
+  (declare (ignore info))
+  (lapic-eoi)
+  ;; The CPU will reschedule on IRET; no further action needed.
+  nil)
+
+(defun wake-cpu (cpu)
+  "Send a directed wakeup IPI to a specific CPU.
+If the CPU is idle, this will cause it to check for new threads."
+  (when (cpu-idle-p cpu)
+    (send-ipi (x86-64-cpu-apic-id cpu) +ipi-type-fixed+ +wakeup-ipi-vector+)))
 
 (defun magic-button-ipi-handler-1 (interrupt-frame)
   (when (not *debug-magic-button-hold-variable*)
@@ -1069,7 +1084,8 @@ This is a one-shot timer and must be reset after firing."
   (hook-user-interrupt +panic-ipi-vector+ 'panic-ipi-handler)
   (hook-user-interrupt +quiesce-ipi-vector+ 'quiesce-ipi-handler)
   (hook-user-interrupt +tlb-shootdown-ipi-vector+ 'tlb-shootdown-ipi-handler)
-  (hook-user-interrupt +magic-button-ipi-vector+ 'magic-button-ipi-handler))
+  (hook-user-interrupt +magic-button-ipi-vector+ 'magic-button-ipi-handler)
+  (hook-user-interrupt +reschedule-ipi-vector+ 'reschedule-ipi-handler))
 
 (defun load-cpu-bits (cpu)
   (let* ((addr (- (sys.int::lisp-object-address cpu)

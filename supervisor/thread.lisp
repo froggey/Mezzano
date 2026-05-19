@@ -644,11 +644,14 @@ not and WAIT-P is false."
        ;; the system idles. Not needed to be correct, but reduces activity
        ;; when idle.
        (ensure (not (preemption-timer-remaining)))
+       ;; Mark this CPU as idle for directed wakeup.
+       (setf (cpu-idle-p (local-cpu)) t)
        ;; Look for a thread to switch to.
        (acquire-global-thread-lock)
        (setf (thread-state self) :runnable)
        (let ((next (update-run-queue)))
          (cond ((not (eql next self))
+                (setf (cpu-idle-p (local-cpu)) nil)
                 (increment-n-running-cpus)
                 ;; Switch to thread.
                 (%run-on-wired-stack-without-interrupts (sp fp next self)
