@@ -53,6 +53,12 @@ This area is made read-only when the soft guard is triggered and
 is used to catch when the thread has left the guard region so that it
 can be reprotected.")
 
+(defstruct (mcs-node
+             (:area :wired)
+             (:constructor %make-mcs-node))
+  (next nil)
+  (locked nil))
+
 (defstruct (cpu
             (:area :wired))
   (tlab-bump 0)
@@ -61,7 +67,35 @@ can be reprotected.")
   (cons-allocation-count 0)
   (cons-fast-path-hits 0)
   (general-allocation-count 0)
-  (general-fast-path-hits 0))
+  (general-fast-path-hits 0)
+  ;; Per-CPU index (0..N-1).
+  (cpu-index 0 :type (unsigned-byte 8))
+  ;; MCS spinlock node for this CPU.
+  (mcs-node (%make-mcs-node) :read-only t)
+  ;; RCU nesting counter. > 0 means inside an RCU read-side critical section.
+  (rcu-nest 0 :type fixnum)
+  ;; Per-CPU running thread count.
+  (running-threads 0 :type fixnum)
+  ;; True when this CPU is idle (in HLT/WFI).
+  (idle-p nil)
+  ;; Inhibit scheduling counter. > 0 means don't switch threads.
+  (inhibit-scheduling 0 :type fixnum)
+  ;; TLB generation counter for lazy shootdown.
+  (tlb-generation 0 :type fixnum)
+  ;; Per-CPU run queue placeholders (filled by scheduler rewrite).
+  (rq-supervisor nil)
+  (rq-high nil)
+  (rq-normal nil)
+  (rq-low nil)
+  ;; Batch lists for remote enqueue.
+  (rq-batch-supervisor nil)
+  (rq-batch-high nil)
+  (rq-batch-normal nil)
+  (rq-batch-low nil)
+  ;; Timer active flag.
+  (timer-active nil)
+  ;; Last scheduled thread (for warm-cache affinity).
+  (last-thread nil))
 
 (defstruct (thread
              (:area :wired)

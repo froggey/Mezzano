@@ -1032,6 +1032,11 @@ This is a one-shot timer and must be reset after firing."
   (copy-ap-trampoline #'%%ap-bootstrap '%%ap-entry-point +ap-trampoline-physical-address+ *initial-pml4*)
   (setf (x86-64-cpu-page-fault-hook *bsp-cpu*) nil)
   (setf (x86-64-cpu-apic-id *bsp-cpu*) (read-local-apic-id))
+  (setf (cpu-cpu-index *bsp-cpu*) 0)
+  (setf (cpu-idle-p *bsp-cpu*) nil)
+  (setf (cpu-inhibit-scheduling *bsp-cpu*) 0)
+  (setf (cpu-tlb-generation *bsp-cpu*) 0)
+  (setf (cpu-timer-active *bsp-cpu*) nil)
   (debug-print-line "BSP has LAPIC ID " (x86-64-cpu-apic-id *bsp-cpu*))
   (setf *cpus* '())
   (push-wired *bsp-cpu* *cpus*)
@@ -1099,7 +1104,12 @@ This is a one-shot timer and must be reset after firing."
                                :wired-stack wired-stack
                                :exception-stack exception-stack
                                :irq-stack irq-stack
-                               :page-fault-stack page-fault-stack)))
+                               :page-fault-stack page-fault-stack
+                               :cpu-index (length *cpus*)
+                               :idle-p nil
+                               :inhibit-scheduling 0
+                               :tlb-generation 0
+                               :timer-active nil)))
     (populate-cpu-info cpu
                        (+ (stack-base wired-stack) (stack-size wired-stack))
                        (+ (stack-base exception-stack) (stack-size exception-stack))
