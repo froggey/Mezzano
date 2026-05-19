@@ -21,6 +21,16 @@
       (t
        (debug-print-line "No ACPI FADT table detected.")))
     (initialize-cpu)
+    (initialize-io-apics)
+    (when *io-apic-active-p*
+      ;; Route the PIT IRQ through IO-APIC if available.
+      (let ((pit-source (acpi-find-interrupt-source-override 0)))
+        (io-apic-configure-entry (or pit-source 0)
+                                 (+ 32 (or pit-source 0))
+                                 (x86-64-cpu-apic-id *bsp-cpu*)
+                                 :trigger-mode :edge
+                                 :polarity :high
+                                 :masked nil)))
     (initialize-platform-time)
     (mezzano.supervisor.intel-8042:probe)
     (initialize-pci)

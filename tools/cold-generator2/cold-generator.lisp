@@ -29,6 +29,7 @@
     ("supervisor/arm64/psci.lisp" :arm64)
     "supervisor/interrupts.lisp"
     ("supervisor/x86-64/interrupts.lisp" :x86-64)
+    ("supervisor/x86-64/io-apic.lisp" :x86-64)
     ("supervisor/arm64/interrupts.lisp" :arm64)
     ("supervisor/arm64/gic.lisp" :arm64)
     "supervisor/debug.lisp"

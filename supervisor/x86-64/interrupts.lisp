@@ -333,7 +333,12 @@ If clear, the fault occured in supervisor mode.")
   (i8259-unmask-irq 2))
 
 (defun platform-irq (number)
-  (cond ((<= 0 number 15)
+  (cond ((and *io-apic-active-p*
+              (<= 0 number 255))
+         ;; IO-APIC GSIs are indexed by number directly.
+         ;; IRQ objects are created lazily or on-demand.
+         (make-irq :platform-number number))
+        ((<= 0 number 15)
          (svref *i8259-irqs* number))
         (t nil)))
 
@@ -350,7 +355,11 @@ If clear, the fault occured in supervisor mode.")
      do (funcall fn irq)))
 
 (defun platform-mask-irq (vector)
-  (i8259-mask-irq vector))
+  (if *io-apic-active-p*
+      (io-apic-mask-irq vector)
+      (i8259-mask-irq vector)))
 
 (defun platform-unmask-irq (vector)
-  (i8259-unmask-irq vector))
+  (if *io-apic-active-p*
+      (io-apic-unmask-irq vector)
+      (i8259-unmask-irq vector)))
