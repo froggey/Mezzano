@@ -380,6 +380,13 @@
              (:area :wired))
   address)
 
+(defstruct (acpi-madt-processor-x2apic
+             (:area :wired))
+  acpi-processor-id
+  x2apic-id
+  flags
+  acpi-processor-uid)
+
 (defun read-acpi-madt-table (address)
   (let ((table (make-acpi-madt-table :address address))
         (n-controller-entries 0))
@@ -393,9 +400,10 @@
       (loop
          (when (>= offset total-length)
            (return))
-         (when (<= (physical-memref-unsigned-byte-8 (+ address offset)) 5)
-           ;; Ignore entries with an unknown type.
-           (incf n-controller-entries))
+         (let ((type (physical-memref-unsigned-byte-8 (+ address offset))))
+           (when (or (<= type 5) (eql type 9))
+             ;; Ignore entries with an unknown type.
+             (incf n-controller-entries)))
          (incf offset (physical-memref-unsigned-byte-8 (+ address offset 1)))))
     (setf (acpi-madt-table-controllers table) (sys.int::make-simple-vector n-controller-entries :wired))
     (let ((offset 44)
@@ -438,9 +446,16 @@
                      :flags (physical-memref-unsigned-byte-16 (+ address offset 3))
                      :lapic-lintn (physical-memref-unsigned-byte-8 (+ address offset 5)))))
              (5 ;; Local APIC address override.
-              (setf (svref (acpi-madt-table-controllers table) current)
-                    (make-acpi-madt-lapic-address-override
-                     :address (physical-memref-unsigned-byte-64 (+ address offset 4))))))
+               (setf (svref (acpi-madt-table-controllers table) current)
+                     (make-acpi-madt-lapic-address-override
+                      :address (physical-memref-unsigned-byte-64 (+ address offset 4)))))
+             (9 ;; Processor local x2APIC.
+               (setf (svref (acpi-madt-table-controllers table) current)
+                     (make-acpi-madt-processor-x2apic
+                      :acpi-processor-id (physical-memref-unsigned-byte-8 (+ address offset 2))
+                      :x2apic-id (physical-memref-unsigned-byte-32 (+ address offset 4))
+                      :flags (physical-memref-unsigned-byte-32 (+ address offset 8))
+                      :acpi-processor-uid (physical-memref-unsigned-byte-32 (+ address offset 12))))))
            (incf current)
            (incf offset len))))
     table))

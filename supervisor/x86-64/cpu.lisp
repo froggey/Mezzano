@@ -1144,11 +1144,16 @@ This is a one-shot timer and must be reset after firing."
       (dotimes (i (sys.int::simple-vector-length
                    (acpi-madt-table-controllers madt)))
         (let ((entry (svref (acpi-madt-table-controllers madt) i)))
-          (when (and (acpi-madt-processor-lapic-p entry)
-                     (logbitp +acpi-madt-processor-lapic-flag-enabled+
-                              (acpi-madt-processor-lapic-flags entry))
-                     (not (eql (acpi-madt-processor-lapic-apic-id entry) bsp-apic-id)))
-            (register-secondary-cpu (acpi-madt-processor-lapic-apic-id entry))))))))
+          (cond ((acpi-madt-processor-lapic-p entry)
+                 (when (and (logbitp +acpi-madt-processor-lapic-flag-enabled+
+                                     (acpi-madt-processor-lapic-flags entry))
+                            (not (eql (acpi-madt-processor-lapic-apic-id entry) bsp-apic-id)))
+                   (register-secondary-cpu (acpi-madt-processor-lapic-apic-id entry))))
+                ((acpi-madt-processor-x2apic-p entry)
+                 (when (and (logbitp +acpi-madt-processor-lapic-flag-enabled+
+                                     (acpi-madt-processor-x2apic-flags entry))
+                            (not (eql (acpi-madt-processor-x2apic-x2apic-id entry) bsp-apic-id)))
+                   (register-secondary-cpu (acpi-madt-processor-x2apic-x2apic-id entry))))))))))
 
 (defun boot-secondary-cpus ()
   (detect-secondary-cpus)
