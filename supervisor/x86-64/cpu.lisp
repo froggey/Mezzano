@@ -11,6 +11,7 @@
 (sys.int::defglobal *bsp-cpu*)
 
 (sys.int::defglobal *lapic-address*)
+(sys.int::defglobal *lapic-x2apic-mode*)
 
 (defconstant +lapic-reg-id+ #x02)
 (defconstant +lapic-reg-version+ #x03)
@@ -51,6 +52,24 @@
 (defconstant +ipi-type-nmi+ 4)
 (defconstant +ipi-type-init+ 5)
 (defconstant +ipi-type-sipi+ 6)
+
+;; x2APIC detection.
+(defconstant +cpuid-feature-x2apic+ 21)
+(defconstant +msr-ia32-apic-base-x2apic-enable+ #x400)
+(defconstant +msr-ia32-apic-base-bsp+ #x800)
+
+;; x2APIC MSR range base.
+(defconstant +x2apic-msr-base+ #x800)
+
+;; ICR bit fields.
+(defconstant +icr-vector+            (byte  8 0))
+(defconstant +icr-delivery-mode+     (byte  3 8))
+(defconstant +icr-destination-mode+  #x0800)
+(defconstant +icr-destination-shorthand+ (byte 2 18))
+
+;; x2APIC MSR addresses.
+(defconstant +x2apic-msr-icr+       #x830)
+(defconstant +x2apic-msr-self-ipi+  #x83F)
 
 ;; Cold generator provided objects.
 (sys.int::defglobal sys.int::*interrupt-service-routines*)
@@ -154,22 +173,60 @@ The bootloader is loaded to #x7C00, so #x7000 should be safe.")
         0)
   (values))
 
+(defun lapic-reg-to-msr (register)
+  (+ +x2apic-msr-base+ register))
+
+(defun read-lapic (register)
+  (if *lapic-x2apic-mode*
+      (ldb (byte 32 0) (sys.int::msr (lapic-reg-to-msr register)))
+      (physical-memref-unsigned-byte-32 (+ *lapic-address* (ash register 4)))))
+
+(defun write-lapic (value register)
+  (if *lapic-x2apic-mode*
+      (setf (sys.int::msr (lapic-reg-to-msr register))
+            (logand value #xFFFFFFFF))
+      (setf (physical-memref-unsigned-byte-32 (+ *lapic-address* (ash register 4))) value)))
+
+(defun read-lapic64 (register)
+  (if *lapic-x2apic-mode*
+      (sys.int::msr (lapic-reg-to-msr register))
+      (logior (physical-memref-unsigned-byte-32 (+ *lapic-address* (ash register 4)))
+              (ash (physical-memref-unsigned-byte-32 (+ *lapic-address* (ash (1+ register) 4))) 32))))
+
+(defun write-lapic64 (value register)
+  (if *lapic-x2apic-mode*
+      (setf (sys.int::msr (lapic-reg-to-msr register)) (logand value #xFFFFFFFFFFFFFFFF))
+      (progn
+        (setf (physical-memref-unsigned-byte-32 (+ *lapic-address* (ash register 4)))
+              (ldb (byte 32 0) value))
+        (setf (physical-memref-unsigned-byte-32 (+ *lapic-address* (ash (1+ register) 4)))
+              (ldb (byte 32 32) value)))))
+
+;; Legacy aliases for gradual migration.
 (defun lapic-reg (register)
-  (physical-memref-unsigned-byte-32 (+ *lapic-address* (ash register 4))))
+  (read-lapic register))
 
 (defun (setf lapic-reg) (value register)
-  (setf (physical-memref-unsigned-byte-32 (+ *lapic-address* (ash register 4))) value))
+  (write-lapic value register))
 
 (defun lapic-eoi ()
   "Issue an EOI to the Local APIC."
   (setf (lapic-reg +lapic-reg-eoi+) 0))
 
 (defun send-ipi (target type vector)
-  (setf (lapic-reg +lapic-reg-interrupt-command-high+) (ash target 24))
-  ;; Send: No shorthand, edge triggered, assert, physical dest.
-  (setf (lapic-reg +lapic-reg-interrupt-command-low+) (logior #x4000
-                                                              (ash type 8)
-                                                              vector)))
+  (if *lapic-x2apic-mode*
+      ;; x2APIC: single 64-bit WRMSR to MSR 0x830.
+      (setf (sys.int::msr +x2apic-msr-icr+)
+            (logior (ash (logand target #xFFFFFFFF) 32)
+                    (ash type 8)
+                    #x4000 ; edge triggered, assert, physical dest
+                    vector))
+      ;; xAPIC: two MMIO writes.
+      (progn
+        (setf (lapic-reg +lapic-reg-interrupt-command-high+) (ash target 24))
+        (setf (lapic-reg +lapic-reg-interrupt-command-low+) (logior #x4000
+                                                                     (ash type 8)
+                                                                     vector)))))
 
 (defun broadcast-ipi (type vector &optional including-self)
   ;; BROADCAST-IPI can be called very early due to thread wakeups, before
@@ -179,11 +236,18 @@ The bootloader is loaded to #x7C00, so #x7000 should be safe.")
     ;; Disable interrupts to prevent cross-cpu migration from
     ;; fouling up behaviour of INCLUDING-SELF.
     (safe-without-interrupts (type vector including-self)
-      (dolist (cpu *cpus*)
-        (when (and (eql (x86-64-cpu-state cpu) :online)
-                   (or including-self
-                       (not (eql cpu (local-cpu)))))
-          (send-ipi (x86-64-cpu-apic-id cpu) type vector))))))
+      (if *lapic-x2apic-mode*
+          ;; x2APIC shorthand: use destination shorthand in ICR.
+          (let ((icr (logior (ash type 8)
+                             #x4000
+                             vector)))
+            (setf (sys.int::msr +x2apic-msr-icr+)
+                  (logior icr (ash (if including-self 0 3) 18))))
+          (dolist (cpu *cpus*)
+            (when (and (eql (x86-64-cpu-state cpu) :online)
+                       (or including-self
+                           (not (eql cpu (local-cpu)))))
+              (send-ipi (x86-64-cpu-apic-id cpu) type vector)))))))
 
 (defun broadcast-wakeup-ipi ()
   (broadcast-ipi +ipi-type-fixed+ +wakeup-ipi-vector+))
@@ -683,6 +747,11 @@ TLB shootdown must be protected by the VM lock."
 (defun %%ap-entry-point ()
   ;; CPU vector has been configured for us, just load the required bits.
   (load-cpu-bits (local-cpu))
+  ;; Enable x2APIC on APs if the BSP enabled it.
+  (when *lapic-x2apic-mode*
+    (let ((apic-base (sys.int::msr +msr-ia32-apic-base+)))
+      (setf (sys.int::msr +msr-ia32-apic-base+)
+            (logior apic-base +msr-ia32-apic-base-x2apic-enable+))))
   (lapic-setup)
   ;; Signal that this CPU has booted successfully.
   (let ((old (sys.int::cas (x86-64-cpu-state (local-cpu)) :offline :online)))
@@ -913,6 +982,27 @@ This is a one-shot timer and must be reset after firing."
    (truncate (* duration-internal-time-units *lapic-timer-calibration*)
              internal-time-units-per-second)))
 
+(defun x2apic-supported-p ()
+  (with-pseudo-atomic
+    (multiple-value-bind (eax ebx ecx edx)
+        (%cpuid 1 0)
+      (declare (ignore eax ebx edx))
+      (logbitp +cpuid-feature-x2apic+ ecx))))
+
+(defun x2apic-enabled-by-firmware-p ()
+  (logbitp 10 (sys.int::msr +msr-ia32-apic-base+)))
+
+(defun read-local-apic-id ()
+  (if *lapic-x2apic-mode*
+      (sys.int::msr #x802)
+      (ldb (byte 8 24) (read-lapic +lapic-reg-id+))))
+
+(defun send-self-ipi (vector)
+  (check-type vector (unsigned-byte 8))
+  (if *lapic-x2apic-mode*
+      (setf (sys.int::msr +x2apic-msr-self-ipi+) vector)
+      (send-ipi (read-local-apic-id) +ipi-type-fixed+ vector)))
+
 (defun initialize-early-cpu ()
   (setf *lapic-address* nil))
 
@@ -920,13 +1010,28 @@ This is a one-shot timer and must be reset after firing."
   (setf *lapic-address* (logand (sys.int::msr +msr-ia32-apic-base+)
                                 (lognot #xFFF)))
   (map-physical-memory-early *lapic-address* #x1000 "LAPIC")
+  ;; Detect and enable x2APIC mode if available.
+  (cond ((x2apic-supported-p)
+         (cond ((x2apic-enabled-by-firmware-p)
+                (setf *lapic-x2apic-mode* t)
+                (debug-print-line "x2APIC already enabled by firmware"))
+               (t
+                ;; Enable x2APIC: set bit 10 in IA32_APIC_BASE MSR.
+                (let ((apic-base (sys.int::msr +msr-ia32-apic-base+)))
+                  (setf (sys.int::msr +msr-ia32-apic-base+)
+                        (logior apic-base +msr-ia32-apic-base-x2apic-enable+)))
+                (setf *lapic-x2apic-mode* t)
+                (debug-print-line "x2APIC enabled on BSP"))))
+        (t
+         (setf *lapic-x2apic-mode* nil)
+         (debug-print-line "x2APIC not supported, using xAPIC MMIO")))
   (lapic-setup)
   (lapic-dump)
   (map-physical-memory-early +ap-trampoline-physical-address+ #x1000 "AP Bootstrap")
   (setf *initial-pml4* (generate-initial-pml4))
   (copy-ap-trampoline #'%%ap-bootstrap '%%ap-entry-point +ap-trampoline-physical-address+ *initial-pml4*)
   (setf (x86-64-cpu-page-fault-hook *bsp-cpu*) nil)
-  (setf (x86-64-cpu-apic-id *bsp-cpu*) (ldb (byte 8 24) (lapic-reg +lapic-reg-id+)))
+  (setf (x86-64-cpu-apic-id *bsp-cpu*) (read-local-apic-id))
   (debug-print-line "BSP has LAPIC ID " (x86-64-cpu-apic-id *bsp-cpu*))
   (setf *cpus* '())
   (push-wired *bsp-cpu* *cpus*)
