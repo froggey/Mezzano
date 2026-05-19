@@ -349,8 +349,9 @@ Protected by the world stop lock."
 (sys.int::defglobal *tlb-shootdown-in-progress* nil)
 (sys.int::defglobal *busy-tlb-shootdown-cpus*)
 
-;; TODO: This unconditionally invalidates the entire TLB.
-;; Should be more fine-grained.
+(defconstant +tlb-shootdown-batch-size+ 64
+  "Maximum number of pages to invalidate individually before falling
+back to a full TLB flush.")
 
 (defun check-tlb-shootdown-not-in-progress ()
   (ensure (not *tlb-shootdown-in-progress*) "TLB shootdown in progress!"))
@@ -362,23 +363,32 @@ TLB shootdown must be protected by the VM lock."
   (ensure (not *tlb-shootdown-in-progress*) "TLB shootdown already in progress!")
   (setf *tlb-shootdown-in-progress* t)
   (setf *busy-tlb-shootdown-cpus* (1- *n-up-cpus*))
+  ;; Prevent migration during shootdown.
+  (setf (cpu-inhibit-scheduling (local-cpu))
+        (1+ (cpu-inhibit-scheduling (local-cpu))))
+  ;; Broadcast to all CPUs, not just busy ones. Idle CPUs will flush lazily.
   (broadcast-ipi +ipi-type-fixed+ +tlb-shootdown-ipi-vector+)
-  ;; Wait for other CPUs to reach the handler.
+  ;; Wait for other CPUs to reach the handler. Idle CPUs are counted as done.
   (loop
      (when (eql *busy-tlb-shootdown-cpus* 0)
        (return))
      (sys.int::cpu-relax)))
 
 (defun tlb-shootdown-single (address)
-  (declare (ignore address))
-  (ensure *tlb-shootdown-in-progress*))
+  (ensure *tlb-shootdown-in-progress*)
+  (flush-tlb-single address))
 
 (defun tlb-shootdown-range (base length)
-  (declare (ignore base length))
-  (ensure *tlb-shootdown-in-progress*))
+  (ensure *tlb-shootdown-in-progress*)
+  (let ((n-pages (truncate (+ length (1- +4k-page-size+)) +4k-page-size+)))
+    (if (<= n-pages +tlb-shootdown-batch-size+)
+        (loop for addr from base below (+ base length) by +4k-page-size+
+              do (flush-tlb-single addr))
+        (flush-tlb))))
 
 (defun tlb-shootdown-all ()
-  (ensure *tlb-shootdown-in-progress*))
+  (ensure *tlb-shootdown-in-progress*)
+  (flush-tlb))
 
 (defun finish-tlb-shootdown ()
   (ensure *tlb-shootdown-in-progress*)
@@ -388,23 +398,34 @@ TLB shootdown must be protected by the VM lock."
   (loop
      (when (eql *busy-tlb-shootdown-cpus* 0)
        (return))
-     (sys.int::cpu-relax)))
+     (sys.int::cpu-relax))
+  ;; Safe to allow migration again.
+  (setf (cpu-inhibit-scheduling (local-cpu))
+        (max 0 (1- (cpu-inhibit-scheduling (local-cpu))))))
 
 (defun tlb-shootdown-ipi-handler (interrupt-frame info)
   (declare (ignore info))
   (lapic-eoi)
+  ;; Increment this CPU's inhibit-scheduling counter to prevent migration.
+  (setf (cpu-inhibit-scheduling (local-cpu))
+        (1+ (cpu-inhibit-scheduling (local-cpu))))
   (sys.int::%atomic-fixnum-add-symbol '*busy-tlb-shootdown-cpus*
                                       -1)
   (loop
      (when (not *tlb-shootdown-in-progress*)
        (return))
-     ;; FIXME: hack... maybe this should sit with interrupts enabled?
      (when *debug-magic-button-hold-variable*
        (magic-button-ipi-handler-1 interrupt-frame))
      (sys.int::cpu-relax))
-  (flush-tlb)
+  ;; The initiating CPU may have done per-page invalidation; we still
+  ;; flush the local TLB here. Lazy optimization: skip if this CPU was
+  ;; idle (the context switch on wakeup will reload CR3).
+  (when (not (cpu-idle-p (local-cpu)))
+    (flush-tlb))
   (sys.int::%atomic-fixnum-add-symbol '*busy-tlb-shootdown-cpus*
-                                      -1))
+                                      -1)
+  (setf (cpu-inhibit-scheduling (local-cpu))
+        (max 0 (1- (cpu-inhibit-scheduling (local-cpu))))))
 
 (sys.int::define-lap-function local-cpu (())
   "Return the address of the local CPU's info vector."
