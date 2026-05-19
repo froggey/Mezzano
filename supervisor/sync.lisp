@@ -1157,6 +1157,109 @@ It is only possible for the second value to be false when wait-p is false."
             (irq-fifo-count fifo) 0)
       (setf (event-state (irq-fifo-data-available fifo)) nil))))
 
+;;; MCS queue-based spinlock.
+;;; Fair spinlock where each CPU spins on its own cache line.
+;;; Each CPU has a pre-allocated MCS node in the cpu struct.
+
+(defun acquire-mcs-spinlock (lock-place mcs-node)
+  "Acquire an MCS spinlock. LOCK-PLACE is a place (setf-able),
+MCS-NODE is the current CPU's pre-allocated mcs-node struct."
+  (setf (mcs-node-next mcs-node) nil
+        (mcs-node-locked mcs-node) nil)
+  (let ((prev (sys.int::%xchg-object lock-place mcs-node)))
+    (if (null prev)
+        ;; No waiter, we are the holder.
+        (setf (mcs-node-locked mcs-node) t)
+        ;; There's a tail, chain ourselves after it.
+        (progn
+          (setf (mcs-node-next prev) mcs-node)
+          ;; Spin until the predecessor hands us the lock.
+          (loop until (mcs-node-locked mcs-node)
+                do (sys.int::cpu-relax))))))
+
+(defun release-mcs-spinlock (lock-place mcs-node)
+  "Release an MCS spinlock acquired with ACQUIRE-MCS-SPINLOCK."
+  (if (null (mcs-node-next mcs-node))
+      ;; No known successor. Try to nil out the lock word.
+      (if (eql (sys.int::cas lock-place mcs-node nil) mcs-node)
+          ;; CAS succeeded, no one is waiting.
+          (return-from release-mcs-spinlock)
+          ;; CAS failed, a successor has linked in between.
+          ;; Wait for the successor to appear.
+          (loop until (mcs-node-next mcs-node)
+                do (sys.int::cpu-relax))))
+  ;; Pass the lock to the successor.
+  (setf (mcs-node-locked (mcs-node-next mcs-node)) t))
+
+(defmacro with-mcs-spinlock ((place) &body body)
+  "Acquire the MCS spinlock at PLACE, execute BODY, then release."
+  (let ((node (gensym "MCS-NODE")))
+    `(let ((,node (cpu-mcs-node (local-cpu))))
+       (acquire-mcs-spinlock ,place ,node)
+       (unwind-protect
+            (progn ,@body)
+         (release-mcs-spinlock ,place ,node)))))
+
+;;; RCU primitives for lock-free read-side access.
+;;; Each CPU has an rcu-nest counter in the cpu struct.
+;;; > 0 means inside an RCU read-side critical section.
+
+(defun rcu-read-lock ()
+  "Enter an RCU read-side critical section."
+  (setf (cpu-rcu-nest (local-cpu))
+        (1+ (cpu-rcu-nest (local-cpu)))))
+
+(defun rcu-read-unlock ()
+  "Exit an RCU read-side critical section."
+  (let ((new (1- (cpu-rcu-nest (local-cpu)))))
+    (setf (cpu-rcu-nest (local-cpu)) new)
+    (when (minusp new)
+      (panic "RCU read-unlock without matching read-lock"))))
+
+(defmacro with-rcu-read-lock (&body body)
+  `(unwind-protect
+        (progn
+          (rcu-read-lock)
+          ,@body)
+     (rcu-read-unlock)))
+
+(sys.int::defglobal *rcu-deferred-list* nil
+  "List of objects to be freed after an RCU grace period.")
+
+(defun rcu-synchronize ()
+  "Wait for a grace period: all CPUs to pass through a quiescent state."
+  ;; For each CPU, set a flag and wait for it to context-switch.
+  ;; A simple approach: IPI every CPU and wait for each to acknowledge.
+  (dolist (cpu *cpus*)
+    (when (eql (x86-64-cpu-state cpu) :online)
+      ;; Send a quiesce IPI to this CPU.
+      (send-ipi (x86-64-cpu-apic-id cpu) +ipi-type-fixed+ +quiesce-ipi-vector+)))
+  ;; Yield to allow other CPUs to process.
+  (thread-yield))
+
+(defun call-with-rcu-synchronize (thunk)
+  (rcu-synchronize)
+  (funcall thunk)
+  (rcu-synchronize))
+
+(defmacro after-rcu-grace-period (&body body)
+  "Execute BODY after an RCU grace period."
+  `(call-with-rcu-synchronize (lambda () ,@body)))
+
+;;; Per-CPU counter helpers.
+;;; Define a set of INC/DEC/READ functions for a per-CPU slot.
+
+(defmacro define-percpu-counter (name slot)
+  `(progn
+     (defun ,(intern (format nil "INC-~A" name)) ()
+       (setf (,slot (local-cpu)) (1+ (,slot (local-cpu)))))
+     (defun ,(intern (format nil "DEC-~A" name)) ()
+       (setf (,slot (local-cpu)) (1- (,slot (local-cpu)))))
+     (defun ,(intern (format nil "READ-~A" name)) ()
+       (let ((total 0))
+         (dolist (cpu *cpus* total)
+           (incf total (,slot cpu)))))))
+
 (defun initialize-sync (first-run-p)
   (when first-run-p
     (setf *watcher-watcher-pool*
