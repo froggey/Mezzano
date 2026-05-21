@@ -1161,35 +1161,49 @@ It is only possible for the second value to be false when wait-p is false."
 ;;; Fair spinlock where each CPU spins on its own cache line.
 ;;; Each CPU has a pre-allocated MCS node in the cpu struct.
 
-(defun acquire-mcs-spinlock (lock-place mcs-node)
+;; MCS queue-based spinlock.
+;; Fair spinlock where each CPU spins on its own cache line.
+;; Each CPU has a pre-allocated MCS node in the cpu struct.
+;;
+;; Implemented as macros so the place form is available for CAS expansion
+;; at compile time (cross-compiler can't CAS on lexical variables).
+
+(defmacro acquire-mcs-spinlock (lock-place mcs-node)
   "Acquire an MCS spinlock. LOCK-PLACE is a place (setf-able),
 MCS-NODE is the current CPU's pre-allocated mcs-node struct."
-  (setf (mcs-node-next mcs-node) nil
-        (mcs-node-locked mcs-node) nil)
-  (let ((prev (sys.int::%xchg-object lock-place mcs-node)))
-    (if (null prev)
-        ;; No waiter, we are the holder.
-        (setf (mcs-node-locked mcs-node) t)
-        ;; There's a tail, chain ourselves after it.
-        (progn
-          (setf (mcs-node-next prev) mcs-node)
-          ;; Spin until the predecessor hands us the lock.
-          (loop until (mcs-node-locked mcs-node)
-                do (sys.int::cpu-relax))))))
+  `(progn
+     (setf (mcs-node-next ,mcs-node) nil
+           (mcs-node-locked ,mcs-node) nil)
+     ;; Atomic exchange: read old value and write our node.
+     (let* ((prev nil))
+       (loop
+         (setf prev ,lock-place)
+         (when (eql (sys.int::cas ,lock-place prev ,mcs-node) prev)
+           (return)))
+       (if (null prev)
+           ;; No waiter, we are the holder.
+           (setf (mcs-node-locked ,mcs-node) t)
+           ;; There's a tail, chain ourselves after it.
+           (progn
+             (setf (mcs-node-next prev) ,mcs-node)
+             ;; Spin until the predecessor hands us the lock.
+             (loop until (mcs-node-locked ,mcs-node)
+                   do (sys.int::cpu-relax)))))))
 
-(defun release-mcs-spinlock (lock-place mcs-node)
+(defmacro release-mcs-spinlock (lock-place mcs-node)
   "Release an MCS spinlock acquired with ACQUIRE-MCS-SPINLOCK."
-  (if (null (mcs-node-next mcs-node))
-      ;; No known successor. Try to nil out the lock word.
-      (if (eql (sys.int::cas lock-place mcs-node nil) mcs-node)
-          ;; CAS succeeded, no one is waiting.
-          (return-from release-mcs-spinlock)
-          ;; CAS failed, a successor has linked in between.
-          ;; Wait for the successor to appear.
-          (loop until (mcs-node-next mcs-node)
-                do (sys.int::cpu-relax))))
-  ;; Pass the lock to the successor.
-  (setf (mcs-node-locked (mcs-node-next mcs-node)) t))
+  `(block release-mcs-spinlock
+     (if (null (mcs-node-next ,mcs-node))
+         ;; No known successor. Try to nil out the lock word.
+         (if (eql (sys.int::cas ,lock-place ,mcs-node nil) ,mcs-node)
+             ;; CAS succeeded, no one is waiting.
+             (return-from release-mcs-spinlock)
+             ;; CAS failed, a successor has linked in between.
+             ;; Wait for the successor to appear.
+             (loop until (mcs-node-next ,mcs-node)
+                   do (sys.int::cpu-relax))))
+     ;; Pass the lock to the successor.
+     (setf (mcs-node-locked (mcs-node-next ,mcs-node)) t)))
 
 (defmacro with-mcs-spinlock ((place) &body body)
   "Acquire the MCS spinlock at PLACE, execute BODY, then release."

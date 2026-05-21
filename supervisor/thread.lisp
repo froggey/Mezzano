@@ -71,7 +71,7 @@ can be reprotected.")
   ;; Per-CPU index (0..N-1).
   (cpu-index 0 :type (unsigned-byte 8))
   ;; MCS spinlock node for this CPU.
-  (mcs-node (%make-mcs-node) :read-only t)
+  (mcs-node nil)
   ;; RCU nesting counter. > 0 means inside an RCU read-side critical section.
   (rcu-nest 0 :type fixnum)
   ;; Per-CPU running thread count.

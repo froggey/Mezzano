@@ -89,6 +89,8 @@
 
 (defun initialize-io-apics ()
   "Initialize all IO-APICs from ACPI MADT entries."
+  (unless (boundp '*io-apics*)
+    (setf *io-apics* nil))
   (when *io-apics*
     (return-from initialize-io-apics))
   (let ((madt (acpi-get-table 'acpi-madt-table-p)))

@@ -239,7 +239,7 @@ The bootloader is loaded to #x7C00, so #x7000 should be safe.")
     ;; Disable interrupts to prevent cross-cpu migration from
     ;; fouling up behaviour of INCLUDING-SELF.
     (safe-without-interrupts (type vector including-self)
-      (if *lapic-x2apic-mode*
+      (if (and (boundp '*lapic-x2apic-mode*) *lapic-x2apic-mode*)
           ;; x2APIC shorthand: use destination shorthand in ICR.
           (let ((icr (logior (ash type 8)
                              #x4000
@@ -866,10 +866,11 @@ TLB shootdown must be protected by the VM lock."
   (debug-print-line "  id: " (lapic-reg +lapic-reg-id+))
   (debug-print-line "  version: " (lapic-reg +lapic-reg-version+))
   (debug-print-line "  tpr: " (lapic-reg +lapic-reg-task-priority+))
-  (debug-print-line "  arp: " (lapic-reg +lapic-reg-arbitration-priority+))
-  (debug-print-line "  ppr: " (lapic-reg +lapic-reg-processor-priority+))
-  (debug-print-line "  logical-destination: " (lapic-reg +lapic-reg-logical-destination+))
-  (debug-print-line "  desination-format: " (lapic-reg +lapic-reg-destination-format+))
+  (unless *lapic-x2apic-mode*
+    (debug-print-line "  arp: " (lapic-reg +lapic-reg-arbitration-priority+))
+    (debug-print-line "  ppr: " (lapic-reg +lapic-reg-processor-priority+))
+    (debug-print-line "  logical-destination: " (lapic-reg +lapic-reg-logical-destination+))
+    (debug-print-line "  desination-format: " (lapic-reg +lapic-reg-destination-format+)))
   (debug-print-line "  svr: " (lapic-reg +lapic-reg-spurious-interrupt-vector+))
   (debug-print-line "  isr: "
                     (lapic-reg +lapic-reg-in-service-0+) " "
@@ -899,7 +900,9 @@ TLB shootdown must be protected by the VM lock."
                     (lapic-reg (+ +lapic-reg-interrupt-request-0+ 6)) " "
                     (lapic-reg (+ +lapic-reg-interrupt-request-0+ 7)))
   (debug-print-line "  esr: " (lapic-reg +lapic-reg-error-status+))
-  (debug-print-line "  icr: " (lapic-reg +lapic-reg-interrupt-command-high+) ":" (lapic-reg +lapic-reg-interrupt-command-low+))
+  (if *lapic-x2apic-mode*
+      (debug-print-line "  icr: " (sys.int::msr (+ +x2apic-msr-base+ +lapic-reg-interrupt-command-low+)))
+      (debug-print-line "  icr: " (lapic-reg +lapic-reg-interrupt-command-high+) ":" (lapic-reg +lapic-reg-interrupt-command-low+)))
   (debug-print-line "  lvt-timer: " (lapic-reg +lapic-reg-lvt-timer+))
   (debug-print-line "  lvt-thermal-sensor: " (lapic-reg +lapic-reg-lvt-thermal-sensor+))
   (debug-print-line "  lvt-pmc: " (lapic-reg +lapic-reg-lvt-performance-monitoring-counters+))
@@ -1018,12 +1021,25 @@ This is a one-shot timer and must be reset after firing."
    (truncate (* duration-internal-time-units *lapic-timer-calibration*)
              internal-time-units-per-second)))
 
+;; Early-boot CPUID: saves/restores EBX instead of relying on pseudo-atomic.
+;; Safe to call before the thread/lock infrastructure is fully initialized.
+;; CPUID leaf 1 subleaf 0, return ECX only. No pseudo-atomic needed.
+(sys.int::define-lap-function %cpuid-1-ecx-early ()
+  (:gc :no-frame :layout #*0)
+  (sys.lap-x86:mov64 :rax :r8)
+  (sys.lap-x86:sar64 :rax #.sys.int::+n-fixnum-bits+)
+  (sys.lap-x86:mov64 :rcx :r9)
+  (sys.lap-x86:sar64 :rcx #.sys.int::+n-fixnum-bits+)
+  (sys.lap-x86:push :rbx)
+  (sys.lap-x86:cpuid)
+  (sys.lap-x86:mov64 :r8 :rcx)
+  (sys.lap-x86:pop :rbx)
+  (sys.lap-x86:lea64 :r8 ((:r8 #.(ash 1 sys.int::+n-fixnum-bits+))))
+  (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:ret))
+
 (defun x2apic-supported-p ()
-  (with-pseudo-atomic
-    (multiple-value-bind (eax ebx ecx edx)
-        (%cpuid 1 0)
-      (declare (ignore eax ebx edx))
-      (logbitp +cpuid-feature-x2apic+ ecx))))
+  (logbitp +cpuid-feature-x2apic+ (%cpuid-1-ecx-early 1 0)))
 
 (defun x2apic-enabled-by-firmware-p ()
   (logbitp 10 (sys.int::msr +msr-ia32-apic-base+)))
@@ -1073,6 +1089,9 @@ This is a one-shot timer and must be reset after firing."
   (setf (cpu-inhibit-scheduling *bsp-cpu*) 0)
   (setf (cpu-tlb-generation *bsp-cpu*) 0)
   (setf (cpu-timer-active *bsp-cpu*) nil)
+  ;; Allocate MCS node for BSP if not already allocated by cold-generator.
+  (when (null (cpu-mcs-node *bsp-cpu*))
+    (setf (cpu-mcs-node *bsp-cpu*) (%make-mcs-node)))
   (debug-print-line "BSP has LAPIC ID " (x86-64-cpu-apic-id *bsp-cpu*))
   (setf *cpus* '())
   (push-wired *bsp-cpu* *cpus*)
@@ -1146,7 +1165,9 @@ This is a one-shot timer and must be reset after firing."
                                :idle-p nil
                                :inhibit-scheduling 0
                                :tlb-generation 0
-                               :timer-active nil)))
+                                                               :timer-active nil)))
+    ;; Allocate per-CPU MCS node for spinlocks.
+    (setf (cpu-mcs-node cpu) (%make-mcs-node))
     (populate-cpu-info cpu
                        (+ (stack-base wired-stack) (stack-size wired-stack))
                        (+ (stack-base exception-stack) (stack-size exception-stack))
