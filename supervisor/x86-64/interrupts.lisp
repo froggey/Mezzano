@@ -333,33 +333,45 @@ If clear, the fault occured in supervisor mode.")
   (i8259-unmask-irq 2))
 
 (defun platform-irq (number)
-  (cond ((and *io-apic-active-p*
+  (cond ((and (boundp '*io-apic-active-p*)
+              *io-apic-active-p*
               (<= 0 number 255))
-         ;; IO-APIC GSIs are indexed by number directly.
-         ;; IRQ objects are created lazily or on-demand.
-         (make-irq :platform-number number))
+         (let ((gsi (if (< number 16)
+                        (sys.int::%object-ref-t *isa-irq-to-gsi* number)
+                        number)))
+           (sys.int::%object-ref-t *io-apic-irqs* gsi)))
         ((<= 0 number 15)
          (svref *i8259-irqs* number))
         (t nil)))
 
 (defun all-platform-irqs ()
-  (loop
-     for i below (sys.int::%object-header-data *i8259-irqs*)
-     for irq = (svref *i8259-irqs* i)
-     collect irq))
+  (if (and (boundp '*io-apic-active-p*) *io-apic-active-p*)
+      (loop
+         for i below (sys.int::%object-header-data *io-apic-irqs*)
+         for irq = (svref *io-apic-irqs* i)
+         when irq collect irq)
+      (loop
+         for i below (sys.int::%object-header-data *i8259-irqs*)
+         for irq = (svref *i8259-irqs* i)
+         collect irq)))
 
 (defun map-platform-irqs (fn)
-  (loop
-     for i below (sys.int::%object-header-data *i8259-irqs*)
-     for irq = (svref *i8259-irqs* i)
-     do (funcall fn irq)))
+  (if (and (boundp '*io-apic-active-p*) *io-apic-active-p*)
+      (loop
+         for i below (sys.int::%object-header-data *io-apic-irqs*)
+         for irq = (svref *io-apic-irqs* i)
+         when irq do (funcall fn irq))
+      (loop
+         for i below (sys.int::%object-header-data *i8259-irqs*)
+         for irq = (svref *i8259-irqs* i)
+         do (funcall fn irq))))
 
 (defun platform-mask-irq (vector)
-  (if *io-apic-active-p*
+  (if (and (boundp '*io-apic-active-p*) *io-apic-active-p*)
       (io-apic-mask-irq vector)
       (i8259-mask-irq vector)))
 
 (defun platform-unmask-irq (vector)
-  (if *io-apic-active-p*
+  (if (and (boundp '*io-apic-active-p*) *io-apic-active-p*)
       (io-apic-unmask-irq vector)
       (i8259-unmask-irq vector)))
