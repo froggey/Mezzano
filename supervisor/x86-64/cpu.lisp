@@ -54,6 +54,7 @@
 
 ;; x2APIC detection.
 (defconstant +cpuid-feature-x2apic+ 21)
+(defconstant +cpuid-feature-tsc-deadline+ 24)
 (defconstant +msr-ia32-apic-base-x2apic-enable+ #x400)
 (defconstant +msr-ia32-apic-base-bsp+ #x800)
 
@@ -980,15 +981,15 @@ This is a one-shot timer and must be reset after firing."
        (when (not (eq start-time initial-time))
          (return)))
     ;; Start timer with the maximum count value
-    (setf (lapic-reg +lapic-reg-timer-initial-count+) #xFFFFFFFF)
+    (write-lapic #xFFFFFFFF +lapic-reg-timer-initial-count+)
     ;; Wait for next tick.
     (loop
        (setf end-time (get-internal-run-time))
        (when (not (eq end-time start-time))
          (return)))
     ;; Read current count & stop timer.
-    (setf end-counter (lapic-reg +lapic-reg-timer-current-count+))
-    (setf (lapic-reg +lapic-reg-timer-initial-count+) 0)
+    (setf end-counter (read-lapic +lapic-reg-timer-current-count+))
+    (write-lapic 0 +lapic-reg-timer-initial-count+)
     (let* ((cycles (- #xFFFFFFFF end-counter))
            (total-time (- end-time start-time))
            ;; Use single floats here. Rationals & double-floats require
@@ -1001,13 +1002,48 @@ This is a one-shot timer and must be reset after firing."
 ;; This is a fixnum, timer cycles per second.
 (sys.int::defglobal *lapic-timer-calibration*)
 
+;; Timer ticks per second as computed by the calibration.
+(sys.int::defglobal *lapic-timer-ticks-per-second*)
+
+(defun lapic-timer-calibrate-tsc ()
+  "Calibrate the LAPIC timer using the TSC as a high-resolution time reference.
+*CPU-SPEED* must already be calibrated before calling this."
+  (let* ((tsc-start (sys.int::tsc))
+         (start-time (get-internal-run-time)))
+    ;; Start timer with the maximum count value
+    (write-lapic #xFFFFFFFF +lapic-reg-timer-initial-count+)
+    ;; Wait for the next PIT tick as our interval marker.
+    (loop (when (not (eql (get-internal-run-time) start-time)) (return)))
+    (let* ((tsc-end (sys.int::tsc))
+           (lapic-remaining (read-lapic +lapic-reg-timer-current-count+))
+           (lapic-cycles (- #xFFFFFFFF lapic-remaining))
+           (tsc-delta (- tsc-end tsc-start)))
+      ;; Stop timer
+      (write-lapic 0 +lapic-reg-timer-initial-count+)
+      (if (zerop tsc-delta)
+          0
+          ;; LAPIC Hz = (lapic_cycles / tsc_delta) * cpu_speed
+          ;; Use single-floats to avoid allocation during early boot.
+          (let ((cpu-speed (float *cpu-speed*)))
+            (/ (* (float lapic-cycles) cpu-speed)
+               (float tsc-delta)))))))
+
 ;; TODO: Be more clever when picking the divisor.
 ;; Should dynamically adjust so a goldilocks calibration value is returned.
 (defun lapic-timer-calibrate ()
-  (let ((n (lapic-timer-calibrate-1)))
-    (dotimes (i 5)
-      (setf n (/ (+ n (lapic-timer-calibrate-1)) 2)))
-    (setf *lapic-timer-calibration* (truncate n))))
+  (if (tsc-deadline-available-p)
+      ;; Use TSC for high-resolution calibration.
+      (let ((n (lapic-timer-calibrate-tsc)))
+        (dotimes (i 5)
+          (setf n (/ (+ n (lapic-timer-calibrate-tsc)) 2)))
+        (setf *lapic-timer-calibration* (truncate n)
+              *lapic-timer-ticks-per-second* (truncate n)))
+      ;; Fall back to PIT-based calibration.
+      (let ((n (lapic-timer-calibrate-1)))
+        (dotimes (i 5)
+          (setf n (/ (+ n (lapic-timer-calibrate-1)) 2)))
+        (setf *lapic-timer-calibration* (truncate n)
+              *lapic-timer-ticks-per-second* (truncate n)))))
 
 ;; These two functions are interrupt-safe, they must not use
 ;; floats, bignums or ratios when converting.
@@ -1044,6 +1080,9 @@ This is a one-shot timer and must be reset after firing."
 (defun x2apic-enabled-by-firmware-p ()
   (logbitp 10 (sys.int::msr +msr-ia32-apic-base+)))
 
+(defun tsc-deadline-available-p ()
+  (logbitp +cpuid-feature-tsc-deadline+ (%cpuid-1-ecx-early 1 0)))
+
 (defun read-local-apic-id ()
   (if *lapic-x2apic-mode*
       (sys.int::msr #x802)
@@ -1068,10 +1107,12 @@ This is a one-shot timer and must be reset after firing."
                 (setf *lapic-x2apic-mode* t)
                 (debug-print-line "x2APIC already enabled by firmware"))
                (t
-                ;; Enable x2APIC: set bit 10 in IA32_APIC_BASE MSR.
+                ;; Enable x2APIC: set bit 10 (enable) and bit 11 (BSP) in IA32_APIC_BASE MSR.
                 (let ((apic-base (sys.int::msr +msr-ia32-apic-base+)))
                   (setf (sys.int::msr +msr-ia32-apic-base+)
-                        (logior apic-base +msr-ia32-apic-base-x2apic-enable+)))
+                        (logior apic-base
+                                +msr-ia32-apic-base-x2apic-enable+
+                                +msr-ia32-apic-base-bsp+)))
                 (setf *lapic-x2apic-mode* t)
                 (debug-print-line "x2APIC enabled on BSP"))))
         (t
