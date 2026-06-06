@@ -183,6 +183,12 @@
       (setf (sys.int::io-port/8 #x21) #xFF
             (sys.int::io-port/8 #xA1) #xFF
             *i8259-shadow-mask* #xFFFF))
+    ;; Mask LINT0 and LINT1 on the LAPIC to prevent i8259 spurious
+    ;; interrupts from reaching the CPU through ExtINT/NMI.
+    (write-lapic (logior (read-lapic +lapic-reg-lvt-lint0+) +lapic-lvt-mask+)
+                 +lapic-reg-lvt-lint0+)
+    (write-lapic (logior (read-lapic +lapic-reg-lvt-lint1+) +lapic-lvt-mask+)
+                 +lapic-reg-lvt-lint1+)
     nil))
 
 (defun io-apic-interrupt-handler (interrupt-frame info)
