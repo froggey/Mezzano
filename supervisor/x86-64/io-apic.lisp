@@ -23,6 +23,7 @@
 (sys.int::defglobal *io-apic-active-p* nil)
 (sys.int::defglobal *io-apic-irqs* nil)
 (sys.int::defglobal *isa-irq-to-gsi* nil)
+(sys.int::defglobal *gsi-flags* nil)
 
 (defstruct (io-apic
              (:area :wired))
@@ -86,6 +87,12 @@
   (declare (ignore gsi))
   nil)
 
+(defun gsi-flags-polarity (flags)
+  (if (eql (ldb (byte 2 0) flags) 3) :low :high))
+
+(defun gsi-flags-trigger (flags)
+  (if (eql (ldb (byte 2 2) flags) 3) :level :edge))
+
 (defun initialize-io-apics ()
   (setf *io-apic-active-p* nil)
   (unless (boundp '*io-apics*)
@@ -94,11 +101,13 @@
     (return-from initialize-io-apics))
   (setf *io-apic-irqs* nil)
   (setf *isa-irq-to-gsi* nil)
+  (setf *gsi-flags* nil)
   (let ((madt (acpi-get-table 'acpi-madt-table-p)))
     (unless madt
       (debug-print-line "No MADT table, IO-APIC not available.")
       (return-from initialize-io-apics))
     (let ((isa-mapping (sys.int::make-simple-vector 16 :wired)))
+      (setf *gsi-flags* (sys.int::make-simple-vector 256 :wired))
       (dotimes (i 16)
         (setf (svref isa-mapping i) i))
       (dotimes (i (sys.int::simple-vector-length
@@ -110,6 +119,10 @@
               (setf (svref isa-mapping
                            (acpi-madt-interrupt-source-override-source entry))
                     (acpi-madt-interrupt-source-override-global-system-interrupt entry))
+              (let ((gsi (acpi-madt-interrupt-source-override-global-system-interrupt entry))
+                    (flags (acpi-madt-interrupt-source-override-flags entry)))
+                (when (< gsi 256)
+                  (setf (svref *gsi-flags* gsi) flags)))
               (debug-print-line "MADT override: ISA IRQ "
                                 (acpi-madt-interrupt-source-override-source entry)
                                 " -> GSI "
@@ -142,13 +155,14 @@
                   (push-wired io-apic *io-apics*)
                   (dotimes (e n-entries)
                     (io-apic-write-redirection io-apic e +io-apic-entry-mask+)
-                    (let ((gsi (+ gsi-base e)))
-                      (io-apic-configure-entry gsi
-                                               (+ +io-apic-base-vector+ gsi)
-                                               bsp-apic-id
-                                               :trigger-mode :edge
-                                               :polarity :high
-                                               :masked t))))
+                     (let ((gsi (+ gsi-base e))
+                           (flags (svref *gsi-flags* (+ gsi-base e))))
+                       (io-apic-configure-entry gsi
+                                                (+ +io-apic-base-vector+ gsi)
+                                                bsp-apic-id
+                                                :trigger-mode (gsi-flags-trigger flags)
+                                                :polarity (gsi-flags-polarity flags)
+                                                :masked t))))
                 (debug-print-line "IO-APIC " (io-apic-id io-apic)
                                   " at " phys-addr
                                   " GSI base " (io-apic-gsi-base io-apic)
