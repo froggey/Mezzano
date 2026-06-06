@@ -28,6 +28,29 @@
 
 (sys.int::defglobal *store-fudge-factor*)
 
+(defconstant +tlb-shootdown-batch-size+ 64
+  "Maximum number of pages to invalidate individually before falling
+back to a full TLB flush.")
+
+(defun check-tlb-shootdown-not-in-progress ()
+  (ensure (not *tlb-shootdown-in-progress*) "TLB shootdown in progress!"))
+
+(defun tlb-shootdown-single (address)
+  (ensure *tlb-shootdown-in-progress*)
+  (flush-tlb-single address))
+
+(defun tlb-shootdown-range (base length)
+  (ensure *tlb-shootdown-in-progress*)
+  (let ((n-pages (truncate (+ length (1- +4k-page-size+)) +4k-page-size+)))
+    (if (<= n-pages +tlb-shootdown-batch-size+)
+        (loop for addr from base below (+ base length) by +4k-page-size+
+              do (flush-tlb-single addr))
+        (flush-tlb))))
+
+(defun tlb-shootdown-all ()
+  (ensure *tlb-shootdown-in-progress*)
+  (flush-tlb))
+
 (defun pager-log (&rest things)
   (declare (dynamic-extent things))
   (when (eql *pager-noisy* t)

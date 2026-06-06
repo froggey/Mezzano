@@ -316,10 +316,6 @@ Protected by the world stop lock."
 
 (sys.int::defglobal *tlb-shootdown-in-progress* nil)
 
-(defconstant +tlb-shootdown-batch-size+ 64
-  "Maximum number of pages to invalidate individually before falling
-back to a full TLB flush.")
-
 (defun begin-tlb-shootdown ()
   "Prepare for TLB shootdown on ARM64.
 TLB shootdown must be protected by the VM lock."
@@ -329,30 +325,11 @@ TLB shootdown must be protected by the VM lock."
   (setf (cpu-inhibit-scheduling (local-cpu))
         (1+ (cpu-inhibit-scheduling (local-cpu)))))
 
-(defun tlb-shootdown-single (address)
-  (ensure *tlb-shootdown-in-progress*)
-  (flush-tlb-single address))
-
-(defun tlb-shootdown-range (base length)
-  (ensure *tlb-shootdown-in-progress*)
-  (let ((n-pages (truncate (+ length (1- +4k-page-size+)) +4k-page-size+)))
-    (if (<= n-pages +tlb-shootdown-batch-size+)
-        (loop for addr from base below (+ base length) by +4k-page-size+
-              do (flush-tlb-single addr))
-        (flush-tlb))))
-
-(defun tlb-shootdown-all ()
-  (ensure *tlb-shootdown-in-progress*)
-  (flush-tlb))
-
 (defun finish-tlb-shootdown ()
   (ensure *tlb-shootdown-in-progress*)
   (setf *tlb-shootdown-in-progress* nil)
   (setf (cpu-inhibit-scheduling (local-cpu))
         (max 0 (1- (cpu-inhibit-scheduling (local-cpu))))))
-
-(defun check-tlb-shootdown-not-in-progress ()
-  (ensure (not *tlb-shootdown-in-progress*) "TLB shootdown in progress!"))
 
 (defun check-tlb-generation-consistency ()
   nil)
