@@ -302,6 +302,12 @@ Returns NIL if the BAR has an unknown type."
 (defun pci-intr-line (device)
   (pci-config/8 device +pci-config-intr-line+))
 
+(defun pci-configure-msi (device vector cpu)
+  "Configure MSI/MSI-X for DEVICE to use VECTOR on CPU.
+Not yet implemented."
+  (declare (ignore device vector cpu))
+  (panic "pci-configure-msi is not implemented"))
+
 (defun pci-bus-master-enabled (device)
   (logbitp +pci-command-bus-master+
            (pci-config/16 device +pci-config-command+)))
