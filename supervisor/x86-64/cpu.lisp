@@ -363,7 +363,9 @@ If the CPU is idle, this will cause it to check for new threads."
    '*debug-magic-button-ready-variable* -1))
 
 (sys.int::defglobal *tlb-shootdown-in-progress* nil)
+(sys.int::defglobal *tlb-shootdown-n-targets* 0)
 (sys.int::defglobal *busy-tlb-shootdown-cpus*)
+(sys.int::defglobal *current-tlb-generation*)
 
 (defconstant +tlb-shootdown-batch-size+ 64
   "Maximum number of pages to invalidate individually before falling
@@ -372,6 +374,15 @@ back to a full TLB flush.")
 (defun check-tlb-shootdown-not-in-progress ()
   (ensure (not *tlb-shootdown-in-progress*) "TLB shootdown in progress!"))
 
+(defun check-tlb-generation-consistency ()
+  "If this CPU missed a TLB shootdown while idle, flush now."
+  (when (and (boundp '*current-tlb-generation*)
+             (not (eql (cpu-tlb-generation (local-cpu))
+                       *current-tlb-generation*)))
+    (flush-tlb)
+    (setf (cpu-tlb-generation (local-cpu))
+          *current-tlb-generation*)))
+
 (defun begin-tlb-shootdown ()
   "Bring all CPUs to state ready for TLB shootdown.
 TLB shootdown must be protected by the VM lock."
@@ -379,12 +390,25 @@ TLB shootdown must be protected by the VM lock."
   (ensure (not *tlb-shootdown-in-progress*) "TLB shootdown already in progress!")
   (setf *tlb-shootdown-in-progress* t)
   (setf *busy-tlb-shootdown-cpus* (1- *n-up-cpus*))
+  (setf *tlb-shootdown-n-targets* 0)
   ;; Prevent migration during shootdown.
   (setf (cpu-inhibit-scheduling (local-cpu))
         (1+ (cpu-inhibit-scheduling (local-cpu))))
-  ;; Broadcast to all CPUs, not just busy ones. Idle CPUs will flush lazily.
-  (broadcast-ipi +ipi-type-fixed+ +tlb-shootdown-ipi-vector+)
-  ;; Wait for other CPUs to reach the handler. Idle CPUs are counted as done.
+  ;; Send IPIs to non-idle CPUs only. Idle CPUs flush lazily on wakeup.
+  (dolist (cpu *cpus*)
+    (when (and (eql (x86-64-cpu-state cpu) :online)
+               (not (eql cpu (local-cpu))))
+      (if (cpu-idle-p cpu)
+          (progn
+            (setf (cpu-tlb-generation cpu)
+                  (1- *current-tlb-generation*))
+            (sys.int::%atomic-fixnum-add-symbol
+             '*busy-tlb-shootdown-cpus* -1))
+          (progn
+            (incf *tlb-shootdown-n-targets*)
+            (send-ipi-to-cpu cpu +ipi-type-fixed+
+                             +tlb-shootdown-ipi-vector+)))))
+  ;; Wait for other CPUs to reach the handler.
   (loop
      (when (eql *busy-tlb-shootdown-cpus* 0)
        (return))
@@ -408,7 +432,10 @@ TLB shootdown must be protected by the VM lock."
 
 (defun finish-tlb-shootdown ()
   (ensure *tlb-shootdown-in-progress*)
-  (setf *busy-tlb-shootdown-cpus* (1- *n-up-cpus*))
+  ;; Bump the global generation so idle CPUs know to flush on wakeup.
+  (sys.int::%atomic-fixnum-add-symbol '*current-tlb-generation* 1)
+  ;; Only wait for CPUs that actually received the IPI in begin-tlb-shootdown.
+  (setf *busy-tlb-shootdown-cpus* *tlb-shootdown-n-targets*)
   (setf *tlb-shootdown-in-progress* nil)
   ;; Wait for CPUs to leave the handler.
   (loop
@@ -438,6 +465,8 @@ TLB shootdown must be protected by the VM lock."
   ;; idle (the context switch on wakeup will reload CR3).
   (when (not (cpu-idle-p (local-cpu)))
     (flush-tlb))
+  ;; Record that this CPU's TLB is up to date wrt the current generation.
+  (setf (cpu-tlb-generation (local-cpu)) *current-tlb-generation*)
   (sys.int::%atomic-fixnum-add-symbol '*busy-tlb-shootdown-cpus*
                                       -1)
   (setf (cpu-inhibit-scheduling (local-cpu))
@@ -1129,6 +1158,7 @@ This is a one-shot timer and must be reset after firing."
   (setf (cpu-idle-p *bsp-cpu*) nil)
   (setf (cpu-inhibit-scheduling *bsp-cpu*) 0)
   (setf (cpu-tlb-generation *bsp-cpu*) 0)
+  (setf *current-tlb-generation* 0)
   (setf (cpu-timer-active *bsp-cpu*) nil)
   ;; Allocate MCS node for BSP if not already allocated by cold-generator.
   (when (null (cpu-mcs-node *bsp-cpu*))

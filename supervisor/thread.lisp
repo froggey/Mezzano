@@ -473,6 +473,8 @@ Interrupts must be off and the global thread lock must be held."
     (setf (thread-switch-time-start new-thread) now))
   ;; Switch threads.
   (set-current-thread new-thread)
+  ;; Check if this CPU missed a TLB shootdown while idle.
+  (check-tlb-generation-consistency)
   ;; Restore FPU state.
   (restore-fpu-state new-thread)
   ;; The global thread lock is dropped by the restore functions, not here.

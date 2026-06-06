@@ -142,7 +142,6 @@
           (make-pte new-frame
                     :writable (and (block-info-writable-p block-info)
                                    (not (block-info-track-dirty-p block-info)))))
-    (flush-tlb-single fault-addr)
     (tlb-shootdown-single fault-addr)
     (finish-tlb-shootdown)
     #+(or)(debug-print-line "Copied page " fault-addr)))
@@ -204,8 +203,7 @@ Returns 4 values:
                  (make-pte frame
                            :writable (and (block-info-writable-p block-info)
                                           (not (block-info-track-dirty-p block-info)))
-                           :dirty (page-dirty-p pte)))
-           (flush-tlb-single address))
+                           :dirty (page-dirty-p pte))))
          ;; Return page to normal use.
          (setf (physical-page-frame-type frame) :active)
          (append-to-page-replacement-list frame)

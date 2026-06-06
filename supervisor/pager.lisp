@@ -499,7 +499,6 @@ Returns NIL if the entry is missing and ALLOCATE is false."
                              :allow-wired stackp :stackp stackp)
             (setf (page-table-entry pte 0) 0))))
       (begin-tlb-shootdown)
-      (flush-tlb)
       (when (not (or stackp
                      (mark-bit-region-p base)))
         (tlb-shootdown-range card-base card-length))
@@ -549,7 +548,6 @@ Returns NIL if the entry is missing and ALLOCATE is false."
                   (t
                    ;; Mark read-only.
                    (update-pte pte :writable nil)))))))
-    (flush-tlb)
     (tlb-shootdown-all)
     (finish-tlb-shootdown)))
 
@@ -582,8 +580,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
          ;; ARM64's dirty bit emulation does not support emulating
          ;; dirty bits in the wired area yet.
          #-arm64
-         (update-pte pte :dirty nil))))
-    (flush-tlb)
+          (update-pte pte :dirty nil))))
     (tlb-shootdown-all)
     (finish-tlb-shootdown)))
 
@@ -734,7 +731,6 @@ mapped, then the entry will be NIL."
         (remove-from-page-replacement-list candidate)
         (begin-tlb-shootdown)
         (setf (page-table-entry pte-addr) (make-pte 0 :present nil))
-        (flush-tlb-single candidate-virtual)
         (tlb-shootdown-single candidate-virtual)
         (finish-tlb-shootdown)
         ;; Maybe write it back to disk.
@@ -847,8 +843,7 @@ mapped, then the entry will be NIL."
         ;; Remap page read/write.
         (begin-tlb-shootdown)
         (setf (page-table-entry pte) (make-pte (ash (pte-physical-address (page-table-entry pte)) -12)
-                                               :writable (block-info-writable-p block-info)))
-        (flush-tlb-single address)
+                                                :writable (block-info-writable-p block-info)))
         (tlb-shootdown-single address)
         (finish-tlb-shootdown))
       #+(or)(debug-print-line "WFP " address " block " block-info " already mapped " (page-table-entry pte 0))
@@ -892,12 +887,11 @@ mapped, then the entry will be NIL."
                (panic "Unable to read page from disk"))))
       (begin-tlb-shootdown)
       (setf (page-table-entry pte) (make-pte frame
-                                             :writable (and (block-info-writable-p block-info)
-                                                            (not (block-info-track-dirty-p block-info)))
-                                             ;; Mark the page dirty to make sure the snapshotter & swap code know to swap it out.
-                                             ;; The zero fill flag in the block map was cleared, but the on-disk data doesn't reflect that.
-                                             :dirty is-zero-page))
-      (flush-tlb-single address)
+                                              :writable (and (block-info-writable-p block-info)
+                                                             (not (block-info-track-dirty-p block-info)))
+                                              ;; Mark the page dirty to make sure the snapshotter & swap code know to swap it out.
+                                              ;; The zero fill flag in the block map was cleared, but the on-disk data doesn't reflect that.
+                                              :dirty is-zero-page))
       (tlb-shootdown-single address)
       (finish-tlb-shootdown)
       #+(or)

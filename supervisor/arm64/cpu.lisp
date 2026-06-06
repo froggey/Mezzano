@@ -21,6 +21,7 @@
   page-fault-hook)
 
 (defun initialize-boot-cpu ()
+  (setf *tlb-shootdown-in-progress* nil)
   (setf (arm64-cpu-self *bsp-cpu*) *bsp-cpu*)
   (setf (arm64-cpu-state *bsp-cpu*) :online)
   (setf (arm64-cpu-idle-thread *bsp-cpu*)
@@ -80,6 +81,8 @@
 (defun initialize-cpu ()
   (setf (arm64-cpu-cpu-id *bsp-cpu*) (fdt-boot-cpuid))
   (setf (cpu-cpu-index *bsp-cpu*) 0)
+  (setf (cpu-inhibit-scheduling *bsp-cpu*) 0)
+  (setf (cpu-tlb-generation *bsp-cpu*) 0)
   (push-wired *bsp-cpu* *cpus*))
 
 (sys.int::define-lap-function %el0-common ()
@@ -306,26 +309,52 @@ Protected by the world stop lock."
   (sys.int::%atomic-fixnum-add-symbol
    '*debug-magic-button-ready-variable* -1))
 
-;; TLB shootdown isn't required as ARM has cross-core TLB invalidation instructions
+;; ARM64 has hardware-broadcast TLB invalidation (TLBI IS instructions).
+;; No IPIs needed — the initiating CPU issues TLBI VAE1IS which broadcasts
+;; to all CPUs in the inner shareable domain. We still bracket the operation
+;; with inhibit-scheduling to prevent CPU migration.
+
+(sys.int::defglobal *tlb-shootdown-in-progress* nil)
+
+(defconstant +tlb-shootdown-batch-size+ 64
+  "Maximum number of pages to invalidate individually before falling
+back to a full TLB flush.")
 
 (defun begin-tlb-shootdown ()
-  nil)
+  "Prepare for TLB shootdown on ARM64.
+TLB shootdown must be protected by the VM lock."
+  (ensure (rw-lock-write-held-p *vm-lock*) "VM lock not held when doing TLB shootdown!")
+  (ensure (not *tlb-shootdown-in-progress*) "TLB shootdown already in progress!")
+  (setf *tlb-shootdown-in-progress* t)
+  (setf (cpu-inhibit-scheduling (local-cpu))
+        (1+ (cpu-inhibit-scheduling (local-cpu)))))
 
 (defun tlb-shootdown-single (address)
-  (declare (ignore address))
-  nil)
+  (ensure *tlb-shootdown-in-progress*)
+  (flush-tlb-single address))
 
 (defun tlb-shootdown-range (base length)
-  (declare (ignore base length))
-  nil)
+  (ensure *tlb-shootdown-in-progress*)
+  (let ((n-pages (truncate (+ length (1- +4k-page-size+)) +4k-page-size+)))
+    (if (<= n-pages +tlb-shootdown-batch-size+)
+        (loop for addr from base below (+ base length) by +4k-page-size+
+              do (flush-tlb-single addr))
+        (flush-tlb))))
 
 (defun tlb-shootdown-all ()
-  nil)
+  (ensure *tlb-shootdown-in-progress*)
+  (flush-tlb))
 
 (defun finish-tlb-shootdown ()
-  nil)
+  (ensure *tlb-shootdown-in-progress*)
+  (setf *tlb-shootdown-in-progress* nil)
+  (setf (cpu-inhibit-scheduling (local-cpu))
+        (max 0 (1- (cpu-inhibit-scheduling (local-cpu))))))
 
 (defun check-tlb-shootdown-not-in-progress ()
+  (ensure (not *tlb-shootdown-in-progress*) "TLB shootdown in progress!"))
+
+(defun check-tlb-generation-consistency ()
   nil)
 
 (defun local-cpu-idle-thread ()
@@ -360,6 +389,8 @@ Protected by the world stop lock."
                                           (stack-size wired-stack)
                                           -16))))
     (setf (cpu-cpu-index cpu) (length *cpus*))
+    (setf (cpu-inhibit-scheduling cpu) 0)
+    (setf (cpu-tlb-generation cpu) 0)
     (setf (arm64-cpu-self cpu) cpu)
     (setf (sys.int::memref-unsigned-byte-64 (arm64-cpu-sp-el1 cpu))
           (sys.int::lisp-object-address cpu))
