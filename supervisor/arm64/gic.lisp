@@ -46,7 +46,6 @@
 (defconstant +panic-sgi-id+ 1)
 (defconstant +wakeup-sgi-id+ 2)
 (defconstant +quiesce-sgi-id+ 3)
-(defconstant +magic-button-sgi-id+ 4)
 
 (defun gic-dist-reg (index)
   (physical-memref-unsigned-byte-32 (+ *gic-distributor-base* index)))
@@ -102,8 +101,7 @@
   ;; Unmask our various IPIs
   (gic-unmask-interrupt +panic-sgi-id+)
   (gic-unmask-interrupt +wakeup-sgi-id+)
-  (gic-unmask-interrupt +quiesce-sgi-id+)
-  (gic-unmask-interrupt +magic-button-sgi-id+))
+  (gic-unmask-interrupt +quiesce-sgi-id+))
 
 (defun configure-gic-cpu ()
   ;; Enable the local CPU.
@@ -141,8 +139,6 @@
              (#.+quiesce-sgi-id+
               ;; nothing, handled later
               nil)
-             (#.+magic-button-sgi-id+
-              (magic-button-ipi-handler interrupt-frame))
              (t (debug-print-line "Received unknown SGI " vector))))
           (t
            ;; Normal external IRQ
@@ -174,9 +170,15 @@
 (defun platform-unmask-irq (vector)
   (gic-unmask-interrupt vector))
 
-(defun broadcast-ipi (vector)
+(defun send-ipi-to-all (vector)
   (%dsb.ishst)
   (setf (gic-dist-reg +gicd-sgir+)
         (logior (ash 1 24) ; all-but-self
                 vector))
   nil)
+
+(defun send-ipi-to-cpu (cpu vector)
+  (%dsb.ishst)
+  (setf (gic-dist-reg +gicd-sgir+)
+        (logior (ash 1 (+ 16 (cpu-cpu-index cpu)))
+                vector)))

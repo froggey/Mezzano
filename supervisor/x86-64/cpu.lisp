@@ -47,7 +47,6 @@
 (defconstant +lapic-lvt-mask+ #x10000)
 
 (defconstant +ipi-type-fixed+ 0)
-(defconstant +ipi-type-lowest-priority+ 1)
 (defconstant +ipi-type-smi+ 2)
 (defconstant +ipi-type-nmi+ 4)
 (defconstant +ipi-type-init+ 5)
@@ -149,9 +148,6 @@ The bootloader is loaded to #x7C00, so #x7000 should be safe.")
 (defconstant +tlb-shootdown-ipi-vector+ #x83
   "Sent to CPUs to prepare them for TLB shootdown.")
 
-(defconstant +magic-button-ipi-vector+ #x84
-  "Sent to CPUs when the magic debug button is pressed.")
-
 (defconstant +reschedule-ipi-vector+ #x85
   "Sent to a specific CPU to request rescheduling.")
 
@@ -231,29 +227,35 @@ The bootloader is loaded to #x7C00, so #x7000 should be safe.")
                                                                      (ash type 8)
                                                                      vector)))))
 
+(defun send-ipi-to-cpu (cpu type vector)
+  (send-ipi (x86-64-cpu-apic-id cpu) type vector))
+
+(defun send-ipi-to-all (type vector &key including-self)
+  (if (and (boundp '*lapic-x2apic-mode*) *lapic-x2apic-mode*)
+      ;; x2APIC shorthand: use destination shorthand in ICR.
+      (let ((icr (logior (ash type 8)
+                         #x4000
+                         vector)))
+        (setf (sys.int::msr +x2apic-msr-icr+)
+              (logior icr (ash (if including-self 0 3) 18))))
+      (dolist (cpu *cpus*)
+        (when (and (eql (x86-64-cpu-state cpu) :online)
+                   (or including-self
+                       (not (eql cpu (local-cpu)))))
+          (send-ipi-to-cpu cpu type vector)))))
+
 (defun broadcast-ipi (type vector &optional including-self)
-  ;; BROADCAST-IPI can be called very early due to thread wakeups, before
-  ;; the lapic is mapped by INITIALIZE-CPU.
   (when (and (boundp '*lapic-address*)
              *lapic-address*)
-    ;; Disable interrupts to prevent cross-cpu migration from
-    ;; fouling up behaviour of INCLUDING-SELF.
     (safe-without-interrupts (type vector including-self)
-      (if (and (boundp '*lapic-x2apic-mode*) *lapic-x2apic-mode*)
-          ;; x2APIC shorthand: use destination shorthand in ICR.
-          (let ((icr (logior (ash type 8)
-                             #x4000
-                             vector)))
-            (setf (sys.int::msr +x2apic-msr-icr+)
-                  (logior icr (ash (if including-self 0 3) 18))))
-          (dolist (cpu *cpus*)
-            (when (and (eql (x86-64-cpu-state cpu) :online)
-                       (or including-self
-                           (not (eql cpu (local-cpu)))))
-              (send-ipi (x86-64-cpu-apic-id cpu) type vector)))))))
+      (send-ipi-to-all type vector :including-self including-self))))
 
 (defun broadcast-wakeup-ipi ()
-  (broadcast-ipi +ipi-type-fixed+ +wakeup-ipi-vector+))
+  (when (and (boundp '*lapic-address*)
+             *lapic-address*)
+    (dolist (cpu *cpus*)
+      (when (eql (x86-64-cpu-state cpu) :online)
+        (wake-cpu cpu)))))
 
 (defun wakeup-ipi-handler (interrupt-frame info)
   (declare (ignore info))
@@ -286,28 +288,31 @@ Protected by the world stop lock."
 (defun quiesce-ipi-handler (interrupt-frame info)
   (declare (ignore info))
   (lapic-eoi)
-  (let* ((current (current-thread))
-         (idle (local-cpu-idle-thread))
-         (was-active (not (eql current idle))))
-    (when was-active
-      (acquire-global-thread-lock)
-      ;; Return this thread to the run queue.
-      (setf (thread-state current) :runnable)
-      (push-run-queue current)
-      (preemption-timer-reset nil)
-      ;; Save thread state.
-      (save-fpu-state current)
-      (save-interrupted-state current interrupt-frame)
-      ;; Partially switch to the idle thread.
-      (setf (thread-state idle) :active)
-      (setf (sys.int::msr +msr-ia32-gs-base+) (sys.int::lisp-object-address idle)))
-    ;; Have now reached a quiescent state.
-    (sys.int::%atomic-fixnum-add-symbol '*non-quiescent-cpus-remaining*
-                                        -1)
-    (when was-active
-      ;; Finally, return to the idle thread.
-      (%%switch-to-thread-common idle
-                                 idle))))
+  (cond (*debug-magic-button-hold-variable*
+         ;; Magic button active: save state and spin.
+         (magic-button-ipi-handler-1 interrupt-frame))
+        (t
+         ;; Normal quiesce: switch to idle thread.
+         (let* ((current (current-thread))
+                (idle (local-cpu-idle-thread))
+                (was-active (not (eql current idle))))
+           (when was-active
+             (acquire-global-thread-lock)
+             ;; Return this thread to the run queue.
+             (setf (thread-state current) :runnable)
+             (push-run-queue current)
+             (preemption-timer-reset nil)
+             ;; Save thread state.
+             (save-fpu-state current)
+             (save-interrupted-state current interrupt-frame)
+             ;; Partially switch to the idle thread.
+             (setf (thread-state idle) :active)
+             (setf (sys.int::msr +msr-ia32-gs-base+) (sys.int::lisp-object-address idle)))
+           ;; Have now reached a quiescent state.
+           (sys.int::%atomic-fixnum-add-symbol '*non-quiescent-cpus-remaining* -1)
+           (when was-active
+             ;; Finally, return to the idle thread.
+             (%%switch-to-thread-common idle idle))))))
 
 ;; TODO: This needs to be fixed up to prevent multiple CPUs hitting it at
 ;; once. It can't currently happen because it is only used from IRQ handlers
@@ -318,7 +323,7 @@ Protected by the world stop lock."
 (defun stop-other-cpus-for-debug-magic-button ()
   (setf *debug-magic-button-ready-variable* (1- *n-up-cpus*)
         *debug-magic-button-hold-variable* t)
-  (broadcast-ipi +ipi-type-fixed+ +magic-button-ipi-vector+)
+  (send-ipi-to-all +ipi-type-fixed+ +quiesce-ipi-vector+)
   ;; Wait for other CPUs to arrive, this ensures the thread state is actually
   ;; consistent.
   (loop until (eql *debug-magic-button-ready-variable* 0)))
@@ -330,11 +335,6 @@ Protected by the world stop lock."
   ;; the hold variable going to NIL.
   (loop until (eql *debug-magic-button-ready-variable* 0)))
 
-(defun magic-button-ipi-handler (interrupt-frame info)
-  (declare (ignore info))
-  (magic-button-ipi-handler-1 interrupt-frame)
-  (lapic-eoi))
-
 (defun reschedule-ipi-handler (interrupt-frame info)
   (declare (ignore info))
   (lapic-eoi)
@@ -345,7 +345,7 @@ Protected by the world stop lock."
   "Send a directed wakeup IPI to a specific CPU.
 If the CPU is idle, this will cause it to check for new threads."
   (when (cpu-idle-p cpu)
-    (send-ipi (x86-64-cpu-apic-id cpu) +ipi-type-fixed+ +wakeup-ipi-vector+)))
+    (send-ipi-to-cpu cpu +ipi-type-fixed+ +wakeup-ipi-vector+)))
 
 (defun magic-button-ipi-handler-1 (interrupt-frame)
   (when (not *debug-magic-button-hold-variable*)
@@ -1096,15 +1096,17 @@ This is a one-shot timer and must be reset after firing."
   (setf *cpus* '())
   (push-wired *bsp-cpu* *cpus*)
   (setf *n-up-cpus* 1)
-  (hook-user-interrupt +lapic-vector-svr+ 'lapic-svr-handler)
-  (hook-user-interrupt +lapic-vector-err+ 'lapic-error-handler)
-  (hook-user-interrupt +lapic-vector-timer+ 'lapic-timer-handler)
-  (hook-user-interrupt +wakeup-ipi-vector+ 'wakeup-ipi-handler)
-  (hook-user-interrupt +panic-ipi-vector+ 'panic-ipi-handler)
-  (hook-user-interrupt +quiesce-ipi-vector+ 'quiesce-ipi-handler)
-  (hook-user-interrupt +tlb-shootdown-ipi-vector+ 'tlb-shootdown-ipi-handler)
-  (hook-user-interrupt +magic-button-ipi-vector+ 'magic-button-ipi-handler)
-  (hook-user-interrupt +reschedule-ipi-vector+ 'reschedule-ipi-handler))
+  (register-ipi-handler +lapic-vector-svr+ 'lapic-svr-handler)
+  (register-ipi-handler +lapic-vector-err+ 'lapic-error-handler)
+  (register-ipi-handler +lapic-vector-timer+ 'lapic-timer-handler)
+  (register-ipi-handler +wakeup-ipi-vector+ 'wakeup-ipi-handler)
+  (register-ipi-handler +panic-ipi-vector+ 'panic-ipi-handler)
+  (register-ipi-handler +quiesce-ipi-vector+ 'quiesce-ipi-handler)
+  (register-ipi-handler +tlb-shootdown-ipi-vector+ 'tlb-shootdown-ipi-handler)
+  (register-ipi-handler +reschedule-ipi-vector+ 'reschedule-ipi-handler))
+
+(defun register-ipi-handler (vector handler)
+  (hook-user-interrupt vector handler))
 
 (defun load-cpu-bits (cpu)
   (let* ((addr (- (sys.int::lisp-object-address cpu)

@@ -79,6 +79,7 @@
 
 (defun initialize-cpu ()
   (setf (arm64-cpu-cpu-id *bsp-cpu*) (fdt-boot-cpuid))
+  (setf (cpu-cpu-index *bsp-cpu*) 0)
   (push-wired *bsp-cpu* *cpus*))
 
 (sys.int::define-lap-function %el0-common ()
@@ -224,14 +225,20 @@
   (mezzano.lap.arm64:hlt 4))
 
 (defun broadcast-panic-ipi ()
-  (broadcast-ipi +panic-sgi-id+))
+  (send-ipi-to-all +panic-sgi-id+))
 
 (defun panic-ipi-handler (interrupt-frame)
   (declare (ignore interrupt-frame))
   (loop (%arch-panic-stop)))
 
 (defun broadcast-wakeup-ipi ()
-  (broadcast-ipi +wakeup-sgi-id+))
+  (dolist (cpu *cpus*)
+    (when (eql (arm64-cpu-state cpu) :online)
+      (wake-cpu cpu))))
+
+(defun wake-cpu (cpu)
+  (when (cpu-idle-p cpu)
+    (send-ipi-to-cpu cpu +wakeup-sgi-id+)))
 
 (sys.int::defglobal *non-quiescent-cpus-remaining*)
 
@@ -240,7 +247,7 @@
   "Bring all CPUs to a consistent state to stop the world.
 Protected by the world stop lock."
   (setf *non-quiescent-cpus-remaining* (1- *n-up-cpus*))
-  (broadcast-ipi +quiesce-sgi-id+)
+  (send-ipi-to-all +quiesce-sgi-id+)
   ;; FIXME: Use WFE/SEV instead of this spin-loop.
   (loop
      (when (eql *non-quiescent-cpus-remaining* 0)
@@ -249,27 +256,23 @@ Protected by the world stop lock."
 
 ;; Save the current thread's state and switch to the CPU's idle thread.
 (defun quiesce-ipi-handler (interrupt-frame)
-  (let* ((current (current-thread))
-         (idle (local-cpu-idle-thread))
-         (was-active (not (eql current idle))))
-    (when was-active
-      (acquire-global-thread-lock)
-      ;; Return this thread to the run queue.
-      (setf (thread-state current) :runnable)
-      (push-run-queue current)
-      (preemption-timer-reset nil)
-      ;; Save thread state.
-      (save-fpu-state current)
-      (save-interrupted-state current interrupt-frame)
-      ;; Partially switch to the idle thread.
-      (setf (thread-state idle) :active))
-    ;; Have now reached a quiescent state.
-    (sys.int::%atomic-fixnum-add-symbol '*non-quiescent-cpus-remaining*
-                                        -1)
-    (when was-active
-      ;; Finally, return to the idle thread.
-      (%%switch-to-thread-common idle
-                                 idle))))
+  (cond (*debug-magic-button-hold-variable*
+         (magic-button-ipi-handler interrupt-frame))
+        (t
+         (let* ((current (current-thread))
+                (idle (local-cpu-idle-thread))
+                (was-active (not (eql current idle))))
+           (when was-active
+             (acquire-global-thread-lock)
+             (setf (thread-state current) :runnable)
+             (push-run-queue current)
+             (preemption-timer-reset nil)
+             (save-fpu-state current)
+             (save-interrupted-state current interrupt-frame)
+             (setf (thread-state idle) :active))
+           (sys.int::%atomic-fixnum-add-symbol '*non-quiescent-cpus-remaining* -1)
+           (when was-active
+             (%%switch-to-thread-common idle idle))))))
 
 ;; TODO: This needs to be fixed up to prevent multiple CPUs hitting it at
 ;; once. It can't currently happen because it is only used from IRQ handlers
@@ -280,7 +283,7 @@ Protected by the world stop lock."
 (defun stop-other-cpus-for-debug-magic-button ()
   (setf *debug-magic-button-ready-variable* (1- *n-up-cpus*)
         *debug-magic-button-hold-variable* t)
-  (broadcast-ipi +magic-button-sgi-id+)
+  (send-ipi-to-all +quiesce-sgi-id+)
   ;; Wait for other CPUs to arrive, this ensures the thread state is actually
   ;; consistent.
   (loop until (eql *debug-magic-button-ready-variable* 0)))
@@ -350,12 +353,13 @@ Protected by the world stop lock."
                                              :priority :idle))
          (wired-stack (%allocate-stack (* 128 1024) t))
          (cpu (make-arm64-cpu :state :offline
-                              :cpu-id cpu-id
-                              :idle-thread idle-thread
-                              :wired-stack wired-stack
-                              :sp-el1 (+ (stack-base wired-stack)
-                                         (stack-size wired-stack)
-                                         -16))))
+                               :cpu-id cpu-id
+                               :idle-thread idle-thread
+                               :wired-stack wired-stack
+                               :sp-el1 (+ (stack-base wired-stack)
+                                          (stack-size wired-stack)
+                                          -16))))
+    (setf (cpu-cpu-index cpu) (length *cpus*))
     (setf (arm64-cpu-self cpu) cpu)
     (setf (sys.int::memref-unsigned-byte-64 (arm64-cpu-sp-el1 cpu))
           (sys.int::lisp-object-address cpu))
