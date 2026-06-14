@@ -131,7 +131,8 @@
   irq-stack
   page-fault-stack
   lapic-timer-active
-  page-fault-hook)
+  page-fault-hook
+  (apic-in-x2apic-mode nil))
 
 (defconstant +ap-trampoline-physical-address+ #x7000
   "Where the AP trampoline should be copied to in physical memory.
@@ -216,10 +217,12 @@ The bootloader is loaded to #x7C00, so #x7000 should be safe.")
 (defun send-ipi (target type vector)
   (if *lapic-x2apic-mode*
       ;; x2APIC: single 64-bit WRMSR to MSR 0x830.
+      ;; Bits 14 (Level) and 15 (Trigger Mode) are reserved and must be
+      ;; zero in x2APIC mode (Intel SDM 10.12.9), so the #x4000 used by
+      ;; the xAPIC path below is deliberately not OR-ed in here.
       (setf (sys.int::msr +x2apic-msr-icr+)
             (logior (ash (logand target #xFFFFFFFF) 32)
                     (ash type 8)
-                    #x4000 ; edge triggered, assert, physical dest
                     vector))
       ;; xAPIC: two MMIO writes.
       (progn
@@ -233,12 +236,12 @@ The bootloader is loaded to #x7C00, so #x7000 should be safe.")
 
 (defun send-ipi-to-all (type vector &key including-self)
   (if (and (boundp '*lapic-x2apic-mode*) *lapic-x2apic-mode*)
-      ;; x2APIC shorthand: use destination shorthand in ICR.
+      ;; x2APIC shorthand: the destination-shorthand field is ICR
+      ;; bits 19:18 -- 01=self, 10=all-including-self, 11=all-excluding-self.
       (let ((icr (logior (ash type 8)
-                         #x4000
                          vector)))
         (setf (sys.int::msr +x2apic-msr-icr+)
-              (logior icr (ash (if including-self 0 3) 18))))
+              (logior icr (ash (if including-self 2 3) 18))))
       (dolist (cpu *cpus*)
         (when (and (eql (x86-64-cpu-state cpu) :online)
                    (or including-self
@@ -387,20 +390,19 @@ TLB shootdown must be protected by the VM lock."
   ;; Prevent migration during shootdown.
   (setf (cpu-inhibit-scheduling (local-cpu))
         (1+ (cpu-inhibit-scheduling (local-cpu))))
-  ;; Send IPIs to non-idle CPUs only. Idle CPUs flush lazily on wakeup.
+  ;; Send IPIs to every other online CPU.  Idle CPUs are intentionally
+  ;; NOT skipped: an idle CPU may wake during the shootdown window, run a
+  ;; thread, and cache a stale translation before *current-tlb-generation*
+  ;; is bumped in FINISH-TLB-SHOOTDOWN.  Receiving the IPI forces it to
+  ;; flush regardless of idle state.  (The lazy generation check in
+  ;; CHECK-TLB-GENERATION-CONSISTENCY remains as a defence-in-depth for
+  ;; CPUs that were offline entirely during the shootdown.)
   (dolist (cpu *cpus*)
     (when (and (eql (x86-64-cpu-state cpu) :online)
                (not (eql cpu (local-cpu))))
-      (if (cpu-idle-p cpu)
-          (progn
-            (setf (cpu-tlb-generation cpu)
-                  (1- *current-tlb-generation*))
-            (sys.int::%atomic-fixnum-add-symbol
-             '*busy-tlb-shootdown-cpus* -1))
-          (progn
-            (incf *tlb-shootdown-n-targets*)
-            (send-ipi-to-cpu cpu +ipi-type-fixed+
-                             +tlb-shootdown-ipi-vector+)))))
+      (incf *tlb-shootdown-n-targets*)
+      (send-ipi-to-cpu cpu +ipi-type-fixed+
+                       +tlb-shootdown-ipi-vector+)))
   ;; Wait for other CPUs to reach the handler.
   (loop
      (when (eql *busy-tlb-shootdown-cpus* 0)
@@ -437,11 +439,13 @@ TLB shootdown must be protected by the VM lock."
      (when *debug-magic-button-hold-variable*
        (magic-button-ipi-handler-1 interrupt-frame))
      (sys.int::cpu-relax))
-  ;; The initiating CPU may have done per-page invalidation; we still
-  ;; flush the local TLB here. Lazy optimization: skip if this CPU was
-  ;; idle (the context switch on wakeup will reload CR3).
-  (when (not (cpu-idle-p (local-cpu)))
-    (flush-tlb))
+  ;; Flush unconditionally.  Once this CPU received the shootdown IPI it
+  ;; must invalidate its TLB even if it happens to be idle at this
+  ;; instant: a CPU that went idle between the initiator's idle-p read
+  ;; and the IPI delivery would otherwise skip the flush while still
+  ;; stamping its TLB generation as current, leaving stale entries in
+  ;; place until the next context switch.
+  (flush-tlb)
   ;; Record that this CPU's TLB is up to date wrt the current generation.
   (setf (cpu-tlb-generation (local-cpu)) *current-tlb-generation*)
   (sys.int::%atomic-fixnum-add-symbol '*busy-tlb-shootdown-cpus*
@@ -1124,8 +1128,9 @@ This is a one-shot timer and must be reset after firing."
         (t
          (setf *lapic-x2apic-mode* nil)
          (debug-print-line "x2APIC not supported, using xAPIC MMIO")))
-  (lapic-setup)
-  (lapic-dump)
+   (setf (x86-64-cpu-apic-in-x2apic-mode *bsp-cpu*) *lapic-x2apic-mode*)
+   (lapic-setup)
+   (lapic-dump)
   (map-physical-memory-early +ap-trampoline-physical-address+ #x1000 "AP Bootstrap")
   (setf *initial-pml4* (generate-initial-pml4))
   (copy-ap-trampoline #'%%ap-bootstrap '%%ap-entry-point +ap-trampoline-physical-address+ *initial-pml4*)
@@ -1215,7 +1220,8 @@ This is a one-shot timer and must be reset after firing."
                                :idle-p nil
                                :inhibit-scheduling 0
                                :tlb-generation 0
-                                                               :timer-active nil)))
+                                                               :timer-active nil
+                               :apic-in-x2apic-mode *lapic-x2apic-mode*)))
     ;; Allocate per-CPU MCS node for spinlocks.
     (setf (cpu-mcs-node cpu) (%make-mcs-node))
     (populate-cpu-info cpu
@@ -1331,4 +1337,8 @@ This is a one-shot timer and must be reset after firing."
   (sys.lap-x86:ret))
 
 (defun dma-write-barrier ()
+  (%mfence))
+
+(defun cpu-memory-barrier ()
+  "Full memory barrier for ordering lock data accesses."
   (%mfence))
