@@ -517,12 +517,11 @@
 
 (sys.int::define-lap-function %do-allocate-from-general-area ((tag data words))
   (:gc :no-frame :layout #*)
-  ;; Attempt to quickly allocate from the general area using the per-CPU TLAB.
+  ;; Attempt to quickly allocate from the general area using the per-thread TLAB.
   ;; Returns (values tag data words t) on failure, just the object on success.
   ;; X0 = tag; X1 = data; X2 = words.
-  ;; Load per-CPU TLAB limit and newspace bit.
-  (mezzano.lap.arm64:ldr :x10 (:x27)) ; load cpu object
-  (mezzano.lap.arm64:ldr :x3 (:object-location :x10 #.mezzano.supervisor::+arm64-cpu-tlab-limit+))
+  ;; Load per-thread TLAB limit and newspace bit.
+  (mezzano.lap.arm64:ldr :x3 (:object :x28 #.mezzano.supervisor::+thread-tlab-limit+))
   (mezzano.lap.arm64:ldr :x4 (:symbol-global-cell sys.int::*young-gen-newspace-bit-raw*))
   ;; X3 = tlab limit. X4 = newspace-bit.
   ;; Assemble the final header value in X12.
@@ -530,18 +529,17 @@
   (mezzano.lap.arm64:add :x12 :x12 :x1 :lsl #.(- sys.int::+object-data-shift+ sys.int::+n-fixnum-bits+))
   ;; If a garbage collection occurs, it must rewind IP back here.
   (:gc :no-frame :layout #* :restart t)
-  ;; Fetch and increment the per-CPU TLAB bump pointer.
+  ;; Fetch and increment the per-thread TLAB bump pointer.
   (mezzano.lap.arm64:add :x10 :xzr :x2 :lsl 3) ; words * 8
-  ;; Address generation for the per-CPU tlab-bump slot.
+  ;; Address generation for the per-thread tlab-bump slot.
   ;; Linked GC mode is not needed as this will be repeated due to the restart region.
-  (mezzano.lap.arm64:ldr :x9 (:x27)) ; load cpu object
-  (mezzano.lap.arm64:add :x9 :x9 #.(+ (- sys.int::+tag-object+) 8 (mezzano.runtime::location-offset mezzano.supervisor::+arm64-cpu-tlab-bump+)))
+  (mezzano.lap.arm64:add :x9 :x28 #.(+ (- sys.int::+tag-object+) 8 (* mezzano.supervisor::+thread-tlab-bump+ 8)))
   ;; Release atomic add to increment the bump pointer
   (mezzano.lap.arm64:ldaddl :x10 :x6 (:x9))
   (mezzano.lap.arm64:add :x11 :x6 :x10)
   ;; X6 is old bump pointer, the address of the allocation.
   ;; X11 is the new bump pointer.
-  ;; Test against per-CPU TLAB limit.
+  ;; Test against per-thread TLAB limit.
   (mezzano.lap.arm64:subs :xzr :x11 :x3)
   (mezzano.lap.arm64:b.hi SLOW-PATH)
   ;; Generate the object.

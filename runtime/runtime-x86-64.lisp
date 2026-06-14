@@ -567,7 +567,7 @@ the GC must be deferred during FILL-WORDS."
   ;; R8 = tag; R9 = data; R10 = words.
   ;; Fetch symbol value cells.
   (sys.lap-x86:mov64 :r12 (:symbol-global-cell sys.int::*young-gen-newspace-bit-raw*))
-  (sys.lap-x86:fs) (sys.lap-x86:mov64 :r11 (:object-location nil #.mezzano.supervisor::+x86-64-cpu-tlab-limit+)) ; Allocation limit for the CPU
+  (sys.lap-x86:gs) (sys.lap-x86:mov64 :r11 (:object nil #.mezzano.supervisor::+thread-tlab-limit+)) ; Allocation limit for the thread
 
   ;; R12 = newspace-bit. R11 = limit.
   ;; Assemble the final header value in RDI.
@@ -578,7 +578,7 @@ the GC must be deferred during FILL-WORDS."
   (:gc :no-frame :layout #*0 :restart t)
   ;; Fetch and increment the current bump pointer.
   (sys.lap-x86:lea64 :rbx ((:r10 8))) ; words * 8
-  (sys.lap-x86:fs) (sys.lap-x86:xadd64 (:object-location nil #.mezzano.supervisor::+x86-64-cpu-tlab-bump+) :rbx) ; We're incrementing the slot in local-cpu's struct, hence the fs
+  (sys.lap-x86:gs) (sys.lap-x86:xadd64 (:object nil #.mezzano.supervisor::+thread-tlab-bump+) :rbx)
   ;; RBX is old bump pointer, the address of the cons.
   ;; Find the new bump pointer.
   (sys.lap-x86:lea64 :rsi (:rbx (:r10 8)))

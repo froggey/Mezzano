@@ -76,18 +76,6 @@
 (defun local-cpu ()
   (local-cpu-info))
 
-(defun cpu-tlab-bump (cpu)
-  (arm64-cpu-tlab-bump cpu))
-
-(defun (setf cpu-tlab-bump) (value cpu)
-  (setf (arm64-cpu-tlab-bump cpu) value))
-
-(defun cpu-tlab-limit (cpu)
-  (arm64-cpu-tlab-limit cpu))
-
-(defun (setf cpu-tlab-limit) (value cpu)
-  (setf (arm64-cpu-tlab-limit cpu) value))
-
 (defun initialize-cpu ()
   (setf (arm64-cpu-cpu-id *bsp-cpu*) (fdt-boot-cpuid))
   (push-wired *bsp-cpu* *cpus*))

@@ -463,10 +463,10 @@
     (return-from %get-new-tlab nil))
   (let ((result (%do-get-new-tlab)))
     (when result
-      (let ((cpu (mezzano.supervisor::local-cpu))
+      (let ((thread (mezzano.supervisor::current-thread))
             (limit (+ result (* sys.int::+tlab-size+ 8))))
-        (setf (mezzano.supervisor::cpu-tlab-bump cpu) result
-              (mezzano.supervisor::cpu-tlab-limit cpu) limit)
+        (setf (mezzano.supervisor::thread-tlab-bump thread) result
+              (mezzano.supervisor::thread-tlab-limit thread) limit)
         t))))
 
 (defun %slow-allocate-from-general-area (tag data words)
@@ -529,7 +529,7 @@
       (incf (mezzano.supervisor:thread-bytes-consed
              (mezzano.supervisor:current-thread))
             bytes))
-    ;; (mezzano.supervisor:debug-print-line "b " (mezzano.supervisor::cpu-tlab-bump (mezzano.supervisor::local-cpu)))
+    ;; (mezzano.supervisor:debug-print-line "b " (mezzano.supervisor::thread-tlab-bump (mezzano.supervisor::current-thread)))
     (ecase area
       ((nil)
        (%allocate-from-general-area tag data words))

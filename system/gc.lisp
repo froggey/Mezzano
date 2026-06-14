@@ -2476,6 +2476,8 @@ No type information will be provided."
          (setf (%object-ref-t finalizer +weak-pointer-finalizer+) nil))))
 
 (defun fixup-tlabs ()
-  (dolist (cpu mezzano.supervisor::*cpus*)
-    (setf (mezzano.supervisor::cpu-tlab-limit cpu) 0
-          (mezzano.supervisor::cpu-tlab-bump cpu) 0)))
+  (do ((thread mezzano.supervisor::*all-threads*
+               (mezzano.supervisor::thread-global-next thread)))
+      ((null thread))
+    (setf (mezzano.supervisor::thread-tlab-limit thread) 0
+          (mezzano.supervisor::thread-tlab-bump thread) 0)))
