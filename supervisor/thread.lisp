@@ -609,29 +609,36 @@ Interrupts must be off and the global thread lock must be held."
 
 ;; This is seperate from thread-entry-trampoline so steppers can detect it.
 (defun thread-final-cleanup (return-values)
-  (%run-on-wired-stack-without-interrupts (sp fp return-values)
-    (let ((self (current-thread)))
-      ;; FIXME: This should be done with the global lock held, but that makes
-      ;; the lock ordering incorrect in (setf event-state).
-      ;; (setf event-state) expects to be called with the thread lock released.
-      ;; This leaves a small race window between the thread's join event
-      ;; being set and the thread state being set to dead, but this is only
-      ;; visible on SMP as interrupts are disabled here.
-      (setf (event-state (thread-join-event self)) (or return-values :no-values))
-      (acquire-global-thread-lock)
-      (setf (thread-state self) :dead)
-      ;; Defer physical removal from *all-threads*.  RCU readers (see
-      ;; ALL-THREADS / WITH-RCU-READ-LOCK) skip :dead threads, and thread
-      ;; objects are reclaimed by the GC once unreferenced, so unlinking
-      ;; dead nodes is safe even while a reader is mid-traversal on a
-      ;; strongly-ordered architecture.
-      (push-wired self *rcu-deferred-list*)
-      ;; Drain immediately.  This is the only writer of
-      ;; *rcu-deferred-list* and it runs under the global lock, so every
-      ;; thread exit leaves the list empty -- no unbounded growth and no
-      ;; need for a separate grace period in a GC'd runtime.
-      (%cleanup-dead-threads)
-      (%reschedule-via-wired-stack sp fp))))
+  ;; Pre-allocate the cons cell for *rcu-deferred-list* before entering
+  ;; the interrupt-disabled context.  Wired allocation requires interrupts
+  ;; to be enabled (it takes pseudo-atomic), but
+  ;; %RUN-ON-WIRED-STACK-WITHOUT-INTERRUPTS disables them.
+  (let ((deferred-cons (sys.int::cons-in-area nil nil :wired)))
+    (%run-on-wired-stack-without-interrupts (sp fp return-values)
+      (let ((self (current-thread)))
+        ;; FIXME: This should be done with the global lock held, but that makes
+        ;; the lock ordering incorrect in (setf event-state).
+        ;; (setf event-state) expects to be called with the thread lock released.
+        ;; This leaves a small race window between the thread's join event
+        ;; being set and the thread state being set to dead, but this is only
+        ;; visible on SMP as interrupts are disabled here.
+        (setf (event-state (thread-join-event self)) (or return-values :no-values))
+        (acquire-global-thread-lock)
+        (setf (thread-state self) :dead)
+        ;; Defer physical removal from *all-threads*.  RCU readers (see
+        ;; ALL-THREADS / WITH-RCU-READ-LOCK) skip :dead threads, and thread
+        ;; objects are reclaimed by the GC once unreferenced, so unlinking
+        ;; dead nodes is safe even while a reader is mid-traversal on a
+        ;; strongly-ordered architecture.
+        (setf (car deferred-cons) self
+              (cdr deferred-cons) *rcu-deferred-list*
+              *rcu-deferred-list* deferred-cons)
+        ;; Drain immediately.  This is the only writer of
+        ;; *rcu-deferred-list* and it runs under the global lock, so every
+        ;; thread exit leaves the list empty -- no unbounded growth and no
+        ;; need for a separate grace period in a GC'd runtime.
+        (%cleanup-dead-threads)
+        (%reschedule-via-wired-stack sp fp)))))
 
 (defun thread-join (thread &optional (wait-p t))
   "Wait for THREAD to exit.
