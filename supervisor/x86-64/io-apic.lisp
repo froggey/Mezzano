@@ -19,6 +19,32 @@
 
 (defconstant +io-apic-base-vector+ 48)
 
+;; Device interrupt vectors are allocated above +IO-APIC-BASE-VECTOR+.
+;; The IPI vectors (#x80 wakeup, #x81 panic, #x82 quiesce, #x83 tlb-shootdown,
+;; #x85 reschedule, ...) live in the gap below.  To keep the GSI->vector map
+;; bijective (so the handler can recover the GSI from the vector) the range
+;; #x80..#x8F is skipped: GSIs whose naive vector would land there are shifted
+;; up past it.
+(defconstant +io-apic-ipi-gap-start+ #x80)
+(defconstant +io-apic-ipi-gap-end+   #x90)
+
+(declaim (inline gsi->vector vector->gsi))
+(defun gsi->vector (gsi)
+  (let ((v (+ +io-apic-base-vector+ gsi)))
+    (if (>= v +io-apic-ipi-gap-start+)
+        (+ v (- +io-apic-ipi-gap-end+ +io-apic-ipi-gap-start+))
+        v)))
+
+(defun vector->gsi (vector)
+  (cond ((>= vector +io-apic-ipi-gap-end+)
+         (- vector +io-apic-base-vector+
+            (- +io-apic-ipi-gap-end+ +io-apic-ipi-gap-start+)))
+        ((< vector +io-apic-ipi-gap-start+)
+         (- vector +io-apic-base-vector+))
+        (t
+         ;; Vector fell in the reserved IPI gap; no valid GSI.
+         -1)))
+
 (sys.int::defglobal *io-apics* nil)
 (sys.int::defglobal *io-apic-active-p* nil)
 (sys.int::defglobal *io-apic-irqs* nil)
@@ -155,44 +181,46 @@
                   (push-wired io-apic *io-apics*)
                   (dotimes (e n-entries)
                     (io-apic-write-redirection io-apic e +io-apic-entry-mask+)
-                     (let ((gsi (+ gsi-base e))
+                    (let* ((gsi (+ gsi-base e))
+                           (vector (gsi->vector gsi))
                            (flags (svref *gsi-flags* (+ gsi-base e))))
-                       (io-apic-configure-entry gsi
-                                                (+ +io-apic-base-vector+ gsi)
-                                                bsp-apic-id
-                                                :trigger-mode (gsi-flags-trigger flags)
-                                                :polarity (gsi-flags-polarity flags)
-                                                :masked t))))
-                (debug-print-line "IO-APIC " (io-apic-id io-apic)
-                                  " at " phys-addr
-                                  " GSI base " (io-apic-gsi-base io-apic)
-                                  " max redirect " (io-apic-max-redirection io-apic))))))))
-    (when (not (null *io-apics*))
-      (debug-print-line "IO-APIC init done. Hooking handlers...")
-      (let ((max-gsi 0))
-        (dolist (apic *io-apics*)
-          (let ((top (+ (io-apic-gsi-base apic) (io-apic-max-redirection apic))))
-            (setf max-gsi (max max-gsi top))))
-        (dotimes (gsi (1+ max-gsi))
-          (let ((vector (+ +io-apic-base-vector+ gsi)))
-            (when (< vector 128)
-              (hook-user-interrupt vector 'io-apic-interrupt-handler))))))
-    (setf *io-apic-active-p* t)
-    ;; Mask the i8259 PIC now that IO-APIC is handling interrupts.
-    (when (boundp '*i8259-shadow-mask*)
-      (setf (sys.int::io-port/8 #x21) #xFF
-            (sys.int::io-port/8 #xA1) #xFF
-            *i8259-shadow-mask* #xFFFF))
-    ;; Mask LINT0 and LINT1 on the LAPIC to prevent i8259 spurious
-    ;; interrupts from reaching the CPU through ExtINT/NMI.
-    (write-lapic (logior (read-lapic +lapic-reg-lvt-lint0+) +lapic-lvt-mask+)
-                 +lapic-reg-lvt-lint0+)
-    (write-lapic (logior (read-lapic +lapic-reg-lvt-lint1+) +lapic-lvt-mask+)
-                 +lapic-reg-lvt-lint1+)
-    nil))
+                      (when (< vector 256)
+                        (io-apic-configure-entry gsi
+                                                 vector
+                                                 bsp-apic-id
+                                                 :trigger-mode (gsi-flags-trigger flags)
+                                                 :polarity (gsi-flags-polarity flags)
+                                                 :masked t))))
+                  (debug-print-line "IO-APIC " (io-apic-id io-apic)
+                                    " at " phys-addr
+                                    " GSI base " (io-apic-gsi-base io-apic)
+                                    " max redirect " (io-apic-max-redirection io-apic))))))))
+      (when (not (null *io-apics*))
+        (debug-print-line "IO-APIC init done. Hooking handlers...")
+        (let ((max-gsi 0))
+          (dolist (apic *io-apics*)
+            (let ((top (+ (io-apic-gsi-base apic) (io-apic-max-redirection apic))))
+              (setf max-gsi (max max-gsi top))))
+          (dotimes (gsi (1+ max-gsi))
+            (let ((vector (gsi->vector gsi)))
+              (when (< vector 256)
+                (hook-user-interrupt vector 'io-apic-interrupt-handler))))))
+      (setf *io-apic-active-p* t)
+      ;; Mask the i8259 PIC now that IO-APIC is handling interrupts.
+      (when (boundp '*i8259-shadow-mask*)
+        (setf (sys.int::io-port/8 #x21) #xFF
+              (sys.int::io-port/8 #xA1) #xFF
+              *i8259-shadow-mask* #xFFFF))
+      ;; Mask LINT0 and LINT1 on the LAPIC to prevent i8259 spurious
+      ;; interrupts from reaching the CPU through ExtINT/NMI.
+      (write-lapic (logior (read-lapic +lapic-reg-lvt-lint0+) +lapic-lvt-mask+)
+                   +lapic-reg-lvt-lint0+)
+      (write-lapic (logior (read-lapic +lapic-reg-lvt-lint1+) +lapic-lvt-mask+)
+                   +lapic-reg-lvt-lint1+)
+      nil)))
 
 (defun io-apic-interrupt-handler (interrupt-frame info)
-  (let ((gsi (- info +io-apic-base-vector+)))
+  (let ((gsi (vector->gsi info)))
     (when (and (<= 0 gsi) (< gsi 256))
       (irq-deliver interrupt-frame (svref *io-apic-irqs* gsi)))
     (lapic-eoi)))
@@ -211,8 +239,14 @@
                                (ecase polarity
                                  (:high 0)
                                  (:low +io-apic-entry-polarity+)))))
-      (if *lapic-x2apic-mode*
-          (setf entry-value (logior entry-value (ash destination-apic-id 32)))
-          (setf entry-value (logior entry-value (ash (ldb (byte 8 0) destination-apic-id) 56))))
+      ;; The IO-APIC redirection-entry destination field is always bits
+      ;; 63:56 regardless of whether the local APIC is in xAPIC or x2APIC
+      ;; mode: the IO-APIC is a separate device that emits an MSI write
+      ;; whose 8-bit physical destination is matched against the low 8
+      ;; bits of each CPU's (x2)APIC ID.  Encoding the destination at bits
+      ;; 39:32 (as an earlier version did in x2APIC mode) routes every
+      ;; external interrupt to APIC ID 0.
+      (setf entry-value (logior entry-value
+                                (ash (ldb (byte 8 0) destination-apic-id) 56)))
       (io-apic-write-redirection apic entry entry-value)
       t)))
