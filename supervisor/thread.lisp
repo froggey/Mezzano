@@ -2,8 +2,9 @@
 
 (in-package :mezzano.supervisor)
 
-(sys.int::defglobal *global-thread-lock* nil
-  "This lock protects the special variables that make up the thread list/run queues and the thread objects.")
+(sys.int::defglobal *global-thread-lock* :unlocked
+  "This lock protects the special variables that make up the thread list/run queues and the thread objects.
+Free value is :UNLOCKED; held value is the owning CPU (a TATAS place spinlock).")
 (sys.int::defglobal *supervisor-priority-run-queue*)
 (sys.int::defglobal *high-priority-run-queue*)
 (sys.int::defglobal *normal-priority-run-queue*)
@@ -795,7 +796,7 @@ not and WAIT-P is false."
 (defun initialize-threads ()
   (when (not (boundp '*global-thread-lock*))
     ;; First-run stuff.
-    (setf *global-thread-lock* nil)
+    (setf *global-thread-lock* :unlocked)
     (setf *supervisor-priority-run-queue* (make-run-queue :supervisor)
           *high-priority-run-queue* (make-run-queue :high)
           *normal-priority-run-queue* (make-run-queue :normal)
