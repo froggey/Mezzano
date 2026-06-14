@@ -315,12 +315,14 @@
 (defun dump-threads ()
   (dump-thread (current-thread) (sys.int::read-frame-pointer))
   (when (boundp '*all-threads*)
-    (do ((thread *all-threads*
-                 (thread-global-next thread)))
-        ((null thread))
-      (when (not (eql thread (current-thread)))
-        (debug-print-line "----------")
-        (dump-thread thread (thread-frame-pointer thread))))))
+    (with-rcu-read-lock
+      (do ((thread *all-threads*
+                   (thread-global-next thread)))
+          ((null thread))
+        (when (and (not (eql thread (current-thread)))
+                   (not (eql (thread-state thread) :dead)))
+          (debug-print-line "----------")
+          (dump-thread thread (thread-frame-pointer thread)))))))
 
 (defun debug-dump ()
   (debug-print-line "Local CPU is " (local-cpu))
