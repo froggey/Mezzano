@@ -1125,10 +1125,10 @@ It will put the thread to sleep, while it waits for the page."
     (setf *pager-noisy* nil
           *pager-waiting-threads* '()
           *pager-current-thread* nil
-          *pager-lock* (place-spinlock-initializer)
+          *pager-lock* :unlocked
           *pager-fast-path-enabled* t
           *pager-lazy-block-allocation-enabled* t))
-  (setf *page-replacement-list-lock* (place-spinlock-initializer)
+  (setf *page-replacement-list-lock* :unlocked
         *page-replacement-list-head* nil
         *page-replacement-list-tail* nil)
   (setf *pager-fast-path-hits* 0

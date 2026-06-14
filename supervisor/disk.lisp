@@ -47,7 +47,7 @@
   lba
   n-sectors
   buffer
-  (lock (place-spinlock-initializer))
+  (lock :unlocked)
   (latch (make-event :name "Disk request notifier"))
   next)
 
@@ -84,7 +84,7 @@
     (setf *log-disk-requests* nil)
     (setf *disk-request-current* nil
           *disk-request-queue-head* nil
-          *disk-request-queue-lock* (place-spinlock-initializer)
+          *disk-request-queue-lock* :unlocked
           *disk-request-queue-latch* (make-event :name "Disk request queue notifier")
           *disks* '()))
   ;; Abort any queued or in-progress requests.

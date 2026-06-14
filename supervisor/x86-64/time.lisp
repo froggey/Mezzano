@@ -72,7 +72,7 @@ HIGH-PRECISION-TIME-UNITS-TO-INTERNAL-TIME-UNITS."
 
 (defun initialize-platform-time ()
   (when (not (boundp '*rtc-lock*))
-    (setf *rtc-lock* (place-spinlock-initializer)))
+    (setf *rtc-lock* :unlocked))
   (configure-pit-tick-rate 100)
   (irq-attach (platform-irq +pit-irq+)
               'pit-irq-handler
