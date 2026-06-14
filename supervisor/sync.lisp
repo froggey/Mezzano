@@ -51,7 +51,7 @@
 (defstruct (wait-queue
              (:area :wired))
   (name nil)
-  (%lock (place-spinlock-initializer))
+  (%lock :unlocked)
   (head nil)
   (tail nil))
 
@@ -87,9 +87,9 @@
 (sys.int::defglobal *lock-violations-are-fatal* t)
 
 (defstruct (mutex
-             (:include wait-queue)
-             (:constructor make-mutex (&optional name))
-             (:area :wired))
+              (:include wait-queue)
+              (:constructor make-mutex (&optional name))
+              (:area :wired))
   ;; Thread holding the lock, or NIL if it is free.
   ;; May not be correct when the lock is being acquired/released.
   (owner nil)
@@ -102,7 +102,12 @@
   (state :unlocked)
   (stack-next nil)
   ;; Number of times ACQUIRE-MUTEX failed to immediately acquire the lock.
-  (contested-count 0 :type fixnum))
+  (contested-count 0 :type fixnum)
+  ;; Priority inheritance (turnstile).
+  ;; Thread whose priority was boosted to prevent priority inversion.
+  (boosted-thread nil)
+  ;; Original priority of the boosted thread, for restoration on release.
+  (original-priority nil))
 
 (defun acquire-mutex (mutex &optional (wait-p t))
   (check-type mutex mutex)
@@ -142,6 +147,18 @@
     (setf (mutex-owner mutex) self)
     (unlock-wait-queue mutex)
     (return-from acquire-mutex-slow-path))
+  ;; Priority inheritance: boost the holder if our priority is higher.
+  (let ((holder (mutex-owner mutex))
+        (my-priority (thread-priority self)))
+    (when (and holder
+               (threadp holder)
+               (thread-priority-higher-p my-priority (thread-priority holder)))
+      ;; Record the boost if not already boosted.
+      (when (null (mutex-boosted-thread mutex))
+        (setf (mutex-boosted-thread mutex) holder
+              (mutex-original-priority mutex) (thread-priority holder)))
+      ;; Elevate holder to our priority.
+      (setf (thread-priority holder) my-priority)))
   ;; Add to wait queue. Release will directly transfer ownership
   ;; to this thread.
   (push-wait-queue self mutex)
@@ -191,6 +208,12 @@
   ;; Contested lock. Need to wake a thread and pass the lock to it.
   (safe-without-interrupts (mutex)
     (with-wait-queue-lock (mutex)
+      ;; Restore priority of the boosted thread.
+      (let ((boosted (mutex-boosted-thread mutex)))
+        (when boosted
+          (setf (thread-priority boosted) (mutex-original-priority mutex))
+          (setf (mutex-boosted-thread mutex) nil
+                (mutex-original-priority mutex) nil)))
       ;; Look for a thread to wake.
       (let ((thread (pop-wait-queue mutex)))
         (cond (thread
@@ -206,6 +229,12 @@
   (setf (mutex-owner mutex) nil)
   (when (not (eql (sys.int::cas (mutex-state mutex) :locked :unlocked) :locked))
     ;; Mutex must be in the contested state.
+    ;; Restore priority of the boosted thread.
+    (let ((boosted (mutex-boosted-thread mutex)))
+      (when boosted
+        (setf (thread-priority boosted) (mutex-original-priority mutex))
+        (setf (mutex-boosted-thread mutex) nil
+              (mutex-original-priority mutex) nil)))
     ;; Look for a thread to wake.
     (let ((thread (pop-wait-queue mutex)))
       (cond (thread
@@ -406,7 +435,7 @@ May be used from an interrupt handler, assuming the associated mutex is interrup
              (:area :wired))
   name
   (state +rw-lock-state-unlocked+ :type fixnum)
-  (lock (place-spinlock-initializer))
+  (lock :unlocked)
   writer-wait-queue
   reader-wait-queue
   (n-pending-readers 0 :type fixnum)
@@ -1081,7 +1110,7 @@ multiple threads."
   (buffer (error "no buffer supplied") :read-only t)
   (count)
   data-available
-  (lock (place-spinlock-initializer)))
+  (lock :unlocked))
 
 (defun make-irq-fifo (size &key (element-type 't) name)
   ;; TODO: non-t element types.
@@ -1157,62 +1186,12 @@ It is only possible for the second value to be false when wait-p is false."
             (irq-fifo-count fifo) 0)
       (setf (event-state (irq-fifo-data-available fifo)) nil))))
 
-;;; MCS queue-based spinlock.
-;;; Fair spinlock where each CPU spins on its own cache line.
-;;; Each CPU has a pre-allocated MCS node in the cpu struct.
-
-;; MCS queue-based spinlock.
-;; Fair spinlock where each CPU spins on its own cache line.
-;; Each CPU has a pre-allocated MCS node in the cpu struct.
-;;
-;; Implemented as macros so the place form is available for CAS expansion
-;; at compile time (cross-compiler can't CAS on lexical variables).
-
-(defmacro acquire-mcs-spinlock (lock-place mcs-node)
-  "Acquire an MCS spinlock. LOCK-PLACE is a place (setf-able),
-MCS-NODE is the current CPU's pre-allocated mcs-node struct."
-  `(progn
-     (setf (mcs-node-next ,mcs-node) nil
-           (mcs-node-locked ,mcs-node) nil)
-     ;; Atomic exchange: read old value and write our node.
-     (let* ((prev nil))
-       (loop
-         (setf prev ,lock-place)
-         (when (eql (sys.int::cas ,lock-place prev ,mcs-node) prev)
-           (return)))
-       (if (null prev)
-           ;; No waiter, we are the holder.
-           (setf (mcs-node-locked ,mcs-node) t)
-           ;; There's a tail, chain ourselves after it.
-           (progn
-             (setf (mcs-node-next prev) ,mcs-node)
-             ;; Spin until the predecessor hands us the lock.
-             (loop until (mcs-node-locked ,mcs-node)
-                   do (sys.int::cpu-relax)))))))
-
-(defmacro release-mcs-spinlock (lock-place mcs-node)
-  "Release an MCS spinlock acquired with ACQUIRE-MCS-SPINLOCK."
-  `(block release-mcs-spinlock
-     (if (null (mcs-node-next ,mcs-node))
-         ;; No known successor. Try to nil out the lock word.
-         (if (eql (sys.int::cas ,lock-place ,mcs-node nil) ,mcs-node)
-             ;; CAS succeeded, no one is waiting.
-             (return-from release-mcs-spinlock)
-             ;; CAS failed, a successor has linked in between.
-             ;; Wait for the successor to appear.
-             (loop until (mcs-node-next ,mcs-node)
-                   do (sys.int::cpu-relax))))
-     ;; Pass the lock to the successor.
-     (setf (mcs-node-locked (mcs-node-next ,mcs-node)) t)))
-
-(defmacro with-mcs-spinlock ((place) &body body)
-  "Acquire the MCS spinlock at PLACE, execute BODY, then release."
-  (let ((node (gensym "MCS-NODE")))
-    `(let ((,node (cpu-mcs-node (local-cpu))))
-       (acquire-mcs-spinlock ,place ,node)
-       (unwind-protect
-            (progn ,@body)
-         (release-mcs-spinlock ,place ,node)))))
+;;; The MCS queue-based spinlock primitives live in interrupts.lisp
+;;; (ACQUIRE-MCS-SPINLOCK / RELEASE-MCS-SPINLOCK / WITH-MCS-SPINLOCK) and
+;;; each CPU has a pre-allocated MCS node in its cpu struct.  They are not
+;;; currently used by *global-thread-lock*, which is released from the LAP
+;;; context-switch trampolines and so stays a TATAS place spinlock; see
+;;; thread.lisp.
 
 ;;; RCU primitives for lock-free read-side access.
 ;;; Each CPU has an rcu-nest counter in the cpu struct.
@@ -1241,15 +1220,13 @@ MCS-NODE is the current CPU's pre-allocated mcs-node struct."
   "List of objects to be freed after an RCU grace period.")
 
 (defun rcu-synchronize ()
-  "Wait for a grace period: all CPUs to pass through a quiescent state."
-  ;; For each CPU, set a flag and wait for it to context-switch.
-  ;; A simple approach: IPI every CPU and wait for each to acknowledge.
-  (dolist (cpu *cpus*)
-    (when (eql (x86-64-cpu-state cpu) :online)
-      ;; Send a quiesce IPI to this CPU.
-      (send-ipi (x86-64-cpu-apic-id cpu) +ipi-type-fixed+ +quiesce-ipi-vector+)))
-  ;; Yield to allow other CPUs to process.
-  (thread-yield))
+  "Reclaim deferred thread deletions.
+RCU readers (see ALL-THREADS / WITH-RCU-READ-LOCK) skip :dead threads
+and thread objects are reclaimed by the GC once no reader references
+them, so the deferred list can be drained without waiting for an
+explicit grace period.  The actual draining also happens opportunistically
+on every thread exit inside THREAD-FINAL-CLEANUP."
+  (cleanup-dead-threads))
 
 (defun call-with-rcu-synchronize (thunk)
   (rcu-synchronize)

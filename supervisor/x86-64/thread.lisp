@@ -42,15 +42,16 @@
   (setf (sys.int::msr +msr-ia32-gs-base+) (sys.int::lisp-object-address thread)))
 
 (sys.int::define-lap-function %%restore-full-save-thread ((thread))
-  ;; Drop the global thread lock.
-  ;; This must be done here, not in %%switch-to-thread-common to prevent
-  ;; another CPU from switching on to the old thread's stack while it is
-  ;; still in use.
+  ;; Returning to an interrupted thread. Restore saved registers and stuff.
+  (sys.lap-x86:lea64 :rsp (:object :r8 #.+thread-interrupt-save-area+))
+  ;; Now switched off the old thread's stack, so it is safe to drop the
+  ;; global thread lock.  Releasing here (rather than before the stack
+  ;; switch) means another CPU can resume the old thread without
+  ;; colliding on its wired/exception stack.  r9/r10 are clobbered but
+  ;; restored by the pops below.
   (sys.lap-x86:mov64 :r9 (:symbol-global-cell *global-thread-lock*))
   (sys.lap-x86:mov64 :r10 (:constant :unlocked))
   (sys.lap-x86:mov64 (:object :r9 #.sys.int::+symbol-value-cell-value+) :r10)
-  ;; Returning to an interrupted thread. Restore saved registers and stuff.
-  (sys.lap-x86:lea64 :rsp (:object :r8 #.+thread-interrupt-save-area+))
   (sys.lap-x86:pop :r15)
   (sys.lap-x86:pop :r14)
   (sys.lap-x86:pop :r13)
@@ -69,17 +70,17 @@
   (sys.lap-x86:iret))
 
 (sys.int::define-lap-function %%restore-partial-save-thread ((thread))
-  ;; Drop the global thread lock.
-  ;; This must be done here, not in %%switch-to-thread-common to prevent
-  ;; another CPU from switching on to the old thread's stack while it is
-  ;; still in use.
-  (sys.lap-x86:mov64 :r9 (:symbol-global-cell *global-thread-lock*))
-  (sys.lap-x86:mov64 :r10 (:constant :unlocked))
-  (sys.lap-x86:mov64 (:object :r9 #.sys.int::+symbol-value-cell-value+) :r10)
   ;; Restore stack pointer.
   (sys.lap-x86:mov64 :rsp (:object :r8 #.+thread-state-rsp+))
   ;; Restore frame pointer.
   (sys.lap-x86:mov64 :rbp (:object :r8 #.+thread-state-rbp+))
+  ;; Now switched off the old thread's (wired) stack, so it is safe to
+  ;; drop the global thread lock here -- another CPU may resume the old
+  ;; thread without colliding on its wired stack.  r9/r10 are scratch
+  ;; (not part of the partial-save register set).
+  (sys.lap-x86:mov64 :r9 (:symbol-global-cell *global-thread-lock*))
+  (sys.lap-x86:mov64 :r10 (:constant :unlocked))
+  (sys.lap-x86:mov64 (:object :r9 #.sys.int::+symbol-value-cell-value+) :r10)
   ;; Reenable interrupts. Must be done before touching the thread stack.
   (sys.lap-x86:sti)
   (:gc :no-frame :layout #*0)
