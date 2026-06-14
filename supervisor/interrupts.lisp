@@ -40,6 +40,7 @@ RETURN-FROM/GO must not be used to leave this form."
     nil
     ,@captures))
 
+;;; TATAS (test-and-test-and-set) spinlocks -- general purpose, supports nesting.
 (defun place-spinlock-initializer ()
   :unlocked)
 
@@ -87,8 +88,6 @@ RETURN-FROM/GO must not be used to leave this form."
     `(let* (,@(mapcar #'list vars vals)
             (,new-sym :unlocked)
             (,old-sym ,read-form))
-       ;; FIXME: This should use the write form but that doesn't have the proper
-       ;; release semantics yet on arm64.
        ,cas-form
        (values))))
 
@@ -120,6 +119,76 @@ RETURN-FROM/GO must not be used to leave this form."
 (defmacro ensure-symbol-spinlock-held (lock)
   (check-type lock symbol)
   `(ensure-place-spinlock-held ,lock))
+
+;;; MCS (Mellor-Crummy-Scott) queue-based spinlocks -- fair, FIFO, each CPU
+;;; spins on its own cache line.  CANNOT be nested on the same CPU.
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defun mcs-cas-target (place)
+    "Convert a spinlock place to a form suitable for CAS.
+Bare symbols become (sys.int::symbol-global-value 'SYM);
+struct-accessor forms are returned as-is."
+    (if (symbolp place)
+        `(sys.int::symbol-global-value ',place)
+        place)))
+
+(defmacro acquire-mcs-spinlock (place)
+  "Acquire a spinlock using MCS fair queuing.
+NOTE: do NOT nest MCS spinlock acquisitions on the same CPU."
+  (let ((mcs-node (gensym "MCS-NODE"))
+        (prev (gensym "PREV"))
+        (cas-target (mcs-cas-target place)))
+    `(let ((,mcs-node (cpu-mcs-node (local-cpu))))
+       (ensure-interrupts-disabled)
+       (setf (mcs-node-next ,mcs-node) nil
+             (mcs-node-locked ,mcs-node) nil)
+       (let ((,prev nil))
+         (loop
+           (setf ,prev ,place)
+           (when (eql (sys.int::cas ,cas-target ,prev ,mcs-node) ,prev)
+             (return)))
+         (if (null ,prev)
+             (setf (mcs-node-locked ,mcs-node) t)
+             (progn
+               (setf (mcs-node-next ,prev) ,mcs-node)
+               (loop until (mcs-node-locked ,mcs-node)
+                     do (sys.int::cpu-relax))))
+       ;; Acquire barrier: make sure protected-data reads are not
+       ;; reordered before the lock is observed held.  Required on
+       ;; weakly-ordered ARM64 (x86-64 TSO folds this into the CAS).
+       (cpu-memory-barrier)
+       (values)))))
+
+(defmacro release-mcs-spinlock (place)
+  "Release an MCS spinlock."
+  (let ((mcs-node (gensym "MCS-NODE"))
+        (cas-target (mcs-cas-target place)))
+    `(let ((,mcs-node (cpu-mcs-node (local-cpu))))
+       ;; Release barrier: make sure all protected-data stores from the
+       ;; critical section are visible before the handoff (or before the
+       ;; lock word goes to nil for the uncontended release).  Required
+       ;; on weakly-ordered ARM64.
+       (cpu-memory-barrier)
+       (block release-mcs-spinlock
+         (if (null (mcs-node-next ,mcs-node))
+             (if (eql (sys.int::cas ,cas-target ,mcs-node nil) ,mcs-node)
+                 (return-from release-mcs-spinlock)
+                 (loop until (mcs-node-next ,mcs-node)
+                       do (sys.int::cpu-relax))))
+         (setf (mcs-node-locked (mcs-node-next ,mcs-node)) t))
+       (setf (mcs-node-locked ,mcs-node) nil)
+       (values))))
+
+(defmacro with-mcs-spinlock ((place) &body body)
+  `(progn
+     (acquire-mcs-spinlock ,place)
+     (unwind-protect
+          (progn ,@body)
+       (release-mcs-spinlock ,place))))
+
+(defmacro ensure-mcs-spinlock-held (place)
+  (declare (ignore place))
+  `(ensure (mcs-node-locked (cpu-mcs-node (local-cpu)))
+           "Expected lock to be held by current CPU"))
 
 (defmacro with-page-fault-hook (((&optional frame info fault-address) &body hook-body) &body body)
   (let ((old (gensym))
@@ -228,7 +297,8 @@ RETURN-FROM/GO must not be used to leave this form."
   platform-number
   attachments
   (count 0)
-  (lock (place-spinlock-initializer)))
+    (lock :unlocked)
+)
 
 (defstruct (irq-attachment
              (:area :wired))
@@ -313,7 +383,8 @@ RETURN-FROM/GO must not be used to leave this form."
   latch
   event
   (state :masked)
-  (lock (place-spinlock-initializer)))
+    (lock :unlocked)
+)
 
 (defun make-simple-irq (irq-number &optional latch)
   (declare (mezzano.compiler::closure-allocation :wired))

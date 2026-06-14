@@ -78,11 +78,18 @@
 (defun local-cpu ()
   (local-cpu-info))
 
+(defun cpu-memory-barrier ()
+  "Full inner-shareable memory barrier for ordering lock data accesses."
+  (%dsb.ish))
+
 (defun initialize-cpu ()
   (setf (arm64-cpu-cpu-id *bsp-cpu*) (fdt-boot-cpuid))
   (setf (cpu-cpu-index *bsp-cpu*) 0)
   (setf (cpu-inhibit-scheduling *bsp-cpu*) 0)
   (setf (cpu-tlb-generation *bsp-cpu*) 0)
+  ;; Allocate MCS node for BSP if not already allocated by cold-generator.
+  (when (null (cpu-mcs-node *bsp-cpu*))
+    (setf (cpu-mcs-node *bsp-cpu*) (%make-mcs-node)))
   (push-wired *bsp-cpu* *cpus*))
 
 (sys.int::define-lap-function %el0-common ()
@@ -368,6 +375,7 @@ TLB shootdown must be protected by the VM lock."
     (setf (cpu-cpu-index cpu) (length *cpus*))
     (setf (cpu-inhibit-scheduling cpu) 0)
     (setf (cpu-tlb-generation cpu) 0)
+    (setf (cpu-mcs-node cpu) (%make-mcs-node))
     (setf (arm64-cpu-self cpu) cpu)
     (setf (sys.int::memref-unsigned-byte-64 (arm64-cpu-sp-el1 cpu))
           (sys.int::lisp-object-address cpu))

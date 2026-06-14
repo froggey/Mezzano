@@ -32,8 +32,10 @@
                          :name (env:translate-symbol environment 'sys.int::%%funcallable-instance-trampoline%%)))
   (setf (env:cross-symbol-value environment 'mezzano.supervisor::*bsp-wired-stack*)
         (env:make-stack environment (* 128 1024)))
-  (setf (env:cross-symbol-value environment 'mezzano.supervisor::*bsp-cpu*)
-        (env:make-structure environment 'mezzano.supervisor::arm64-cpu))
+  (let ((bsp-cpu (env:make-structure environment 'mezzano.supervisor::arm64-cpu)))
+    (setf (env:structure-slot-value environment bsp-cpu 'mezzano.supervisor::mcs-node)
+          (env:make-structure environment 'mezzano.supervisor::mcs-node))
+    (setf (env:cross-symbol-value environment 'mezzano.supervisor::*bsp-cpu*) bsp-cpu))
   (setf (env:cross-symbol-value environment 'mezzano.supervisor::*arm64-exception-vector*)
         (env:compile-lap environment
                          (loop repeat (/ (+ 2048 +exception-vector-alignment+) 8) ; for alignment
