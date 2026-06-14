@@ -55,8 +55,6 @@ can be reprotected.")
 
 (defstruct (cpu
             (:area :wired))
-  (tlab-bump 0)
-  (tlab-limit 0)
   (bytes-consed 0)
   (cons-allocation-count 0)
   (cons-fast-path-hits 0)
@@ -136,6 +134,9 @@ can be reprotected.")
   (switch-time-start 0) ; set when the thread is switched to, used to update run-time
   ;; Time spent in the slow allocation path (including GC time).
   (allocation-time 0)
+  ;; TLAB (Thread-Local Allocation Buffer) bump pointer and limit.
+  (tlab-bump 0)
+  (tlab-limit 0)
   ;; Per-thread allocation meter.
   (bytes-consed 0)
   ;; Slots used as part of the multiple-value return convention.
