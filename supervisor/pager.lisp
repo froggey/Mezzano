@@ -601,7 +601,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
          #-arm64
          (update-pte pte :dirty nil))))
     (tlb-shootdown-all)
-    (finish-tlb-shootdown))))
+    (finish-tlb-shootdown)))
 
 (defun get-page-physical-address (virtual-address)
   "Return the physical page frame mapped for VIRTUAL-ADDRESS.
