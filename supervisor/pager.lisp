@@ -581,23 +581,27 @@ Returns NIL if the entry is missing and ALLOCATE is false."
   (declare (ignore ignore1 ignore2 ignore3))
   (pager-log-op "Update wired dirty bits")
   (with-rw-lock-write (*vm-lock*)
-    (macrolet ((update-dirty-in-range (start end name)
-                 `(map-ptes
-                   ,start ,end
-                   (dx-lambda (wired-page pte)
-                     (when (not pte)
-                       (panic "Missing pte for " ,name " " wired-page))
-                     (when (page-dirty-p pte)
-                       (setf (sys.int::card-table-dirty-gen wired-page) 0)
-                       #-arm64
-                       (update-pte pte :dirty nil))))))
-      (begin-tlb-shootdown)
-      (update-dirty-in-range sys.int::*wired-area-base* sys.int::*wired-area-bump*
-                             "wired page")
-      (update-dirty-in-range sys.int::*wired-function-area-limit* sys.int::*function-area-base*
-                             "wired function page")
-      (tlb-shootdown-all)
-      (finish-tlb-shootdown))))
+    (begin-tlb-shootdown)
+    (map-ptes
+     sys.int::*wired-area-base* sys.int::*wired-area-bump*
+     (dx-lambda (wired-page pte)
+       (when (not pte)
+         (panic "Missing pte for wired page " wired-page))
+       (when (page-dirty-p pte)
+         (setf (sys.int::card-table-dirty-gen wired-page) 0)
+         #-arm64
+         (update-pte pte :dirty nil))))
+    (map-ptes
+     sys.int::*wired-function-area-limit* sys.int::*function-area-base*
+     (dx-lambda (wired-page pte)
+       (when (not pte)
+         (panic "Missing pte for wired function page " wired-page))
+       (when (page-dirty-p pte)
+         (setf (sys.int::card-table-dirty-gen wired-page) 0)
+         #-arm64
+         (update-pte pte :dirty nil))))
+    (tlb-shootdown-all)
+    (finish-tlb-shootdown))))
 
 (defun get-page-physical-address (virtual-address)
   "Return the physical page frame mapped for VIRTUAL-ADDRESS.
