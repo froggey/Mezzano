@@ -230,7 +230,16 @@ The bootloader is loaded to #x7C00, so #x7000 should be safe.")
         (setf (lapic-reg +lapic-reg-interrupt-command-high+) (ash target 24))
         (setf (lapic-reg +lapic-reg-interrupt-command-low+) (logior #x4000
                                                                      (ash type 8)
-                                                                     vector)))))
+                                                                      vector)))))
+
+(defun send-self-ipi (vector)
+  "Send an IPI to the local CPU.
+In x2APIC mode uses the Self IPI MSR (0x83F), a single WRMSR.
+In xAPIC mode falls back to a regular ICR write targeting self."
+  (check-type vector (unsigned-byte 8))
+  (if *lapic-x2apic-mode*
+      (setf (sys.int::msr +x2apic-msr-self-ipi+) vector)
+      (send-ipi (read-local-apic-id) +ipi-type-fixed+ vector)))
 
 (defun send-ipi-to-cpu (cpu type vector)
   (send-ipi (x86-64-cpu-apic-id cpu) type vector))
@@ -252,8 +261,10 @@ The bootloader is loaded to #x7C00, so #x7000 should be safe.")
 (defun broadcast-ipi (type vector &optional including-self)
   (when (and (boundp '*lapic-address*)
              *lapic-address*)
-    (safe-without-interrupts (type vector including-self)
-      (send-ipi-to-all type vector :including-self including-self))))
+    (if (and (boundp '*lapic-x2apic-mode*) *lapic-x2apic-mode*)
+        (send-ipi-to-all type vector :including-self including-self)
+        (safe-without-interrupts (type vector including-self)
+          (send-ipi-to-all type vector :including-self including-self)))))
 
 (defun broadcast-wakeup-ipi ()
   (when (and (boundp '*lapic-address*)
@@ -328,7 +339,7 @@ Protected by the world stop lock."
 (defun stop-other-cpus-for-debug-magic-button ()
   (setf *debug-magic-button-ready-variable* (1- *n-up-cpus*)
         *debug-magic-button-hold-variable* t)
-  (send-ipi-to-all +ipi-type-fixed+ +quiesce-ipi-vector+)
+  (broadcast-ipi +ipi-type-fixed+ +quiesce-ipi-vector+)
   ;; Wait for other CPUs to arrive, this ensures the thread state is actually
   ;; consistent.
   (loop until (eql *debug-magic-button-ready-variable* 0)))
