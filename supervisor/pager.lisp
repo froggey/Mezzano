@@ -862,7 +862,7 @@ mapped, then the entry will be NIL."
         ;; Remap page read/write.
         (begin-tlb-shootdown)
         (setf (page-table-entry pte) (make-pte (ash (pte-physical-address (page-table-entry pte)) -12)
-                                                :writable (block-info-writable-p block-info)))
+                                               :writable (block-info-writable-p block-info)))
         (tlb-shootdown-single address)
         (finish-tlb-shootdown))
       #+(or)(debug-print-line "WFP " address " block " block-info " already mapped " (page-table-entry pte 0))
@@ -906,11 +906,11 @@ mapped, then the entry will be NIL."
                (panic "Unable to read page from disk"))))
       (begin-tlb-shootdown)
       (setf (page-table-entry pte) (make-pte frame
-                                              :writable (and (block-info-writable-p block-info)
-                                                             (not (block-info-track-dirty-p block-info)))
-                                              ;; Mark the page dirty to make sure the snapshotter & swap code know to swap it out.
-                                              ;; The zero fill flag in the block map was cleared, but the on-disk data doesn't reflect that.
-                                              :dirty is-zero-page))
+                                             :writable (and (block-info-writable-p block-info)
+                                                            (not (block-info-track-dirty-p block-info)))
+                                             ;; Mark the page dirty to make sure the snapshotter & swap code know to swap it out.
+                                             ;; The zero fill flag in the block map was cleared, but the on-disk data doesn't reflect that.
+                                             :dirty is-zero-page))
       (tlb-shootdown-single address)
       (finish-tlb-shootdown)
       #+(or)
