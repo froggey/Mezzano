@@ -40,7 +40,7 @@ RETURN-FROM/GO must not be used to leave this form."
     nil
     ,@captures))
 
-;;; TATAS (test-and-test-and-set) spinlocks -- general purpose, supports nesting.
+;;; TATAS (test-and-test-and-set) spinlocks. general purpose, supports nesting.
 (defun place-spinlock-initializer ()
   :unlocked)
 
@@ -120,7 +120,7 @@ RETURN-FROM/GO must not be used to leave this form."
   (check-type lock symbol)
   `(ensure-place-spinlock-held ,lock))
 
-;;; MCS (Mellor-Crummy-Scott) queue-based spinlocks -- fair, FIFO, each CPU
+;;; MCS (Mellor-Crummy-Scott) queue-based spinlocks - fair, FIFO, each CPU
 ;;; spins on its own cache line.  CANNOT be nested on the same CPU.
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defun mcs-cas-target (place)
@@ -297,8 +297,7 @@ NOTE: do NOT nest MCS spinlock acquisitions on the same CPU."
   platform-number
   attachments
   (count 0)
-    (lock :unlocked)
-)
+  (lock :unlocked))
 
 (defstruct (irq-attachment
              (:area :wired))
@@ -383,8 +382,7 @@ NOTE: do NOT nest MCS spinlock acquisitions on the same CPU."
   latch
   event
   (state :masked)
-    (lock :unlocked)
-)
+  (lock :unlocked))
 
 (defun make-simple-irq (irq-number &optional latch)
   (declare (mezzano.compiler::closure-allocation :wired))

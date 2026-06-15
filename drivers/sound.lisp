@@ -132,7 +132,7 @@
     (fill buffer 0.0 :start start :end end))
   (prog1
       ;; Try-lock the sink mutex. If the music player holds it (inside
-      ;; output-sound's transcode path), return T immediately — the
+      ;; output-sound's transcode path), return T immediately: the
       ;; buffer is already zeroed, so the HDA plays silence for this
       ;; period. Next period will retry.
       (if (mezzano.supervisor:acquire-mutex *sink-lock* nil)
@@ -311,7 +311,7 @@
       (loop
           (when (buffer-empty sink)
             ;; Buffer is currently empty, sink is not live.
-            ;; Only add to the sink list if not already present — the
+            ;; Only add to the sink list if not already present. the
             ;; callback may have left it if it was re-filled concurrently.
             (unless (member sink *sinks*)
               (setf (sup:event-state *sinks-present-event*) t)

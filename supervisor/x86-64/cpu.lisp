@@ -232,7 +232,7 @@ In xAPIC mode falls back to a regular ICR write targeting self."
 (defun send-ipi-to-all (type vector &key including-self)
   (if (and (boundp '*lapic-x2apic-mode*) *lapic-x2apic-mode*)
       ;; x2APIC shorthand: the destination-shorthand field is ICR
-      ;; bits 19:18 -- 01=self, 10=all-including-self, 11=all-excluding-self.
+      ;; bits 19:18 - 01=self, 10=all-including-self, 11=all-excluding-self.
       (let ((icr (logior (ash type 8)
                          vector)))
         (setf (sys.int::msr +x2apic-msr-icr+)
@@ -373,7 +373,7 @@ If the CPU is idle, this will cause it to check for new threads."
 (defun check-tlb-generation-consistency ()
   "If this CPU missed a TLB shootdown while idle, flush now.
 If a shootdown is still in progress, flush but do not stamp the
-generation — the context-switch path will re-check after the shootdown
+generation. the context-switch path will re-check after the shootdown
 finishes and the final generation is known."
   (when (and (boundp '*current-tlb-generation*)
              (boundp '*tlb-shootdown-in-progress*)
@@ -393,7 +393,7 @@ TLB shootdown must be protected by the VM lock."
   (setf *tlb-shootdown-in-progress* t)
   ;; Bump the generation before sending IPIs so idle CPUs that wake
   ;; during the shootdown window will see the mismatch and flush on
-  ;; their next context switch.  Idle CPUs are skipped — if they
+  ;; their next context switch. Idle CPUs are skipped; if they
   ;; handle a device IRQ mid-shootdown the IRQ handler calls
   ;; check-tlb-generation-consistency to flush before touching
   ;; pageable memory.

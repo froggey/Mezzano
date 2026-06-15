@@ -629,8 +629,7 @@ Interrupts must be off and the global thread lock must be held."
               *rcu-deferred-list* deferred-cons)
         ;; Drain immediately.  This is the only writer of
         ;; *rcu-deferred-list* and it runs under the global lock, so every
-        ;; thread exit leaves the list empty -- no unbounded growth and no
-        ;; need for a separate grace period in a GC'd runtime.
+        ;; thread exit leaves the list empty.
         (%cleanup-dead-threads)
         (%reschedule-via-wired-stack sp fp)))))
 

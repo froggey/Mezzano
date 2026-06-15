@@ -321,7 +321,7 @@ Protected by the world stop lock."
    '*debug-magic-button-ready-variable* -1))
 
 ;; ARM64 has hardware-broadcast TLB invalidation (TLBI IS instructions).
-;; No IPIs needed — the initiating CPU issues TLBI VAE1IS which broadcasts
+;; No IPIs needed; the initiating CPU issues TLBI VAE1IS which broadcasts
 ;; to all CPUs in the inner shareable domain. We still bracket the operation
 ;; with inhibit-scheduling to prevent CPU migration.
 
