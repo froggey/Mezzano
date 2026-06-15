@@ -56,7 +56,7 @@
 (defconstant +cpuid-feature-x2apic+ 21)
 (defconstant +cpuid-feature-tsc-deadline+ 24)
 (defconstant +msr-ia32-apic-base-x2apic-enable+ #x400)
-(defconstant +msr-ia32-apic-base-bsp+ #x800)
+(defconstant +msr-ia32-apic-base-enable+ #x800)
 
 ;; x2APIC MSR range base.
 (defconstant +x2apic-msr-base+ #x800)
@@ -1099,12 +1099,12 @@ Returns (values lapic-cycles-elapsed pit-tick-duration-in-internal-time-units)."
                 (setf *lapic-x2apic-mode* t)
                 (debug-print-line "x2APIC already enabled by firmware"))
                (t
-                ;; Enable x2APIC: set bit 10 (enable) and bit 11 (BSP) in IA32_APIC_BASE MSR.
+                ;; Enable x2APIC: set bit 10 (x2APIC enable) and bit 11 (APIC enable) in IA32_APIC_BASE MSR.
                 (let ((apic-base (sys.int::msr +msr-ia32-apic-base+)))
                   (setf (sys.int::msr +msr-ia32-apic-base+)
                         (logior apic-base
                                 +msr-ia32-apic-base-x2apic-enable+
-                                +msr-ia32-apic-base-bsp+)))
+                                +msr-ia32-apic-base-enable+)))
                 (setf *lapic-x2apic-mode* t)
                 (debug-print-line "x2APIC enabled on BSP"))))
         (t

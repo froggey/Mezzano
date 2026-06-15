@@ -152,7 +152,7 @@
         (io-apic-write-redirection apic e +io-apic-entry-mask+)
         (let* ((gsi (+ gsi-base e))
                (vector (gsi->vector gsi))
-               (flags (svref *gsi-flags* gsi)))
+               (flags (if (< gsi 256) (svref *gsi-flags* gsi) 0)))
           (when (< vector 256)
             (io-apic-configure-entry gsi vector bsp-apic-id
                                      :trigger-mode (gsi-flags-trigger flags)

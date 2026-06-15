@@ -382,7 +382,6 @@
 
 (defstruct (acpi-madt-processor-x2apic
              (:area :wired))
-  acpi-processor-id
   x2apic-id
   flags
   acpi-processor-uid)
@@ -452,7 +451,6 @@
              (9 ;; Processor local x2APIC.
                (setf (svref (acpi-madt-table-controllers table) current)
                      (make-acpi-madt-processor-x2apic
-                      :acpi-processor-id (physical-memref-unsigned-byte-8 (+ address offset 2))
                       :x2apic-id (physical-memref-unsigned-byte-32 (+ address offset 4))
                       :flags (physical-memref-unsigned-byte-32 (+ address offset 8))
                       :acpi-processor-uid (physical-memref-unsigned-byte-32 (+ address offset 12))))))
