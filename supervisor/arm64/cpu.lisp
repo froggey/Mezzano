@@ -252,17 +252,21 @@
 
 (sys.int::defglobal *non-quiescent-cpus-remaining*)
 
-;; FIXME: quiesce-cpus-for-world-stop needs to prevent migration across CPUs.
 (defun quiesce-cpus-for-world-stop ()
   "Bring all CPUs to a consistent state to stop the world.
 Protected by the world stop lock."
+  ;; Prevent migration during the broadcast and busy-wait.
+  (setf (cpu-inhibit-scheduling (local-cpu))
+        (1+ (cpu-inhibit-scheduling (local-cpu))))
   (setf *non-quiescent-cpus-remaining* (1- *n-up-cpus*))
   (send-ipi-to-all +quiesce-sgi-id+)
   ;; FIXME: Use WFE/SEV instead of this spin-loop.
   (loop
      (when (eql *non-quiescent-cpus-remaining* 0)
        (return))
-     (sys.int::cpu-relax)))
+     (sys.int::cpu-relax))
+  (setf (cpu-inhibit-scheduling (local-cpu))
+        (max 0 (1- (cpu-inhibit-scheduling (local-cpu))))))
 
 ;; Save the current thread's state and switch to the CPU's idle thread.
 (defun quiesce-ipi-handler (interrupt-frame)

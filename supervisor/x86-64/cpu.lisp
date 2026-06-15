@@ -288,17 +288,20 @@ In xAPIC mode falls back to a regular ICR write targeting self."
 
 (sys.int::defglobal *non-quiescent-cpus-remaining*)
 
-;; FIXME: quiesce-cpus-for-world-stop and begin-tlb-shootdown both need to
-;; prevent migration across CPUs.
 (defun quiesce-cpus-for-world-stop ()
   "Bring all CPUs to a consistent state to stop the world.
 Protected by the world stop lock."
+  ;; Prevent migration during the broadcast and busy-wait.
+  (setf (cpu-inhibit-scheduling (local-cpu))
+        (1+ (cpu-inhibit-scheduling (local-cpu))))
   (setf *non-quiescent-cpus-remaining* (1- *n-up-cpus*))
   (broadcast-ipi +ipi-type-fixed+ +quiesce-ipi-vector+)
   (loop
      (when (eql *non-quiescent-cpus-remaining* 0)
        (return))
-     (sys.int::cpu-relax)))
+     (sys.int::cpu-relax))
+  (setf (cpu-inhibit-scheduling (local-cpu))
+        (max 0 (1- (cpu-inhibit-scheduling (local-cpu))))))
 
 ;; Save the current thread's state and switch to the CPU's idle thread.
 (defun quiesce-ipi-handler (interrupt-frame info)

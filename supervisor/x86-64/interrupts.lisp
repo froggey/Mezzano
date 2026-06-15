@@ -306,7 +306,6 @@ If clear, the fault occured in supervisor mode.")
             (setf (sys.int::io-port/8 #xA1) (ldb (byte 8 8) *i8259-shadow-mask*)))))))
 
 (defun initialize-i8259 ()
-  ;; TODO: do the APIC & IO-APIC as well.
   (when (not (boundp '*i8259-irqs*))
     (setf *i8259-irqs* (sys.int::make-simple-vector 16 :wired)
           ;; fixme: do at cold-gen time.
