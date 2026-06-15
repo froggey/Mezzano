@@ -445,15 +445,15 @@
                      :flags (physical-memref-unsigned-byte-16 (+ address offset 3))
                      :lapic-lintn (physical-memref-unsigned-byte-8 (+ address offset 5)))))
              (5 ;; Local APIC address override.
-               (setf (svref (acpi-madt-table-controllers table) current)
-                     (make-acpi-madt-lapic-address-override
-                      :address (physical-memref-unsigned-byte-64 (+ address offset 4)))))
+              (setf (svref (acpi-madt-table-controllers table) current)
+                    (make-acpi-madt-lapic-address-override
+                     :address (physical-memref-unsigned-byte-64 (+ address offset 4)))))
              (9 ;; Processor local x2APIC.
-               (setf (svref (acpi-madt-table-controllers table) current)
-                     (make-acpi-madt-processor-x2apic
-                      :x2apic-id (physical-memref-unsigned-byte-32 (+ address offset 4))
-                      :flags (physical-memref-unsigned-byte-32 (+ address offset 8))
-                      :acpi-processor-uid (physical-memref-unsigned-byte-32 (+ address offset 12))))))
+              (setf (svref (acpi-madt-table-controllers table) current)
+                    (make-acpi-madt-processor-x2apic
+                     :x2apic-id (physical-memref-unsigned-byte-32 (+ address offset 4))
+                     :flags (physical-memref-unsigned-byte-32 (+ address offset 8))
+                     :acpi-processor-uid (physical-memref-unsigned-byte-32 (+ address offset 12))))))
            (incf current)
            (incf offset len))))
     table))
