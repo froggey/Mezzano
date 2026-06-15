@@ -188,21 +188,6 @@ The bootloader is loaded to #x7C00, so #x7000 should be safe.")
             (logand value #xFFFFFFFF))
       (setf (physical-memref-unsigned-byte-32 (+ *lapic-address* (ash register 4))) value)))
 
-(defun read-lapic64 (register)
-  (if *lapic-x2apic-mode*
-      (sys.int::msr (lapic-reg-to-msr register))
-      (logior (physical-memref-unsigned-byte-32 (+ *lapic-address* (ash register 4)))
-              (ash (physical-memref-unsigned-byte-32 (+ *lapic-address* (ash (1+ register) 4))) 32))))
-
-(defun write-lapic64 (value register)
-  (if *lapic-x2apic-mode*
-      (setf (sys.int::msr (lapic-reg-to-msr register)) (logand value #xFFFFFFFFFFFFFFFF))
-      (progn
-        (setf (physical-memref-unsigned-byte-32 (+ *lapic-address* (ash register 4)))
-              (ldb (byte 32 0) value))
-        (setf (physical-memref-unsigned-byte-32 (+ *lapic-address* (ash (1+ register) 4)))
-              (ldb (byte 32 32) value)))))
-
 ;; Mode-dispatching LAPIC accessors, retaining the original lapic-reg
 ;; names to avoid a wholesale rename of every call site.
 (defun lapic-reg (register)
