@@ -1237,20 +1237,6 @@ on every thread exit inside THREAD-FINAL-CLEANUP."
   "Execute BODY after an RCU grace period."
   `(call-with-rcu-synchronize (lambda () ,@body)))
 
-;;; Per-CPU counter helpers.
-;;; Define a set of INC/DEC/READ functions for a per-CPU slot.
-
-(defmacro define-percpu-counter (name slot)
-  `(progn
-     (defun ,(intern (format nil "INC-~A" name)) ()
-       (setf (,slot (local-cpu)) (1+ (,slot (local-cpu)))))
-     (defun ,(intern (format nil "DEC-~A" name)) ()
-       (setf (,slot (local-cpu)) (1- (,slot (local-cpu)))))
-     (defun ,(intern (format nil "READ-~A" name)) ()
-       (let ((total 0))
-         (dolist (cpu *cpus* total)
-           (incf total (,slot cpu)))))))
-
 (defun initialize-sync (first-run-p)
   (when first-run-p
     (setf *watcher-watcher-pool*

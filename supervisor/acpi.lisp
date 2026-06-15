@@ -511,21 +511,6 @@
               (debug-print-line " Table " i " " (svref tables i) " " (acpi-table-header-signature header))))
           (setf *acpi* tables))))))
 
-(defun acpi-find-interrupt-source-override (source-irq)
-  "Find the GSI for a legacy ISA IRQ from MADT interrupt source overrides.
-Returns the GSI number if an override exists, or SOURCE-IRQ if not found."
-  (let ((madt (acpi-get-table 'acpi-madt-table-p)))
-    (when madt
-      (dotimes (i (sys.int::simple-vector-length
-                   (acpi-madt-table-controllers madt)))
-        (let ((entry (svref (acpi-madt-table-controllers madt) i)))
-          (when (and (acpi-madt-interrupt-source-override-p entry)
-                     (eql (acpi-madt-interrupt-source-override-source entry)
-                          source-irq))
-            (return-from acpi-find-interrupt-source-override
-              (acpi-madt-interrupt-source-override-global-system-interrupt entry))))))
-    source-irq))
-
 (defun acpi-get-table (predicate)
   (cond
     (*acpi*

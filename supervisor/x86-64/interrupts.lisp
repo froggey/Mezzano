@@ -272,6 +272,9 @@ If clear, the fault occured in supervisor mode.")
           (debug-print-line "Spurious i8259 IRQ " irq ". Further spurious IRQs will not be reported."))
         (incf *i8259-spurious-interrupt-count*)
         (return-from i8259-interrupt-handler)))
+    ;; If this CPU was idle during a TLB shootdown and missed the IPI,
+    ;; flush now before the IRQ handler touches any pageable memory.
+    (check-tlb-generation-consistency)
     (irq-deliver interrupt-frame (svref *i8259-irqs* irq))
     (with-symbol-spinlock (*i8259-spinlock*)
       ;; Send EOI.

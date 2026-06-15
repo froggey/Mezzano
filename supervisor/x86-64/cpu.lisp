@@ -203,7 +203,8 @@ The bootloader is loaded to #x7C00, so #x7000 should be safe.")
         (setf (physical-memref-unsigned-byte-32 (+ *lapic-address* (ash (1+ register) 4)))
               (ldb (byte 32 32) value)))))
 
-;; Legacy aliases for gradual migration.
+;; Mode-dispatching LAPIC accessors, retaining the original lapic-reg
+;; names to avoid a wholesale rename of every call site.
 (defun lapic-reg (register)
   (read-lapic register))
 
@@ -391,24 +392,32 @@ TLB shootdown must be protected by the VM lock."
   (ensure (rw-lock-write-held-p *vm-lock*) "VM lock not held when doing TLB shootdown!")
   (ensure (not *tlb-shootdown-in-progress*) "TLB shootdown already in progress!")
   (setf *tlb-shootdown-in-progress* t)
-  ;; Bump the generation before sending IPIs.  If an idle CPU wakes
-  ;; during the shootdown window, check-tlb-generation-consistency will
-  ;; see the mismatch and flush before resuming a thread.  (Device IRQs
-  ;; prevent us from skipping IPIs entirely: an idle CPU still handles
-  ;; device interrupts that touch pageable memory.)
+  ;; Bump the generation before sending IPIs so idle CPUs that wake
+  ;; during the shootdown window will see the mismatch and flush on
+  ;; their next context switch.  Idle CPUs are skipped — if they
+  ;; handle a device IRQ mid-shootdown the IRQ handler calls
+  ;; check-tlb-generation-consistency to flush before touching
+  ;; pageable memory.
   (sys.int::%atomic-fixnum-add-symbol '*current-tlb-generation* 1)
   ;; Prevent migration during shootdown.
   (setf (cpu-inhibit-scheduling (local-cpu))
         (1+ (cpu-inhibit-scheduling (local-cpu))))
+  ;; Initialise *busy-tlb-shootdown-cpus* to (n_cpus - 1) BEFORE any
+  ;; IPI so the handler's decrement always has a bound value.  Then
+  ;; send IPIs to non-idle CPUs and decrement the counter for idle
+  ;; CPUs we skip.
   (setf *busy-tlb-shootdown-cpus* (1- *n-up-cpus*))
   (setf *tlb-shootdown-n-targets* 0)
   (dolist (cpu *cpus*)
     (when (and (eql (x86-64-cpu-state cpu) :online)
                (not (eql cpu (local-cpu))))
-      (incf *tlb-shootdown-n-targets*)
-      (send-ipi-to-cpu cpu +ipi-type-fixed+
-                       +tlb-shootdown-ipi-vector+)))
-  ;; Wait for other CPUs to reach the handler.
+      (if (cpu-idle-p cpu)
+          (sys.int::%atomic-fixnum-add-symbol '*busy-tlb-shootdown-cpus* -1)
+          (progn
+            (incf *tlb-shootdown-n-targets*)
+            (send-ipi-to-cpu cpu +ipi-type-fixed+
+                             +tlb-shootdown-ipi-vector+)))))
+  ;; Wait for targeted CPUs to reach the handler.
   (loop
      (when (eql *busy-tlb-shootdown-cpus* 0)
        (return))
@@ -1101,12 +1110,6 @@ This is a one-shot timer and must be reset after firing."
       (sys.int::msr #x802)
       (ldb (byte 8 24) (read-lapic +lapic-reg-id+))))
 
-(defun send-self-ipi (vector)
-  (check-type vector (unsigned-byte 8))
-  (if *lapic-x2apic-mode*
-      (setf (sys.int::msr +x2apic-msr-self-ipi+) vector)
-      (send-ipi (read-local-apic-id) +ipi-type-fixed+ vector)))
-
 (defun initialize-early-cpu ()
   (setf *lapic-address* nil))
 
@@ -1340,8 +1343,4 @@ This is a one-shot timer and must be reset after firing."
   (sys.lap-x86:ret))
 
 (defun dma-write-barrier ()
-  (%mfence))
-
-(defun cpu-memory-barrier ()
-  "Full memory barrier for ordering lock data accesses."
   (%mfence))

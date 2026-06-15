@@ -220,6 +220,9 @@
       nil)))
 
 (defun io-apic-interrupt-handler (interrupt-frame info)
+  ;; If this CPU was idle during a TLB shootdown and missed the IPI,
+  ;; flush now before the IRQ handler touches any pageable memory.
+  (check-tlb-generation-consistency)
   (let ((gsi (vector->gsi info)))
     (when (and (<= 0 gsi) (< gsi 256))
       (irq-deliver interrupt-frame (svref *io-apic-irqs* gsi)))
