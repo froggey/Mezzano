@@ -92,20 +92,20 @@
                  ;; RIP is valid in the save area.
                  (profile-append-return-address (thread-state-rip thread)))
                (profile-append-call-stack (thread-frame-pointer thread)))))
-           (t
-            (with-rcu-read-lock
-              (loop
-                 for thread = *all-threads* then (thread-global-next thread)
-                 until (not thread) do
-                   (when (and (not (eql (thread-state thread) :dead))
-                              (not (eql thread (current-thread))))
+          (t
+           (with-rcu-read-lock
+             (loop
+                for thread = *all-threads* then (thread-global-next thread)
+                until (not thread) do
+                  (when (and (not (eql (thread-state thread) :dead))
+                             (not (eql thread (current-thread))))
                   (profile-append-entry thread)
                   (profile-append-entry (thread-state thread))
                   (profile-append-entry (thread-wait-item thread))
                   (when (thread-full-save-p thread)
                     ;; RIP is valid in the save area.
                     (profile-append-return-address (thread-state-rip thread)))
-                   (profile-append-call-stack (thread-frame-pointer thread)))))))
+                  (profile-append-call-stack (thread-frame-pointer thread)))))))
     (resume-other-cpus-for-debug-magic-button)))
 
 (defun start-profiling (&key buffer-size thread (reset t) (sample-during-gc t))

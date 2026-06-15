@@ -87,9 +87,9 @@
 (sys.int::defglobal *lock-violations-are-fatal* t)
 
 (defstruct (mutex
-              (:include wait-queue)
-              (:constructor make-mutex (&optional name))
-              (:area :wired))
+             (:include wait-queue)
+             (:constructor make-mutex (&optional name))
+             (:area :wired))
   ;; Thread holding the lock, or NIL if it is free.
   ;; May not be correct when the lock is being acquired/released.
   (owner nil)

@@ -370,12 +370,12 @@ TLB shootdown must be protected by the VM lock."
                                              :priority :idle))
          (wired-stack (%allocate-stack (* 128 1024) t))
          (cpu (make-arm64-cpu :state :offline
-                               :cpu-id cpu-id
-                               :idle-thread idle-thread
-                               :wired-stack wired-stack
-                               :sp-el1 (+ (stack-base wired-stack)
-                                          (stack-size wired-stack)
-                                          -16))))
+                              :cpu-id cpu-id
+                              :idle-thread idle-thread
+                              :wired-stack wired-stack
+                              :sp-el1 (+ (stack-base wired-stack)
+                                         (stack-size wired-stack)
+                                         -16))))
     (setf (cpu-cpu-index cpu) (length *cpus*))
     (setf (cpu-inhibit-scheduling cpu) 0)
     (setf (cpu-tlb-generation cpu) 0)
