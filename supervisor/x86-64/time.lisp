@@ -22,34 +22,33 @@
     (setf (sys.int::io-port/8 #x40) (ldb (byte 8 0) divisor)
           (sys.int::io-port/8 #x40) (ldb (byte 8 8) divisor))))
 
+(defun wait-for-next-pit-tick (current-time)
+  (loop
+    (let ((new (get-internal-run-time)))
+      (when (not (eql new current-time))
+        (return new)))))
+
+(defun calibrate-average (fn)
+  (let ((n (funcall fn)))
+    (dotimes (i 5)
+      (setf n (/ (+ n (funcall fn)) 2)))
+    n))
+
 (defun calibrate-tsc-1 ()
   "Return the number of cycles per second, approximately."
-  (let ((initial-time (get-internal-run-time))
-        (start-time nil)
-        (end-time nil)
+  (let ((start-time (wait-for-next-pit-tick (get-internal-run-time)))
         (start-cycle nil)
         (end-cycle nil))
-    ;; Wait for the start of this tick.
-    (loop
-       (setf start-time (get-internal-run-time))
-       (when (not (eq start-time initial-time))
-         (return)))
     (setf start-cycle (sys.int::tsc))
-    (loop
-       (setf end-time (get-internal-run-time))
-       (when (not (eq end-time start-time))
-         (return)))
-    (setf end-cycle (sys.int::tsc))
-    (let* ((cycles (- end-cycle start-cycle))
-           (time (/ (float (- end-time start-time)) internal-time-units-per-second))
-           (cycles-per-second (/ cycles time)))
-      cycles-per-second)))
+    (let ((end-time (wait-for-next-pit-tick start-time)))
+      (setf end-cycle (sys.int::tsc))
+      (let* ((cycles (- end-cycle start-cycle))
+             (time (/ (float (- end-time start-time)) internal-time-units-per-second))
+             (cycles-per-second (/ cycles time)))
+        cycles-per-second))))
 
 (defun calibrate-tsc ()
-  (let ((n (calibrate-tsc-1)))
-    (dotimes (i 5)
-      (setf n (/ (+ n (calibrate-tsc-1)) 2)))
-    (setf *cpu-speed* (floor n))))
+  (setf *cpu-speed* (floor (calibrate-average #'calibrate-tsc-1))))
 
 (defun high-precision-time-units-to-internal-time-units (tsc-time)
   (if (boundp '*cpu-speed*)

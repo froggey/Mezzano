@@ -200,6 +200,13 @@ The bootloader is loaded to #x7C00, so #x7000 should be safe.")
   "Issue an EOI to the Local APIC."
   (setf (lapic-reg +lapic-reg-eoi+) 0))
 
+(declaim (inline lapic-initialized-p lapic-x2apic-p))
+(defun lapic-initialized-p ()
+  (and (boundp '*lapic-address*) *lapic-address*))
+
+(defun lapic-x2apic-p ()
+  (and (boundp '*lapic-x2apic-mode*) *lapic-x2apic-mode*))
+
 (defun send-ipi (target type vector)
   (if *lapic-x2apic-mode*
       ;; x2APIC: single 64-bit WRMSR to MSR 0x830.
@@ -230,7 +237,7 @@ In xAPIC mode falls back to a regular ICR write targeting self."
   (send-ipi (x86-64-cpu-apic-id cpu) type vector))
 
 (defun send-ipi-to-all (type vector &key including-self)
-  (if (and (boundp '*lapic-x2apic-mode*) *lapic-x2apic-mode*)
+  (if (lapic-x2apic-p)
       ;; x2APIC shorthand: the destination-shorthand field is ICR
       ;; bits 19:18 - 01=self, 10=all-including-self, 11=all-excluding-self.
       (let ((icr (logior (ash type 8)
@@ -244,16 +251,14 @@ In xAPIC mode falls back to a regular ICR write targeting self."
           (send-ipi-to-cpu cpu type vector)))))
 
 (defun broadcast-ipi (type vector &optional including-self)
-  (when (and (boundp '*lapic-address*)
-             *lapic-address*)
-    (if (and (boundp '*lapic-x2apic-mode*) *lapic-x2apic-mode*)
+  (when (lapic-initialized-p)
+    (if (lapic-x2apic-p)
         (send-ipi-to-all type vector :including-self including-self)
         (safe-without-interrupts (type vector including-self)
           (send-ipi-to-all type vector :including-self including-self)))))
 
 (defun broadcast-wakeup-ipi ()
-  (when (and (boundp '*lapic-address*)
-             *lapic-address*)
+  (when (lapic-initialized-p)
     (dolist (cpu *cpus*)
       (when (eql (x86-64-cpu-state cpu) :online)
         (wake-cpu cpu)))))
@@ -991,32 +996,22 @@ This is a one-shot timer and must be reset after firing."
   (declare (ignore interrupt-frame info))
   (panic "Got LAPIC error interrupt"))
 
-(defun lapic-timer-calibrate-1 ()
-  (let ((initial-time (get-internal-run-time))
-        (start-time nil)
-        (end-time nil)
-        (end-counter nil))
-    ;; Wait for the start of this tick.
-    (loop
-       (setf start-time (get-internal-run-time))
-       (when (not (eq start-time initial-time))
-         (return)))
-    ;; Start timer with the maximum count value
+(defun lapic-timer-measure-one-tick ()
+  "Start LAPIC timer at max count at a PIT tick boundary, wait one tick.
+Returns (values lapic-cycles-elapsed pit-tick-duration-in-internal-time-units)."
+  (let ((start (wait-for-next-pit-tick (get-internal-run-time))))
     (write-lapic #xFFFFFFFF +lapic-reg-timer-initial-count+)
-    ;; Wait for next tick.
-    (loop
-       (setf end-time (get-internal-run-time))
-       (when (not (eq end-time start-time))
-         (return)))
-    ;; Read current count & stop timer.
-    (setf end-counter (read-lapic +lapic-reg-timer-current-count+))
-    (write-lapic 0 +lapic-reg-timer-initial-count+)
-    (let* ((cycles (- #xFFFFFFFF end-counter))
-           (total-time (- end-time start-time))
-           ;; Use single floats here. Rationals & double-floats require
-           ;; allocation and this is called too early for that.
-           (time (/ (float total-time) internal-time-units-per-second))
-           (cycles-per-second (/ cycles time)))
+    (let ((end (wait-for-next-pit-tick start)))
+      (let ((remaining (read-lapic +lapic-reg-timer-current-count+)))
+        (write-lapic 0 +lapic-reg-timer-initial-count+)
+        (values (- #xFFFFFFFF remaining) (- end start))))))
+
+(defun lapic-timer-calibrate-1 ()
+  "Calibrate the LAPIC timer using the PIT as a time reference."
+  (multiple-value-bind (cycles total-time)
+      (lapic-timer-measure-one-tick)
+    (let* ((time (/ (float total-time) internal-time-units-per-second))
+           (cycles-per-second (/ (float cycles) time)))
       cycles-per-second)))
 
 ;; Assume LAPIC timers across CPUs tick at the same rate.
@@ -1029,42 +1024,24 @@ This is a one-shot timer and must be reset after firing."
 (defun lapic-timer-calibrate-tsc ()
   "Calibrate the LAPIC timer using the TSC as a high-resolution time reference.
 *CPU-SPEED* must already be calibrated before calling this."
-  (let* ((tsc-start (sys.int::tsc))
-         (start-time (get-internal-run-time)))
-    ;; Start timer with the maximum count value
-    (write-lapic #xFFFFFFFF +lapic-reg-timer-initial-count+)
-    ;; Wait for the next PIT tick as our interval marker.
-    (loop (when (not (eql (get-internal-run-time) start-time)) (return)))
-    (let* ((tsc-end (sys.int::tsc))
-           (lapic-remaining (read-lapic +lapic-reg-timer-current-count+))
-           (lapic-cycles (- #xFFFFFFFF lapic-remaining))
-           (tsc-delta (- tsc-end tsc-start)))
-      ;; Stop timer
-      (write-lapic 0 +lapic-reg-timer-initial-count+)
-      (if (zerop tsc-delta)
-          0
-          ;; LAPIC Hz = (lapic_cycles / tsc_delta) * cpu_speed
-          ;; Use single-floats to avoid allocation during early boot.
-          (let ((cpu-speed (float *cpu-speed*)))
+  (let ((tsc-start (sys.int::tsc)))
+    (multiple-value-bind (lapic-cycles)
+        (lapic-timer-measure-one-tick)
+      (let* ((tsc-delta (- (sys.int::tsc) tsc-start))
+             (cpu-speed (float *cpu-speed*)))
+        (if (zerop tsc-delta)
+            0
             (/ (* (float lapic-cycles) cpu-speed)
                (float tsc-delta)))))))
 
 ;; TODO: Be more clever when picking the divisor.
 ;; Should dynamically adjust so a goldilocks calibration value is returned.
 (defun lapic-timer-calibrate ()
-  (if (tsc-deadline-available-p)
-      ;; Use TSC for high-resolution calibration.
-      (let ((n (lapic-timer-calibrate-tsc)))
-        (dotimes (i 5)
-          (setf n (/ (+ n (lapic-timer-calibrate-tsc)) 2)))
-        (setf *lapic-timer-calibration* (truncate n)
-              *lapic-timer-ticks-per-second* (truncate n)))
-      ;; Fall back to PIT-based calibration.
-      (let ((n (lapic-timer-calibrate-1)))
-        (dotimes (i 5)
-          (setf n (/ (+ n (lapic-timer-calibrate-1)) 2)))
-        (setf *lapic-timer-calibration* (truncate n)
-              *lapic-timer-ticks-per-second* (truncate n)))))
+  (let ((n (calibrate-average (if (tsc-deadline-available-p)
+                                  #'lapic-timer-calibrate-tsc
+                                  #'lapic-timer-calibrate-1))))
+    (setf *lapic-timer-calibration* (truncate n)
+          *lapic-timer-ticks-per-second* (truncate n))))
 
 ;; These two functions are interrupt-safe, they must not use
 ;; floats, bignums or ratios when converting.
@@ -1225,7 +1202,7 @@ This is a one-shot timer and must be reset after firing."
                                :idle-p nil
                                :inhibit-scheduling 0
                                :tlb-generation 0
-                                                               :timer-active nil
+                               :timer-active nil
                                :apic-in-x2apic-mode *lapic-x2apic-mode*)))
     ;; Allocate per-CPU MCS node for spinlocks.
     (setf (cpu-mcs-node cpu) (%make-mcs-node))
