@@ -155,7 +155,7 @@ NOTE: do NOT nest MCS spinlock acquisitions on the same CPU."
        ;; Acquire barrier: make sure protected-data reads are not
        ;; reordered before the lock is observed held.  Required on
        ;; weakly-ordered ARM64 (x86-64 TSO folds this into the CAS).
-       (cpu-memory-barrier)
+       #+arm64 (cpu-memory-barrier)
        (values)))))
 
 (defmacro release-mcs-spinlock (place)
@@ -167,7 +167,7 @@ NOTE: do NOT nest MCS spinlock acquisitions on the same CPU."
        ;; critical section are visible before the handoff (or before the
        ;; lock word goes to nil for the uncontended release).  Required
        ;; on weakly-ordered ARM64.
-       (cpu-memory-barrier)
+       #+arm64 (cpu-memory-barrier)
        (block release-mcs-spinlock
          (if (null (mcs-node-next ,mcs-node))
              (if (eql (sys.int::cas ,cas-target ,mcs-node nil) ,mcs-node)

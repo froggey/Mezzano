@@ -1188,10 +1188,10 @@ It is only possible for the second value to be false when wait-p is false."
 
 ;;; The MCS queue-based spinlock primitives live in interrupts.lisp
 ;;; (ACQUIRE-MCS-SPINLOCK / RELEASE-MCS-SPINLOCK / WITH-MCS-SPINLOCK) and
-;;; each CPU has a pre-allocated MCS node in its cpu struct.  They are not
-;;; currently used by *global-thread-lock*, which is released from the LAP
-;;; context-switch trampolines and so stays a TATAS place spinlock; see
-;;; thread.lisp.
+;;; each CPU has a pre-allocated MCS node in its cpu struct.
+;;; *global-thread-lock* uses MCS; it is released from Lisp in
+;;; %%SWITCH-TO-THREAD-COMMON (on the kernel wired stack) before the LAP
+;;; restore trampolines switch to the new thread's stack.
 
 ;;; RCU primitives for lock-free read-side access.
 ;;; Each CPU has an rcu-nest counter in the cpu struct.

@@ -2,9 +2,9 @@
 
 (in-package :mezzano.supervisor)
 
-(sys.int::defglobal *global-thread-lock* :unlocked
+(sys.int::defglobal *global-thread-lock* nil
   "This lock protects the special variables that make up the thread list/run queues and the thread objects.
-Free value is :UNLOCKED; held value is the owning CPU (a TATAS place spinlock).")
+Free value is NIL; held/contended value is an MCS node chain (MCS queue spinlock).")
 (sys.int::defglobal *supervisor-priority-run-queue*)
 (sys.int::defglobal *high-priority-run-queue*)
 (sys.int::defglobal *normal-priority-run-queue*)
@@ -259,26 +259,22 @@ can be reprotected.")
 
 ;;; Locking.
 
-;;; Note: *global-thread-lock* deliberately uses the TATAS place spinlock
-;;; rather than the MCS queue spinlock.  It is released from the LAP context
-;;; switch trampolines (%%RESTORE-FULL-SAVE-THREAD / %%RESTORE-PARTIAL-SAVE-
-;;; THREAD) after switching off the old thread's stack, where only a single
-;;; store can be emitted; the MCS release protocol (CAS + spin + handoff to
-;;; the next waiter) cannot be expressed there.  The MCS infrastructure
-;;; (acquire-mcs-spinlock etc.) remains available for locks that are never
-;;; released from LAP.
+;;; *global-thread-lock* uses the per-CPU MCS queue spinlock for fair
+;;; FIFO acquisition and local-cache-line spinning.  It is released from
+;;; Lisp code in %%SWITCH-TO-THREAD-COMMON (on the kernel wired stack)
+;;; before the LAP restore trampolines switch to the new thread's stack.
 (defun acquire-global-thread-lock ()
-  (acquire-symbol-spinlock *global-thread-lock*))
+  (acquire-mcs-spinlock *global-thread-lock*))
 
 (defun release-global-thread-lock ()
-  (release-symbol-spinlock *global-thread-lock*))
+  (release-mcs-spinlock *global-thread-lock*))
 
 (defmacro with-global-thread-lock ((&optional) &body body)
-  `(with-symbol-spinlock (*global-thread-lock*)
+  `(with-mcs-spinlock (*global-thread-lock*)
      ,@body))
 
 (defun ensure-global-thread-lock-held ()
-  (ensure-symbol-spinlock-held *global-thread-lock*))
+  (ensure-mcs-spinlock-held *global-thread-lock*))
 
 ;;; Run queue management.
 
@@ -494,11 +490,9 @@ Interrupts must be off and the global thread lock must be held."
   (check-tlb-generation-consistency)
   ;; Restore FPU state.
   (restore-fpu-state new-thread)
-  ;; On x86-64 the global thread lock is dropped by the assembly restore
-  ;; trampolines AFTER switching off this (the old thread's) stack, so that
-  ;; another CPU may safely resume the old thread without colliding on its
-  ;; wired stack.  ARM64 still releases here from Lisp for now.
-  #+arm64 (release-global-thread-lock)
+  ;; The global thread lock is released here, on the kernel wired stack,
+  ;; before the LAP restore trampolines switch to the new thread's stack.
+  (release-global-thread-lock)
   (if (thread-full-save-p new-thread)
       (%%restore-full-save-thread new-thread)
       (%%restore-partial-save-thread new-thread)))
@@ -803,7 +797,7 @@ not and WAIT-P is false."
 (defun initialize-threads ()
   (when (not (boundp '*global-thread-lock*))
     ;; First-run stuff.
-    (setf *global-thread-lock* :unlocked)
+    (setf *global-thread-lock* nil)
     (setf *supervisor-priority-run-queue* (make-run-queue :supervisor)
           *high-priority-run-queue* (make-run-queue :high)
           *normal-priority-run-queue* (make-run-queue :normal)

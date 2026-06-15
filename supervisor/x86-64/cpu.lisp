@@ -371,13 +371,19 @@ If the CPU is idle, this will cause it to check for new threads."
 (sys.int::defglobal *current-tlb-generation*)
 
 (defun check-tlb-generation-consistency ()
-  "If this CPU missed a TLB shootdown while idle, flush now."
+  "If this CPU missed a TLB shootdown while idle, flush now.
+If a shootdown is still in progress, flush but do not stamp the
+generation — the context-switch path will re-check after the shootdown
+finishes and the final generation is known."
   (when (and (boundp '*current-tlb-generation*)
-             (not (eql (cpu-tlb-generation (local-cpu))
-                       *current-tlb-generation*)))
+             (boundp '*tlb-shootdown-in-progress*)
+             (or *tlb-shootdown-in-progress*
+                 (not (eql (cpu-tlb-generation (local-cpu))
+                           *current-tlb-generation*))))
     (flush-tlb)
-    (setf (cpu-tlb-generation (local-cpu))
-          *current-tlb-generation*)))
+    (unless *tlb-shootdown-in-progress*
+      (setf (cpu-tlb-generation (local-cpu))
+            *current-tlb-generation*))))
 
 (defun begin-tlb-shootdown ()
   "Bring all CPUs to state ready for TLB shootdown.
@@ -385,18 +391,17 @@ TLB shootdown must be protected by the VM lock."
   (ensure (rw-lock-write-held-p *vm-lock*) "VM lock not held when doing TLB shootdown!")
   (ensure (not *tlb-shootdown-in-progress*) "TLB shootdown already in progress!")
   (setf *tlb-shootdown-in-progress* t)
-  (setf *busy-tlb-shootdown-cpus* (1- *n-up-cpus*))
-  (setf *tlb-shootdown-n-targets* 0)
+  ;; Bump the generation before sending IPIs.  If an idle CPU wakes
+  ;; during the shootdown window, check-tlb-generation-consistency will
+  ;; see the mismatch and flush before resuming a thread.  (Device IRQs
+  ;; prevent us from skipping IPIs entirely: an idle CPU still handles
+  ;; device interrupts that touch pageable memory.)
+  (sys.int::%atomic-fixnum-add-symbol '*current-tlb-generation* 1)
   ;; Prevent migration during shootdown.
   (setf (cpu-inhibit-scheduling (local-cpu))
         (1+ (cpu-inhibit-scheduling (local-cpu))))
-  ;; Send IPIs to every other online CPU.  Idle CPUs are intentionally
-  ;; NOT skipped: an idle CPU may wake during the shootdown window, run a
-  ;; thread, and cache a stale translation before *current-tlb-generation*
-  ;; is bumped in FINISH-TLB-SHOOTDOWN.  Receiving the IPI forces it to
-  ;; flush regardless of idle state.  (The lazy generation check in
-  ;; CHECK-TLB-GENERATION-CONSISTENCY remains as a defence-in-depth for
-  ;; CPUs that were offline entirely during the shootdown.)
+  (setf *busy-tlb-shootdown-cpus* (1- *n-up-cpus*))
+  (setf *tlb-shootdown-n-targets* 0)
   (dolist (cpu *cpus*)
     (when (and (eql (x86-64-cpu-state cpu) :online)
                (not (eql cpu (local-cpu))))
@@ -411,8 +416,6 @@ TLB shootdown must be protected by the VM lock."
 
 (defun finish-tlb-shootdown ()
   (ensure *tlb-shootdown-in-progress*)
-  ;; Bump the global generation so idle CPUs know to flush on wakeup.
-  (sys.int::%atomic-fixnum-add-symbol '*current-tlb-generation* 1)
   ;; Only wait for CPUs that actually received the IPI in begin-tlb-shootdown.
   (setf *busy-tlb-shootdown-cpus* *tlb-shootdown-n-targets*)
   (setf *tlb-shootdown-in-progress* nil)
