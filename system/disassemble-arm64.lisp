@@ -1287,6 +1287,18 @@
                    :operands `(,(decode-gp (ldb +rt+ word) :sf sf)
                                (:pc ,(* (int::sign-extend (ldb (byte 19 5) word) 19) 4))))))
 
+(defun test-and-branch-immediate (context word)
+  (declare (ignore context))
+  (let ((sf (ldb (byte 1 31) word))
+        (opcode (ecase (ldb (byte 1 24) word)
+                  (0 'a64:tbz)
+                  (1 'a64:tbnz))))
+    (make-instance 'arm64-instruction
+                   :opcode opcode
+                   :operands `(,(decode-gp (ldb +rt+ word) :sf sf)
+                               ,(logior (ash sf 5) (ldb (byte 5 19) word))
+                               (:pc ,(* (int::sign-extend (ldb (byte 14 5) word) 14) 4))))))
+
 (defun branches-exceptions-system (context word)
   (let ((op0 (ldb (byte 3 29) word))
         (op1 (ldb (byte 4 22) word)))
@@ -1303,7 +1315,7 @@
           ((and (or (eql op0 1) (eql op0 5)) (eql (logand op1 #x8) 0))
            (compare-and-branch-immediate context word))
           ((and (or (eql op0 1) (eql op0 5)) (eql (logand op1 #x8) 8))
-           (values nil :test-and-branch-immediate))
+           (test-and-branch-immediate context word))
           (t
            (values nil :branches-exceptions-system)))))
 
