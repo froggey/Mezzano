@@ -822,7 +822,8 @@ mapped, then the entry will be NIL."
   (let ((pte (get-pte-for-address address))
         (block-info (block-info-for-virtual-address address)))
     #+(or)(debug-print-line "WFP " address " block " block-info)
-    (when (and writep
+    (when (and block-info
+               writep
                (not (block-info-writable-p block-info)))
       (debug-print-line "Write to read-only page " address)
       (return-from wait-for-page-unlocked nil))
