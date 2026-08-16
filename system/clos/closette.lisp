@@ -1042,12 +1042,12 @@ Other arguments are included directly."
   (cond ((typep class 'funcallable-standard-class)
          (unless (member (find-class 'funcallable-standard-object)
                          (safe-class-precedence-list class))
-           (error "FUNCALLABLE-STANARD-OBJECT missing from CPL of class ~S, CPL: ~:S"
+           (error "FUNCALLABLE-STANDARD-OBJECT missing from CPL of class ~S, CPL: ~:S"
                   class (safe-class-precedence-list class))))
         (t
          (when (member (find-class 'funcallable-standard-object)
                        (safe-class-precedence-list class))
-           (error "FUNCALLABLE-STANARD-OBJECT present in CPL of class ~S, CPL: ~:S"
+           (error "FUNCALLABLE-STANDARD-OBJECT present in CPL of class ~S, CPL: ~:S"
                   class (safe-class-precedence-list class)))))
   (setf (safe-class-slots class) (compute-slots class))
   (setf (safe-class-default-initargs class) (compute-default-initargs class))
