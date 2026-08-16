@@ -129,7 +129,7 @@
          " FAR: " (%far-el1)))
 
 (defun local-cpu-page-fault-hook ()
-  (arm64-cpu-page-fault-hook (local-cpu-info)))
+  (arm64-cpu-page-fault-hook (local-cpu)))
 
 (defun (setf local-cpu-page-fault-hook) (value)
   (setf (arm64-cpu-page-fault-hook (local-cpu-info)) value))

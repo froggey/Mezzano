@@ -16,6 +16,8 @@
 (defvar *prev-symbol-table* nil)
 (defvar *constant-pool* nil
   "The constant pool.")
+(defvar *constant-pool-table* nil
+  "Hash table mapping values to their index in the constant pool.")
 (defvar *mc-end* nil)
 (defvar *missing-symbols* nil)
 (defvar *bytes-emitted* nil)
@@ -411,9 +413,13 @@ a vector of constants and an alist of symbols & addresses."
                                      :fill-pointer t
                                      :adjustable t
                                      :initial-contents info))
+        (*constant-pool-table* (make-hash-table :test 'eql))
         (*symbol-table* (make-hash-table))
         (*missing-symbols* '())
         (*mc-end* nil))
+    ;; Populate the dedup table with the initial pool contents.
+    (loop for i from 0 below (length info) do
+      (setf (gethash (elt info i) *constant-pool-table*) i))
     (let ((*last-gc-data* nil))
       (setf code-list (expand-macros instruction-set code-list)))
     (dolist (x initial-symbols)
@@ -594,8 +600,10 @@ a vector of constants and an alist of symbols & addresses."
   (typep thing '(or symbol label integer (cons (eql :immediate)))))
 
 (defun add-to-constant-pool (value)
-  (or (position value *constant-pool*)
-      (vector-push-extend value *constant-pool*)))
+  (or (gethash value *constant-pool-table*)
+      (let ((index (vector-push-extend value *constant-pool*)))
+        (setf (gethash value *constant-pool-table*) index)
+        index)))
 
 (defun resolve-immediate (value)
   "Convert an immediate value to an integer."
