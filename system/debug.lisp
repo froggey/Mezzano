@@ -709,15 +709,19 @@ executed, and the offset into it."
               (format *trace-output* "~D: Leave ~A ~A ~:S~%" *trace-depth* gf method result)))
           (values-list result)))))
 
+(defparameter *trace-print-length* 5)
+(defparameter *trace-print-level* 5)
+
 (defun trace-wrapper (name wrapper args)
   (let ((old-definition (trace-wrapper-original wrapper)))
     (if *suppress-trace*
         (apply old-definition args)
         (let ((*suppress-trace* t))
-          (let ((*print-readably* nil)
-                (*print-length* 5)
-                (*print-level* 5))
-            (format *trace-output* "~D: Enter ~A ~:S~%" *trace-depth* name args))
+          (with-standard-io-syntax
+            (let ((*print-readably* nil)
+                  (*print-length* *trace-print-length*)
+                  (*print-level* *trace-print-level*))
+              (format *trace-output* "~D: Enter ~A ~:S~%" *trace-depth* name args)))
           (let ((bot-condition (trace-wrapper-break-on-trace wrapper)))
             (when (and bot-condition (eval bot-condition))
               (break "Trace break for ~S with args ~:S" old-definition args)))
@@ -727,10 +731,11 @@ executed, and the offset into it."
                    (setf result (multiple-value-list (let ((*trace-depth* (1+ *trace-depth*))
                                                            (*suppress-trace* nil))
                                                        (apply old-definition args)))))
-              (let ((*print-readably* nil)
-                    (*print-length* 5)
-                    (*print-level* 5))
-                (format *trace-output* "~D: Leave ~A ~:S~%" *trace-depth* name result)))
+              (with-standard-io-syntax
+                (let ((*print-readably* nil)
+                      (*print-length* *trace-print-length*)
+                      (*print-level* *trace-print-level*))
+                  (format *trace-output* "~D: Leave ~A ~:S~%" *trace-depth* name result))))
             (values-list result))))))
 
 (defun trace-function (name &rest options)
