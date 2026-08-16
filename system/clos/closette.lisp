@@ -1062,7 +1062,9 @@ Other arguments are included directly."
                   :heap-size (compute-class-heap-size class instance-slots)
                   :heap-layout t
                   :area (std-slot-value class 'allocation-area)
-                  :instance-slots instance-slot-vector)))
+                  :instance-slots instance-slot-vector
+                  ;; TODO (should just be self)
+                  :compatible (make-array 0 :area :wired))))
     (loop
        for i from 0 by 2
        for slot in instance-slots
@@ -2748,7 +2750,8 @@ always match."
                            :heap-size 0
                            :heap-layout t
                            :area nil
-                           :instance-slots #()))))
+                           :instance-slots #()
+                           :compatible #()))))
 (defgeneric class-sealed (class)
   (:method ((class clos-class))
     (declare (notinline slot-value)) ; bootstrap hack

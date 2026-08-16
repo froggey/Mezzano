@@ -451,7 +451,9 @@
                        :heap-size (structure-definition-size sdef)
                        :heap-layout (layout-heap-layout (structure-definition-layout sdef))
                        :area (structure-definition-area sdef)
-                       :instance-slots (convert-structure-definition-instance-slots sdef)))
+                       :instance-slots (convert-structure-definition-instance-slots sdef)
+                       ;; TODO
+                       :compatible (make-array 0 :area :wired)))
     (setf (mezzano.runtime::instance-access-by-name new-class 'mezzano.clos::source-location)
           source-location)
     (pushnew new-class

@@ -81,7 +81,8 @@
   heap-size
   heap-layout
   area
-  instance-slots)
+  instance-slots
+  compatible)
 
 (defun make-struct-definition (name slots parent area size layout sealed docstring has-standard-constructor)
   (let* ((def (sys.int::%make-struct-definition name slots parent area size nil sealed docstring has-standard-constructor))

@@ -120,7 +120,9 @@
                                           :heap-size (sys.int::structure-definition-size sdef)
                                           :heap-layout (sys.int::layout-heap-layout (sys.int::structure-definition-layout sdef))
                                           :area (sys.int::structure-definition-area sdef)
-                                          :instance-slots (sys.int::convert-structure-definition-instance-slots sdef)))
+                                          :instance-slots (sys.int::convert-structure-definition-instance-slots sdef)
+                                          ;; TODO
+                                          :compatible (make-array 0 :area :wired)))
         (prev-layout (class-layout existing-class)))
     ;; FIXME: If the parent class changes, call add-/remove-direct-subclass
     (sys.int::populate-struct-class-from-structure-defintion existing-class sdef)

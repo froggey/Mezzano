@@ -146,6 +146,7 @@
                                              :heap-size (+ funcallable-offset (length layout))
                                              :heap-layout t
                                              :area (first (getf initargs :area))
+                                             :compatible nil ; Fixed up later.
                                              :instance-slots instance-slots))))
               ((eql metaclass (env:translate-symbol environment 'structure-class))
                ;; Hacks for structure-object, which has no associated structure-definition.
@@ -163,6 +164,7 @@
                                              :heap-size (or (getf initargs :structure-heap-size) 0) ; hack for structure-object
                                              :heap-layout (getf initargs :structure-heap-layout) ; will be nil for structure-object, fine as it's zero-sized
                                              :area (first (getf initargs :area))
+                                             :compatible nil ; Fixed up later.
                                              :instance-slots instance-slots)))))))
     layout))
 
@@ -498,6 +500,24 @@
     (maphash (lambda (name def)
                (declare (ignore name))
                (finalize-primordial-class environment (getf def :real-class)))
+             *primordial-class-table*)
+    ;; Generate compatible vectors for structures too.
+    (maphash (lambda (name def)
+               (declare (ignore name))
+               (let ((layout (getf def :instance-layout)))
+                 (when layout
+                   (let ((compatible (if (getf def :structure-definition)
+                                         (remove
+                                          nil ; delete the NIL that comes from T
+                                          (map 'simple-vector
+                                               (lambda (x)
+                                                 (primordial-slot-value x (env:translate-symbol environment 'mezzano.clos::slot-storage-layout)))
+                                               (primordial-slot-value
+                                                (getf def :real-class)
+                                                (env:translate-symbol environment 'mezzano.clos::precedence-list))))
+                                         (list layout))))
+                     (setf (sys.int::layout-compatible layout)
+                           (env:make-array environment (length compatible) :initial-contents compatible :area :wired))))))
              *primordial-class-table*)
     ;; Add classes to the environment's class table.
     (maphash (lambda (name def)

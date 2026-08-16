@@ -286,4 +286,5 @@
   (heap-layout nil)
   (area nil)
   (instance-slots nil)
-  (new-instance nil))
+  (new-instance nil)
+  (compatible nil :read-only t))

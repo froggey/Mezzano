@@ -306,7 +306,9 @@
                                                                           for slot in slots
                                                                           collect (sys.int::structure-slot-definition-name slot)
                                                                           collect (sys.int::structure-slot-definition-location slot))
-                                                     :area :wired))))
+                                                     :area :wired)
+                         ;; TODO
+                         :compatible (make-array 0 :area :wired))))
     (setf (sys.int::structure-definition-layout def) layout-object)
     def))
 
