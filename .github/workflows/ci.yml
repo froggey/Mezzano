@@ -23,14 +23,14 @@ jobs:
       matrix:
         include:
           - arch: x86-64
-            timeout: 20
+            timeout: 45
             qemu_bin: qemu-system-x86_64
             qemu_machine: >-
               -enable-kvm
               -hda mezzano.image
               -vga std
-              -net user
-              -net nic,model=virtio
+              -netdev user,id=net0
+              -device virtio-net,netdev=net0
               -device isa-debug-exit,iobase=0xf4,iosize=0x04
             qemu_exit_pass: 3
             qemu_exit_fail: 1
@@ -82,6 +82,7 @@ jobs:
           repository: froggey/MBuild
           path: MBuild            # -> $GITHUB_WORKSPACE/MBuild
           submodules: recursive
+          ref: master
 
       # Cached mbuild might have some llf files cached.
       # TODO: Figure out how to do out-of-tree builds.
@@ -97,11 +98,18 @@ jobs:
 
       - name: Install apt packages
         run: |
+          # forgejo does not have sudo installed by default, so
+          # install it to unify builds
+          if ! command -v sudo >/dev/null 2>&1; then
+            apt-get update -qq
+            apt-get install -y --no-install-recommends sudo
+          fi
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
             curl \
             qemu-system \
-            git
+            git \
+            lsof
 
       - name: Install SBCL 2.4.8
         run: |
@@ -163,13 +171,28 @@ jobs:
       - name: Enable KVM access
         if: matrix.arch == 'x86-64'
         run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
-            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
+          check_kvm_access() {
+            [ -e /dev/kvm ] || return 1
+            # Either the device is world read/write, or we're in the kvm group
+            if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
+              return 0
+            fi
+            id -nG | grep -qw kvm
+          }
+
+          if check_kvm_access; then
+            echo "KVM already accessible, skipping udev rule setup"
+          else
+            echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+               | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+            sudo udevadm control --reload-rules
+            sudo udevadm trigger --name-match=kvm
+          fi
 
       - name: Run tests in QEMU
+        shell: bash
         run: |
+          set +e
           ${{ matrix.qemu_bin }} \
             -m 2G \
             -nographic \
@@ -180,6 +203,7 @@ jobs:
             ${{ matrix.qemu_machine }} \
           2>&1 | tee "${{ github.workspace }}/serial.log"
           QEMU_EXIT=${PIPESTATUS[0]}
+          set -e
           case "${QEMU_EXIT}" in
             ${{ matrix.qemu_exit_pass }})
               ;;
@@ -192,33 +216,21 @@ jobs:
               ;;
           esac
 
-      - name: Upload file server log
+      - name: Upload logs
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v4
         with:
-          name: file-server-log-${{ github.run_id }}-${{ matrix.arch }}
-          path: ${{ github.workspace }}/file-server.log
+          name: logs-${{ github.run_id }}-${{ matrix.arch }}
+          path: |
+            ${{ github.workspace }}/file-server.log
+            ${{ github.workspace }}/serial.log
+            ${{ github.workspace }}/build-cold-image.log
           retention-days: 14
-
-      - name: Upload serial log
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: serial-log-${{ github.run_id }}-${{ matrix.arch }}
-          path: ${{ github.workspace }}/serial.log
-          retention-days: 14
-
-      - name: Upload cold image build log
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: build-cold-image-log-${{ github.run_id }}-${{ matrix.arch }}
-          path: ${{ github.workspace }}/build-cold-image.log
-          retention-days: 14
+          if-no-files-found: warn
 
       - name: Upload image on failure
         if: failure()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v4
         with:
           name: mezzano-image-${{ github.run_id }}-${{ matrix.arch }}
           path: |
