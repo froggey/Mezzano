@@ -558,7 +558,7 @@ If TRIM-STEPPER-NOISE is true, then instructions executed as part of the trace p
           ;; Bignums may be non-canonical, which can cause issues.
           (with-output-to-string (s)
             (print-unreadable-object (obj s :identity t)
-              (format s "a bignum")))
+              (format s "a-bignum ~A" (%%canonicalize-bignum obj))))
           (format nil "~S" obj))
     (error ()
       (with-output-to-string (s)
