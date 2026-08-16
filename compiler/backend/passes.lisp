@@ -137,15 +137,16 @@
                  (every (lambda (pred)
                           (let ((other-type (value-type (pred-value pred))))
                             ;; Do a bit of finagling to get unsigned-byte-64s unboxed
+                            ;; FIXME: This was wrong, fixnum is not a subtype of unsigned-byte-64 (due to negative numbers)
                             (cond ((eql type 'fixnum)
                                    (cond ((eql other-type 'fixnum)
                                           t)
-                                         ((eql other-type ':unsigned-byte-64)
+                                         #+nil((eql other-type ':unsigned-byte-64)
                                           (setf type ':unsigned-byte-64)
                                           t)
                                          (t nil)))
                                   ((eql type ':unsigned-byte-64)
-                                   (member other-type '(:unsigned-byte-64 fixnum)))
+                                   (member other-type '(:unsigned-byte-64 #+nil fixnum)))
                                   (t
                                    (eql type other-type)))))
                         (rest (gethash bb bb-preds))))
