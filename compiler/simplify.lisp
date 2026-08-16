@@ -1107,7 +1107,9 @@ First return value is a list of elements, second is the final dotted component (
                          ',(mezzano.runtime::%make-instance-header
                             (mezzano.clos:class-layout struct)))
                    't
-                   (call sys.int::structure-type-p ,object ',struct))
+                   (call sys.int::structure-layout-compatible-p
+                         ,object
+                         ',(mezzano.clos:class-layout struct)))
                'nil))))
 
 (defun simplify-struct-slot (form)

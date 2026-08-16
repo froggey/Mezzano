@@ -206,6 +206,15 @@
     (when (eq object-class structure-class)
       (return t))))
 
+(defun sys.int::structure-layout-compatible-p (object layout)
+  "Test if an object is compatible with the given layout."
+  (declare (optimize (speed 3) (safety 0) (debug 0)))
+  (when (sys.int::instance-p object)
+    (loop with object-layout of-type sys.int::layout = (sys.int::%instance-layout object)
+          with compatible of-type simple-vector = (sys.int::layout-compatible object-layout)
+          for l across compatible
+            thereis (eq l layout))))
+
 (defun sys.int::%allocate-struct (structure-class)
   (when (symbolp structure-class)
     (setf structure-class (find-class structure-class)))

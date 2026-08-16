@@ -239,6 +239,8 @@
           (sys.int::layout-instance-slots layout))
     (setf (sys.int::%struct-slot new-layout 'sys.int::layout 'sys.int::new-instance)
           (sys.int::layout-new-instance layout))
+    (setf (sys.int::%struct-slot new-layout 'sys.int::layout 'sys.int::compatible)
+          (sys.int::layout-compatible layout))
     new-layout))
 
 (defun supersede-instance (old-instance replacement)

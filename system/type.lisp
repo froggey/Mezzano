@@ -959,7 +959,9 @@
                         ,object-sym
                         ',(mezzano.runtime::%make-instance-header
                            (mezzano.clos:class-layout struct-type))))
-                  (structure-type-p ,object-sym ',struct-type))))))))
+                   (structure-layout-compatible-p
+                    ,object-sym
+                    ',(mezzano.clos:class-layout struct-type)))))))))
   (when (eql type-specifier 'sequence)
     ;; Open-code parts the sequence type check.
     ;; This is a performance hack that replaces the old DEFTYPE SEQUENCE,
