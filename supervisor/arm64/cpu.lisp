@@ -67,14 +67,11 @@
   (mezzano.lap.arm64:isb)
   (mezzano.lap.arm64:ret))
 
-(sys.int::define-lap-function local-cpu-info (())
+(sys.int::define-lap-function local-cpu (())
   (:gc :no-frame :layout #*)
   (mezzano.lap.arm64:ldr :x0 (:x27))
   (mezzano.lap.arm64:movz :x5 #.(ash 1 sys.int::+n-fixnum-bits+))
   (mezzano.lap.arm64:ret))
-
-(defun local-cpu ()
-  (local-cpu-info))
 
 (defun initialize-cpu ()
   (setf (arm64-cpu-cpu-id *bsp-cpu*) (fdt-boot-cpuid))
@@ -325,7 +322,7 @@ Protected by the world stop lock."
   nil)
 
 (defun local-cpu-idle-thread ()
-  (arm64-cpu-idle-thread (local-cpu-info)))
+  (arm64-cpu-idle-thread (local-cpu)))
 
 ;; This will be called from %%pe-bootstrap. It needs to report that the cpu
 ;; is online, reenable interrupts, do any final registration, then fall

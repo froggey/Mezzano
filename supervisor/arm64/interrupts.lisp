@@ -132,7 +132,7 @@
   (arm64-cpu-page-fault-hook (local-cpu)))
 
 (defun (setf local-cpu-page-fault-hook) (value)
-  (setf (arm64-cpu-page-fault-hook (local-cpu-info)) value))
+  (setf (arm64-cpu-page-fault-hook (local-cpu)) value))
 
 (defun %page-fault-handler (interrupt-frame fault-addr reason)
   (let ((hook (local-cpu-page-fault-hook)))

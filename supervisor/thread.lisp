@@ -263,7 +263,7 @@ can be reprotected.")
 (defun pop-run-queue ()
   ;; FIXME, HACK! Virtio drivers seem to be broken when the run outside the first PE on A64
   ;; This constrains supervisor threads to just that PE.
-  (or (and #+arm64 (eql (local-cpu-info) *bsp-cpu*)
+  (or (and #+arm64 (eql (local-cpu) *bsp-cpu*)
            (pop-run-queue-1 *supervisor-priority-run-queue*))
       (pop-run-queue-1 *high-priority-run-queue*)
       (pop-run-queue-1 *normal-priority-run-queue*)
@@ -307,9 +307,9 @@ Interrupts must be off and the global thread lock must be held."
            ;; World is stopped, the only runnable threads are the world stopper
            ;; or any thread at :supervisor priority.
            ;; Supervisor priority threads first.
-           (cond ((and #+arm64 (eql (local-cpu-info) *bsp-cpu*)
+           (cond ((and #+arm64 (eql (local-cpu) *bsp-cpu*)
                        (pop-run-queue-1 *supervisor-priority-run-queue*)))
-                 ((and #+arm64 (eql (local-cpu-info) *bsp-cpu*)
+                 ((and #+arm64 (eql (local-cpu) *bsp-cpu*)
                        (eql (thread-state *world-stopper*) :runnable))
                   ;; The world stopper is ready.
                   *world-stopper*)

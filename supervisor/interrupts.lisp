@@ -102,7 +102,7 @@ RETURN-FROM/GO must not be used to leave this form."
 (defmacro ensure-place-spinlock-held (place)
   (let ((holder (gensym)))
     `(let ((,holder ,place))
-       (ensure (eql ,holder (local-cpu)) "Expected lock " ',place " to be held by " (local-cpu-info) " but is held by " ,holder))))
+       (ensure (eql ,holder (local-cpu)) "Expected lock " ',place " to be held by " (local-cpu) " but is held by " ,holder))))
 
 (defmacro acquire-symbol-spinlock (lock)
   (check-type lock symbol)
