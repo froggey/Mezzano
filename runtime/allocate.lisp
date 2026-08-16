@@ -78,12 +78,17 @@
 (sys.int::defglobal *enable-allocation-profiling*)
 (defvar *allocation-profile-hook* nil)
 
-(defun log-allocation-profile-entry (words)
-  (when (and *enable-allocation-profiling*
-             *allocation-profile-hook*)
+;; Out of line to make the fast path smaller
+(defun call-allocation-profile-hook (words)
+  (when *allocation-profile-hook*
     (let ((hook *allocation-profile-hook*)
           (*allocation-profile-hook* nil))
       (funcall hook words))))
+
+(declaim (inline log-allocation-profile-entry))
+(defun log-allocation-profile-entry (words)
+  (when *enable-allocation-profiling*
+    (call-allocation-profile-hook words)))
 
 (defun freelist-entry-next (entry)
   (sys.int::memref-t entry 1))
@@ -517,14 +522,17 @@
        (go OUTER-LOOP))))
 
 (defun %allocate-object (tag data size area)
+  (declare (optimize (speed 3) (safety 0) (debug 0)))
   (when sys.int::*gc-in-progress*
     (mezzano.supervisor:panic "Allocating during GC!"))
   (log-allocation-profile-entry size)
   (let ((words (1+ size)))
     (when (oddp words)
       (incf words))
-    (let ((bytes (* words 8)))
-      (incf (mezzano.supervisor::cpu-bytes-consed (mezzano.supervisor::local-cpu))
+    (let ((bytes (* words 8))
+          (local-cpu (mezzano.supervisor::local-cpu)))
+      (declare (type mezzano.supervisor::cpu local-cpu))
+      (incf (mezzano.supervisor::cpu-bytes-consed local-cpu)
             bytes)
       (incf (mezzano.supervisor:thread-bytes-consed
              (mezzano.supervisor:current-thread))
