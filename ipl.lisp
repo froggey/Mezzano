@@ -130,6 +130,7 @@ Make sure there is a virtio-net NIC attached.~%")
 (sys.int::cal "sys:source;drivers;sound.lisp")
 #+x86-64
 (sys.int::cal "sys:source;drivers;intel-hda.lisp")
+(sys.int::cal "sys:source;drivers;virtio-sound.lisp")
 
 ;; Split-sequence
 (require :split-sequence)

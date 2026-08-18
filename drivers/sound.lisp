@@ -13,6 +13,7 @@
            #:sink-volume
            #:output-sound
            #:flush-sink
+           #:sink-buffered-frames
            #:sound-format-error))
 
 (in-package :mezzano.driver.sound)
@@ -130,28 +131,26 @@
                (type (simple-array single-float (*)) buffer)
                (type fixnum start end))
     (fill buffer 0.0 :start start :end end))
-  (prog1
-      ;; Try-lock the sink mutex. If the music player holds it (inside
-      ;; output-sound's transcode path), return T immediately — the
-      ;; buffer is already zeroed, so the HDA plays silence for this
-      ;; period. Next period will retry.
-      (if (mezzano.supervisor:acquire-mutex *sink-lock* nil)
-          (unwind-protect
-               (cond ((endp *sinks*)
-                      nil)
-                     (t
-                      (dolist (sink *sinks*)
-                        (mix-out-of-sink sink buffer start end))
-                      (setf *sinks* (delete-if
-                                     (lambda (sink)
-                                       (buffer-empty sink))
-                                     *sinks*))
-                      (when (endp *sinks*)
-                        (setf (sup:event-state *sinks-present-event*) nil))
-                      (mezzano.supervisor:condition-notify *sink-cvar* t)
-                      t))
-            (mezzano.supervisor:release-mutex *sink-lock*))
-          t)))
+  ;; Try-lock the sink mutex. If it is held (inside output-sound's
+  ;; transcode path), return T immediately — the buffer is already
+  ;; zeroed, so we play silence for this period. Next period will retry.
+  ;; ### I'm doubtful this is justified. Maybe we could do a better
+  ;; job keeping the producer/consumer parts separate. This is effectively
+  ;; an MPSC queue.
+  (mezzano.supervisor:with-mutex (*sink-lock* :wait-p nil)
+    (when (endp *sinks*)
+      (return-from refill-sound-output-buffer
+        nil))
+    (dolist (sink *sinks*)
+      (mix-out-of-sink sink buffer start end))
+    (setf *sinks* (delete-if
+                   (lambda (sink)
+                     (buffer-empty sink))
+                   *sinks*))
+    (when (endp *sinks*)
+      (setf (sup:event-state *sinks-present-event*) nil))
+    (mezzano.supervisor:condition-notify *sink-cvar* t))
+  t)
 
 (defun sound-worker (device)
   (loop
@@ -346,3 +345,18 @@
                 (buffer-tail sink) 0
                 (buffer-empty sink) t)
           n-samples))))
+
+(defun sink-buffered-frames (sink)
+  "Return the number of frames currently buffered in SINK."
+  (check-type sink sound-output-sink)
+  (mezzano.supervisor:with-mutex (*sink-lock*)
+    (if (buffer-empty sink)
+        0
+        (let ((head (buffer-head sink))
+              (tail (buffer-tail sink))
+              (size (length (buffer sink))))
+          (/ (if (>= head tail)
+                 (+ (- size head) tail)
+                 (- tail head))
+             ;; Two samples per frame, stereo.
+             2)))))
