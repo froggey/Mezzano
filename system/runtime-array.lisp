@@ -124,7 +124,7 @@
   "Convert an unsigned integer to a signed value."
   (if (logbitp (1- width) value)
       (logior value (lognot (1- (ash 1 width))))
-      value))
+      (logand value (1- (ash 1 width)))))
 
 (defun %simple-array-aref (array index)
   (ecase (%object-tag array)
