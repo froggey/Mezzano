@@ -11,6 +11,7 @@
 (sys.int::defglobal *bsp-cpu*)
 
 (sys.int::defglobal *lapic-address*)
+(sys.int::defglobal *lapic-x2apic-mode*)
 
 (defconstant +lapic-reg-id+ #x02)
 (defconstant +lapic-reg-version+ #x03)
@@ -46,11 +47,29 @@
 (defconstant +lapic-lvt-mask+ #x10000)
 
 (defconstant +ipi-type-fixed+ 0)
-(defconstant +ipi-type-lowest-priority+ 1)
 (defconstant +ipi-type-smi+ 2)
 (defconstant +ipi-type-nmi+ 4)
 (defconstant +ipi-type-init+ 5)
 (defconstant +ipi-type-sipi+ 6)
+
+;; x2APIC detection.
+(defconstant +cpuid-feature-x2apic+ 21)
+(defconstant +cpuid-feature-tsc-deadline+ 24)
+(defconstant +msr-ia32-apic-base-x2apic-enable+ #x400)
+(defconstant +msr-ia32-apic-base-enable+ #x800)
+
+;; x2APIC MSR range base.
+(defconstant +x2apic-msr-base+ #x800)
+
+;; ICR bit fields.
+(defconstant +icr-vector+            (byte  8 0))
+(defconstant +icr-delivery-mode+     (byte  3 8))
+(defconstant +icr-destination-mode+  #x0800)
+(defconstant +icr-destination-shorthand+ (byte 2 18))
+
+;; x2APIC MSR addresses.
+(defconstant +x2apic-msr-icr+       #x830)
+(defconstant +x2apic-msr-self-ipi+  #x83F)
 
 ;; Cold generator provided objects.
 (sys.int::defglobal sys.int::*interrupt-service-routines*)
@@ -112,7 +131,8 @@
   irq-stack
   page-fault-stack
   lapic-timer-active
-  page-fault-hook)
+  page-fault-hook
+  (apic-in-x2apic-mode nil))
 
 (defconstant +ap-trampoline-physical-address+ #x7000
   "Where the AP trampoline should be copied to in physical memory.
@@ -130,8 +150,8 @@ The bootloader is loaded to #x7C00, so #x7000 should be safe.")
 (defconstant +tlb-shootdown-ipi-vector+ #x83
   "Sent to CPUs to prepare them for TLB shootdown.")
 
-(defconstant +magic-button-ipi-vector+ #x84
-  "Sent to CPUs when the magic debug button is pressed.")
+(defconstant +reschedule-ipi-vector+ #x85
+  "Sent to a specific CPU to request rescheduling.")
 
 (defun set-idt-entry (cpu idt-index
                       &key (offset 0) (segment #x0008)
@@ -154,39 +174,94 @@ The bootloader is loaded to #x7C00, so #x7000 should be safe.")
         0)
   (values))
 
+(defun lapic-reg-to-msr (register)
+  (+ +x2apic-msr-base+ register))
+
+(defun read-lapic (register)
+  (if *lapic-x2apic-mode*
+      (ldb (byte 32 0) (sys.int::msr (lapic-reg-to-msr register)))
+      (physical-memref-unsigned-byte-32 (+ *lapic-address* (ash register 4)))))
+
+(defun write-lapic (value register)
+  (if *lapic-x2apic-mode*
+      (setf (sys.int::msr (lapic-reg-to-msr register))
+            (logand value #xFFFFFFFF))
+      (setf (physical-memref-unsigned-byte-32 (+ *lapic-address* (ash register 4))) value)))
+
+;; Mode-dispatching LAPIC accessors, retaining the original lapic-reg
+;; names to avoid a wholesale rename of every call site.
 (defun lapic-reg (register)
-  (physical-memref-unsigned-byte-32 (+ *lapic-address* (ash register 4))))
+  (read-lapic register))
 
 (defun (setf lapic-reg) (value register)
-  (setf (physical-memref-unsigned-byte-32 (+ *lapic-address* (ash register 4))) value))
+  (write-lapic value register))
 
 (defun lapic-eoi ()
   "Issue an EOI to the Local APIC."
   (setf (lapic-reg +lapic-reg-eoi+) 0))
 
-(defun send-ipi (target type vector)
-  (setf (lapic-reg +lapic-reg-interrupt-command-high+) (ash target 24))
-  ;; Send: No shorthand, edge triggered, assert, physical dest.
-  (setf (lapic-reg +lapic-reg-interrupt-command-low+) (logior #x4000
-                                                              (ash type 8)
-                                                              vector)))
+(declaim (inline lapic-initialized-p lapic-x2apic-p))
+(defun lapic-initialized-p ()
+  (and (boundp '*lapic-address*) *lapic-address*))
 
-(defun broadcast-ipi (type vector &optional including-self)
-  ;; BROADCAST-IPI can be called very early due to thread wakeups, before
-  ;; the lapic is mapped by INITIALIZE-CPU.
-  (when (and (boundp '*lapic-address*)
-             *lapic-address*)
-    ;; Disable interrupts to prevent cross-cpu migration from
-    ;; fouling up behaviour of INCLUDING-SELF.
-    (safe-without-interrupts (type vector including-self)
+(defun lapic-x2apic-p ()
+  (and (boundp '*lapic-x2apic-mode*) *lapic-x2apic-mode*))
+
+(defun send-ipi (target type vector)
+  (if *lapic-x2apic-mode*
+      ;; x2APIC: single 64-bit WRMSR to MSR 0x830.
+      ;; Bits 14 (Level) and 15 (Trigger Mode) are reserved and must be
+      ;; zero in x2APIC mode (Intel SDM 10.12.9), so the #x4000 used by
+      ;; the xAPIC path below is deliberately not OR-ed in here.
+      (setf (sys.int::msr +x2apic-msr-icr+)
+            (logior (ash (logand target #xFFFFFFFF) 32)
+                    (ash type 8)
+                    vector))
+      ;; xAPIC: two MMIO writes.
+      (progn
+        (setf (lapic-reg +lapic-reg-interrupt-command-high+) (ash target 24))
+        (setf (lapic-reg +lapic-reg-interrupt-command-low+) (logior #x4000
+                                                                     (ash type 8)
+                                                                      vector)))))
+
+(defun send-self-ipi (vector)
+  "Send an IPI to the local CPU.
+In x2APIC mode uses the Self IPI MSR (0x83F), a single WRMSR.
+In xAPIC mode falls back to a regular ICR write targeting self."
+  (check-type vector (unsigned-byte 8))
+  (if *lapic-x2apic-mode*
+      (setf (sys.int::msr +x2apic-msr-self-ipi+) vector)
+      (send-ipi (read-local-apic-id) +ipi-type-fixed+ vector)))
+
+(defun send-ipi-to-cpu (cpu type vector)
+  (send-ipi (x86-64-cpu-apic-id cpu) type vector))
+
+(defun send-ipi-to-all (type vector &key including-self)
+  (if (lapic-x2apic-p)
+      ;; x2APIC shorthand: the destination-shorthand field is ICR
+      ;; bits 19:18 - 01=self, 10=all-including-self, 11=all-excluding-self.
+      (let ((icr (logior (ash type 8)
+                         vector)))
+        (setf (sys.int::msr +x2apic-msr-icr+)
+              (logior icr (ash (if including-self 2 3) 18))))
       (dolist (cpu *cpus*)
         (when (and (eql (x86-64-cpu-state cpu) :online)
                    (or including-self
                        (not (eql cpu (local-cpu)))))
-          (send-ipi (x86-64-cpu-apic-id cpu) type vector))))))
+          (send-ipi-to-cpu cpu type vector)))))
+
+(defun broadcast-ipi (type vector &optional including-self)
+  (when (lapic-initialized-p)
+    (if (lapic-x2apic-p)
+        (send-ipi-to-all type vector :including-self including-self)
+        (safe-without-interrupts (type vector including-self)
+          (send-ipi-to-all type vector :including-self including-self)))))
 
 (defun broadcast-wakeup-ipi ()
-  (broadcast-ipi +ipi-type-fixed+ +wakeup-ipi-vector+))
+  (when (lapic-initialized-p)
+    (dolist (cpu *cpus*)
+      (when (eql (x86-64-cpu-state cpu) :online)
+        (wake-cpu cpu)))))
 
 (defun wakeup-ipi-handler (interrupt-frame info)
   (declare (ignore info))
@@ -203,44 +278,50 @@ The bootloader is loaded to #x7C00, so #x7000 should be safe.")
 
 (sys.int::defglobal *non-quiescent-cpus-remaining*)
 
-;; FIXME: quiesce-cpus-for-world-stop and begin-tlb-shootdown both need to
-;; prevent migration across CPUs.
 (defun quiesce-cpus-for-world-stop ()
   "Bring all CPUs to a consistent state to stop the world.
 Protected by the world stop lock."
+  ;; Prevent migration during the broadcast and busy-wait.
+  (setf (cpu-inhibit-scheduling (local-cpu))
+        (1+ (cpu-inhibit-scheduling (local-cpu))))
   (setf *non-quiescent-cpus-remaining* (1- *n-up-cpus*))
   (broadcast-ipi +ipi-type-fixed+ +quiesce-ipi-vector+)
   (loop
      (when (eql *non-quiescent-cpus-remaining* 0)
        (return))
-     (sys.int::cpu-relax)))
+     (sys.int::cpu-relax))
+  (setf (cpu-inhibit-scheduling (local-cpu))
+        (max 0 (1- (cpu-inhibit-scheduling (local-cpu))))))
 
 ;; Save the current thread's state and switch to the CPU's idle thread.
 (defun quiesce-ipi-handler (interrupt-frame info)
   (declare (ignore info))
   (lapic-eoi)
-  (let* ((current (current-thread))
-         (idle (local-cpu-idle-thread))
-         (was-active (not (eql current idle))))
-    (when was-active
-      (acquire-global-thread-lock)
-      ;; Return this thread to the run queue.
-      (setf (thread-state current) :runnable)
-      (push-run-queue current)
-      (preemption-timer-reset nil)
-      ;; Save thread state.
-      (save-fpu-state current)
-      (save-interrupted-state current interrupt-frame)
-      ;; Partially switch to the idle thread.
-      (setf (thread-state idle) :active)
-      (setf (sys.int::msr +msr-ia32-gs-base+) (sys.int::lisp-object-address idle)))
-    ;; Have now reached a quiescent state.
-    (sys.int::%atomic-fixnum-add-symbol '*non-quiescent-cpus-remaining*
-                                        -1)
-    (when was-active
-      ;; Finally, return to the idle thread.
-      (%%switch-to-thread-common idle
-                                 idle))))
+  (cond (*debug-magic-button-hold-variable*
+         ;; Magic button active: save state and spin.
+         (magic-button-ipi-handler-1 interrupt-frame))
+        (t
+         ;; Normal quiesce: switch to idle thread.
+         (let* ((current (current-thread))
+                (idle (local-cpu-idle-thread))
+                (was-active (not (eql current idle))))
+           (when was-active
+             (acquire-global-thread-lock)
+             ;; Return this thread to the run queue.
+             (setf (thread-state current) :runnable)
+             (push-run-queue current)
+             (preemption-timer-reset nil)
+             ;; Save thread state.
+             (save-fpu-state current)
+             (save-interrupted-state current interrupt-frame)
+             ;; Partially switch to the idle thread.
+             (setf (thread-state idle) :active)
+             (setf (sys.int::msr +msr-ia32-gs-base+) (sys.int::lisp-object-address idle)))
+           ;; Have now reached a quiescent state.
+           (sys.int::%atomic-fixnum-add-symbol '*non-quiescent-cpus-remaining* -1)
+           (when was-active
+             ;; Finally, return to the idle thread.
+             (%%switch-to-thread-common idle idle))))))
 
 ;; TODO: This needs to be fixed up to prevent multiple CPUs hitting it at
 ;; once. It can't currently happen because it is only used from IRQ handlers
@@ -251,7 +332,7 @@ Protected by the world stop lock."
 (defun stop-other-cpus-for-debug-magic-button ()
   (setf *debug-magic-button-ready-variable* (1- *n-up-cpus*)
         *debug-magic-button-hold-variable* t)
-  (broadcast-ipi +ipi-type-fixed+ +magic-button-ipi-vector+)
+  (broadcast-ipi +ipi-type-fixed+ +quiesce-ipi-vector+)
   ;; Wait for other CPUs to arrive, this ensures the thread state is actually
   ;; consistent.
   (loop until (eql *debug-magic-button-ready-variable* 0)))
@@ -263,10 +344,17 @@ Protected by the world stop lock."
   ;; the hold variable going to NIL.
   (loop until (eql *debug-magic-button-ready-variable* 0)))
 
-(defun magic-button-ipi-handler (interrupt-frame info)
+(defun reschedule-ipi-handler (interrupt-frame info)
   (declare (ignore info))
-  (magic-button-ipi-handler-1 interrupt-frame)
-  (lapic-eoi))
+  (lapic-eoi)
+  ;; The CPU will reschedule on IRET; no further action needed.
+  nil)
+
+(defun wake-cpu (cpu)
+  "Send a directed wakeup IPI to a specific CPU.
+If the CPU is idle, this will cause it to check for new threads."
+  (when (cpu-idle-p cpu)
+    (send-ipi-to-cpu cpu +ipi-type-fixed+ +wakeup-ipi-vector+)))
 
 (defun magic-button-ipi-handler-1 (interrupt-frame)
   (when (not *debug-magic-button-hold-variable*)
@@ -283,13 +371,24 @@ Protected by the world stop lock."
    '*debug-magic-button-ready-variable* -1))
 
 (sys.int::defglobal *tlb-shootdown-in-progress* nil)
+(sys.int::defglobal *tlb-shootdown-n-targets* 0)
 (sys.int::defglobal *busy-tlb-shootdown-cpus*)
+(sys.int::defglobal *current-tlb-generation*)
 
-;; TODO: This unconditionally invalidates the entire TLB.
-;; Should be more fine-grained.
-
-(defun check-tlb-shootdown-not-in-progress ()
-  (ensure (not *tlb-shootdown-in-progress*) "TLB shootdown in progress!"))
+(defun check-tlb-generation-consistency ()
+  "If this CPU missed a TLB shootdown while idle, flush now.
+If a shootdown is still in progress, flush but do not stamp the
+generation. the context-switch path will re-check after the shootdown
+finishes and the final generation is known."
+  (when (and (boundp '*current-tlb-generation*)
+             (boundp '*tlb-shootdown-in-progress*)
+             (or *tlb-shootdown-in-progress*
+                 (not (eql (cpu-tlb-generation (local-cpu))
+                           *current-tlb-generation*))))
+    (flush-tlb)
+    (unless *tlb-shootdown-in-progress*
+      (setf (cpu-tlb-generation (local-cpu))
+            *current-tlb-generation*))))
 
 (defun begin-tlb-shootdown ()
   "Bring all CPUs to state ready for TLB shootdown.
@@ -297,50 +396,78 @@ TLB shootdown must be protected by the VM lock."
   (ensure (rw-lock-write-held-p *vm-lock*) "VM lock not held when doing TLB shootdown!")
   (ensure (not *tlb-shootdown-in-progress*) "TLB shootdown already in progress!")
   (setf *tlb-shootdown-in-progress* t)
+  ;; Bump the generation before sending IPIs so idle CPUs that wake
+  ;; during the shootdown window will see the mismatch and flush on
+  ;; their next context switch. Idle CPUs are skipped; if they
+  ;; handle a device IRQ mid-shootdown the IRQ handler calls
+  ;; check-tlb-generation-consistency to flush before touching
+  ;; pageable memory.
+  (sys.int::%atomic-fixnum-add-symbol '*current-tlb-generation* 1)
+  ;; Prevent migration during shootdown.
+  (setf (cpu-inhibit-scheduling (local-cpu))
+        (1+ (cpu-inhibit-scheduling (local-cpu))))
+  ;; Initialise *busy-tlb-shootdown-cpus* to (n_cpus - 1) BEFORE any
+  ;; IPI so the handler's decrement always has a bound value.  Then
+  ;; send IPIs to non-idle CPUs and decrement the counter for idle
+  ;; CPUs we skip.
   (setf *busy-tlb-shootdown-cpus* (1- *n-up-cpus*))
-  (broadcast-ipi +ipi-type-fixed+ +tlb-shootdown-ipi-vector+)
-  ;; Wait for other CPUs to reach the handler.
+  (setf *tlb-shootdown-n-targets* 0)
+  (dolist (cpu *cpus*)
+    (when (and (eql (x86-64-cpu-state cpu) :online)
+               (not (eql cpu (local-cpu))))
+      (if (cpu-idle-p cpu)
+          (sys.int::%atomic-fixnum-add-symbol '*busy-tlb-shootdown-cpus* -1)
+          (progn
+            (incf *tlb-shootdown-n-targets*)
+            (send-ipi-to-cpu cpu +ipi-type-fixed+
+                             +tlb-shootdown-ipi-vector+)))))
+  ;; Wait for targeted CPUs to reach the handler.
   (loop
      (when (eql *busy-tlb-shootdown-cpus* 0)
        (return))
      (sys.int::cpu-relax)))
 
-(defun tlb-shootdown-single (address)
-  (declare (ignore address))
-  (ensure *tlb-shootdown-in-progress*))
-
-(defun tlb-shootdown-range (base length)
-  (declare (ignore base length))
-  (ensure *tlb-shootdown-in-progress*))
-
-(defun tlb-shootdown-all ()
-  (ensure *tlb-shootdown-in-progress*))
-
 (defun finish-tlb-shootdown ()
   (ensure *tlb-shootdown-in-progress*)
-  (setf *busy-tlb-shootdown-cpus* (1- *n-up-cpus*))
+  ;; Only wait for CPUs that actually received the IPI in begin-tlb-shootdown.
+  (setf *busy-tlb-shootdown-cpus* *tlb-shootdown-n-targets*)
   (setf *tlb-shootdown-in-progress* nil)
   ;; Wait for CPUs to leave the handler.
   (loop
      (when (eql *busy-tlb-shootdown-cpus* 0)
        (return))
-     (sys.int::cpu-relax)))
+     (sys.int::cpu-relax))
+  ;; Safe to allow migration again.
+  (setf (cpu-inhibit-scheduling (local-cpu))
+        (max 0 (1- (cpu-inhibit-scheduling (local-cpu))))))
 
 (defun tlb-shootdown-ipi-handler (interrupt-frame info)
   (declare (ignore info))
   (lapic-eoi)
+  ;; Increment this CPU's inhibit-scheduling counter to prevent migration.
+  (setf (cpu-inhibit-scheduling (local-cpu))
+        (1+ (cpu-inhibit-scheduling (local-cpu))))
   (sys.int::%atomic-fixnum-add-symbol '*busy-tlb-shootdown-cpus*
                                       -1)
   (loop
      (when (not *tlb-shootdown-in-progress*)
        (return))
-     ;; FIXME: hack... maybe this should sit with interrupts enabled?
      (when *debug-magic-button-hold-variable*
        (magic-button-ipi-handler-1 interrupt-frame))
      (sys.int::cpu-relax))
+  ;; Flush unconditionally.  Once this CPU received the shootdown IPI it
+  ;; must invalidate its TLB even if it happens to be idle at this
+  ;; instant: a CPU that went idle between the initiator's idle-p read
+  ;; and the IPI delivery would otherwise skip the flush while still
+  ;; stamping its TLB generation as current, leaving stale entries in
+  ;; place until the next context switch.
   (flush-tlb)
+  ;; Record that this CPU's TLB is up to date wrt the current generation.
+  (setf (cpu-tlb-generation (local-cpu)) *current-tlb-generation*)
   (sys.int::%atomic-fixnum-add-symbol '*busy-tlb-shootdown-cpus*
-                                      -1))
+                                      -1)
+  (setf (cpu-inhibit-scheduling (local-cpu))
+        (max 0 (1- (cpu-inhibit-scheduling (local-cpu))))))
 
 (sys.int::define-lap-function local-cpu (())
   "Return the address of the local CPU's info vector."
@@ -683,6 +810,11 @@ TLB shootdown must be protected by the VM lock."
 (defun %%ap-entry-point ()
   ;; CPU vector has been configured for us, just load the required bits.
   (load-cpu-bits (local-cpu))
+  ;; Enable x2APIC on APs if the BSP enabled it.
+  (when *lapic-x2apic-mode*
+    (let ((apic-base (sys.int::msr +msr-ia32-apic-base+)))
+      (setf (sys.int::msr +msr-ia32-apic-base+)
+            (logior apic-base +msr-ia32-apic-base-x2apic-enable+))))
   (lapic-setup)
   ;; Signal that this CPU has booted successfully.
   (let ((old (sys.int::cas (x86-64-cpu-state (local-cpu)) :offline :online)))
@@ -761,10 +893,11 @@ TLB shootdown must be protected by the VM lock."
   (debug-print-line "  id: " (lapic-reg +lapic-reg-id+))
   (debug-print-line "  version: " (lapic-reg +lapic-reg-version+))
   (debug-print-line "  tpr: " (lapic-reg +lapic-reg-task-priority+))
-  (debug-print-line "  arp: " (lapic-reg +lapic-reg-arbitration-priority+))
-  (debug-print-line "  ppr: " (lapic-reg +lapic-reg-processor-priority+))
-  (debug-print-line "  logical-destination: " (lapic-reg +lapic-reg-logical-destination+))
-  (debug-print-line "  desination-format: " (lapic-reg +lapic-reg-destination-format+))
+  (unless *lapic-x2apic-mode*
+    (debug-print-line "  arp: " (lapic-reg +lapic-reg-arbitration-priority+))
+    (debug-print-line "  ppr: " (lapic-reg +lapic-reg-processor-priority+))
+    (debug-print-line "  logical-destination: " (lapic-reg +lapic-reg-logical-destination+))
+    (debug-print-line "  desination-format: " (lapic-reg +lapic-reg-destination-format+)))
   (debug-print-line "  svr: " (lapic-reg +lapic-reg-spurious-interrupt-vector+))
   (debug-print-line "  isr: "
                     (lapic-reg +lapic-reg-in-service-0+) " "
@@ -794,7 +927,9 @@ TLB shootdown must be protected by the VM lock."
                     (lapic-reg (+ +lapic-reg-interrupt-request-0+ 6)) " "
                     (lapic-reg (+ +lapic-reg-interrupt-request-0+ 7)))
   (debug-print-line "  esr: " (lapic-reg +lapic-reg-error-status+))
-  (debug-print-line "  icr: " (lapic-reg +lapic-reg-interrupt-command-high+) ":" (lapic-reg +lapic-reg-interrupt-command-low+))
+  (if *lapic-x2apic-mode*
+      (debug-print-line "  icr: " (sys.int::msr (+ +x2apic-msr-base+ +lapic-reg-interrupt-command-low+)))
+      (debug-print-line "  icr: " (lapic-reg +lapic-reg-interrupt-command-high+) ":" (lapic-reg +lapic-reg-interrupt-command-low+)))
   (debug-print-line "  lvt-timer: " (lapic-reg +lapic-reg-lvt-timer+))
   (debug-print-line "  lvt-thermal-sensor: " (lapic-reg +lapic-reg-lvt-thermal-sensor+))
   (debug-print-line "  lvt-pmc: " (lapic-reg +lapic-reg-lvt-performance-monitoring-counters+))
@@ -861,45 +996,52 @@ This is a one-shot timer and must be reset after firing."
   (declare (ignore interrupt-frame info))
   (panic "Got LAPIC error interrupt"))
 
+(defun lapic-timer-measure-one-tick ()
+  "Start LAPIC timer at max count at a PIT tick boundary, wait one tick.
+Returns (values lapic-cycles-elapsed pit-tick-duration-in-internal-time-units)."
+  (let ((start (wait-for-next-pit-tick (get-internal-run-time))))
+    (write-lapic #xFFFFFFFF +lapic-reg-timer-initial-count+)
+    (let ((end (wait-for-next-pit-tick start)))
+      (let ((remaining (read-lapic +lapic-reg-timer-current-count+)))
+        (write-lapic 0 +lapic-reg-timer-initial-count+)
+        (values (- #xFFFFFFFF remaining) (- end start))))))
+
 (defun lapic-timer-calibrate-1 ()
-  (let ((initial-time (get-internal-run-time))
-        (start-time nil)
-        (end-time nil)
-        (end-counter nil))
-    ;; Wait for the start of this tick.
-    (loop
-       (setf start-time (get-internal-run-time))
-       (when (not (eq start-time initial-time))
-         (return)))
-    ;; Start timer with the maximum count value
-    (setf (lapic-reg +lapic-reg-timer-initial-count+) #xFFFFFFFF)
-    ;; Wait for next tick.
-    (loop
-       (setf end-time (get-internal-run-time))
-       (when (not (eq end-time start-time))
-         (return)))
-    ;; Read current count & stop timer.
-    (setf end-counter (lapic-reg +lapic-reg-timer-current-count+))
-    (setf (lapic-reg +lapic-reg-timer-initial-count+) 0)
-    (let* ((cycles (- #xFFFFFFFF end-counter))
-           (total-time (- end-time start-time))
-           ;; Use single floats here. Rationals & double-floats require
-           ;; allocation and this is called too early for that.
-           (time (/ (float total-time) internal-time-units-per-second))
-           (cycles-per-second (/ cycles time)))
+  "Calibrate the LAPIC timer using the PIT as a time reference."
+  (multiple-value-bind (cycles total-time)
+      (lapic-timer-measure-one-tick)
+    (let* ((time (/ (float total-time) internal-time-units-per-second))
+           (cycles-per-second (/ (float cycles) time)))
       cycles-per-second)))
 
 ;; Assume LAPIC timers across CPUs tick at the same rate.
 ;; This is a fixnum, timer cycles per second.
 (sys.int::defglobal *lapic-timer-calibration*)
 
+;; Timer ticks per second as computed by the calibration.
+(sys.int::defglobal *lapic-timer-ticks-per-second*)
+
+(defun lapic-timer-calibrate-tsc ()
+  "Calibrate the LAPIC timer using the TSC as a high-resolution time reference.
+*CPU-SPEED* must already be calibrated before calling this."
+  (let ((tsc-start (sys.int::tsc)))
+    (multiple-value-bind (lapic-cycles)
+        (lapic-timer-measure-one-tick)
+      (let* ((tsc-delta (- (sys.int::tsc) tsc-start))
+             (cpu-speed (float *cpu-speed*)))
+        (if (zerop tsc-delta)
+            0
+            (/ (* (float lapic-cycles) cpu-speed)
+               (float tsc-delta)))))))
+
 ;; TODO: Be more clever when picking the divisor.
 ;; Should dynamically adjust so a goldilocks calibration value is returned.
 (defun lapic-timer-calibrate ()
-  (let ((n (lapic-timer-calibrate-1)))
-    (dotimes (i 5)
-      (setf n (/ (+ n (lapic-timer-calibrate-1)) 2)))
-    (setf *lapic-timer-calibration* (truncate n))))
+  (let ((n (calibrate-average (if (tsc-deadline-available-p)
+                                  #'lapic-timer-calibrate-tsc
+                                  #'lapic-timer-calibrate-1))))
+    (setf *lapic-timer-calibration* (truncate n)
+          *lapic-timer-ticks-per-second* (truncate n))))
 
 ;; These two functions are interrupt-safe, they must not use
 ;; floats, bignums or ratios when converting.
@@ -913,6 +1055,37 @@ This is a one-shot timer and must be reset after firing."
    (truncate (* duration-internal-time-units *lapic-timer-calibration*)
              internal-time-units-per-second)))
 
+;; Early-boot CPUID: saves/restores EBX instead of relying on pseudo-atomic.
+;; Safe to call before the thread/lock infrastructure is fully initialized.
+;; CPUID leaf 1 subleaf 0, return ECX only. No pseudo-atomic needed.
+(sys.int::define-lap-function %cpuid-1-ecx-early ()
+  (:gc :no-frame :layout #*0)
+  (sys.lap-x86:mov64 :rax :r8)
+  (sys.lap-x86:sar64 :rax #.sys.int::+n-fixnum-bits+)
+  (sys.lap-x86:mov64 :rcx :r9)
+  (sys.lap-x86:sar64 :rcx #.sys.int::+n-fixnum-bits+)
+  (sys.lap-x86:push :rbx)
+  (sys.lap-x86:cpuid)
+  (sys.lap-x86:mov64 :r8 :rcx)
+  (sys.lap-x86:pop :rbx)
+  (sys.lap-x86:lea64 :r8 ((:r8 #.(ash 1 sys.int::+n-fixnum-bits+))))
+  (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:ret))
+
+(defun x2apic-supported-p ()
+  (logbitp +cpuid-feature-x2apic+ (%cpuid-1-ecx-early 1 0)))
+
+(defun x2apic-enabled-by-firmware-p ()
+  (logbitp 10 (sys.int::msr +msr-ia32-apic-base+)))
+
+(defun tsc-deadline-available-p ()
+  (logbitp +cpuid-feature-tsc-deadline+ (%cpuid-1-ecx-early 1 0)))
+
+(defun read-local-apic-id ()
+  (if *lapic-x2apic-mode*
+      (sys.int::msr #x802)
+      (ldb (byte 8 24) (read-lapic +lapic-reg-id+))))
+
 (defun initialize-early-cpu ()
   (setf *lapic-address* nil))
 
@@ -920,25 +1093,55 @@ This is a one-shot timer and must be reset after firing."
   (setf *lapic-address* (logand (sys.int::msr +msr-ia32-apic-base+)
                                 (lognot #xFFF)))
   (map-physical-memory-early *lapic-address* #x1000 "LAPIC")
-  (lapic-setup)
-  (lapic-dump)
+  ;; Detect and enable x2APIC mode if available.
+  (cond ((x2apic-supported-p)
+         (cond ((x2apic-enabled-by-firmware-p)
+                (setf *lapic-x2apic-mode* t)
+                (debug-print-line "x2APIC already enabled by firmware"))
+               (t
+                ;; Enable x2APIC: set bit 10 (x2APIC enable) and bit 11 (APIC enable) in IA32_APIC_BASE MSR.
+                (let ((apic-base (sys.int::msr +msr-ia32-apic-base+)))
+                  (setf (sys.int::msr +msr-ia32-apic-base+)
+                        (logior apic-base
+                                +msr-ia32-apic-base-x2apic-enable+
+                                +msr-ia32-apic-base-enable+)))
+                (setf *lapic-x2apic-mode* t)
+                (debug-print-line "x2APIC enabled on BSP"))))
+        (t
+         (setf *lapic-x2apic-mode* nil)
+         (debug-print-line "x2APIC not supported, using xAPIC MMIO")))
+   (setf (x86-64-cpu-apic-in-x2apic-mode *bsp-cpu*) *lapic-x2apic-mode*)
+   (lapic-setup)
+   (lapic-dump)
   (map-physical-memory-early +ap-trampoline-physical-address+ #x1000 "AP Bootstrap")
   (setf *initial-pml4* (generate-initial-pml4))
   (copy-ap-trampoline #'%%ap-bootstrap '%%ap-entry-point +ap-trampoline-physical-address+ *initial-pml4*)
   (setf (x86-64-cpu-page-fault-hook *bsp-cpu*) nil)
-  (setf (x86-64-cpu-apic-id *bsp-cpu*) (ldb (byte 8 24) (lapic-reg +lapic-reg-id+)))
+  (setf (x86-64-cpu-apic-id *bsp-cpu*) (read-local-apic-id))
+  (setf (cpu-cpu-index *bsp-cpu*) 0)
+  (setf (cpu-idle-p *bsp-cpu*) nil)
+  (setf (cpu-inhibit-scheduling *bsp-cpu*) 0)
+  (setf (cpu-tlb-generation *bsp-cpu*) 0)
+  (setf *current-tlb-generation* 0)
+  (setf (cpu-timer-active *bsp-cpu*) nil)
+  ;; Allocate MCS node for BSP if not already allocated by cold-generator.
+  (when (null (cpu-mcs-node *bsp-cpu*))
+    (setf (cpu-mcs-node *bsp-cpu*) (%make-mcs-node)))
   (debug-print-line "BSP has LAPIC ID " (x86-64-cpu-apic-id *bsp-cpu*))
   (setf *cpus* '())
   (push-wired *bsp-cpu* *cpus*)
   (setf *n-up-cpus* 1)
-  (hook-user-interrupt +lapic-vector-svr+ 'lapic-svr-handler)
-  (hook-user-interrupt +lapic-vector-err+ 'lapic-error-handler)
-  (hook-user-interrupt +lapic-vector-timer+ 'lapic-timer-handler)
-  (hook-user-interrupt +wakeup-ipi-vector+ 'wakeup-ipi-handler)
-  (hook-user-interrupt +panic-ipi-vector+ 'panic-ipi-handler)
-  (hook-user-interrupt +quiesce-ipi-vector+ 'quiesce-ipi-handler)
-  (hook-user-interrupt +tlb-shootdown-ipi-vector+ 'tlb-shootdown-ipi-handler)
-  (hook-user-interrupt +magic-button-ipi-vector+ 'magic-button-ipi-handler))
+  (register-ipi-handler +lapic-vector-svr+ 'lapic-svr-handler)
+  (register-ipi-handler +lapic-vector-err+ 'lapic-error-handler)
+  (register-ipi-handler +lapic-vector-timer+ 'lapic-timer-handler)
+  (register-ipi-handler +wakeup-ipi-vector+ 'wakeup-ipi-handler)
+  (register-ipi-handler +panic-ipi-vector+ 'panic-ipi-handler)
+  (register-ipi-handler +quiesce-ipi-vector+ 'quiesce-ipi-handler)
+  (register-ipi-handler +tlb-shootdown-ipi-vector+ 'tlb-shootdown-ipi-handler)
+  (register-ipi-handler +reschedule-ipi-vector+ 'reschedule-ipi-handler))
+
+(defun register-ipi-handler (vector handler)
+  (hook-user-interrupt vector handler))
 
 (defun load-cpu-bits (cpu)
   (let* ((addr (- (sys.int::lisp-object-address cpu)
@@ -994,7 +1197,15 @@ This is a one-shot timer and must be reset after firing."
                                :wired-stack wired-stack
                                :exception-stack exception-stack
                                :irq-stack irq-stack
-                               :page-fault-stack page-fault-stack)))
+                               :page-fault-stack page-fault-stack
+                               :cpu-index (length *cpus*)
+                               :idle-p nil
+                               :inhibit-scheduling 0
+                               :tlb-generation 0
+                               :timer-active nil
+                               :apic-in-x2apic-mode *lapic-x2apic-mode*)))
+    ;; Allocate per-CPU MCS node for spinlocks.
+    (setf (cpu-mcs-node cpu) (%make-mcs-node))
     (populate-cpu-info cpu
                        (+ (stack-base wired-stack) (stack-size wired-stack))
                        (+ (stack-base exception-stack) (stack-size exception-stack))
@@ -1039,11 +1250,16 @@ This is a one-shot timer and must be reset after firing."
       (dotimes (i (sys.int::simple-vector-length
                    (acpi-madt-table-controllers madt)))
         (let ((entry (svref (acpi-madt-table-controllers madt) i)))
-          (when (and (acpi-madt-processor-lapic-p entry)
-                     (logbitp +acpi-madt-processor-lapic-flag-enabled+
-                              (acpi-madt-processor-lapic-flags entry))
-                     (not (eql (acpi-madt-processor-lapic-apic-id entry) bsp-apic-id)))
-            (register-secondary-cpu (acpi-madt-processor-lapic-apic-id entry))))))))
+          (cond ((acpi-madt-processor-lapic-p entry)
+                 (when (and (logbitp +acpi-madt-processor-lapic-flag-enabled+
+                                     (acpi-madt-processor-lapic-flags entry))
+                            (not (eql (acpi-madt-processor-lapic-apic-id entry) bsp-apic-id)))
+                   (register-secondary-cpu (acpi-madt-processor-lapic-apic-id entry))))
+                ((acpi-madt-processor-x2apic-p entry)
+                 (when (and (logbitp +acpi-madt-processor-lapic-flag-enabled+
+                                     (acpi-madt-processor-x2apic-flags entry))
+                            (not (eql (acpi-madt-processor-x2apic-x2apic-id entry) bsp-apic-id)))
+                   (register-secondary-cpu (acpi-madt-processor-x2apic-x2apic-id entry))))))))))
 
 (defun boot-secondary-cpus ()
   (detect-secondary-cpus)

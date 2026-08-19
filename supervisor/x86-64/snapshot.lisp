@@ -44,6 +44,5 @@
       (loop for i from 65 below 256 ; stack area to end of persistent memory.
          do (mark-pml4e-cow i))))
   (begin-tlb-shootdown)
-  (flush-tlb)
   (tlb-shootdown-all)
   (finish-tlb-shootdown))

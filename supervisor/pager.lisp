@@ -28,6 +28,29 @@
 
 (sys.int::defglobal *store-fudge-factor*)
 
+(defconstant +tlb-shootdown-batch-size+ 64
+  "Maximum number of pages to invalidate individually before falling
+back to a full TLB flush.")
+
+(defun check-tlb-shootdown-not-in-progress ()
+  (ensure (not *tlb-shootdown-in-progress*) "TLB shootdown in progress!"))
+
+(defun tlb-shootdown-single (address)
+  (ensure *tlb-shootdown-in-progress*)
+  (flush-tlb-single address))
+
+(defun tlb-shootdown-range (base length)
+  (ensure *tlb-shootdown-in-progress*)
+  (let ((n-pages (truncate (+ length (1- +4k-page-size+)) +4k-page-size+)))
+    (if (<= n-pages +tlb-shootdown-batch-size+)
+        (loop for addr from base below (+ base length) by +4k-page-size+
+              do (flush-tlb-single addr))
+        (flush-tlb))))
+
+(defun tlb-shootdown-all ()
+  (ensure *tlb-shootdown-in-progress*)
+  (flush-tlb))
+
 (defun pager-log (&rest things)
   (declare (dynamic-extent things))
   (when (eql *pager-noisy* t)
@@ -499,7 +522,6 @@ Returns NIL if the entry is missing and ALLOCATE is false."
                              :allow-wired stackp :stackp stackp)
             (setf (page-table-entry pte 0) 0))))
       (begin-tlb-shootdown)
-      (flush-tlb)
       (when (not (or stackp
                      (mark-bit-region-p base)))
         (tlb-shootdown-range card-base card-length))
@@ -549,7 +571,6 @@ Returns NIL if the entry is missing and ALLOCATE is false."
                   (t
                    ;; Mark read-only.
                    (update-pte pte :writable nil)))))))
-    (flush-tlb)
     (tlb-shootdown-all)
     (finish-tlb-shootdown)))
 
@@ -568,8 +589,6 @@ Returns NIL if the entry is missing and ALLOCATE is false."
          (panic "Missing pte for wired page " wired-page))
        (when (page-dirty-p pte)
          (setf (sys.int::card-table-dirty-gen wired-page) 0)
-         ;; ARM64's dirty bit emulation does not support emulating
-         ;; dirty bits in the wired area yet.
          #-arm64
          (update-pte pte :dirty nil))))
     (map-ptes
@@ -579,11 +598,8 @@ Returns NIL if the entry is missing and ALLOCATE is false."
          (panic "Missing pte for wired function page " wired-page))
        (when (page-dirty-p pte)
          (setf (sys.int::card-table-dirty-gen wired-page) 0)
-         ;; ARM64's dirty bit emulation does not support emulating
-         ;; dirty bits in the wired area yet.
          #-arm64
          (update-pte pte :dirty nil))))
-    (flush-tlb)
     (tlb-shootdown-all)
     (finish-tlb-shootdown)))
 
@@ -734,7 +750,6 @@ mapped, then the entry will be NIL."
         (remove-from-page-replacement-list candidate)
         (begin-tlb-shootdown)
         (setf (page-table-entry pte-addr) (make-pte 0 :present nil))
-        (flush-tlb-single candidate-virtual)
         (tlb-shootdown-single candidate-virtual)
         (finish-tlb-shootdown)
         ;; Maybe write it back to disk.
@@ -849,7 +864,6 @@ mapped, then the entry will be NIL."
         (begin-tlb-shootdown)
         (setf (page-table-entry pte) (make-pte (ash (pte-physical-address (page-table-entry pte)) -12)
                                                :writable (block-info-writable-p block-info)))
-        (flush-tlb-single address)
         (tlb-shootdown-single address)
         (finish-tlb-shootdown))
       #+(or)(debug-print-line "WFP " address " block " block-info " already mapped " (page-table-entry pte 0))
@@ -898,7 +912,6 @@ mapped, then the entry will be NIL."
                                              ;; Mark the page dirty to make sure the snapshotter & swap code know to swap it out.
                                              ;; The zero fill flag in the block map was cleared, but the on-disk data doesn't reflect that.
                                              :dirty is-zero-page))
-      (flush-tlb-single address)
       (tlb-shootdown-single address)
       (finish-tlb-shootdown)
       #+(or)
@@ -1109,10 +1122,10 @@ It will put the thread to sleep, while it waits for the page."
     (setf *pager-noisy* nil
           *pager-waiting-threads* '()
           *pager-current-thread* nil
-          *pager-lock* (place-spinlock-initializer)
+          *pager-lock* :unlocked
           *pager-fast-path-enabled* t
           *pager-lazy-block-allocation-enabled* t))
-  (setf *page-replacement-list-lock* (place-spinlock-initializer)
+  (setf *page-replacement-list-lock* :unlocked
         *page-replacement-list-head* nil
         *page-replacement-list-tail* nil)
   (setf *pager-fast-path-hits* 0

@@ -51,7 +51,7 @@
 (defstruct (wait-queue
              (:area :wired))
   (name nil)
-  (%lock (place-spinlock-initializer))
+  (%lock :unlocked)
   (head nil)
   (tail nil))
 
@@ -102,7 +102,12 @@
   (state :unlocked)
   (stack-next nil)
   ;; Number of times ACQUIRE-MUTEX failed to immediately acquire the lock.
-  (contested-count 0 :type fixnum))
+  (contested-count 0 :type fixnum)
+  ;; Priority inheritance (turnstile).
+  ;; Thread whose priority was boosted to prevent priority inversion.
+  (boosted-thread nil)
+  ;; Original priority of the boosted thread, for restoration on release.
+  (original-priority nil))
 
 (defun acquire-mutex (mutex &optional (wait-p t))
   (check-type mutex mutex)
@@ -142,6 +147,18 @@
     (setf (mutex-owner mutex) self)
     (unlock-wait-queue mutex)
     (return-from acquire-mutex-slow-path))
+  ;; Priority inheritance: boost the holder if our priority is higher.
+  (let ((holder (mutex-owner mutex))
+        (my-priority (thread-priority self)))
+    (when (and holder
+               (threadp holder)
+               (thread-priority-higher-p my-priority (thread-priority holder)))
+      ;; Record the boost if not already boosted.
+      (when (null (mutex-boosted-thread mutex))
+        (setf (mutex-boosted-thread mutex) holder
+              (mutex-original-priority mutex) (thread-priority holder)))
+      ;; Elevate holder to our priority.
+      (setf (thread-priority holder) my-priority)))
   ;; Add to wait queue. Release will directly transfer ownership
   ;; to this thread.
   (push-wait-queue self mutex)
@@ -191,6 +208,12 @@
   ;; Contested lock. Need to wake a thread and pass the lock to it.
   (safe-without-interrupts (mutex)
     (with-wait-queue-lock (mutex)
+      ;; Restore priority of the boosted thread.
+      (let ((boosted (mutex-boosted-thread mutex)))
+        (when boosted
+          (setf (thread-priority boosted) (mutex-original-priority mutex))
+          (setf (mutex-boosted-thread mutex) nil
+                (mutex-original-priority mutex) nil)))
       ;; Look for a thread to wake.
       (let ((thread (pop-wait-queue mutex)))
         (cond (thread
@@ -206,6 +229,12 @@
   (setf (mutex-owner mutex) nil)
   (when (not (eql (sys.int::cas (mutex-state mutex) :locked :unlocked) :locked))
     ;; Mutex must be in the contested state.
+    ;; Restore priority of the boosted thread.
+    (let ((boosted (mutex-boosted-thread mutex)))
+      (when boosted
+        (setf (thread-priority boosted) (mutex-original-priority mutex))
+        (setf (mutex-boosted-thread mutex) nil
+              (mutex-original-priority mutex) nil)))
     ;; Look for a thread to wake.
     (let ((thread (pop-wait-queue mutex)))
       (cond (thread
@@ -406,7 +435,7 @@ May be used from an interrupt handler, assuming the associated mutex is interrup
              (:area :wired))
   name
   (state +rw-lock-state-unlocked+ :type fixnum)
-  (lock (place-spinlock-initializer))
+  (lock :unlocked)
   writer-wait-queue
   reader-wait-queue
   (n-pending-readers 0 :type fixnum)
@@ -1081,7 +1110,7 @@ multiple threads."
   (buffer (error "no buffer supplied") :read-only t)
   (count)
   data-available
-  (lock (place-spinlock-initializer)))
+  (lock :unlocked))
 
 (defun make-irq-fifo (size &key (element-type 't) name)
   ;; TODO: non-t element types.
@@ -1156,6 +1185,57 @@ It is only possible for the second value to be false when wait-p is false."
             (irq-fifo-tail fifo) 0
             (irq-fifo-count fifo) 0)
       (setf (event-state (irq-fifo-data-available fifo)) nil))))
+
+;;; The MCS queue-based spinlock primitives live in interrupts.lisp
+;;; (ACQUIRE-MCS-SPINLOCK / RELEASE-MCS-SPINLOCK / WITH-MCS-SPINLOCK) and
+;;; each CPU has a pre-allocated MCS node in its cpu struct.
+;;; *global-thread-lock* uses MCS; it is released from Lisp in
+;;; %%SWITCH-TO-THREAD-COMMON (on the kernel wired stack) before the LAP
+;;; restore trampolines switch to the new thread's stack.
+
+;;; RCU primitives for lock-free read-side access.
+;;; Each CPU has an rcu-nest counter in the cpu struct.
+;;; > 0 means inside an RCU read-side critical section.
+
+(defun rcu-read-lock ()
+  "Enter an RCU read-side critical section."
+  (setf (cpu-rcu-nest (local-cpu))
+        (1+ (cpu-rcu-nest (local-cpu)))))
+
+(defun rcu-read-unlock ()
+  "Exit an RCU read-side critical section."
+  (let ((new (1- (cpu-rcu-nest (local-cpu)))))
+    (setf (cpu-rcu-nest (local-cpu)) new)
+    (when (minusp new)
+      (panic "RCU read-unlock without matching read-lock"))))
+
+(defmacro with-rcu-read-lock (&body body)
+  `(unwind-protect
+        (progn
+          (rcu-read-lock)
+          ,@body)
+     (rcu-read-unlock)))
+
+(sys.int::defglobal *rcu-deferred-list* nil
+  "List of objects to be freed after an RCU grace period.")
+
+(defun rcu-synchronize ()
+  "Reclaim deferred thread deletions.
+RCU readers (see ALL-THREADS / WITH-RCU-READ-LOCK) skip :dead threads
+and thread objects are reclaimed by the GC once no reader references
+them, so the deferred list can be drained without waiting for an
+explicit grace period.  The actual draining also happens opportunistically
+on every thread exit inside THREAD-FINAL-CLEANUP."
+  (cleanup-dead-threads))
+
+(defun call-with-rcu-synchronize (thunk)
+  (rcu-synchronize)
+  (funcall thunk)
+  (rcu-synchronize))
+
+(defmacro after-rcu-grace-period (&body body)
+  "Execute BODY after an RCU grace period."
+  `(call-with-rcu-synchronize (lambda () ,@body)))
 
 (defun initialize-sync (first-run-p)
   (when first-run-p

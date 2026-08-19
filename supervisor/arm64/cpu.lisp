@@ -21,6 +21,7 @@
   page-fault-hook)
 
 (defun initialize-boot-cpu ()
+  (setf *tlb-shootdown-in-progress* nil)
   (setf (arm64-cpu-self *bsp-cpu*) *bsp-cpu*)
   (setf (arm64-cpu-state *bsp-cpu*) :online)
   (setf (arm64-cpu-idle-thread *bsp-cpu*)
@@ -76,8 +77,18 @@
 (defun local-cpu ()
   (local-cpu-info))
 
+(defun cpu-memory-barrier ()
+  "Full inner-shareable memory barrier for ordering lock data accesses."
+  (%dsb.ish))
+
 (defun initialize-cpu ()
   (setf (arm64-cpu-cpu-id *bsp-cpu*) (fdt-boot-cpuid))
+  (setf (cpu-cpu-index *bsp-cpu*) 0)
+  (setf (cpu-inhibit-scheduling *bsp-cpu*) 0)
+  (setf (cpu-tlb-generation *bsp-cpu*) 0)
+  ;; Allocate MCS node for BSP if not already allocated by cold-generator.
+  (when (null (cpu-mcs-node *bsp-cpu*))
+    (setf (cpu-mcs-node *bsp-cpu*) (%make-mcs-node)))
   (push-wired *bsp-cpu* *cpus*))
 
 (sys.int::define-lap-function %el0-common ()
@@ -223,52 +234,58 @@
   (mezzano.lap.arm64:hlt 4))
 
 (defun broadcast-panic-ipi ()
-  (broadcast-ipi +panic-sgi-id+))
+  (send-ipi-to-all +panic-sgi-id+))
 
 (defun panic-ipi-handler (interrupt-frame)
   (declare (ignore interrupt-frame))
   (loop (%arch-panic-stop)))
 
 (defun broadcast-wakeup-ipi ()
-  (broadcast-ipi +wakeup-sgi-id+))
+  (dolist (cpu *cpus*)
+    (when (eql (arm64-cpu-state cpu) :online)
+      (wake-cpu cpu))))
+
+(defun wake-cpu (cpu)
+  (when (cpu-idle-p cpu)
+    (send-ipi-to-cpu cpu +wakeup-sgi-id+)))
 
 (sys.int::defglobal *non-quiescent-cpus-remaining*)
 
-;; FIXME: quiesce-cpus-for-world-stop needs to prevent migration across CPUs.
 (defun quiesce-cpus-for-world-stop ()
   "Bring all CPUs to a consistent state to stop the world.
 Protected by the world stop lock."
+  ;; Prevent migration during the broadcast and busy-wait.
+  (setf (cpu-inhibit-scheduling (local-cpu))
+        (1+ (cpu-inhibit-scheduling (local-cpu))))
   (setf *non-quiescent-cpus-remaining* (1- *n-up-cpus*))
-  (broadcast-ipi +quiesce-sgi-id+)
+  (send-ipi-to-all +quiesce-sgi-id+)
   ;; FIXME: Use WFE/SEV instead of this spin-loop.
   (loop
      (when (eql *non-quiescent-cpus-remaining* 0)
        (return))
-     (sys.int::cpu-relax)))
+     (sys.int::cpu-relax))
+  (setf (cpu-inhibit-scheduling (local-cpu))
+        (max 0 (1- (cpu-inhibit-scheduling (local-cpu))))))
 
 ;; Save the current thread's state and switch to the CPU's idle thread.
 (defun quiesce-ipi-handler (interrupt-frame)
-  (let* ((current (current-thread))
-         (idle (local-cpu-idle-thread))
-         (was-active (not (eql current idle))))
-    (when was-active
-      (acquire-global-thread-lock)
-      ;; Return this thread to the run queue.
-      (setf (thread-state current) :runnable)
-      (push-run-queue current)
-      (preemption-timer-reset nil)
-      ;; Save thread state.
-      (save-fpu-state current)
-      (save-interrupted-state current interrupt-frame)
-      ;; Partially switch to the idle thread.
-      (setf (thread-state idle) :active))
-    ;; Have now reached a quiescent state.
-    (sys.int::%atomic-fixnum-add-symbol '*non-quiescent-cpus-remaining*
-                                        -1)
-    (when was-active
-      ;; Finally, return to the idle thread.
-      (%%switch-to-thread-common idle
-                                 idle))))
+  (cond (*debug-magic-button-hold-variable*
+         (magic-button-ipi-handler interrupt-frame))
+        (t
+         (let* ((current (current-thread))
+                (idle (local-cpu-idle-thread))
+                (was-active (not (eql current idle))))
+           (when was-active
+             (acquire-global-thread-lock)
+             (setf (thread-state current) :runnable)
+             (push-run-queue current)
+             (preemption-timer-reset nil)
+             (save-fpu-state current)
+             (save-interrupted-state current interrupt-frame)
+             (setf (thread-state idle) :active))
+           (sys.int::%atomic-fixnum-add-symbol '*non-quiescent-cpus-remaining* -1)
+           (when was-active
+             (%%switch-to-thread-common idle idle))))))
 
 ;; TODO: This needs to be fixed up to prevent multiple CPUs hitting it at
 ;; once. It can't currently happen because it is only used from IRQ handlers
@@ -279,7 +296,7 @@ Protected by the world stop lock."
 (defun stop-other-cpus-for-debug-magic-button ()
   (setf *debug-magic-button-ready-variable* (1- *n-up-cpus*)
         *debug-magic-button-hold-variable* t)
-  (broadcast-ipi +magic-button-sgi-id+)
+  (send-ipi-to-all +quiesce-sgi-id+)
   ;; Wait for other CPUs to arrive, this ensures the thread state is actually
   ;; consistent.
   (loop until (eql *debug-magic-button-ready-variable* 0)))
@@ -302,26 +319,29 @@ Protected by the world stop lock."
   (sys.int::%atomic-fixnum-add-symbol
    '*debug-magic-button-ready-variable* -1))
 
-;; TLB shootdown isn't required as ARM has cross-core TLB invalidation instructions
+;; ARM64 has hardware-broadcast TLB invalidation (TLBI IS instructions).
+;; No IPIs needed; the initiating CPU issues TLBI VAE1IS which broadcasts
+;; to all CPUs in the inner shareable domain. We still bracket the operation
+;; with inhibit-scheduling to prevent CPU migration.
+
+(sys.int::defglobal *tlb-shootdown-in-progress* nil)
 
 (defun begin-tlb-shootdown ()
-  nil)
-
-(defun tlb-shootdown-single (address)
-  (declare (ignore address))
-  nil)
-
-(defun tlb-shootdown-range (base length)
-  (declare (ignore base length))
-  nil)
-
-(defun tlb-shootdown-all ()
-  nil)
+  "Prepare for TLB shootdown on ARM64.
+TLB shootdown must be protected by the VM lock."
+  (ensure (rw-lock-write-held-p *vm-lock*) "VM lock not held when doing TLB shootdown!")
+  (ensure (not *tlb-shootdown-in-progress*) "TLB shootdown already in progress!")
+  (setf *tlb-shootdown-in-progress* t)
+  (setf (cpu-inhibit-scheduling (local-cpu))
+        (1+ (cpu-inhibit-scheduling (local-cpu)))))
 
 (defun finish-tlb-shootdown ()
-  nil)
+  (ensure *tlb-shootdown-in-progress*)
+  (setf *tlb-shootdown-in-progress* nil)
+  (setf (cpu-inhibit-scheduling (local-cpu))
+        (max 0 (1- (cpu-inhibit-scheduling (local-cpu))))))
 
-(defun check-tlb-shootdown-not-in-progress ()
+(defun check-tlb-generation-consistency ()
   nil)
 
 (defun local-cpu-idle-thread ()
@@ -355,6 +375,10 @@ Protected by the world stop lock."
                               :sp-el1 (+ (stack-base wired-stack)
                                          (stack-size wired-stack)
                                          -16))))
+    (setf (cpu-cpu-index cpu) (length *cpus*))
+    (setf (cpu-inhibit-scheduling cpu) 0)
+    (setf (cpu-tlb-generation cpu) 0)
+    (setf (cpu-mcs-node cpu) (%make-mcs-node))
     (setf (arm64-cpu-self cpu) cpu)
     (setf (sys.int::memref-unsigned-byte-64 (arm64-cpu-sp-el1 cpu))
           (sys.int::lisp-object-address cpu))

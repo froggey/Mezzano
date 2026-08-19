@@ -125,7 +125,7 @@
              (:area :wired))
   head
   tail
-  (lock (place-spinlock-initializer)))
+  (lock :unlocked))
 
 (defstruct (timer
              (:constructor %make-timer)

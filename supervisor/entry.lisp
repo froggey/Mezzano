@@ -154,7 +154,7 @@
       (setf (sys.int::symbol-global-value 'mezzano.runtime::*active-catch-handlers*) 'nil
             (sys.int::symbol-global-value '*pseudo-atomic*) nil
             sys.int::*known-finalizers* nil
-            *big-wait-for-objects-lock* (place-spinlock-initializer)))
+            *big-wait-for-objects-lock* :unlocked))
     (initialize-early-platform)
     (when (boundp '*boot-id*)
       (setf (event-state *boot-id*) t))

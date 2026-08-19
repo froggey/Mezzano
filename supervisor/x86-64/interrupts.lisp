@@ -272,6 +272,9 @@ If clear, the fault occured in supervisor mode.")
           (debug-print-line "Spurious i8259 IRQ " irq ". Further spurious IRQs will not be reported."))
         (incf *i8259-spurious-interrupt-count*)
         (return-from i8259-interrupt-handler)))
+    ;; If this CPU was idle during a TLB shootdown and missed the IPI,
+    ;; flush now before the IRQ handler touches any pageable memory.
+    (check-tlb-generation-consistency)
     (irq-deliver interrupt-frame (svref *i8259-irqs* irq))
     (with-symbol-spinlock (*i8259-spinlock*)
       ;; Send EOI.
@@ -303,7 +306,6 @@ If clear, the fault occured in supervisor mode.")
             (setf (sys.int::io-port/8 #xA1) (ldb (byte 8 8) *i8259-shadow-mask*)))))))
 
 (defun initialize-i8259 ()
-  ;; TODO: do the APIC & IO-APIC as well.
   (when (not (boundp '*i8259-irqs*))
     (setf *i8259-irqs* (sys.int::make-simple-vector 16 :wired)
           ;; fixme: do at cold-gen time.
@@ -332,25 +334,41 @@ If clear, the fault occured in supervisor mode.")
   ;; Unmask the cascade IRQ, required for the 2nd chip to function.
   (i8259-unmask-irq 2))
 
+(declaim (inline io-apic-active-p))
+(defun io-apic-active-p ()
+  (and (boundp '*io-apic-active-p*) *io-apic-active-p*))
+
+(defun platform-irq-vector ()
+  (if (io-apic-active-p) *io-apic-irqs* *i8259-irqs*))
+
 (defun platform-irq (number)
-  (cond ((<= 0 number 15)
-         (svref *i8259-irqs* number))
-        (t nil)))
+  (if (io-apic-active-p)
+      (when (<= 0 number 255)
+        (let ((gsi (if (< number 16)
+                       (sys.int::%object-ref-t *isa-irq-to-gsi* number)
+                       number)))
+          (sys.int::%object-ref-t *io-apic-irqs* gsi)))
+      (when (<= 0 number 15)
+        (svref *i8259-irqs* number))))
 
 (defun all-platform-irqs ()
-  (loop
-     for i below (sys.int::%object-header-data *i8259-irqs*)
-     for irq = (svref *i8259-irqs* i)
-     collect irq))
+  (loop with vector = (platform-irq-vector)
+        for i below (sys.int::%object-header-data vector)
+        for irq = (svref vector i)
+        when irq collect irq))
 
 (defun map-platform-irqs (fn)
-  (loop
-     for i below (sys.int::%object-header-data *i8259-irqs*)
-     for irq = (svref *i8259-irqs* i)
-     do (funcall fn irq)))
+  (loop with vector = (platform-irq-vector)
+        for i below (sys.int::%object-header-data vector)
+        for irq = (svref vector i)
+        when irq do (funcall fn irq)))
 
 (defun platform-mask-irq (vector)
-  (i8259-mask-irq vector))
+  (if (io-apic-active-p)
+      (io-apic-mask-irq vector)
+      (i8259-mask-irq vector)))
 
 (defun platform-unmask-irq (vector)
-  (i8259-unmask-irq vector))
+  (if (io-apic-active-p)
+      (io-apic-unmask-irq vector)
+      (i8259-unmask-irq vector)))

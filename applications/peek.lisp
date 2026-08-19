@@ -122,7 +122,7 @@
     "DCA"
     "SSE4.1"
     "SSE4.2"
-    nil
+    "x2APIC"
     nil
     "POPCNT"))
 

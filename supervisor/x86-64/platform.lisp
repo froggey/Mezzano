@@ -21,6 +21,9 @@
       (t
        (debug-print-line "No ACPI FADT table detected.")))
     (initialize-cpu)
+    (unless (boundp '*io-apic-active-p*)
+      (setf *io-apic-active-p* nil))
+    (initialize-io-apics)
     (initialize-platform-time)
     (mezzano.supervisor.intel-8042:probe)
     (initialize-pci)
