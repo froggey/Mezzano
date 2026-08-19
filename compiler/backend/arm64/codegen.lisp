@@ -501,19 +501,22 @@
        (:gpr-64
         (emit `(lap:fmov ,(ir:move-destination instruction) ,(lap::convert-width (ir:move-source instruction) 32))))))))
 
+(defmethod lap-prepass (backend-function (instruction ir:swap-instruction) uses defs)
+  (when (and (eql (lap::register-class (ir:swap-rhs instruction)) :gpr-64)
+             (not (gethash :swap-slot *prepass-data*)))
+    (setf (gethash :swap-slot *prepass-data*) (allocate-stack-slots 1))))
+
 (defmethod emit-lap (backend-function (instruction ir:swap-instruction) uses defs)
   (let ((lhs (ir:swap-lhs instruction))
         (rhs (ir:swap-rhs instruction)))
     (when (not (eql lhs rhs))
       (assert (eql (lap::register-class lhs) (lap::register-class rhs)))
       (ecase (lap::register-class rhs)
-        ;; FIXME: This is wildly wrong and will cause the GC to lose live values.
-        ;; Use a temporary or spill to the stack instead.
-        ;; FIXME: Fuckin' stop doing this!!!
         (:gpr-64
-         (emit `(lap:eor ,lhs ,lhs ,rhs)
-               `(lap:eor ,rhs ,rhs ,lhs)
-               `(lap:eor ,lhs ,lhs ,rhs)))
+         (let ((slot (gethash :swap-slot *prepass-data*)))
+           (emit-stack-store lhs slot)
+           (emit `(lap:mov ,lhs ,rhs))
+           (emit-stack-load rhs slot)))
         #+(or)
         (:fp-128
          (emit `(lap:eor.16b ,lhs ,lhs ,rhs)
