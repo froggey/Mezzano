@@ -375,7 +375,6 @@ Returns true if the callback produced audio, nil if it ran silent."
              (idle-periods 0))
         (unwind-protect
              (progn
-               (format t "Starting playback on ~S~%" card)
                ;; Arm the IRQ before START so the first period-completion
                ;; interrupt is not rejected while the handler is masked.
                (sup:simple-irq-unmask irq)
@@ -394,11 +393,11 @@ Returns true if the callback produced audio, nil if it ran silent."
                ;; Playback loop.
                (loop
                  (sync:wait-for-objects irq (virtio-sound-boot-id card))
-                 ;; Acknowledge the interrupt before processing so that
-                 ;; interrupts are not lost.
-                 (virtio:virtio-ack-irq dev (virtio:virtio-isr-status dev))
-                 (sup:simple-irq-unmask irq)
                  (with-virtio-sound-access (card)
+                   ;; Acknowledge the interrupt before processing so that
+                   ;; interrupts are not lost.
+                   (virtio:virtio-ack-irq dev (virtio:virtio-isr-status dev))
+                   (sup:simple-irq-unmask irq)
                    ;; Drain completed periods from the TX used ring.
                    (let ((refilled nil))
                      (loop
@@ -430,8 +429,7 @@ Returns true if the callback produced audio, nil if it ran silent."
                      (int::dma-write-barrier)
                      (return))
                    (setf (virtio:virtqueue-last-seen-used txq)
-                         (ldb (byte 16 0) (1+ (virtio:virtqueue-last-seen-used txq))))))
-               (format t "Finished playback on ~S~%" card))
+                         (ldb (byte 16 0) (1+ (virtio:virtqueue-last-seen-used txq)))))))
           (virtio:virtio-ack-irq dev (virtio:virtio-isr-status dev))
           (sup:simple-irq-mask irq)))
         (device-disconnect ()
