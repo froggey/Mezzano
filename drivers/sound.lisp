@@ -360,3 +360,19 @@
                  (- tail head))
              ;; Two samples per frame, stereo.
              2)))))
+
+(defun play-tone (frequency seconds &optional (amplitude 0.5))
+  "Play a sine wave at FREQUENCY Hz for SECONDS seconds, at AMPLITUDE (0..1).
+For testing the driver. Blocks until the samples have been queued.
+A frequency of 0 plays silence."
+  (let* ((sample-rate 44100)
+         (channels 2)
+         (n-samples (* seconds sample-rate channels))
+         (sink (make-sound-output-sink :buffer-duration 0.2))
+         (samples (make-array n-samples :element-type 'single-float))
+         (phase-increment (/ (* 2.0 (float pi 0.0) frequency) sample-rate))
+         (phase 0.0))
+    (dotimes (i n-samples)
+      (setf (aref samples i) (* amplitude (sin phase)))
+      (incf phase phase-increment))
+    (output-sound samples sink)))
