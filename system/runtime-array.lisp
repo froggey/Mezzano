@@ -120,12 +120,6 @@
       (incf total-size (- 64 (rem total-size 64))))
     (mezzano.runtime::%allocate-object (specialized-array-definition-tag info) length (truncate total-size 64) area)))
 
-(defun sign-extend (value width)
-  "Convert an unsigned integer to a signed value."
-  (if (logbitp (1- width) value)
-      (logior value (lognot (1- (ash 1 width))))
-      (logand value (1- (ash 1 width)))))
-
 (defun %simple-array-aref (array index)
   (ecase (%object-tag array)
     ((#.+object-tag-array-t+

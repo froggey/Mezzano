@@ -231,3 +231,11 @@
     (boole-orc2 (logorc2 integer-1 integer-2))
     (boole-set -1)
     (boole-xor (logxor integer-1 integer-2))))
+
+;; TODO: Decide if value should be of type `(UNSIGNED-BYTE ,width) or any integer.
+(defun sign-extend (value width)
+  "Convert an unsigned integer of the specified width to a signed value.
+Bits outside the range will be dropped."
+  (if (logbitp (1- width) value)
+      (logior value (lognot (1- (ash 1 width))))
+      (logand value (1- (ash 1 width)))))

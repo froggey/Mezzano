@@ -190,6 +190,9 @@
    #:ub64ref/be #:ub64ref/le
    #:sb64ref/be #:sb64ref/le
 
+   ;; Bit-hacking extensions
+   #:sign-extend
+
    ;; Float extensions
    #:short-float-to-ieee-binary16
    #:ieee-binary16-to-short-float
@@ -1103,20 +1106,22 @@
 (defpackage :mezzano.internals.numbers.logical
   (:use :cl)
   (:local-nicknames (:int :mezzano.internals))
-  (:export #:byte           #:deposit-field  #:ldb-test
-           #:byte-position  #:dpb            #:mask-field
-           #:byte-size      #:ldb
-           #:ash          #:boole-ior       #:logbitp
-           #:boole        #:boole-nand      #:logcount
-           #:boole-1      #:boole-nor       #:logeqv
-           #:boole-2      #:boole-orc1      #:logior
-           #:boole-and    #:boole-orc2      #:lognand
-           #:boole-andc1  #:boole-set       #:lognor
-           #:boole-andc2  #:boole-xor       #:lognot
-           #:boole-c1     #:integer-length  #:logorc1
-           #:boole-c2     #:logand          #:logorc2
-           #:boole-clr    #:logandc1        #:logtest
-           #:boole-eqv    #:logandc2        #:logxor))
+  (:import-from :mezzano.extensions #:sign-extend)
+  (:export #:byte          #:deposit-field  #:ldb-test
+           #:byte-position #:dpb            #:mask-field
+           #:byte-size     #:ldb
+           #:ash           #:boole-ior      #:logbitp
+           #:boole         #:boole-nand     #:logcount
+           #:boole-1       #:boole-nor      #:logeqv
+           #:boole-2       #:boole-orc1     #:logior
+           #:boole-and     #:boole-orc2     #:lognand
+           #:boole-andc1   #:boole-set      #:lognor
+           #:boole-andc2   #:boole-xor      #:lognot
+           #:boole-c1      #:integer-length #:logorc1
+           #:boole-c2      #:logand         #:logorc2
+           #:boole-clr     #:logandc1       #:logtest
+           #:boole-eqv     #:logandc2       #:logxor
+           #:sign-extend))
 
 (defpackage :mezzano.internals.numbers.transcendental
   (:use :cl)
