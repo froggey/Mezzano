@@ -122,6 +122,18 @@
   (mezzano.lap.arm64:fmov :x10 :d0)
   (mezzano.lap.arm64:named-tail-call sys.int::%%make-double-float-x10))
 
+(sys.int::define-lap-function sys.int::%%double-float-abs ()
+  (:gc :no-frame :layout #*)
+  ;; Unbox the float.
+  ;; FIXME: LDR should support loads directly into d0
+  (mezzano.lap.arm64:ldr :x9 (:object :x0 0))
+  (mezzano.lap.arm64:fmov :d0 :x9)
+  ;; Operate.
+  (mezzano.lap.arm64:fabs :d0 :d0)
+  ;; Box result & return.
+  (mezzano.lap.arm64:fmov :x10 :d0)
+  (mezzano.lap.arm64:named-tail-call sys.int::%%make-double-float-x10))
+
 (sys.int::define-lap-function %%coerce-double-float-to-single-float ()
   (:gc :no-frame :layout #*)
   (mezzano.lap.arm64:ldr :x9 (:object :x0 0))

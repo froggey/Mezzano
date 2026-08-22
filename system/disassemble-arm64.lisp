@@ -726,7 +726,7 @@
   (let ((type (ldb (byte 2 22) word))
         (opcode (and (zerop (mask-field (byte 2 19) word))
                      (aref #(a64:fmov
-                             :fabs
+                             a64:fabs
                              :fneg
                              a64:fsqrt
                              nil

@@ -1947,6 +1947,19 @@
                               (ash (register-number lhs) +rd-shift+)))
     (return-from instruction t)))
 
+(define-instruction fabs (lhs rhs)
+  (let* ((lhs-class (register-class lhs))
+         (rhs-class (register-class rhs))
+         (type (ecase lhs-class
+                 (:fp-32 #b00)
+                 (:fp-64 #b01))))
+    (assert (eql lhs-class rhs-class))
+    (emit-instruction (logior #x1E20C000
+                              (ash type 22)
+                              (ash (register-number rhs) +rn-shift+)
+                              (ash (register-number lhs) +rd-shift+)))
+    (return-from instruction t)))
+
 (defmacro define-cas-instruction (name l o0 size class single-bit)
   `(define-instruction ,name (old new address)
      (destructuring-bind (base) address

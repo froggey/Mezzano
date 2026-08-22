@@ -661,6 +661,21 @@
                          :source result-unboxed
                          :destination result))))
 
+(define-builtin sys.int::%%single-float-abs ((x) result)
+  (let ((x-unboxed (make-instance 'ir:virtual-register :kind :single-float))
+        (result-unboxed (make-instance 'ir:virtual-register :kind :single-float)))
+    (emit (make-instance 'ir:unbox-single-float-instruction
+                         :source x
+                         :destination x-unboxed))
+    (emit (make-instance 'arm64-instruction
+                         :opcode 'lap:fabs
+                         :operands (list result-unboxed x-unboxed)
+                         :inputs (list x-unboxed)
+                         :outputs (list result-unboxed)))
+    (emit (make-instance 'ir:box-single-float-instruction
+                         :source result-unboxed
+                         :destination result))))
+
 ;;; Unsigned-byte 64 arithmetic
 
 (define-builtin mezzano.runtime::%fast-ub64-+ ((lhs rhs) result)
