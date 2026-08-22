@@ -587,6 +587,7 @@
 (defun rationalize (number)
   (rational number))
 
+(declaim (inline short-float-to-ieee-binary16))
 (defun short-float-to-ieee-binary16 (short-float)
   "Reinterpret SHORT-FLOAT as an (unsigned-byte 16).
 This returns the raw IEEE binary representation of the float as an integer.
@@ -594,6 +595,7 @@ This returns the raw IEEE binary representation of the float as an integer.
   (check-type short-float short-float)
   (%short-float-as-integer short-float))
 
+(declaim (inline ieee-binary16-to-short-float))
 (defun ieee-binary16-to-short-float (ieee-binary16)
   "Reinterpret the (unsigned-byte 16) IEEE-BINARY16 as a short-float.
 This converts the raw IEEE binary representation to a float.
@@ -601,6 +603,7 @@ This converts the raw IEEE binary representation to a float.
   (check-type ieee-binary16 (unsigned-byte 16))
   (%integer-as-short-float ieee-binary16))
 
+(declaim (inline single-float-to-ieee-binary32))
 (defun single-float-to-ieee-binary32 (single-float)
   "Reinterpret SINGLE-FLOAT as an (unsigned-byte 32).
 This returns the raw IEEE binary representation of the float as an integer.
@@ -608,6 +611,7 @@ This returns the raw IEEE binary representation of the float as an integer.
   (check-type single-float single-float)
   (%single-float-as-integer single-float))
 
+(declaim (inline ieee-binary32-to-single-float))
 (defun ieee-binary32-to-single-float (ieee-binary32)
   "Reinterpret the (unsigned-byte 32) IEEE-BINARY32 as a single-float.
 This converts the raw IEEE binary representation to a float.
@@ -615,6 +619,7 @@ This converts the raw IEEE binary representation to a float.
   (check-type ieee-binary32 (unsigned-byte 32))
   (%integer-as-single-float ieee-binary32))
 
+(declaim (inline double-float-to-ieee-binary64))
 (defun double-float-to-ieee-binary64 (double-float)
   "Reinterpret DOUBLE-FLOAT as an (unsigned-byte 64).
 This returns the raw IEEE binary representation of the float as an integer.
@@ -622,6 +627,7 @@ This returns the raw IEEE binary representation of the float as an integer.
   (check-type double-float double-float)
   (%double-float-as-integer double-float))
 
+(declaim (inline ieee-binary64-to-double-float))
 (defun ieee-binary64-to-double-float (ieee-binary64)
   "Reinterpret the (unsigned-byte 64) IEEE-BINARY64 as a double-float.
 This converts the raw IEEE binary representation to a float.
