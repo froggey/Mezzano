@@ -504,7 +504,10 @@
 (defmethod lap-prepass (backend-function (instruction ir:swap-instruction) uses defs)
   (when (and (eql (lap::register-class (ir:swap-rhs instruction)) :gpr-64)
              (not (gethash :swap-slot *prepass-data*)))
-    (setf (gethash :swap-slot *prepass-data*) (allocate-stack-slots 1))))
+    (setf (gethash :swap-slot *prepass-data*) (allocate-stack-slots 1)))
+  (when (and (eql (lap::register-class (ir:swap-rhs instruction)) :fp-128)
+             (not (gethash :swap-slot-vector *prepass-data*)))
+    (setf (gethash :swap-slot-vector *prepass-data*) (allocate-stack-slots 2 :livep nil :aligned t))))
 
 (defmethod emit-lap (backend-function (instruction ir:swap-instruction) uses defs)
   (let ((lhs (ir:swap-lhs instruction))
@@ -517,11 +520,11 @@
            (emit-stack-store lhs slot)
            (emit `(lap:mov ,lhs ,rhs))
            (emit-stack-load rhs slot)))
-        #+(or)
         (:fp-128
-         (emit `(lap:eor.16b ,lhs ,lhs ,rhs)
-               `(lap:eor.16b ,rhs ,rhs ,lhs)
-               `(lap:eor.16b ,lhs ,lhs ,rhs)))))))
+         (let ((slot (gethash :swap-slot-vector *prepass-data*)))
+           (emit-stack-store lhs slot)
+           (emit `(lap:orr.v :16b ,lhs ,rhs ,rhs))
+           (emit-stack-load rhs slot)))))))
 
 (defmethod emit-lap (backend-function (instruction ir:spill-instruction) uses defs)
   (ecase (ir:virtual-register-kind (ir:spill-destination instruction))
