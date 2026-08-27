@@ -1,7 +1,7 @@
 Writing code that runs as part of the supervisor comes with a few restrictions, particularly code that runs early or as part of an interrupt handler. This is a non-exhaustive list of restrictions.
 
 General restrictions:
-* No classes or methods. defclass/defmethod/defgeneric and the clos implementation in general are not written in a supervisor-safe way. Use structures and pass functions around instead.
+* with small exceptions, No classes or methods. defclass/defmethod/defgeneric and the clos implementation in general are not written in a supervisor-safe way. Use structures and pass functions around instead, or ensure the code is wired and fully warmed-up.
 * Restrictions on allocation. Depending on what kind of supervisor code you are writing, you may need to consider what allocation area is used to allocate from. If the code accessing the allocated object may be called during GC or an interrupt handler the object must be allocated from the wired area.  For example, global variables accessed from interrupt handlers must be defined with defglobal, not defvar.  Defining them with defvar will result in rare crashes.
 * Restrictions on memory access. Depending on the context the code is called from (during a GC, for example), it may not be possible to access non-wired memory.
 
