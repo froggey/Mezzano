@@ -131,13 +131,10 @@
                (type (simple-array single-float (*)) buffer)
                (type fixnum start end))
     (fill buffer 0.0 :start start :end end))
-  ;; Try-lock the sink mutex. If it is held (inside output-sound's
-  ;; transcode path), return T immediately — the buffer is already
-  ;; zeroed, so we play silence for this period. Next period will retry.
-  ;; ### I'm doubtful this is justified. Maybe we could do a better
-  ;; job keeping the producer/consumer parts separate. This is effectively
-  ;; an MPSC queue.
-  (mezzano.supervisor:with-mutex (*sink-lock* :wait-p nil)
+  ;; TODO: Rework this so that the producer/consumer parts are
+  ;; separate. Sound cards shouldn't need to take a lock at all along
+  ;; this path. Consider some kind of MPSC queue maybe.
+  (mezzano.supervisor:with-mutex (*sink-lock*)
     (when (endp *sinks*)
       (return-from refill-sound-output-buffer
         nil))
