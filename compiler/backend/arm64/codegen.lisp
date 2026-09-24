@@ -484,14 +484,12 @@
      (ecase (lap::register-class (ir:move-source instruction))
        (:gpr-64
         (emit `(lap:orr ,(ir:move-destination instruction) :xzr ,(ir:move-source instruction))))
-       (:fp-128
-        (emit `(lap:fmov ,(ir:move-destination instruction) ,(lap::convert-width (ir:move-source instruction) 64))))
+       (:fp-64
+        (emit `(lap:fmov ,(lap::convert-width (ir:move-destination instruction) 64) ,(ir:move-source instruction))))
        (:fp-32
         (emit `(lap:fmov ,(lap::convert-width (ir:move-destination instruction) 32) ,(ir:move-source instruction))))))
     (:fp-128
      (ecase (lap::register-class (ir:move-source instruction))
-       (:gpr-64
-        (emit `(lap:fmov ,(lap::convert-width (ir:move-destination instruction) 64) ,(ir:move-source instruction))))
        (:fp-128
         (emit `(lap:orr.v :16b ,(ir:move-destination instruction) ,(ir:move-source instruction)  ,(ir:move-source instruction))))))
     (:fp-32
@@ -499,7 +497,13 @@
        (:fp-32
         (emit `(lap:fmov ,(ir:move-destination instruction) ,(ir:move-source instruction))))
        (:gpr-64
-        (emit `(lap:fmov ,(ir:move-destination instruction) ,(lap::convert-width (ir:move-source instruction) 32))))))))
+        (emit `(lap:fmov ,(ir:move-destination instruction) ,(lap::convert-width (ir:move-source instruction) 32))))))
+    (:fp-64
+     (ecase (lap::register-class (ir:move-source instruction))
+       (:fp-64
+        (emit `(lap:fmov ,(ir:move-destination instruction) ,(ir:move-source instruction))))
+       (:gpr-64
+        (emit `(lap:fmov ,(ir:move-destination instruction) ,(lap::convert-width (ir:move-source instruction) 64))))))))
 
 (defmethod lap-prepass (backend-function (instruction ir:swap-instruction) uses defs)
   (when (and (eql (lap::register-class (ir:swap-rhs instruction)) :gpr-64)

@@ -676,6 +676,155 @@
                          :source result-unboxed
                          :destination result))))
 
+;;; Double-Floats!
+
+(define-builtin mezzano.runtime::%%coerce-fixnum-to-double-float ((value) result)
+  (let ((value-unboxed (make-instance 'ir:virtual-register :kind :integer))
+        (value-float (make-instance 'ir:virtual-register :kind :double-float)))
+    (emit (make-instance 'ir:unbox-fixnum-instruction
+                         :source value
+                         :destination value-unboxed))
+    (emit (make-instance 'arm64-instruction
+                         :opcode 'lap:scvtf
+                         :operands (list `(:fp-64 ,value-float) value-unboxed)
+                         :inputs (list value-unboxed)
+                         :outputs (list value-float)))
+    (emit (make-instance 'ir:box-double-float-instruction
+                         :source value-float
+                         :destination result))))
+
+(define-builtin sys.int::%double-float-as-integer ((double-float) result)
+  (let ((unboxed (make-instance 'ir:virtual-register :kind :integer)))
+    (emit (make-instance 'ir:unbox-double-float-instruction
+                         :source double-float
+                         :destination unboxed))
+    (emit (make-instance 'ir:box-fixnum-instruction
+                         :source unboxed
+                         :destination result))))
+
+(define-builtin sys.int::%integer-as-double-float ((integer) result)
+  (let ((unboxed (make-instance 'ir:virtual-register :kind :integer)))
+    (emit (make-instance 'ir:unbox-fixnum-instruction
+                         :source integer
+                         :destination unboxed))
+    (emit (make-instance 'ir:box-double-float-instruction
+                         :source unboxed
+                         :destination result))))
+
+(macrolet ((def (name op)
+             `(define-builtin ,name ((x y) result)
+                (let ((x-unboxed (make-instance 'ir:virtual-register :kind :double-float))
+                      (y-unboxed (make-instance 'ir:virtual-register :kind :double-float))
+                      (result-unboxed (make-instance 'ir:virtual-register :kind :double-float)))
+                  (emit (make-instance 'ir:unbox-double-float-instruction
+                                       :source x
+                                       :destination x-unboxed))
+                  (emit (make-instance 'ir:unbox-double-float-instruction
+                                       :source y
+                                       :destination y-unboxed))
+                  (emit (make-instance 'arm64-instruction
+                                       :opcode ',op
+                                       :operands (list result-unboxed x-unboxed y-unboxed)
+                                       :inputs (list x-unboxed y-unboxed)
+                                       :outputs (list result-unboxed)))
+                  (emit (make-instance 'ir:box-double-float-instruction
+                                       :source result-unboxed
+                                       :destination result))))))
+  (def sys.int::%%double-float-+ lap:fadd)
+  (def sys.int::%%double-float-- lap:fsub)
+  (def sys.int::%%double-float-* lap:fmul)
+  (def sys.int::%%double-float-/ lap:fdiv))
+
+(define-builtin sys.int::%%truncate-double-float ((double-float) result)
+  (let ((float-unboxed (make-instance 'ir:virtual-register :kind :double-float))
+        (result-unboxed (make-instance 'ir:virtual-register :kind :integer)))
+    (emit (make-instance 'ir:unbox-double-float-instruction
+                         :source double-float
+                         :destination float-unboxed))
+    (emit (make-instance 'arm64-instruction
+                         :opcode 'lap:fcvtzs
+                         :operands (list result-unboxed float-unboxed)
+                         :inputs (list float-unboxed)
+                         :outputs (list result-unboxed)))
+    (emit (make-instance 'ir:box-fixnum-instruction
+                         :source result-unboxed
+                         :destination result))))
+
+(define-builtin sys.int::%%round-double-float ((double-float) result)
+  (let ((float-unboxed (make-instance 'ir:virtual-register :kind :double-float))
+        (result-unboxed (make-instance 'ir:virtual-register :kind :integer)))
+    (emit (make-instance 'ir:unbox-double-float-instruction
+                         :source double-float
+                         :destination float-unboxed))
+    (emit (make-instance 'arm64-instruction
+                         :opcode 'lap:fcvtns
+                         :operands (list result-unboxed float-unboxed)
+                         :inputs (list float-unboxed)
+                         :outputs (list result-unboxed)))
+    (emit (make-instance 'ir:box-fixnum-instruction
+                         :source result-unboxed
+                         :destination result))))
+
+(define-builtin sys.int::%%double-float-< ((x y) :cc)
+  (let ((x-unboxed (make-instance 'ir:virtual-register :kind :double-float))
+        (y-unboxed (make-instance 'ir:virtual-register :kind :double-float)))
+    (emit (make-instance 'ir:unbox-double-float-instruction
+                         :source x
+                         :destination x-unboxed))
+    (emit (make-instance 'ir:unbox-double-float-instruction
+                         :source y
+                         :destination y-unboxed))
+    (emit (make-instance 'arm64-instruction
+                         :opcode 'lap:fcmp
+                         :operands (list x-unboxed y-unboxed)
+                         :inputs (list x-unboxed y-unboxed)
+                         :outputs (list)))))
+
+(define-builtin sys.int::%%double-float-= ((x y) :eq)
+  (let ((x-unboxed (make-instance 'ir:virtual-register :kind :double-float))
+        (y-unboxed (make-instance 'ir:virtual-register :kind :double-float)))
+    (emit (make-instance 'ir:unbox-double-float-instruction
+                         :source x
+                         :destination x-unboxed))
+    (emit (make-instance 'ir:unbox-double-float-instruction
+                         :source y
+                         :destination y-unboxed))
+    (emit (make-instance 'arm64-instruction
+                         :opcode 'lap:fcmp
+                         :operands (list x-unboxed y-unboxed)
+                         :inputs (list x-unboxed y-unboxed)
+                         :outputs (list)))))
+
+(define-builtin sys.int::%%double-float-sqrt ((x) result)
+  (let ((x-unboxed (make-instance 'ir:virtual-register :kind :double-float))
+        (result-unboxed (make-instance 'ir:virtual-register :kind :double-float)))
+    (emit (make-instance 'ir:unbox-double-float-instruction
+                         :source x
+                         :destination x-unboxed))
+    (emit (make-instance 'arm64-instruction
+                         :opcode 'lap:fsqrt
+                         :operands (list result-unboxed x-unboxed)
+                         :inputs (list x-unboxed)
+                         :outputs (list result-unboxed)))
+    (emit (make-instance 'ir:box-double-float-instruction
+                         :source result-unboxed
+                         :destination result))))
+
+(define-builtin sys.int::%%double-float-abs ((x) result)
+  (let ((x-unboxed (make-instance 'ir:virtual-register :kind :double-float))
+        (result-unboxed (make-instance 'ir:virtual-register :kind :double-float)))
+    (emit (make-instance 'ir:unbox-double-float-instruction
+                         :source x
+                         :destination x-unboxed))
+    (emit (make-instance 'arm64-instruction
+                         :opcode 'lap:fabs
+                         :operands (list result-unboxed x-unboxed)
+                         :inputs (list x-unboxed)
+                         :outputs (list result-unboxed)))
+    (emit (make-instance 'ir:box-double-float-instruction
+                         :source result-unboxed
+                         :destination result))))
+
 ;;; Unsigned-byte 64 arithmetic
 
 (define-builtin mezzano.runtime::%fast-ub64-+ ((lhs rhs) result)
