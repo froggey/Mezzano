@@ -366,6 +366,7 @@ Protected by the world stop lock."
     (when cpus
       (do-fdt-child-nodes (node cpus)
         (when (or (fdt-compatible-p node "arm,arm-v8")
+                  (fdt-compatible-p node "arm,armv8")
                   (fdt-compatible-p node "arm,cortex-a57"))
           (let ((id (fdt-read-u32 (fdt-get-property node "reg"))))
             (when (not (eql id boot-cpu))
