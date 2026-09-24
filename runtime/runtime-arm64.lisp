@@ -520,15 +520,16 @@
   ;; Attempt to quickly allocate from the general area using the per-thread TLAB.
   ;; Returns (values tag data words t) on failure, just the object on success.
   ;; X0 = tag; X1 = data; X2 = words.
-  ;; Load per-thread TLAB limit and newspace bit.
-  (mezzano.lap.arm64:ldr :x3 (:object :x28 #.mezzano.supervisor::+thread-tlab-limit+))
+  ;; Load newspace bit symbol-value-cell.
   (mezzano.lap.arm64:ldr :x4 (:symbol-global-cell sys.int::*young-gen-newspace-bit-raw*))
-  ;; X3 = tlab limit. X4 = newspace-bit.
+  ;; X3 = tlab limit. X4 = newspace-bit symbol-value-cell.
   ;; Assemble the final header value in X12.
   (mezzano.lap.arm64:add :x12 :xzr :x0 :lsl #.(- sys.int::+object-type-shift+ sys.int::+n-fixnum-bits+))
   (mezzano.lap.arm64:add :x12 :x12 :x1 :lsl #.(- sys.int::+object-data-shift+ sys.int::+n-fixnum-bits+))
   ;; If a garbage collection occurs, it must rewind IP back here.
   (:gc :no-frame :layout #* :restart t)
+  ;; Load per-thread TLAB limit.
+  (mezzano.lap.arm64:ldr :x3 (:object :x28 #.mezzano.supervisor::+thread-tlab-limit+))
   ;; Fetch and increment the per-thread TLAB bump pointer.
   (mezzano.lap.arm64:add :x10 :xzr :x2 :lsl 3) ; words * 8
   ;; Address generation for the per-thread tlab-bump slot.

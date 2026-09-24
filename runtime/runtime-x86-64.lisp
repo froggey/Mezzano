@@ -556,8 +556,6 @@ the GC must be deferred during FILL-WORDS."
   (sys.lap-x86:mov32 :ecx #.(ash 4 #.sys.int::+n-fixnum-bits+))
   (sys.lap-x86:ret))
 
-
-
 ;; This relies on memory being initialized to zero, so it looks like
 ;; many simple vectors of length 0.
 (sys.int::define-lap-function %do-allocate-from-general-area ((tag data words))
@@ -567,18 +565,20 @@ the GC must be deferred during FILL-WORDS."
   ;; R8 = tag; R9 = data; R10 = words.
   ;; Fetch symbol value cells.
   (sys.lap-x86:mov64 :r12 (:symbol-global-cell sys.int::*young-gen-newspace-bit-raw*))
-  (sys.lap-x86:gs) (sys.lap-x86:mov64 :r11 (:object nil #.mezzano.supervisor::+thread-tlab-limit+)) ; Allocation limit for the thread
-
-  ;; R12 = newspace-bit. R11 = limit.
+  ;; R12 = newspace-bit symbol-value-cell. R11 = limit.
   ;; Assemble the final header value in RDI.
   (sys.lap-x86:mov64 :rdi :r9)
   (sys.lap-x86:shl64 :rdi #.(- sys.int::+object-data-shift+ sys.int::+n-fixnum-bits+))
   (sys.lap-x86:lea64 :rdi (:rdi (:r8 #.(ash 1 (- sys.int::+object-type-shift+ sys.int::+n-fixnum-bits+)))))
   ;; If a garbage collection occurs, it must rewind IP back here.
   (:gc :no-frame :layout #*0 :restart t)
+  ;; Allocation limit for the thread
+  (sys.lap-x86:gs)
+  (sys.lap-x86:mov64 :r11 (:object nil #.mezzano.supervisor::+thread-tlab-limit+))
   ;; Fetch and increment the current bump pointer.
   (sys.lap-x86:lea64 :rbx ((:r10 8))) ; words * 8
-  (sys.lap-x86:gs) (sys.lap-x86:xadd64 (:object nil #.mezzano.supervisor::+thread-tlab-bump+) :rbx)
+  (sys.lap-x86:gs)
+  (sys.lap-x86:xadd64 (:object nil #.mezzano.supervisor::+thread-tlab-bump+) :rbx)
   ;; RBX is old bump pointer, the address of the cons.
   ;; Find the new bump pointer.
   (sys.lap-x86:lea64 :rsi (:rbx (:r10 8)))
