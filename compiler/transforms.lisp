@@ -629,6 +629,11 @@
      (:result-type fixnum))
   `(call sys.int::%%truncate-double-float ,number))
 
+(define-transform sys.int::%one-arg-truncate ((number double-float))
+    ((:optimize (= safety 0) (= speed 3))
+     (:result-type fixnum))
+  `(call sys.int::%%truncate-double-float ,number))
+
 (define-transform sys.int::%one-arg-round ((number double-float))
     ((:optimize (= safety 0) (= speed 3))
      (:result-type fixnum))
@@ -656,6 +661,26 @@
   `(call sys.int::%%double-float-< ,rhs ,lhs))
 
 (define-transform sys.int::binary-<= ((lhs double-float) (rhs double-float))
+    ((:optimize (= safety 0) (= speed 3)))
+  `(call not (call sys.int::%%double-float-< ,rhs ,lhs)))
+
+(define-transform sys.int::generic-= ((lhs double-float) (rhs double-float))
+    ((:optimize (= safety 0) (= speed 3)))
+  `(call sys.int::%%double-float-= ,lhs ,rhs))
+
+(define-transform sys.int::generic-< ((lhs double-float) (rhs double-float))
+    ((:optimize (= safety 0) (= speed 3)))
+  `(call sys.int::%%double-float-< ,lhs ,rhs))
+
+(define-transform sys.int::generic->= ((lhs double-float) (rhs double-float))
+    ((:optimize (= safety 0) (= speed 3)))
+  `(call not (call sys.int::%%double-float-< ,lhs ,rhs)))
+
+(define-transform sys.int::generic-> ((lhs double-float) (rhs double-float))
+    ((:optimize (= safety 0) (= speed 3)))
+  `(call sys.int::%%double-float-< ,rhs ,lhs))
+
+(define-transform sys.int::generic-<= ((lhs double-float) (rhs double-float))
     ((:optimize (= safety 0) (= speed 3)))
   `(call not (call sys.int::%%double-float-< ,rhs ,lhs)))
 
