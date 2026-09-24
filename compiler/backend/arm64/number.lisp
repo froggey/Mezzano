@@ -698,13 +698,13 @@
     (emit (make-instance 'ir:unbox-double-float-instruction
                          :source double-float
                          :destination unboxed))
-    (emit (make-instance 'ir:box-fixnum-instruction
+    (emit (make-instance 'ir:box-unsigned-byte-64-instruction
                          :source unboxed
                          :destination result))))
 
 (define-builtin sys.int::%integer-as-double-float ((integer) result)
   (let ((unboxed (make-instance 'ir:virtual-register :kind :integer)))
-    (emit (make-instance 'ir:unbox-fixnum-instruction
+    (emit (make-instance 'ir:unbox-unsigned-byte-64-instruction
                          :source integer
                          :destination unboxed))
     (emit (make-instance 'ir:box-double-float-instruction
