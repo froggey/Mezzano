@@ -210,10 +210,10 @@
                       (,additional-inputs (list ,object ,disp-reg)))
                   ,@body)))))))
 
-(defmacro define-object-ref-integer-accessor (name read-op write-op scale box-op unbox-op)
+(defmacro define-object-ref-integer-accessor (name read-op write-op scale box-op unbox-op &optional (reg-kind :integer))
   `(progn
      (define-builtin ,name ((object index) result)
-       (let ((temp (make-instance 'ir:virtual-register :kind :integer)))
+       (let ((temp (make-instance 'ir:virtual-register :kind ,reg-kind)))
          (with-builtin-object-access (ea ea-inputs object index ,scale)
            (emit (make-instance 'arm64-instruction
                                 :opcode ',read-op
@@ -224,7 +224,7 @@
                               :source temp
                               :destination result))))
      (define-builtin (setf ,name) ((value object index) result)
-       (let ((temp (make-instance 'ir:virtual-register :kind :integer)))
+       (let ((temp (make-instance 'ir:virtual-register :kind ,reg-kind)))
          (emit (make-instance ',unbox-op
                               :source value
                               :destination temp))
@@ -298,6 +298,12 @@
 (define-object-ref-integer-accessor sys.int::%%object-ref-signed-byte-16-unscaled   lap:ldrsh   lap:strh  1 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
 (define-object-ref-integer-accessor sys.int::%%object-ref-signed-byte-32-unscaled   lap:ldrsw   lap:strw  1 ir:box-fixnum-instruction ir:unbox-fixnum-instruction)
 (define-object-ref-integer-accessor sys.int::%%object-ref-signed-byte-64-unscaled   lap:ldr     lap:str   1 ir:box-signed-byte-64-instruction ir:unbox-signed-byte-64-instruction)
+
+(define-object-ref-integer-accessor sys.int::%%object-ref-single-float  lap:ldr  lap:str  4 ir:box-single-float-instruction ir:unbox-single-float-instruction :single-float)
+(define-object-ref-integer-accessor sys.int::%%object-ref-double-float  lap:ldr  lap:str  8 ir:box-double-float-instruction ir:unbox-double-float-instruction :double-float)
+
+(define-object-ref-integer-accessor sys.int::%%object-ref-single-float-unscaled  lap:ldr  lap:str  1 ir:box-single-float-instruction ir:unbox-single-float-instruction :single-float)
+(define-object-ref-integer-accessor sys.int::%%object-ref-double-float-unscaled  lap:ldr  lap:str  1 ir:box-double-float-instruction ir:unbox-double-float-instruction :double-float)
 
 (define-builtin sys.int::%object-ref-t ((object index) result)
   (with-builtin-object-access (ea ea-inputs object index 8)

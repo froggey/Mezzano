@@ -334,10 +334,12 @@ thread's stack if this function is called from normal code."
     %%object-ref-short-float %%object-ref-unsigned-byte-16
   %%object-ref-short-float-unscaled %%object-ref-unsigned-byte-16-unscaled
   %short-float-as-integer %integer-as-short-float)
+#-arm64
 (define-coercing-float-object-ref
     %%object-ref-single-float %%object-ref-unsigned-byte-32
   %%object-ref-single-float-unscaled %%object-ref-unsigned-byte-32-unscaled
   %single-float-as-integer %integer-as-single-float)
+#-arm64
 (define-coercing-float-object-ref
     %%object-ref-double-float %%object-ref-unsigned-byte-64
   %%object-ref-double-float-unscaled %%object-ref-unsigned-byte-64-unscaled
