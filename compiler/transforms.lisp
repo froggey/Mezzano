@@ -497,6 +497,10 @@
 
 ;;; Single-Float arithmetic.
 
+(define-transform sys.int::single-float-p ((object single-float))
+    ((:optimize (= safety 0) (= speed 3)))
+  `'t)
+
 (defmacro define-fast-single-float-transform-arith-two-arg (binary-fn generic-fn fast-fn)
   `(progn
      (define-transform ,binary-fn ((lhs single-float) (rhs single-float))
@@ -590,6 +594,10 @@
   `(call not (call sys.int::%%single-float-< ,rhs ,lhs)))
 
 ;;; Double-Float arithmetic.
+
+(define-transform sys.int::double-float-p ((object double-float))
+    ((:optimize (= safety 0) (= speed 3)))
+  `'t)
 
 (defmacro define-fast-double-float-transform-arith-two-arg (binary-fn generic-fn fast-fn)
   `(progn

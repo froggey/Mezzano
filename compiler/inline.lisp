@@ -90,12 +90,12 @@
   form)
 
 (defun expand-inline-function (form name arg-list architecture)
-  (declare (ignore architecture))
   (multiple-value-bind (inlinep expansion)
       (function-inline-info name)
     (when (and (or inlinep
                    (eql (second (assoc name (ast-inline-declarations form))) 'inline))
-               (not (eql (second (assoc name (ast-inline-declarations form))) 'notinline)))
+               (not (eql (second (assoc name (ast-inline-declarations form))) 'notinline))
+               (not (match-transform form 't architecture)))
       (flet ((make-inline-environment ()
                (extend-environment
                 nil
