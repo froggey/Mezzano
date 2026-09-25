@@ -26,7 +26,17 @@
    (%buffer-head :initarg :buffer-head :accessor buffer-head)
    (%buffer-tail :initarg :buffer-tail :accessor buffer-tail)
    (%format :initarg :format :accessor sink-format)
-   (%volume :initarg :volume :accessor sink-volume)))
+   (%volume :initarg :volume :accessor sink-volume)
+   (%buffer-not-full :reader sink-not-full-event)))
+
+(defmethod initialize-instance :after ((instance sound-output-sink) &key)
+  (setf (slot-value instance '%buffer-not-full)
+        (sup:make-event
+         :name `(sink-not-full-event ,instance)
+         :state t)))
+
+(defmethod sync:get-object-event ((object sound-output-sink))
+  (sink-not-full-event object))
 
 (defmethod (setf sink-volume) :around (value (sink sound-output-sink))
   (check-type value single-float)
@@ -139,7 +149,8 @@
       (return-from refill-sound-output-buffer
         nil))
     (dolist (sink *sinks*)
-      (mix-out-of-sink sink buffer start end))
+      (mix-out-of-sink sink buffer start end)
+      (setf (sup:event-state (sink-not-full-event sink)) t))
     (setf *sinks* (delete-if
                    (lambda (sink)
                      (buffer-empty sink))
@@ -253,7 +264,8 @@
     (when (and (not (buffer-empty sink))
                (eql (buffer-head sink) (buffer-tail sink)))
       ;; Buffer is full.
-      (return-from copy-into-sink 0))
+      (return-from copy-into-sink
+        (values 0 0)))
     (when (>= (buffer-tail sink) (buffer-head sink))
       ;; Head behind tail, copy to end of sink buffer.
       (let ((n-to-copy (min (/ (- end start) (elements-per-sample (sink-format sink)))
@@ -295,7 +307,9 @@
     (values total-copied
             elements-consumed)))
 
-(defun output-sound (samples sink &key (start 0) end)
+(defun output-sound (samples sink &key (start 0) end (wait-p t))
+  "Push SAMPLES into SINK. Returns the offset+1 of the last sample to be pushed.
+Consumes all SAMPLES if WAIT-P is true, otherwise returns early if SINK is full."
   (check-type sink sound-output-sink)
   (check-type samples (array * (*)))
   (setf end (or end (length samples)))
@@ -319,8 +333,12 @@
            (incf offset total-elements-consumed)
            (when (not (eql total-samples-copied 0))
              (mezzano.supervisor:condition-notify *sink-cvar* t))
-           (when (>= offset end)
-             (return))
+           (when (and (eql (buffer-tail sink) (buffer-head sink))
+                      (>= offset end))
+             (setf (sup:event-state (sink-not-full-event sink)) nil))
+           (when (or (not wait-p)
+                     (>= offset end))
+             (return offset))
            ;; Buffer must be full now.
            (assert (eql (buffer-tail sink) (buffer-head sink)))
            ;; Wait for the buffer to be consumed.
@@ -341,6 +359,7 @@
           (setf (buffer-head sink) 0
                 (buffer-tail sink) 0
                 (buffer-empty sink) t)
+          (setf (sup:event-state (sink-not-full-event sink)) t)
           n-samples))))
 
 (defun sink-buffered-frames (sink)
