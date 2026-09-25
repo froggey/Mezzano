@@ -178,7 +178,7 @@
           (mbox (mezzano.sync:make-mailbox :capacity 50))
           (container (orchard.matroska::open-matroska-file path))
           (audio-sink (mezzano.driver.sound:make-sound-output-sink
-                       :buffer-duration 0.1
+                       :buffer-duration 0.05
                        :format :pcm-s16le)))
       (unwind-protect
            (multiple-value-bind (video-track video-width video-height)
@@ -208,7 +208,10 @@
                                               :name (list 'audio-frames player)
                                               :capacity 10))
                         (audio-decode-mailbox (mezzano.sync:make-mailbox
-                                               :name (list 'audio-decode player))))
+                                               :name (list 'audio-decode player)))
+                        (pending-audio nil)
+                        (current-time 0.0d0)
+                        (last-video-time 0.0d0))
                    (setf (slot-value player '%video-frame-mailbox) video-frame-mailbox
                          (slot-value player '%video-decode-mailbox) video-decode-mailbox)
                    (setf (slot-value player '%audio-frame-mailbox) audio-frame-mailbox
@@ -234,41 +237,54 @@
                                                                   width height))
                           (loop
                             (handler-case
-                                (let ((objects (mezzano.sync:wait-for-objects
-                                                mbox
-                                                video-frame-mailbox
-                                                audio-frame-mailbox)))
-                                  (when (member mbox objects)
-                                    (let ((obj (mezzano.sync:mailbox-receive mbox :wait-p nil)))
-                                      (when obj
-                                        (dispatch-event player obj))))
-                                  (when (member video-frame-mailbox objects)
-                                    (let ((obj (mezzano.sync:mailbox-receive video-frame-mailbox :wait-p nil)))
-                                      (when obj
-                                        (let ((surface (second obj)))
-                                          (multiple-value-bind (left right top bottom)
-                                              (mezzano.gui.widgets:frame-size frame)
-                                            (declare (ignore right bottom))
-                                            (mezzano.gui:bitblt
-                                             :set
-                                             (mezzano.gui:surface-width surface)
-                                             (mezzano.gui:surface-height surface)
-                                             surface 0 0
-                                             framebuffer left top)
-                                            (mezzano.gui.compositor:damage-window window
-                                                                                  0 0
-                                                                                  width height))))))
-                                  (when (member audio-frame-mailbox objects)
-                                    (let ((obj (mezzano.sync:mailbox-receive audio-frame-mailbox :wait-p nil)))
-                                      (when obj
-                                        (let ((pcm (second obj)))
-                                          (mezzano.driver.sound:output-sound pcm audio-sink))))))
+                                (let ((interesting-objects (list mbox)))
+                                  (if pending-audio
+                                      (push audio-sink interesting-objects)
+                                      (push audio-frame-mailbox interesting-objects))
+                                  (when (< last-video-time current-time)
+                                    (push video-frame-mailbox interesting-objects))
+                                  (let ((objects (apply #'mezzano.sync:wait-for-objects interesting-objects)))
+                                    (when (member mbox objects)
+                                      (let ((obj (mezzano.sync:mailbox-receive mbox :wait-p nil)))
+                                        (when obj
+                                          (dispatch-event player obj))))
+                                    (when (member audio-frame-mailbox objects)
+                                      (let ((obj (mezzano.sync:mailbox-receive audio-frame-mailbox :wait-p t)))
+                                        (when obj
+                                          (setf pending-audio (list* 0 obj))
+                                          (setf current-time (first obj)))))
+                                    (when (member audio-sink objects)
+                                      ;; We have audio and want to push it to the sink.
+                                      (let* ((pcm (third pending-audio))
+                                             (new-offset (mezzano.driver.sound:output-sound pcm audio-sink :start (first pending-audio) :wait-p nil)))
+                                        (if (>= new-offset (length pcm))
+                                            (setf pending-audio nil)
+                                            (setf (first pending-audio) new-offset))))
+                                    (when (member video-frame-mailbox objects)
+                                      (let ((obj (mezzano.sync:mailbox-receive video-frame-mailbox :wait-p nil)))
+                                        (when obj
+                                          (let ((surface (second obj)))
+                                            (setf last-video-time (first obj))
+                                            (multiple-value-bind (left right top bottom)
+                                                (mezzano.gui.widgets:frame-size frame)
+                                              (declare (ignore right bottom))
+                                              (mezzano.gui:bitblt
+                                               :set
+                                               (mezzano.gui:surface-width surface)
+                                               (mezzano.gui:surface-height surface)
+                                               surface 0 0
+                                               framebuffer left top)
+                                              (mezzano.gui.compositor:damage-window window
+                                                                                    0 0
+                                                                                    width height))))))))
                               (error (c)
                                 (ignore-errors
                                  (format t "Error: ~A~%" c)))
                               ;; Exit when the close button is clicked.
                               (mezzano.gui.widgets:close-button-clicked ()
                                 (return-from main)))))
+                     (when (audio-decode-thread player)
+                       (mezzano.supervisor:terminate-thread (audio-decode-thread player)))
                      (when (video-decode-thread player)
                        (mezzano.supervisor:terminate-thread (video-decode-thread player))))))))
         (orchard.matroska::close-container container)
