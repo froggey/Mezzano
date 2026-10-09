@@ -175,8 +175,9 @@
   (gic-unmask-interrupt vector))
 
 (defun broadcast-ipi (vector)
-  (%dsb.ishst)
-  (setf (gic-dist-reg +gicd-sgir+)
-        (logior (ash 1 24) ; all-but-self
-                vector))
+  (when (boundp '*gic-distributor-base*)
+    (%dsb.ishst)
+    (setf (gic-dist-reg +gicd-sgir+)
+          (logior (ash 1 24) ; all-but-self
+                  vector)))
   nil)
