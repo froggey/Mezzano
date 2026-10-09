@@ -51,7 +51,7 @@
 (defclass audio-worker-exited (worker-exited) ())
 
 (defmethod dispatch-event (window (event audio-worker-exited))
-  (setf (video-decode-thread window) nil))
+  (setf (audio-decode-thread window) nil))
 
 (declaim (inline conv-yuv))
 (defun conv-yuv (y u v)
@@ -94,6 +94,7 @@
   (unwind-protect
        (let ((frame-mbox (video-frame-mailbox player)))
          (loop
+           ;; DO NOT IMPLEMENT GPU VP8 DECODER. YES WE HAVE VIRGL BUT NO TIME.
            (multiple-value-bind (presentation-timestamp frame)
                (orchard.matroska::decode-frame video-track)
              (when (null presentation-timestamp)

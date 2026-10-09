@@ -29,27 +29,3 @@
   (mezzano.lap.arm64:ldp :x29 :x30 (:post :sp 16))
   (:gc :no-frame :layout #*)
   (mezzano.lap.arm64:ret))
-
-(sys.int::define-lap-function %%coerce-double-float-to-single-float ()
-  (:gc :no-frame :layout #*)
-  (mezzano.lap.arm64:ldr :x9 (:object :x0 0))
-  (mezzano.lap.arm64:fmov :d0 :x9)
-  (mezzano.lap.arm64:fcvt :s0 :d0)
-  ;; Box result & return.
-  (mezzano.lap.arm64:fmov :w9 :s0)
-  (mezzano.lap.arm64:add :x9 :xzr :x9 :lsl 32)
-  (mezzano.lap.arm64:add :x0 :x9 #.(logior sys.int::+tag-immediate+
-                                           (dpb sys.int::+immediate-tag-single-float+
-                                                sys.int::+immediate-tag+
-                                                0)))
-  (mezzano.lap.arm64:movz :x5 #.(ash 1 sys.int::+n-fixnum-bits+))
-  (mezzano.lap.arm64:ret))
-
-(sys.int::define-lap-function %%coerce-single-float-to-double-float ()
-  (:gc :no-frame :layout #*)
-  (mezzano.lap.arm64:add :x9 :xzr :x0 :lsr 32)
-  (mezzano.lap.arm64:fmov :s0 :w9)
-  (mezzano.lap.arm64:fcvt :d0 :s0)
-  ;; Box result & return.
-  (mezzano.lap.arm64:fmov :x10 :d0)
-  (mezzano.lap.arm64:named-tail-call sys.int::%%make-double-float-x10))

@@ -527,7 +527,7 @@
                          :source quotient-unboxed
                          :destination quotient))))
 
-;;; Floats!
+;;; Single-Floats!
 
 (define-builtin mezzano.runtime::%%coerce-fixnum-to-single-float ((value) result)
   (let ((value-unboxed (make-instance 'ir:virtual-register :kind :integer))
@@ -560,6 +560,21 @@
                          :destination unboxed))
     (emit (make-instance 'ir:box-single-float-instruction
                          :source unboxed
+                         :destination result))))
+
+(define-builtin mezzano.runtime::%%coerce-double-float-to-single-float ((value) result)
+  (let ((value-unboxed (make-instance 'ir:virtual-register :kind :double-float))
+        (result-unboxed (make-instance 'ir:virtual-register :kind :single-float)))
+    (emit (make-instance 'ir:unbox-double-float-instruction
+                         :source value
+                         :destination value-unboxed))
+    (emit (make-instance 'arm64-instruction
+                         :opcode 'lap:fcvt
+                         :operands (list result-unboxed value-unboxed)
+                         :inputs (list value-unboxed)
+                         :outputs (list result-unboxed)))
+    (emit (make-instance 'ir:box-single-float-instruction
+                         :source result-unboxed
                          :destination result))))
 
 (macrolet ((def (name op)
@@ -709,6 +724,21 @@
                          :destination unboxed))
     (emit (make-instance 'ir:box-double-float-instruction
                          :source unboxed
+                         :destination result))))
+
+(define-builtin mezzano.runtime::%%coerce-single-float-to-double-float ((value) result)
+  (let ((value-unboxed (make-instance 'ir:virtual-register :kind :single-float))
+        (result-unboxed (make-instance 'ir:virtual-register :kind :double-float)))
+    (emit (make-instance 'ir:unbox-single-float-instruction
+                         :source value
+                         :destination value-unboxed))
+    (emit (make-instance 'arm64-instruction
+                         :opcode 'lap:fcvt
+                         :operands (list result-unboxed value-unboxed)
+                         :inputs (list value-unboxed)
+                         :outputs (list result-unboxed)))
+    (emit (make-instance 'ir:box-double-float-instruction
+                         :source result-unboxed
                          :destination result))))
 
 (macrolet ((def (name op)
