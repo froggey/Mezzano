@@ -61,8 +61,13 @@
 
 (defun (setf virtio-legacy-mmio-transport-driver-feature) (value device bit)
   (setf (virtio-mmio-guest-features-sel device) (truncate bit 32))
-  (setf (ldb (byte 1 (rem bit 32)) (virtio-mmio-guest-features device))
-        (if value 1 0))
+  (if value
+      (setf (virtio-mmio-guest-features device)
+            (logior (virtio-mmio-guest-features device)
+                    (ash 1 (rem bit 32))))
+      (setf (virtio-mmio-guest-features device)
+            (logandc2 (virtio-mmio-guest-features device)
+                      (ash 1 (rem bit 32)))))
   value)
 
 (defun virtio-legacy-mmio-transport-device-specific-header/8 (device offset)
