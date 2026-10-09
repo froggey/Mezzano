@@ -188,7 +188,22 @@
           (imm6 `(integer 1 64))
           (imm7 `(integer 1 128))
           (imm8 `(integer 1 256)))
-        type)))
+        type))
+  (defun expand-immediates (internal-name value-types value-names shiftp)
+    (labels ((recur (args value-types value-names)
+               (cond ((endp value-names)
+                      `(,internal-name ,@(reverse args)))
+                     ((immediatep (first value-types))
+                      (let ((imm-ty (first value-types))
+                            (imm-name (first value-names)))
+                        `(ecase ,imm-name
+                           ,@(loop for i from (if shiftp 1 0) below (+ (immediate-max imm-ty) (if shiftp 1 0))
+                                   collect `(,i ,(recur (list* i args) (rest value-types) (rest value-names)))))))
+                     (t
+                      (recur (list* (first value-names) args)
+                             (rest value-types)
+                             (rest value-names))))))
+      (recur '() value-types value-names))))
 
 ;; This big scary macro takes in a bunch of names, arguments, types, along with an opcode & operand
 ;; and produces all the machinery needed to compile that operation efficiently & inline, for most cases.
@@ -253,19 +268,7 @@
                                ,(box-instruction-fragment ty unboxed boxed))))))
        ;; A wrapper for the internal-name is needed so the compiler can do constant-folding through it.
        (defun ,internal-name ,value-names
-         ;; If there are immedates, then we need to switch on them.
-         ;; FIXME: Nested switches if there are multiple immediates.
-         ,(let* ((immediate-pos (position-if #'immediatep value-types))
-                 (imm-ty (and immediate-pos (elt value-types immediate-pos)))
-                 (imm-name (and immediate-pos (elt value-names immediate-pos))))
-            (if immediate-pos
-                `(ecase ,imm-name
-                   ,@(loop for i from (if shiftp 1 0) below (+ (immediate-max imm-ty) (if shiftp 1 0))
-                           collect `(,i (,internal-name ,@(loop for name in value-names
-                                                                collect (if (eql name imm-name)
-                                                                            i
-                                                                            name))))))
-                `(,internal-name ,@value-names))))
+         ,(expand-immediates internal-name value-types value-names shiftp))
        (defun ,name ,value-names
          (,internal-name
          ,@(loop for ty in value-types
@@ -650,3 +653,19 @@
                   (dolist (n more-numbers)
                     (setf result `(,',base ,result (,',type ,n))))
                   result))))))
+
+(defmacro define-make (scalar-type vector-type lane-count insert-fn)
+  (let ((args (loop for i below lane-count
+                    collect (intern (string (code-char (+ (char-code #\A) i)))
+                                    (symbol-package vector-type))))
+        (temps (loop for i below lane-count collect (gensym)))
+        (name (intern (format nil "MAKE-~A" vector-type) (symbol-package vector-type))))
+    `(progn
+       (declaim (inline ,name))
+       (defun ,name ,args
+         (let* ((,(first temps) (,vector-type (,scalar-type ,(first args))))
+                ,@(loop for lane from 1
+                        for arg in (rest args)
+                        for (prev next) on temps
+                        collect `(,next (,insert-fn ,prev (,scalar-type ,arg) ,lane))))
+           ,(first (last temps)))))))
