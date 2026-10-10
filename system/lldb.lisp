@@ -1,24 +1,38 @@
 (in-package :mezzano.internals)
 
-(defun fetch-thread-function-arguments (thread)
+(defun fetch-thread-function-arguments (thread fn)
   (when (not (mezzano.supervisor:thread-full-save-p thread))
     (format t "Thread not full save?~%")
     (return-from fetch-thread-function-arguments '(:thread-in-strange-state)))
-  (let ((count (mezzano.supervisor:thread-state-rcx-value thread))
-        (reg-vals (list (mezzano.supervisor:thread-state-r8-value thread)
-                        (mezzano.supervisor:thread-state-r9-value thread)
-                        (mezzano.supervisor:thread-state-r10-value thread)
-                        (mezzano.supervisor:thread-state-r11-value thread)
-                        (mezzano.supervisor:thread-state-r12-value thread)))
-        (sp (mezzano.supervisor:thread-state-rsp thread))
-        (stack-vals '()))
-    (when (not (fixnump count))
-      (format t "Count #x~S not a fixnum?~%" (mezzano.supervisor:thread-state-rcx thread))
-      (return-from fetch-thread-function-arguments '(:thread-in-strange-state)))
-    (dotimes (i (max 0 (- count 5)))
-      (push (memref-t sp (1+ i)) stack-vals))
-    (subseq (append reg-vals (reverse stack-vals))
-            0 count)))
+  (cond
+    #+arm64
+    ((eql fn #'mezzano.runtime::%%make-unsigned-byte-64-x10)
+     (list (ldb (byte 64 0) (mezzano.supervisor:thread-state-rdx thread))))
+    #+arm64
+    ((eql fn #'mezzano.runtime::%%make-signed-byte-64-x10)
+     (list (mezzano.supervisor:thread-state-rdx thread)))
+    #+x86-64
+    ((eql fn #'mezzano.runtime::%%make-unsigned-byte-64-rax)
+     (list (ldb (byte 64 0) (mezzano.supervisor:thread-state-rax thread))))
+    #+x86-64
+    ((eql fn #'mezzano.runtime::%%make-signed-byte-64-rax)
+     (list (mezzano.supervisor:thread-state-rax thread)))
+    (t
+     (let ((count (mezzano.supervisor:thread-state-rcx-value thread))
+           (reg-vals (list (mezzano.supervisor:thread-state-r8-value thread)
+                           (mezzano.supervisor:thread-state-r9-value thread)
+                           (mezzano.supervisor:thread-state-r10-value thread)
+                           (mezzano.supervisor:thread-state-r11-value thread)
+                           (mezzano.supervisor:thread-state-r12-value thread)))
+           (sp (mezzano.supervisor:thread-state-rsp thread))
+           (stack-vals '()))
+       (when (not (fixnump count))
+         (format t "Count #x~S not a fixnum?~%" (mezzano.supervisor:thread-state-rcx thread))
+         (return-from fetch-thread-function-arguments '(:thread-in-strange-state)))
+       (dotimes (i (max 0 (- count 5)))
+         (push (memref-t sp (1+ i)) stack-vals))
+       (subseq (append reg-vals (reverse stack-vals))
+               0 count)))))
 
 (defun fetch-thread-return-values (thread)
   (when (not (mezzano.supervisor:thread-full-save-p thread))
@@ -99,7 +113,7 @@
                           (mezzano.supervisor:thread-state-rbx-value thread))
                          (t
                           (function-like-name fn)))
-                   (fetch-thread-function-arguments thread))
+                   (fetch-thread-function-arguments thread fn))
            (return))
          (when (not (eql fn prev-fn))
            (format t "Returning from function ~S to ~S with results ~:S.~%"
@@ -404,7 +418,7 @@ If TRIM-STEPPER-NOISE is true, then instructions executed as part of the trace p
                                                      (t
                                                       (or (function-like-name fn) fn)))
                                                (mapcar #'print-safely-to-string
-                                                       (fetch-thread-function-arguments thread))))))
+                                                       (fetch-thread-function-arguments thread fn))))))
                                (t
                                 (cond (trace-call-mode
                                        (write-char #\<)
