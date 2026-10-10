@@ -452,6 +452,7 @@
 (define-fast-fixnum-transform-arith-two-arg sys.int::binary-logand %fast-fixnum-logand :result t)
 (define-fast-fixnum-transform-arith-two-arg mezzano.runtime::%fixnum-left-shift %fast-fixnum-left-shift)
 (define-fast-fixnum-transform-arith-two-arg mezzano.runtime::left-shift %fast-fixnum-left-shift)
+(define-fast-fixnum-transform-arith-two-arg mezzano.runtime::right-shift mezzano.runtime::%fixnum-right-shift)
 
 (define-transform mezzano.runtime::%fixnum-right-shift (lhs (rhs (eql 0)))
     ((:optimize (= safety 0) (= speed 3)))
@@ -1077,3 +1078,12 @@
 (define-transform list* (object)
     ()
   object)
+
+(define-transform sys.int::binary-- (lhs (rhs (eql 0)))
+    ((:optimize (= safety 0) (= speed 3)))
+  lhs)
+
+(define-transform mezzano.runtime::left-shift ((value (unsigned-byte 32))
+                                               (shift (unsigned-byte 32)))
+    ((:result-type (unsigned-byte 64)))
+  `(call mezzano.compiler::%fast-ub32-left-shift ,value ,shift))

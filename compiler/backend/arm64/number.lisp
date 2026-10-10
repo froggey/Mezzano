@@ -292,6 +292,62 @@
                                 :inputs (list integer count-value)
                                 :outputs (list result)))))))
 
+(define-builtin mezzano.compiler::%fast-ub32-left-shift ((integer count) result)
+  (cond ((constant-value-p count '(integer 0))
+         (let ((count-value (fetch-constant-value count)))
+           (cond ((>= count-value 32)
+                  ;; All bits shifted out.
+                  ;; Turn INTEGER into 0.
+                  (emit (make-instance 'ir:constant-instruction
+                                       :destination result
+                                       :value 0)))
+                 ((zerop count-value)
+                  (emit (make-instance 'ir:move-instruction
+                                       :destination result
+                                       :source integer)))
+                 ((eql count-value 31)
+                  ;; this is the only constant case where a
+                  ;; full 63-bit result can be generated.
+                  (let ((result-unboxed (make-instance 'ir:virtual-register :kind :integer)))
+                    (emit (make-instance 'arm64-instruction
+                                         :opcode 'lap:lsl
+                                         ;; we subtract one here to account for the
+                                         ;; preexisting fixnum shift, effectively
+                                         ;; unboxing it in the same operation.
+                                         :operands (list result-unboxed integer (1- count-value))
+                                         :inputs (list integer)
+                                         :outputs (list result-unboxed)))
+                    (emit (make-instance 'ir:box-unsigned-byte-64-instruction
+                                         :source result-unboxed
+                                         :destination result))))
+                 (t
+                  (emit (make-instance 'arm64-instruction
+                                       :opcode 'lap:lsl
+                                       :operands (list result integer count-value)
+                                       :inputs (list integer)
+                                       :outputs (list result)))))))
+          (t
+           ;; No need to test for overlong shift counts here. The result must fit
+           ;; in a ub64, so obviously the count is within range or the input
+           ;; is 0.
+           (let ((result-unboxed (make-instance 'ir:virtual-register :kind :integer))
+                 (value-unboxed (make-instance 'ir:virtual-register :kind :integer))
+                 (count-value (make-instance 'ir:virtual-register :kind :integer)))
+             (emit (make-instance 'ir:unbox-fixnum-instruction
+                                  :source count
+                                  :destination count-value))
+             (emit (make-instance 'ir:unbox-fixnum-instruction
+                                  :source integer
+                                  :destination value-unboxed))
+             (emit (make-instance 'arm64-instruction
+                                  :opcode 'lap:lsl
+                                  :operands (list result-unboxed value-unboxed count-value)
+                                  :inputs (list integer count-value)
+                                  :outputs (list result-unboxed)))
+             (emit (make-instance 'ir:box-unsigned-byte-64-instruction
+                                  :source result-unboxed
+                                  :destination result))))))
+
 (define-builtin mezzano.runtime::%fixnum-right-shift ((integer count) result)
   ;; INTEGER and COUNT must both be fixnums.
   (cond ((constant-value-p count '(integer 0))
