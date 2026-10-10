@@ -817,7 +817,7 @@
                                                                   inst)))
           (t
            ;; Multiple successors, insert fixups after each branch, breaking critical edges as needed.
-           (dolist (succ successors)
+           (dolist (succ (remove-duplicates successors))
              (let ((insert-point succ))
                (when (not (endp (rest (gethash succ (allocator-cfg-preds allocator)))))
                  ;; Critical edge...
