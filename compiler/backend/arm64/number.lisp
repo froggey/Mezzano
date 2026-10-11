@@ -342,7 +342,7 @@
              (emit (make-instance 'arm64-instruction
                                   :opcode 'lap:lsl
                                   :operands (list result-unboxed value-unboxed count-value)
-                                  :inputs (list integer count-value)
+                                  :inputs (list value-unboxed count-value)
                                   :outputs (list result-unboxed)))
              (emit (make-instance 'ir:box-unsigned-byte-64-instruction
                                   :source result-unboxed
