@@ -33,6 +33,7 @@
 (defconstant +rn+ (byte 5 5))
 (defconstant +rm+ (byte 5 16))
 (defconstant +rt2+ (byte 5 10))
+(defconstant +ra+ (byte 5 10))
 
 (defun decode-gp32 (register-number &key sp)
   (if (and sp (eql register-number 31))
@@ -521,6 +522,32 @@
                        :operands (list rd rn rm))
         (values nil :add/sub-with-carry))))
 
+(defun data-processing-3-source (context word)
+  (declare (ignore context))
+  (let* ((sf (logbitp 31 word))
+         (op54 (ldb (byte 2 29) word))
+         (op31 (ldb (byte 3 21) word))
+         (o0 (logbitp 15 word))
+         (rm (decode-gp (ldb +rm+ word) :sf sf))
+         (rn (decode-gp (ldb +rn+ word) :sf sf))
+         (rd (decode-gp (ldb +rd+ word) :sf sf))
+         (ra (decode-gp (ldb +ra+ word) :sf sf))
+         (op (cond ((and (not sf)
+                         (zerop op54)
+                         (eql op31 0))
+                    (if o0 'a64:msub 'a64:madd))
+                   ((and sf
+                         (zerop op54))
+                    (aref (if o0
+                              #(a64:msub :smsubl nil       nil nil :umsubl nil nil)
+                              #(a64:madd a64:smaddl a64:smulh nil nil :umaddl a64:umulh nil))
+                          op31)))))
+    (if op
+        (make-instance 'arm64-instruction
+                       :opcode op
+                       :operands (list rd rn rm ra))
+           (values nil :data-processing-3-source))))
+
 (defun data-processing-register (context word)
   (let ((op0 (ldb (byte 1 30) word))
         (op1 (ldb (byte 1 28) word))
@@ -545,7 +572,7 @@
           ((and (eql op1 1) (eql op2 4))
            (conditional-select context word))
           ((and (eql op1 1) (eql (logand op2 #x8) 8))
-           (values nil :data-processing-3-source))
+           (data-processing-3-source context word))
           (t
            (values nil :data-processing-register)))))
 
