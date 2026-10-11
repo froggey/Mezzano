@@ -48,6 +48,13 @@ ltrace
 end
 ```
 
+also this, which dynamically looks up function names like `unwind2`
+```gdb
+define hook-stop
+ltrace2
+end
+```
+
 `gu (break "BOOTLOADER-ENTRY-POINT")` - break on a symbol
 `gu (where)` - print current function name
 `gu (unwind)` - backtrace

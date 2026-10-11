@@ -78,10 +78,23 @@
   (define asm (gdb:arch-disassemble (gdb:current-arch) pc #:count 1))
   (format #t "~8,'0x ~A+~D: ~a~%" pc (car loc) (car (cdr loc)) (cdr (assoc 'asm (car asm)))))
 
+(define (trace2)
+  (define pc (gdb:value->integer (gdb:parse-and-eval "$pc")))
+  (define loc (pc-to-function pc))
+  (define asm (gdb:arch-disassemble (gdb:current-arch) pc #:count 1))
+  (format #t "~8,'0x " pc)
+  (display-value (function-name loc))
+  (format #t "+~D: ~a~%" (- loc pc) (cdr (assoc 'asm (car asm)))))
+
 (gdb:register-command!
  (gdb:make-command "ltrace"
                    #:invoke (lambda (self args from-tty)
                               (trace))))
+
+(gdb:register-command!
+ (gdb:make-command "ltrace2"
+                   #:invoke (lambda (self args from-tty)
+                              (trace2))))
 
 ;; This doesn't seem to work?
 ;; make-command/register-command doesn't work either.
