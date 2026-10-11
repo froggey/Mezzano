@@ -1892,7 +1892,7 @@
                          :destination value-unboxed))
     (emit (make-instance 'x86-instruction
                          :opcode 'lap:movsx32
-                         :operands (list result-unboxed `(:gp-32 value-unboxed))
+                         :operands (list result-unboxed `(:gp-32 ,value-unboxed))
                          :inputs (list value-unboxed)
                          :outputs (list result-unboxed)))
     (emit (make-instance 'ir:box-fixnum-instruction
@@ -1908,7 +1908,7 @@
                          :destination value-unboxed))
     (emit (make-instance 'x86-instruction
                          :opcode 'lap:movsx16
-                         :operands (list result-unboxed `(:gp-16 value-unboxed))
+                         :operands (list result-unboxed `(:gp-16 ,value-unboxed))
                          :inputs (list value-unboxed)
                          :outputs (list result-unboxed)))
     (emit (make-instance 'ir:box-fixnum-instruction
@@ -1959,7 +1959,7 @@
                          :destination value-unboxed))
     (emit (make-instance 'x86-instruction
                          :opcode 'lap:movzx32
-                         :operands (list result-unboxed `(:gp-32 value-unboxed))
+                         :operands (list result-unboxed `(:gp-32 ,value-unboxed))
                          :inputs (list value-unboxed)
                          :outputs (list result-unboxed)))
     (emit (make-instance 'ir:box-fixnum-instruction
