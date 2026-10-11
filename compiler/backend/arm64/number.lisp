@@ -1217,6 +1217,54 @@
                                   :inputs (list lhs-unboxed rhs-unboxed)
                                   :outputs '())))))))
 
+;; Shift left, producing a wrapped ub64 result. integer is an arbitrary integers, count must be in range
+(define-builtin mezzano.compiler::%ub64-left-shift-in-limits ((integer count) result)
+  (cond ((constant-value-p count '(integer 0))
+         (let ((count-value (fetch-constant-value count)))
+           (cond ((>= count-value 64)
+                  ;; All bits shifted out.
+                  ;; Turn INTEGER into 0.
+                  (emit (make-instance 'ir:constant-instruction
+                                       :destination result
+                                       :value 0)))
+                 (t
+                  (let ((integer-unboxed (make-instance 'ir:virtual-register :kind :integer))
+                        (result-unboxed (make-instance 'ir:virtual-register :kind :integer)))
+                    (emit (make-instance 'ir:unbox-unsigned-byte-64-instruction
+                                         :source integer
+                                         :destination integer-unboxed))
+                    (if (zerop count-value)
+                        (emit (make-instance 'arm64-instruction
+                                             :opcode 'lap:mov
+                                             :operands (list result-unboxed integer-unboxed)
+                                             :inputs (list integer-unboxed)
+                                             :outputs (list result-unboxed)))
+                        (emit (make-instance 'arm64-instruction
+                                             :opcode 'lap:lsl
+                                             :operands (list result-unboxed integer-unboxed count-value)
+                                             :inputs (list integer-unboxed)
+                                             :outputs (list result-unboxed))))
+                    (emit (make-instance 'ir:box-unsigned-byte-64-instruction
+                                         :source result-unboxed
+                                         :destination result)))))))
+        (t
+         (let* ((integer-unboxed (make-instance 'ir:virtual-register :kind :integer))
+                (count-unboxed (make-instance 'ir:virtual-register :kind :integer))
+                (result-unboxed (make-instance 'ir:virtual-register :kind :integer)))
+           (emit (make-instance 'ir:unbox-unsigned-byte-64-instruction
+                                :source integer
+                                :destination integer-unboxed))
+           (emit (make-instance 'ir:unbox-unsigned-byte-64-instruction
+                                :source count
+                                :destination count-unboxed))
+           (emit (make-instance 'arm64-instruction
+                                :opcode 'lap:lsl
+                                :operands (list result-unboxed integer-unboxed count-unboxed)
+                                :inputs (list integer-unboxed count-unboxed)
+                                :outputs (list result-unboxed)))
+           (emit (make-instance 'ir:box-unsigned-byte-64-instruction
+                                :source result-unboxed
+                                :destination result))))))
 
 ;;; Signed-byte 64 arithmetic
 

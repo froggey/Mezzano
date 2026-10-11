@@ -973,6 +973,54 @@
                                   :inputs (list lhs-unboxed rhs-unboxed)
                                   :outputs '())))))))
 
+;; Shift left, producing a wrapped ub64 result. integer is an arbitrary integers, count must be in range
+(define-builtin mezzano.compiler::%ub64-left-shift-in-limits ((integer count) result)
+  (cond ((constant-value-p count '(integer 0))
+         (let ((count-value (fetch-constant-value count)))
+           (cond ((>= count-value 64)
+                  ;; All bits shifted out.
+                  ;; Turn INTEGER into 0.
+                  (emit (make-instance 'ir:constant-instruction
+                                       :destination result
+                                       :value 0)))
+                 (t
+                  (let ((integer-unboxed (make-instance 'ir:virtual-register :kind :integer))
+                        (result-unboxed (make-instance 'ir:virtual-register :kind :integer)))
+                    (emit (make-instance 'ir:unbox-unsigned-byte-64-instruction
+                                         :source integer
+                                         :destination integer-unboxed))
+                    (if (zerop count-value)
+                        (emit (make-instance 'x86-instruction
+                                             :opcode 'lap:mov64
+                                             :operands (list result-unboxed integer-unboxed)
+                                             :inputs (list integer-unboxed)
+                                             :outputs (list result-unboxed)))
+                        (emit (make-instance 'x86-fake-three-operand-instruction
+                                             :opcode 'lap:shl64
+                                             :result result-unboxed
+                                             :lhs integer-unboxed
+                                             :rhs count-value)))
+                    (emit (make-instance 'ir:box-unsigned-byte-64-instruction
+                                         :source result-unboxed
+                                         :destination result)))))))
+        (t
+         (let* ((integer-unboxed (make-instance 'ir:virtual-register :kind :integer))
+                (result-unboxed (make-instance 'ir:virtual-register :kind :integer)))
+           (emit (make-instance 'ir:unbox-unsigned-byte-64-instruction
+                                :source integer
+                                :destination integer-unboxed))
+           (emit (make-instance 'ir:unbox-unsigned-byte-64-instruction
+                                :source count
+                                :destination :rcx))
+           (emit (make-instance 'x86-fake-three-operand-instruction
+                                :opcode 'lap:shl64
+                                :result result-unboxed
+                                :lhs integer-unboxed
+                                :rhs :rcx))
+           (emit (make-instance 'ir:box-unsigned-byte-64-instruction
+                                :source result-unboxed
+                                :destination result))))))
+
 ;;; (SIGNED-BYTE 64) operations.
 
 (define-builtin mezzano.runtime::%fast-sb64-+ ((lhs rhs) result)
@@ -1844,7 +1892,7 @@
                          :destination value-unboxed))
     (emit (make-instance 'x86-instruction
                          :opcode 'lap:movsx32
-                         :operands (list value-unboxed result-unboxed)
+                         :operands (list result-unboxed `(:gp-32 value-unboxed))
                          :inputs (list value-unboxed)
                          :outputs (list result-unboxed)))
     (emit (make-instance 'ir:box-fixnum-instruction
@@ -1860,7 +1908,7 @@
                          :destination value-unboxed))
     (emit (make-instance 'x86-instruction
                          :opcode 'lap:movsx16
-                         :operands (list value-unboxed result-unboxed)
+                         :operands (list result-unboxed `(:gp-16 value-unboxed))
                          :inputs (list value-unboxed)
                          :outputs (list result-unboxed)))
     (emit (make-instance 'ir:box-fixnum-instruction
@@ -1876,7 +1924,7 @@
                          :destination value-unboxed))
     (emit (make-instance 'x86-instruction
                          :opcode 'lap:movsx8
-                         :operands (list value-unboxed result-unboxed)
+                         :operands (list result-unboxed `(:gp-8 ,value-unboxed))
                          :inputs (list value-unboxed)
                          :outputs (list result-unboxed)))
     (emit (make-instance 'ir:box-fixnum-instruction
@@ -1911,7 +1959,7 @@
                          :destination value-unboxed))
     (emit (make-instance 'x86-instruction
                          :opcode 'lap:movzx32
-                         :operands (list result-unboxed value-unboxed)
+                         :operands (list result-unboxed `(:gp-32 value-unboxed))
                          :inputs (list value-unboxed)
                          :outputs (list result-unboxed)))
     (emit (make-instance 'ir:box-fixnum-instruction
@@ -1927,7 +1975,7 @@
                          :destination value-unboxed))
     (emit (make-instance 'x86-instruction
                          :opcode 'lap:movzx16
-                         :operands (list result-unboxed value-unboxed)
+                         :operands (list result-unboxed `(:gp-16 ,value-unboxed))
                          :inputs (list value-unboxed)
                          :outputs (list result-unboxed)))
     (emit (make-instance 'ir:box-fixnum-instruction
@@ -1943,7 +1991,7 @@
                          :destination value-unboxed))
     (emit (make-instance 'x86-instruction
                          :opcode 'lap:movzx8
-                         :operands (list result-unboxed value-unboxed)
+                         :operands (list result-unboxed `(:gp-8 ,value-unboxed))
                          :inputs (list value-unboxed)
                          :outputs (list result-unboxed)))
     (emit (make-instance 'ir:box-fixnum-instruction

@@ -407,6 +407,13 @@
 (define-fast-sb64-transform-arith-two-arg sys.int::binary-logxor mezzano.runtime::%fast-sb64-logxor :result t)
 (define-fast-sb64-transform-arith-two-arg sys.int::binary-logand mezzano.runtime::%fast-sb64-logand :result t)
 
+;; The limit on COUNT ensures that the shift count is small enough not to need
+;; masking.
+(define-transform mezzano.runtime::right-shift ((integer (signed-byte 64)) (count (unsigned-byte 6)))
+    ((:optimize (= safety 0) (= speed 3)))
+  `(the (signed-byte 64)
+        (call mezzano.runtime::%sb64-right-shift-in-limits ,integer ,count)))
+
 ;;; (Signed-Byte 64) comparisons.
 
 (define-transform sys.int::binary-= ((lhs (signed-byte 64)) (rhs (signed-byte 64)))
@@ -1088,42 +1095,42 @@
     ((:result-type (unsigned-byte 64)))
   `(call mezzano.compiler::%fast-ub32-left-shift ,value ,shift))
 
-(define-transform mezzano.extensions:sign-extend ((value integer) (width (eql 64)))
+(define-transform mezzano.extensions:sign-extend (value (width (eql 64)))
     ((:optimize (= safety 0) (= speed 3)))
   `(the (signed-byte 64)
         (call %sign-extend-64 ,value)))
 
-(define-transform mezzano.extensions:sign-extend ((value integer) (width (eql 32)))
+(define-transform mezzano.extensions:sign-extend (value (width (eql 32)))
     ((:optimize (= safety 0) (= speed 3)))
   `(the (signed-byte 32)
         (call %sign-extend-32 ,value)))
 
-(define-transform mezzano.extensions:sign-extend ((value integer) (width (eql 16)))
+(define-transform mezzano.extensions:sign-extend (value (width (eql 16)))
     ((:optimize (= safety 0) (= speed 3)))
   `(the (signed-byte 16)
         (call %sign-extend-16 ,value)))
 
-(define-transform mezzano.extensions:sign-extend ((value integer) (width (eql 8)))
+(define-transform mezzano.extensions:sign-extend (value (width (eql 8)))
     ((:optimize (= safety 0) (= speed 3)))
   `(the (signed-byte 8)
         (call %sign-extend-8 ,value)))
 
-(define-transform sys.int::binary-logand ((lhs integer) (rhs (eql #xFFFFFFFFFFFFFFFF)))
+(define-transform sys.int::binary-logand (lhs (rhs (eql #xFFFFFFFFFFFFFFFF)))
     ((:optimize (= safety 0) (= speed 3)))
   `(the (unsigned-byte 64)
         (call %zero-extend-64 ,lhs)))
 
-(define-transform sys.int::binary-logand ((lhs integer) (rhs (eql #xFFFFFFFF)))
+(define-transform sys.int::binary-logand (lhs (rhs (eql #xFFFFFFFF)))
     ((:optimize (= safety 0) (= speed 3)))
   `(the (unsigned-byte 32)
         (call %zero-extend-32 ,lhs)))
 
-(define-transform sys.int::binary-logand ((lhs integer) (rhs (eql #xFFFF)))
+(define-transform sys.int::binary-logand (lhs (rhs (eql #xFFFF)))
     ((:optimize (= safety 0) (= speed 3)))
   `(the (unsigned-byte 16)
         (call %zero-extend-16 ,lhs)))
 
-(define-transform sys.int::binary-logand ((lhs integer) (rhs (eql #xFF)))
+(define-transform sys.int::binary-logand (lhs (rhs (eql #xFF)))
     ((:optimize (= safety 0) (= speed 3)))
   `(the (unsigned-byte 8)
         (call %zero-extend-8 ,lhs)))

@@ -197,6 +197,8 @@
     (when (typep inst 'predicate-instruction)
       (lower-predicate-to-call backend-function inst))))
 
+(defparameter *dump-ir-before-regalloc* nil)
+
 (defun compile-backend-function-1 (backend-function target)
   (simplify-cfg backend-function)
   (break-critical-edges backend-function)
@@ -218,6 +220,8 @@
        (when (zerop total)
          (return))))
   (remove-extraneous-multiple-value-saves backend-function)
+  (when *dump-ir-before-regalloc*
+    (print-function backend-function))
   (deconstruct-ssa backend-function)
   (lower-local-variables backend-function)
   (when (= (mezzano.compiler::optimize-quality (ast backend-function) 'debug) 0)

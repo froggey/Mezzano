@@ -177,7 +177,7 @@
 
 (defmethod emit-lap (backend-function (instruction ir:argument-setup-instruction) uses defs)
   ;; Check the argument count.
-  (unless (zerop (getf (mezzano.compiler::ast-optimize (mezzano.compiler.backend::ast backend-function)) 'safety 3))  
+  (unless (zerop (getf (mezzano.compiler::ast-optimize (mezzano.compiler.backend::ast backend-function)) 'safety 3))
     (let ((args-ok (mezzano.lap:make-label :args-ok)))
       (flet ((emit-arg-error ()
                ;; If this is a closure, then it must have been invoked using
@@ -459,6 +459,12 @@
                                          (fetch-literal/128 (second op)))
                                         ((and (consp op) (eql (first op) :literal))
                                          (fetch-literal (second op)))
+                                        ((and (consp op) (eql (first op) :gp-8))
+                                         (lap::convert-width (second op) 8))
+                                        ((and (consp op) (eql (first op) :gp-16))
+                                         (lap::convert-width (second op) 16))
+                                        ((and (consp op) (eql (first op) :gp-32))
+                                         (lap::convert-width (second op) 32))
                                         (t op)))))
     (emit (list* (x86-instruction-opcode instruction) real-operands))))
 
