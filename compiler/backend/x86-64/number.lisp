@@ -1257,6 +1257,38 @@
                          :source result-unboxed
                          :destination result))))
 
+(define-builtin mezzano.runtime::%sb64-right-shift-in-limits ((integer count) result)
+  (when (constant-value-p count '(eql 0))
+    ;; Not shifting by anything.
+    (emit (make-instance 'ir:move-instruction
+                         :source integer
+                         :destination result))
+    (finish))
+  (let ((integer-unboxed (make-instance 'ir:virtual-register :kind :integer))
+        (result-unboxed (make-instance 'ir:virtual-register :kind :integer)))
+    (emit (make-instance 'ir:unbox-signed-byte-64-instruction
+                         :source integer
+                         :destination integer-unboxed))
+    (cond ((constant-value-p count '(unsigned-byte 6))
+           ;; The perfect size to use as a shift constant.
+           (emit (make-instance 'x86-fake-three-operand-instruction
+                                :opcode 'lap:sar64
+                                :result result-unboxed
+                                :lhs integer-unboxed
+                                :rhs (fetch-constant-value count))))
+          (t
+           (emit (make-instance 'ir:unbox-fixnum-instruction
+                                :source count
+                                :destination :rcx))
+             (emit (make-instance 'x86-fake-three-operand-instruction
+                                  :opcode 'lap:sar64
+                                  :result result-unboxed
+                                  :lhs integer-unboxed
+                                  :rhs :rcx))))
+    (emit (make-instance 'ir:box-signed-byte-64-instruction
+                         :source result-unboxed
+                         :destination result))))
+
 (define-builtin mezzano.runtime::%sb64-= ((lhs rhs) :e)
   (let ((lhs-unboxed (make-instance 'ir:virtual-register :kind :integer)))
     (emit (make-instance 'ir:unbox-signed-byte-64-instruction
