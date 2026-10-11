@@ -12,11 +12,14 @@
           (pathname-directory base))))
 
 (defun guess-element-type-from-extension (type-name)
-  (if (member type-name '("jpeg" "jpg" "png" "gif" "pdf" "ttf" "gz" "avi" "wav" "xpm") :test #'string-equal)
+  (if (member type-name '("jpeg" "jpg" "png" "gif" "pdf"
+                          "ttf" "gz" "avi" "wav" "xpm"
+                          "dat" "pat" "lmp" "wad")
+              :test #'string-equal)
       '(unsigned-byte 8)
       'character))
 
-(defun copy-many (files base-path dest-path &key filter (verbose t))
+(defun copy-many (files base-path dest-path &key filter (verbose t) type-resolver)
   (dolist (f (directory files))
     (when (and (pathname-name f)
                (or (not filter)
@@ -32,7 +35,9 @@
         (when verbose
           (format t "Copy ~S -> ~S~%" f real-path))
         (with-simple-restart (skip "Skip copying file ~S" f)
-          (copy-file f real-path (guess-element-type-from-extension (pathname-type f))))))))
+          (copy-file f real-path (if type-resolver
+                                     (funcall type-resolver f)
+                                     (guess-element-type-from-extension (pathname-type f)))))))))
 
 (defun mcclim-setup ()
   ;; Fix up some case issues.
