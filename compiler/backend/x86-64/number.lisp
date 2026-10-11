@@ -1822,3 +1822,130 @@
                              'ir:box-fixnum-instruction)
                          :source result-unboxed
                          :destination result))))
+
+;;; Sign-/zero-extension
+
+(define-builtin mezzano.compiler::%sign-extend-64 ((value) result)
+  (let ((temp (make-instance 'ir:virtual-register :kind :integer)))
+    ;; Always unbox as a ub-64, the value is an arbitrary integer not a fixnum
+    (emit (make-instance 'ir:unbox-unsigned-byte-64-instruction
+                         :source value
+                         :destination temp))
+    (emit (make-instance 'ir:box-signed-byte-64-instruction
+                         :source temp
+                         :destination result))))
+
+(define-builtin mezzano.compiler::%sign-extend-32 ((value) result)
+  (let ((value-unboxed (make-instance 'ir:virtual-register :kind :integer))
+        (result-unboxed (make-instance 'ir:virtual-register :kind :integer)))
+    ;; Always unbox as a ub-64, the value is an arbitrary integer not a fixnum
+    (emit (make-instance 'ir:unbox-unsigned-byte-64-instruction
+                         :source value
+                         :destination value-unboxed))
+    (emit (make-instance 'x86-instruction
+                         :opcode 'lap:movsx32
+                         :operands (list value-unboxed result-unboxed)
+                         :inputs (list value-unboxed)
+                         :outputs (list result-unboxed)))
+    (emit (make-instance 'ir:box-fixnum-instruction
+                         :source result-unboxed
+                         :destination result))))
+
+(define-builtin mezzano.compiler::%sign-extend-16 ((value) result)
+  (let ((value-unboxed (make-instance 'ir:virtual-register :kind :integer))
+        (result-unboxed (make-instance 'ir:virtual-register :kind :integer)))
+    ;; Always unbox as a ub-64, the value is an arbitrary integer not a fixnum
+    (emit (make-instance 'ir:unbox-unsigned-byte-64-instruction
+                         :source value
+                         :destination value-unboxed))
+    (emit (make-instance 'x86-instruction
+                         :opcode 'lap:movsx16
+                         :operands (list value-unboxed result-unboxed)
+                         :inputs (list value-unboxed)
+                         :outputs (list result-unboxed)))
+    (emit (make-instance 'ir:box-fixnum-instruction
+                         :source result-unboxed
+                         :destination result))))
+
+(define-builtin mezzano.compiler::%sign-extend-8 ((value) result)
+  (let ((value-unboxed (make-instance 'ir:virtual-register :kind :integer))
+        (result-unboxed (make-instance 'ir:virtual-register :kind :integer)))
+    ;; Always unbox as a ub-64, the value is an arbitrary integer not a fixnum
+    (emit (make-instance 'ir:unbox-unsigned-byte-64-instruction
+                         :source value
+                         :destination value-unboxed))
+    (emit (make-instance 'x86-instruction
+                         :opcode 'lap:movsx8
+                         :operands (list value-unboxed result-unboxed)
+                         :inputs (list value-unboxed)
+                         :outputs (list result-unboxed)))
+    (emit (make-instance 'ir:box-fixnum-instruction
+                         :source result-unboxed
+                         :destination result))))
+
+(define-builtin mezzano.compiler::%zero-extend-64 ((value) result)
+  (let ((value-unboxed (make-instance 'ir:virtual-register :kind :integer))
+        (result-unboxed (make-instance 'ir:virtual-register :kind :integer)))
+    ;; Always unbox as a ub-64, the value is an arbitrary integer not a fixnum
+    (emit (make-instance 'ir:unbox-unsigned-byte-64-instruction
+                         :source value
+                         :destination value-unboxed))
+    ;; Annoyingly we need to keep a noop instruction here to stop
+    ;; the representation analysis from eating the unbox/box pair.
+    (emit (make-instance 'x86-instruction
+                         :opcode 'lap:mov64
+                         :operands (list result-unboxed
+                                         value-unboxed)
+                         :inputs (list value-unboxed)
+                         :outputs (list result-unboxed)))
+    (emit (make-instance 'ir:box-unsigned-byte-64-instruction
+                         :source result-unboxed
+                         :destination result))))
+
+(define-builtin mezzano.compiler::%zero-extend-32 ((value) result)
+  (let ((value-unboxed (make-instance 'ir:virtual-register :kind :integer))
+        (result-unboxed (make-instance 'ir:virtual-register :kind :integer)))
+    ;; Always unbox as a ub-64, the value is an arbitrary integer not a fixnum
+    (emit (make-instance 'ir:unbox-unsigned-byte-64-instruction
+                         :source value
+                         :destination value-unboxed))
+    (emit (make-instance 'x86-instruction
+                         :opcode 'lap:movzx32
+                         :operands (list result-unboxed value-unboxed)
+                         :inputs (list value-unboxed)
+                         :outputs (list result-unboxed)))
+    (emit (make-instance 'ir:box-fixnum-instruction
+                         :source result-unboxed
+                         :destination result))))
+
+(define-builtin mezzano.compiler::%zero-extend-16 ((value) result)
+  (let ((value-unboxed (make-instance 'ir:virtual-register :kind :integer))
+        (result-unboxed (make-instance 'ir:virtual-register :kind :integer)))
+    ;; Always unbox as a ub-64, the value is an arbitrary integer not a fixnum
+    (emit (make-instance 'ir:unbox-unsigned-byte-64-instruction
+                         :source value
+                         :destination value-unboxed))
+    (emit (make-instance 'x86-instruction
+                         :opcode 'lap:movzx16
+                         :operands (list result-unboxed value-unboxed)
+                         :inputs (list value-unboxed)
+                         :outputs (list result-unboxed)))
+    (emit (make-instance 'ir:box-fixnum-instruction
+                         :source result-unboxed
+                         :destination result))))
+
+(define-builtin mezzano.compiler::%zero-extend-8 ((value) result)
+  (let ((value-unboxed (make-instance 'ir:virtual-register :kind :integer))
+        (result-unboxed (make-instance 'ir:virtual-register :kind :integer)))
+    ;; Always unbox as a ub-64, the value is an arbitrary integer not a fixnum
+    (emit (make-instance 'ir:unbox-unsigned-byte-64-instruction
+                         :source value
+                         :destination value-unboxed))
+    (emit (make-instance 'x86-instruction
+                         :opcode 'lap:movzx8
+                         :operands (list result-unboxed value-unboxed)
+                         :inputs (list value-unboxed)
+                         :outputs (list result-unboxed)))
+    (emit (make-instance 'ir:box-fixnum-instruction
+                         :source result-unboxed
+                         :destination result))))

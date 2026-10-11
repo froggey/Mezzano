@@ -836,7 +836,7 @@ Returns NIL if there is no THE form.")
     sys.int::binary-logior sys.int::binary-logxor sys.int::binary-logand
     mezzano.runtime::left-shift
     mezzano.runtime::%fixnum-left-shift
-    mezzano.compiler::%fast-ub32-left-shift))
+    %fast-ub32-left-shift))
 
 (defun unwrap-progn (form)
   (loop
