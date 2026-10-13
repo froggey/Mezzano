@@ -125,9 +125,9 @@
 
 (defun gic-handle-interrupt (interrupt-frame)
   (let* ((iar (gic-cpui-reg +gicc-iar+))
-         (vector (ldb (byte 9 0) iar)))
-    (when (eql (ldb (byte 23 0) iar) 1023)
-      ;; Spurious interrupt.
+         (vector (ldb (byte 10 0) iar)))
+    (when (>= vector 1020)
+      ;; Special interrupt IDs do not acknowledge an interrupt.
       (return-from gic-handle-interrupt))
     (cond ((< vector 16)
            ;; SGI
