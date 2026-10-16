@@ -36,10 +36,10 @@
   (mezzano.gui.widgets:frame-mouse-event (frame window) event))
 
 (defmethod dispatch-event (window (event mezzano.gui.compositor:window-close-event))
-  (throw 'mezzano.supervisor::terminate-thread nil))
+  (throw 'mezzano.supervisor:terminate-thread nil))
 
 (defmethod dispatch-event (window (event mezzano.gui.compositor:quit-event))
-  (throw 'mezzano.supervisor::terminate-thread nil))
+  (throw 'mezzano.supervisor:terminate-thread nil))
 
 (defmethod dispatch-event (window (event mezzano.gui.compositor:key-event))
   (declare (ignore window event)))
@@ -210,8 +210,9 @@
          (audio-sink (audio-sink player))
          (audio-frame-mailbox (audio-frame-mailbox player))
          (video-frame-mailbox (video-frame-mailbox player))
-         watcher-tag-1
-         watcher-tag-2
+         audio-sink-tag
+         audio-frame-tag
+         video-frame-tag
          ;; When we have audio to sink, this is a list of
          ;; (OFFSET PRESENTATION-TIMESTAMP DATA)
          ;; Offset gets updated as we gradually sink data into
@@ -226,17 +227,19 @@
     ;; to reduce allocation.
     (mezzano.supervisor:with-watcher (watcher :name player)
       (mezzano.supervisor:watcher-add-object mbox watcher)
+      (setf audio-sink-tag (mezzano.supervisor:watcher-add-object
+                            audio-sink watcher))
+      (setf audio-frame-tag (mezzano.supervisor:watcher-add-object
+                             audio-frame-mailbox watcher))
+      (setf video-frame-tag (mezzano.supervisor:watcher-add-object
+                             video-frame-mailbox watcher))
       (loop
         (handler-case
             (progn
-              ;; Reset the tags, this ensures we don't double-add
-              ;; objects to the watcher.
-              (when watcher-tag-1
-                (mezzano.supervisor:watcher-remove watcher-tag-1 watcher)
-                (setf watcher-tag-1 nil))
-              (when watcher-tag-2
-                (mezzano.supervisor:watcher-remove watcher-tag-2 watcher)
-                (setf watcher-tag-2 nil))
+              ;; Reset the tags.
+              (setf (mezzano.supervisor:watcher-event-enabled-p audio-sink-tag watcher) nil)
+              (setf (mezzano.supervisor:watcher-event-enabled-p audio-frame-tag watcher) nil)
+              (setf (mezzano.supervisor:watcher-event-enabled-p video-frame-tag watcher) nil)
               ;; If we have audio pending to stream, then listen to
               ;; the audio sink, otherwise to the audio mailbox.
               ;; Keep track of the returned tag since we'll want to remove
@@ -244,18 +247,12 @@
               ;; Audio is used to time output here, we pace video output
               ;; on it and use backpressure in the mailboxes to prevent
               ;; the decoders from racing ahead.
-              (setf watcher-tag-1
-                    (mezzano.supervisor:watcher-add-object
-                     (if pending-audio
-                         audio-sink
-                         audio-frame-mailbox)
-                     watcher))
+              (if pending-audio
+                  (setf (mezzano.supervisor:watcher-event-enabled-p audio-sink-tag watcher) t)
+                  (setf (mezzano.supervisor:watcher-event-enabled-p audio-frame-tag watcher) t))
               ;; We only care about video if it's time for a new frame.
               (when (< last-video-time current-time)
-                (setf watcher-tag-2
-                      (mezzano.supervisor:watcher-add-object
-                       video-frame-mailbox
-                       watcher)))
+                (setf (mezzano.supervisor:watcher-event-enabled-p video-frame-tag watcher) t))
               ;; Wait for objects...
               (let ((objects (mezzano.supervisor:watcher-wait watcher)))
                 ;; Main message queue.
