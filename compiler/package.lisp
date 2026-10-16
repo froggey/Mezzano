@@ -648,6 +648,7 @@
            #:watcher-remove
            #:watcher-objects
            #:watcher-wait
+           #:watcher-event-enabled-p
 
            #:event
            #:event-p

@@ -705,11 +705,12 @@ STATE may be any object and will be treated as a generalized boolean by EVENT-WA
            then (watcher-event-monitor-event-next monitor)
            until (null monitor)
            do
-             (let ((watcher (watcher-event-monitor-watcher monitor)))
-               (with-wait-queue-lock (watcher)
-                 (do ()
-                     ((null (wait-queue-head watcher)))
-                   (wake-thread (pop-wait-queue watcher))))))
+              (when (watcher-event-monitor-enabled-p monitor)
+                (let ((watcher (watcher-event-monitor-watcher monitor)))
+                  (with-wait-queue-lock (watcher)
+                    (do ()
+                        ((null (wait-queue-head watcher)))
+                      (wake-thread (pop-wait-queue watcher)))))))
         (with-wait-queue-lock (event)
           (do ()
               ((null (wait-queue-head event)))
@@ -859,6 +860,7 @@ EVENT can be any object that supports GET-OBJECT-EVENT."
   object
   event
   watcher
+  (enabled-p t)
   ;; Links in the event's watcher list.
   event-next
   ;; Links in the watcher's watched-object list.
@@ -917,7 +919,8 @@ after this function returns."
     (cond (monitor
            (setf (watcher-event-monitor-watcher monitor) watcher
                  (watcher-event-monitor-event monitor) event
-                 (watcher-event-monitor-object monitor) object)
+                 (watcher-event-monitor-object monitor) object
+                 (watcher-event-monitor-enabled-p monitor) t)
            monitor)
           (t
            (%make-watcher-event-monitor watcher object event)))))
@@ -996,8 +999,36 @@ Invalidates the list returned by WATCHER-WAIT."
   (unmake-watcher-event-monitor tag)
   (values))
 
+(defun watcher-event-enabled-p (tag watcher)
+  "Returns true if the event associated with TAG participates in monitoring.
+TAG must be the tag returned by WATCHER-ADD-OBJECT.
+WATCHER must be the watcher this tag was registered to."
+  (check-type watcher watcher)
+  (check-type tag watcher-event-monitor)
+  (assert (eql (watcher-event-monitor-watcher tag) watcher))
+  (watcher-event-monitor-enabled-p tag))
+
+(defun (setf watcher-event-enabled-p) (value tag watcher)
+  "Resume watching an object. WATCHER-WAIT will consider this object again.
+TAG must be the tag returned by WATCHER-ADD-OBJECT.
+WATCHER must be the watcher this tag was registered to.
+Invalidates the list returned by WATCHER-WAIT."
+  (check-type watcher watcher)
+  (check-type tag watcher-event-monitor)
+  (assert (eql (watcher-event-monitor-watcher tag) watcher))
+  (setf (watcher-event-monitor-enabled-p tag) (if value t nil))
+  value)
+
+(defun watcher-disable-object (tag watcher)
+  "Temporarily stop watching an object. WATCHER-WAIT stop considering this object.
+TAG must be the tag returned by WATCHER-ADD-OBJECT.
+Invalidates the list returned by WATCHER-WAIT."
+  (declare (ignore watcher))
+  (setf (watcher-event-monitor-enabled-p tag) nil)
+  (values))
+
 (defun watcher-objects (watcher)
-  "Return a fresh list containing the objects being watched by WATCHER."
+  "Return a fresh list containing all objects being watched by WATCHER."
   (check-type watcher watcher)
   (loop
      for monitor = (watcher-watched-objects watcher)
@@ -1013,7 +1044,8 @@ Invalidates the list returned by WATCHER-WAIT."
        for monitor = (watcher-watched-objects watcher)
        then (watcher-event-monitor-watcher-next monitor)
        until (null monitor)
-       when (event-%state (watcher-event-monitor-event monitor))
+       when (and (watcher-event-monitor-enabled-p monitor)
+                 (event-%state (watcher-event-monitor-event monitor)))
        do
          (let ((link (watcher-event-monitor-result-cons monitor)))
            (setf (car link) (watcher-event-monitor-object monitor))
