@@ -10,6 +10,9 @@
            #:sound-card-presence-event
            #:master-volume
            #:make-sound-output-sink
+           #:sink-format
+           #:sink-n-channels
+           #:sink-sample-rate
            #:sink-volume
            #:output-sound
            #:flush-sink
@@ -25,9 +28,21 @@
    (%buffer-empty :initarg :buffer-empty :accessor buffer-empty)
    (%buffer-head :initarg :buffer-head :accessor buffer-head)
    (%buffer-tail :initarg :buffer-tail :accessor buffer-tail)
-   (%format :initarg :format :accessor sink-format)
+   (%format :initarg :format :reader sink-format)
+   (%n-channels :initarg :n-channels :reader sink-n-channels)
+   (%sample-rate :initarg :sample-rate :reader sink-sample-rate)
    (%volume :initarg :volume :accessor sink-volume)
-   (%buffer-not-full :reader sink-not-full-event)))
+   (%buffer-not-full :reader sink-not-full-event)
+   ;; Resampler state
+   (%resample-phase :initform 0 :accessor sink-resample-phase)
+   (%resample-previous
+    :initform (make-array 2 :element-type 'single-float
+                            :initial-element 0.0f0)
+    :accessor sink-resample-prev)
+   (%resample-next
+    :initform (make-array 2 :element-type 'single-float
+                            :initial-element 0.0f0)
+    :accessor sink-resample-next)))
 
 (defmethod initialize-instance :after ((instance sound-output-sink) &key)
   (setf (slot-value instance '%buffer-not-full)
@@ -178,38 +193,70 @@
    :name (format nil "Sound worker for ~S" device)
    :priority :high))
 
-(defgeneric transcode (audio-format audio-buffer data-buffer &key (start1 0) end1 (start2 0) end2))
+(defgeneric transcode (sink audio-format audio-buffer data-buffer
+                       &key (start1 0) end1 (start2 0) end2))
 (defgeneric elements-per-sample (audio-format))
 
 (defmacro define-audio-transcoder (name (input-elements element-type) &body body)
   `(progn
-     (defmethod transcode ((audio-format (eql ',name)) audio-buffer data-buffer &key (start1 0) end1 (start2 0) end2)
+     (defmethod transcode (sink (audio-format (eql ',name)) audio-buffer data-buffer &key (start1 0) end1 (start2 0) end2)
        (check-type data-buffer (array ,element-type (*)))
        (check-type audio-buffer (array single-float (*)))
        (setf end1 (or end1 (length audio-buffer)))
        (setf end2 (or end2 (length data-buffer)))
        (assert (<= 0 start1 end1 (length audio-buffer)))
        (assert (<= 0 start2 end2 (length data-buffer)))
-       (let ((n-samples 0))
-         (flet ((read-element ()
-                  (assert (< start2 end2))
-                  (prog1
-                      (aref data-buffer start2)
-                    (incf start2))))
-           (loop
-              (when (>= start1 end1)
-                (return))
-              (when (>= start2 end2)
-                (return))
-              (setf (aref audio-buffer start1)
+       (let ((n-samples-written 0)
+             (n-elements-read 0)
+             (in-rate (sink-sample-rate sink))
+             (out-rate 44100)
+             (phase (sink-resample-phase sink))
+             (next-samples (sink-resample-next sink))
+             (prev-samples (sink-resample-prev sink)))
+         (labels ((read-element ()
+                    (assert (< start2 end2))
+                    (prog1
+                        (aref data-buffer start2)
+                      (incf start2)
+                      (incf n-elements-read)))
+                  (read-sample ()
                     (let ,(loop
-                             for elt in input-elements
-                             collect `(,elt (read-element)))
-                      ,@body))
-              (incf n-samples)
-              (incf start1)))
-         (values n-samples
-                 (* n-samples ',(length input-elements)))))
+                            for elt in input-elements
+                            collect `(,elt (read-element)))
+                      ,@body)))
+           (loop
+             (when (>= start1 end1)
+               (return))
+             (when (>= start2 end2)
+               (return))
+             ;; Resample audio
+             (loop while (and (< phase out-rate)
+                              (< start1 end1))
+                   for f = (/ (float phase 0.0f0) out-rate)
+                   do (loop for channel below 2
+                            for next = (aref next-samples channel)
+                            for prev = (aref prev-samples channel)
+                            do (setf (aref audio-buffer start1)
+                                     (+ prev (* f (- next prev))))
+                               (incf start1)
+                               (incf n-samples-written))
+                      (incf phase in-rate))
+             (when (>= phase out-rate)
+               ;; Need to read a new sample.
+               (decf phase out-rate)
+               ;; Swap the next/prev buffers so we don't have to copy new to old.
+               (rotatef next-samples prev-samples)
+               ;; TODO: This is where we can normalize channels
+               ;; 1 channel should be replicated across the two
+               ;; output channels, if more than 2 channels then
+               ;; drop the excess.
+               (loop for channel below 2
+                     do (setf (aref next-samples channel) (read-sample)))))
+           (setf (sink-resample-phase sink) phase
+                 (sink-resample-next sink) next-samples
+                 (sink-resample-prev sink) prev-samples))
+         (values n-samples-written
+                 n-elements-read)))
      (defmethod elements-per-sample ((audio-format (eql ',name)))
        ',(length input-elements))))
 
@@ -240,22 +287,20 @@
            :channels channels
            :sample-rate sample-rate
            :format-control "Non-stereo sound formats not supported."))
-  (unless (eql sample-rate 44100)
-    (error 'sound-format-error
-           :format format
-           :channels channels
-           :sample-rate sample-rate
-           :format-control "Non-44.1kHz sound formats not supported."))
   (make-instance 'sound-output-sink
                  :volume volume
                  :format format
+                 :n-channels channels
+                 :sample-rate sample-rate
                  :buffer (make-array (or buffer-size-in-samples
-                                         (* (truncate (* 44100 buffer-duration)) 2))
+                                         (* (truncate (* sample-rate buffer-duration))
+                                            channels))
                                      :element-type 'single-float)
                  :buffer-empty t
                  :buffer-head 0
                  :buffer-tail 0))
 
+;; FIXME: Verify we have a whole number of samples.
 (defun copy-into-sink (sink samples start end)
   (let* ((buffer (buffer sink))
          (buffer-size (length buffer))
@@ -273,7 +318,8 @@
         (unless (eql n-to-copy 0)
           (multiple-value-bind (n-samples-sourced
                                 n-elements-consumed)
-              (transcode (sink-format sink)
+              (transcode sink
+                         (sink-format sink)
                          buffer samples
                          :start1 (buffer-tail sink)
                          :end1 (+ (buffer-tail sink) n-to-copy)
@@ -292,7 +338,8 @@
         (unless (eql n-to-copy 0)
           (multiple-value-bind (n-samples-sourced
                                 n-elements-consumed)
-              (transcode (sink-format sink)
+              (transcode sink
+                         (sink-format sink)
                          buffer samples
                          :start1 (buffer-tail sink)
                          :end1 (+ (buffer-tail sink) n-to-copy)
@@ -377,14 +424,13 @@ Consumes all SAMPLES if WAIT-P is true, otherwise returns early if SINK is full.
              ;; Two samples per frame, stereo.
              2)))))
 
-(defun play-tone (frequency seconds &optional (amplitude 0.5))
+(defun play-tone (frequency seconds &key (amplitude 0.5) (sample-rate 44100))
   "Play a sine wave at FREQUENCY Hz for SECONDS seconds, at AMPLITUDE (0..1).
 For testing the driver. Blocks until the samples have been queued.
 A frequency of 0 plays silence."
-  (let* ((sample-rate 44100)
-         (channels 2)
+  (let* ((channels 2)
          (n-samples (* seconds sample-rate channels))
-         (sink (make-sound-output-sink :buffer-duration 0.2))
+         (sink (make-sound-output-sink :buffer-duration 0.2 :sample-rate sample-rate))
          (samples (make-array n-samples :element-type 'single-float))
          (phase-increment (/ (* 2.0 (float pi 0.0) frequency) sample-rate))
          (phase 0.0))
