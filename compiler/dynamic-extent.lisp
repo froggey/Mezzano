@@ -114,15 +114,22 @@
            initform))))
 
 (defmethod convert-dx ((form ast-let))
-  (setf (bindings form) (loop
-                           for (var initform) in (bindings form)
-                           collect (list var
-                                         (convert-dx
-                                          (if (and (lexical-variable-p var)
-                                                   (lexical-variable-dynamic-extent var)
-                                                   (typep initform 'ast-call))
-                                              (convert-dx-initializer initform)
-                                              initform)))))
+  (setf (bindings form)
+        (loop
+          for (var initform) in (bindings form)
+          collect (list var
+                        (convert-dx
+                         (cond ((and (lexical-variable-p var)
+                                     (lexical-variable-dynamic-extent var)
+                                     (typep initform 'ast-call))
+                                (convert-dx-initializer initform))
+                               ((and (lexical-variable-p var)
+                                     (lexical-variable-dynamic-extent var)
+                                     (typep initform 'lambda-information))
+                                (setf (getf (lambda-information-plist initform) 'declared-dynamic-extent) t)
+                                initform)
+                               (t
+                                initform))))))
   (setf (body form) (convert-dx (body form)))
   form)
 
