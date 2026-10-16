@@ -11,16 +11,19 @@
    (%window :initarg :window :reader window)
    (%font :initarg :font :reader font)
    (%frame :initarg :frame :reader frame)
+   (%audio-sink :initarg :audio-sink :reader audio-sink)
 
    (%container :initarg :container :reader container)
 
-   (%video-decode-thread :initarg :video-decode-thread :accessor video-decode-thread)
-   (%video-frame-mailbox :initarg :video-frame-mailbox :reader video-frame-mailbox)
-   (%video-decode-mailbox :initarg :video-decode-mailbox :reader video-decode-mailbox)
+   (%demux-thread :initform nil :accessor demux-thread)
 
-   (%audio-decode-thread :initarg :audio-decode-thread :accessor audio-decode-thread)
-   (%audio-frame-mailbox :initarg :audio-frame-mailbox :reader audio-frame-mailbox)
-   (%audio-decode-mailbox :initarg :audio-decode-mailbox :reader audio-decode-mailbox)))
+   (%video-decode-thread :initform nil :accessor video-decode-thread)
+   (%video-packet-mailbox :reader video-packet-mailbox)
+   (%video-frame-mailbox :reader video-frame-mailbox)
+
+   (%audio-decode-thread :initform nil :accessor audio-decode-thread)
+   (%audio-packet-mailbox :reader audio-packet-mailbox)
+   (%audio-frame-mailbox :reader audio-frame-mailbox)))
 
 (defgeneric dispatch-event (viewer event)
   (:method (viewer event) nil))
@@ -43,6 +46,11 @@
 
 (defclass worker-exited () ())
 
+(defclass demux-worker-exited (worker-exited) ())
+
+(defmethod dispatch-event (window (event demux-worker-exited))
+  (setf (demux-thread window) nil))
+
 (defclass video-worker-exited (worker-exited) ())
 
 (defmethod dispatch-event (window (event video-worker-exited))
@@ -52,6 +60,20 @@
 
 (defmethod dispatch-event (window (event audio-worker-exited))
   (setf (audio-decode-thread window) nil))
+
+(defun demux-worker (player tracks)
+  (unwind-protect
+       (let ((container (container player)))
+         (loop
+           (multiple-value-bind (track presentation-timestamp data start end)
+               (orchard:read-packet container)
+             (loop for (target-track mailbox) in tracks
+                   when (eql target-track track)
+                     do (mezzano.sync:mailbox-send
+                         (list track presentation-timestamp data start end)
+                         mailbox)))))
+    (mezzano.sync:mailbox-send
+     (make-instance 'demux-worker-exited) (event-mailbox player))))
 
 (declaim (inline conv-yuv))
 (defun conv-yuv (y u v)
@@ -81,8 +103,8 @@
       (loop for x of-type fixnum below (orchard.vp8:vp8-frame-width vp8-frame) do
         (multiple-value-bind (r g b)
             (conv-yuv (aref luma y x)
-                      (aref u (ash y -1) (ash x -1))
-                      (aref v (ash y -1) (ash x -1)))
+                      (aref u (the fixnum (ash y -1)) (the fixnum (ash x -1)))
+                      (aref v (the fixnum (ash y -1)) (the fixnum (ash x -1))))
           (declare (type (unsigned-byte 8) r g b))
           (setf (aref pixels y x)
                 (logior (the fixnum (ash #xFF (byte-position mezzano.gui:+colour-alpha-bits+)))
@@ -92,42 +114,50 @@
 
 (defun video-worker (player video-track)
   (unwind-protect
-       (let ((frame-mbox (video-frame-mailbox player)))
+       (let ((packet-mbox (video-packet-mailbox player))
+             (frame-mbox (video-frame-mailbox player)))
          (loop
-           ;; DO NOT IMPLEMENT GPU VP8 DECODER. YES WE HAVE VIRGL BUT NO TIME.
-           (multiple-value-bind (presentation-timestamp frame)
-               (orchard.matroska::decode-frame video-track)
+           (destructuring-bind (track presentation-timestamp data start end)
+               (mezzano.sync:mailbox-receive packet-mbox)
              (when (null presentation-timestamp)
                (return))
-             (let* ((surface (mezzano.gui:make-surface (orchard.vp8:vp8-frame-width frame)
-                                                       (orchard.vp8:vp8-frame-height frame))))
-               (convert-vp8-frame frame surface)
-               (mezzano.sync:mailbox-send (list presentation-timestamp surface) frame-mbox)))))
+             ;; Note - since the VP8 decoder has a pool of buffers and re-uses them,
+             ;; we need to make sure we copy the frame in some way (in this case by
+             ;; doing the yuv->rgb conversion) before decoding the next.
+             (let ((frame (orchard:decode-packet track data start end)))
+               (when frame
+                 (let* ((surface (mezzano.gui:make-surface (orchard.vp8:vp8-frame-width frame)
+                                                           (orchard.vp8:vp8-frame-height frame))))
+                   (convert-vp8-frame frame surface)
+                   (mezzano.sync:mailbox-send (list presentation-timestamp surface) frame-mbox)))))))
     (mezzano.sync:mailbox-send
      (make-instance 'video-worker-exited) (event-mailbox player))))
 
 (defun find-video-track (container)
-  (loop for track in (orchard.matroska::container-tracks container)
-        when (typep track 'orchard.matroska::video-track)
+  (loop for track in (orchard:container-tracks container)
+        when (typep track 'orchard:video-track)
           do (return (values track
-                             (orchard.matroska::video-track-width track)
-                             (orchard.matroska::video-track-height track)))))
+                             (orchard:video-track-width track)
+                             (orchard:video-track-height track)))))
 
-(defun conv-planar-float (data)
+(defun conv-pcm-data (data)
   (declare #.orchard.utils:*optimize-settings*
-           (type (simple-vector 2) data))
-  (let* ((ch0 (aref data 0))
-         (ch1 (aref data 1))
-         (pcm (make-array (* (length ch0) 4) :element-type '(unsigned-byte 8))))
-    (declare (type (simple-array double-float (*)) ch0 ch1)
-             (type (simple-array (unsigned-byte 8) (*)) pcm))
-    (loop for i of-type fixnum below (length ch0)
-          for f0 of-type double-float = (aref ch0 i)
-          for f1 of-type double-float = (aref ch1 i)
+           (type (simple-array single-float (* 2)) data))
+  (let* ((pcm (make-array (* (array-total-size data) 2) :element-type '(unsigned-byte 8))))
+    (declare (type (simple-array (unsigned-byte 8) (*)) pcm))
+    (loop for i of-type fixnum below (array-dimension data 0)
+          for f0 of-type single-float = (aref data i 0)
+          for f1 of-type single-float = (aref data i 1)
           for pcm0 of-type (signed-byte 16)
-            = (max -32768 (min 32767 (the fixnum (truncate (* f0 32767.0d0)))))
+            = (orchard.utils:fclamp
+               (the fixnum (truncate (* f0 32768.0f0)))
+               -32768
+               32767)
           for pcm1 of-type (signed-byte 16)
-            = (max -32768 (min 32767 (the fixnum (truncate (* f1 32767.0d0)))))
+            = (orchard.utils:fclamp
+               (the fixnum (truncate (* f1 32768.0f0)))
+               -32768
+               32767)
           do
              (setf (nibbles:sb16ref/le pcm (the fixnum (* i 4))) pcm0
                    (nibbles:sb16ref/le pcm (the fixnum (+ (the fixnum (* i 4)) 2))) pcm1))
@@ -135,21 +165,23 @@
 
 (defun audio-worker (player audio-track)
   (unwind-protect
-       (let ((frame-mbox (audio-frame-mailbox player)))
+       (let ((packet-mbox (audio-packet-mailbox player))
+             (frame-mbox (audio-frame-mailbox player)))
          (loop
-           (multiple-value-bind (presentation-timestamp frame)
-               (orchard.matroska::decode-frame audio-track)
+           (destructuring-bind (track presentation-timestamp data start end)
+               (mezzano.sync:mailbox-receive packet-mbox)
              (when (null presentation-timestamp)
                (return))
-             (when frame
-               (let ((pcm (conv-planar-float frame)))
-                 (mezzano.sync:mailbox-send (list presentation-timestamp pcm) frame-mbox))))))
+             (let ((frame (orchard:decode-packet track data start end)))
+               (when frame
+                 (let ((pcm (conv-pcm-data frame)))
+                   (mezzano.sync:mailbox-send (list presentation-timestamp pcm) frame-mbox)))))))
     (mezzano.sync:mailbox-send
      (make-instance 'audio-worker-exited) (event-mailbox player))))
 
 (defun find-audio-track (container)
-  (loop for track in (orchard.matroska::container-tracks container)
-        when (typep track 'orchard.matroska::audio-track)
+  (loop for track in (orchard:container-tracks container)
+        when (typep track 'orchard:audio-track)
           do (return track)))
 
 (defun compute-window-size (content-width content-height)
@@ -171,23 +203,145 @@
                        (*debug-io* ,(make-synonym-stream '*terminal-io*))
                        (*query-io* ,(make-synonym-stream '*terminal-io*)))))
 
+(defun main-loop (player)
+  (let* ((window (window player))
+         (framebuffer (mezzano.gui.compositor:window-buffer window))
+         (mbox (event-mailbox player))
+         (audio-sink (audio-sink player))
+         (audio-frame-mailbox (audio-frame-mailbox player))
+         (video-frame-mailbox (video-frame-mailbox player))
+         watcher-tag-1
+         watcher-tag-2
+         ;; When we have audio to sink, this is a list of
+         ;; (OFFSET PRESENTATION-TIMESTAMP DATA)
+         ;; Offset gets updated as we gradually sink data into
+         ;; the output.
+         (pending-audio nil)
+         ;; This is our current presentation time, roughly paced by
+         ;; audio output.
+         (current-time 0.0d0)
+         ;; Presentation time of the last video frame displayed.
+         (last-video-time 0.0d0))
+    ;; Use the underlying WATCHER interface, rather than WAIT-FOR-OBJECTS
+    ;; to reduce allocation.
+    (mezzano.supervisor:with-watcher (watcher :name player)
+      (mezzano.supervisor:watcher-add-object mbox watcher)
+      (loop
+        (handler-case
+            (progn
+              ;; Reset the tags, this ensures we don't double-add
+              ;; objects to the watcher.
+              (when watcher-tag-1
+                (mezzano.supervisor:watcher-remove watcher-tag-1 watcher)
+                (setf watcher-tag-1 nil))
+              (when watcher-tag-2
+                (mezzano.supervisor:watcher-remove watcher-tag-2 watcher)
+                (setf watcher-tag-2 nil))
+              ;; If we have audio pending to stream, then listen to
+              ;; the audio sink, otherwise to the audio mailbox.
+              ;; Keep track of the returned tag since we'll want to remove
+              ;; it later.
+              ;; Audio is used to time output here, we pace video output
+              ;; on it and use backpressure in the mailboxes to prevent
+              ;; the decoders from racing ahead.
+              (setf watcher-tag-1
+                    (mezzano.supervisor:watcher-add-object
+                     (if pending-audio
+                         audio-sink
+                         audio-frame-mailbox)
+                     watcher))
+              ;; We only care about video if it's time for a new frame.
+              (when (< last-video-time current-time)
+                (setf watcher-tag-2
+                      (mezzano.supervisor:watcher-add-object
+                       video-frame-mailbox
+                       watcher)))
+              ;; Wait for objects...
+              (let ((objects (mezzano.supervisor:watcher-wait watcher)))
+                ;; Main message queue.
+                (when (member mbox objects)
+                  (let ((obj (mezzano.sync:mailbox-receive mbox :wait-p nil)))
+                    (when obj
+                      (dispatch-event player obj))))
+                ;; Audio data, ready to be pushed to the stream.
+                (when (member audio-frame-mailbox objects)
+                  (let ((obj (mezzano.sync:mailbox-receive audio-frame-mailbox :wait-p t)))
+                    (when obj
+                      (setf pending-audio (list* 0 obj))
+                      (setf current-time (first obj)))))
+                ;; We have audio data, and the sink isn't full.
+                (when (member audio-sink objects)
+                  (let* ((pcm (third pending-audio))
+                         (new-offset (mezzano.driver.sound:output-sound pcm audio-sink :start (first pending-audio) :wait-p nil)))
+                    (if (>= new-offset (length pcm))
+                        (setf pending-audio nil)
+                        (setf (first pending-audio) new-offset))))
+                ;; New video frame. Since we only enable this when the
+                ;; current frame is old, we know this frame is ready to
+                ;; display immediately.
+                (when (member video-frame-mailbox objects)
+                  (let ((obj (mezzano.sync:mailbox-receive video-frame-mailbox :wait-p nil)))
+                    (when obj
+                      (let ((surface (second obj)))
+                        (setf last-video-time (first obj))
+                        (multiple-value-bind (left right top bottom)
+                            (mezzano.gui.widgets:frame-size
+                             (frame player))
+                          (declare (ignore right bottom))
+                          (mezzano.gui:bitblt
+                           :set
+                           (mezzano.gui:surface-width surface)
+                           (mezzano.gui:surface-height surface)
+                           surface 0 0
+                           framebuffer left top)
+                          (mezzano.gui.compositor:damage-window
+                           window
+                           left top
+                           (mezzano.gui:surface-width surface)
+                           (mezzano.gui:surface-height surface)))))))))
+          (error (c)
+            (ignore-errors
+             (format t "Error: ~A~%" c)))
+          ;; Exit when the close button is clicked.
+          (mezzano.gui.widgets:close-button-clicked ()
+            (return)))))))
+
+(defmethod initialize-instance :after ((player media-player) &key &allow-other-keys)
+  (let ((video-frame-mailbox (mezzano.sync:make-mailbox
+                              :name (list 'video-frames player)
+                              :capacity 10))
+        (video-packet-mailbox (mezzano.sync:make-mailbox
+                               :name (list 'video-packets player)
+                               :capacity 5))
+        (audio-frame-mailbox (mezzano.sync:make-mailbox
+                              :name (list 'audio-frames player)
+                              :capacity 10))
+        (audio-packet-mailbox (mezzano.sync:make-mailbox
+                               :name (list 'audio-packets player)
+                               :capacity 5)))
+    (setf (slot-value player '%video-packet-mailbox) video-packet-mailbox
+          (slot-value player '%video-frame-mailbox) video-frame-mailbox)
+    (setf (slot-value player '%audio-packet-mailbox) audio-packet-mailbox
+          (slot-value player '%audio-frame-mailbox) audio-frame-mailbox)))
+
 (defun main (path)
   (with-simple-restart (abort "Close media player")
     (let ((font (mezzano.gui.font:open-font
                  mezzano.gui.font:*default-monospace-font*
                  mezzano.gui.font:*default-monospace-font-size*))
           (mbox (mezzano.sync:make-mailbox :capacity 50))
-          (container (orchard.matroska::open-matroska-file path))
-          (audio-sink (mezzano.driver.sound:make-sound-output-sink
-                       :buffer-duration 0.05
-                       :format :pcm-s16le)))
+          (container (orchard:open-container path)))
       (unwind-protect
            (multiple-value-bind (video-track video-width video-height)
                (find-video-track container)
              (multiple-value-bind (width height)
-                 (compute-window-size video-width video-height)
+                 (compute-window-size (or video-width 200) (or video-height 50))
                (mezzano.gui.compositor:with-window (window mbox width height)
                  (let* ((audio-track (find-audio-track container))
+                        (audio-sink (mezzano.driver.sound:make-sound-output-sink
+                                     :buffer-duration 0.05
+                                     :format :pcm-s16le
+                                     :sample-rate (orchard:audio-track-sample-rate audio-track)))
                         (framebuffer (mezzano.gui.compositor:window-buffer window))
                         (frame (make-instance 'mezzano.gui.widgets:frame
                                               :framebuffer framebuffer
@@ -199,33 +353,31 @@
                                                :window window
                                                :font font
                                                :frame frame
-                                               :container container))
-                        (video-frame-mailbox (mezzano.sync:make-mailbox
-                                              :name (list 'video-frames player)
-                                              :capacity 10))
-                        (video-decode-mailbox (mezzano.sync:make-mailbox
-                                               :name (list 'video-decode player)))
-                        (audio-frame-mailbox (mezzano.sync:make-mailbox
-                                              :name (list 'audio-frames player)
-                                              :capacity 10))
-                        (audio-decode-mailbox (mezzano.sync:make-mailbox
-                                               :name (list 'audio-decode player)))
-                        (pending-audio nil)
-                        (current-time 0.0d0)
-                        (last-video-time 0.0d0))
-                   (setf (slot-value player '%video-frame-mailbox) video-frame-mailbox
-                         (slot-value player '%video-decode-mailbox) video-decode-mailbox)
-                   (setf (slot-value player '%audio-frame-mailbox) audio-frame-mailbox
-                         (slot-value player '%audio-decode-mailbox) audio-decode-mailbox)
+                                               :container container
+                                               :audio-sink audio-sink)))
                    (setf (mezzano.gui.compositor:name window) player)
                    (unwind-protect
                         (progn
-                          (setf (slot-value player '%video-decode-thread)
+                          ;; Start worker threads
+                          (setf (slot-value player '%demux-thread)
                                 (make-thread-with-streams
-                                 (list 'video-decode player) *terminal-io* #'video-worker player video-track))
+                                 (list 'demux player) *terminal-io*
+                                 #'demux-worker player
+                                 (list*
+                                  (list audio-track (audio-packet-mailbox player))
+                                  (when video-track
+                                    (list
+                                     (list video-track (video-packet-mailbox player)))))))
+                          (setf (slot-value player '%video-decode-thread)
+                                (when video-track
+                                  (make-thread-with-streams
+                                   (list 'video-decode player) *terminal-io*
+                                   #'video-worker player video-track)))
                           (setf (slot-value player '%audio-decode-thread)
                                 (make-thread-with-streams
-                                 (list 'audio-decode player) *terminal-io* #'audio-worker player audio-track))
+                                 (list 'audio-decode player) *terminal-io*
+                                 #'audio-worker player audio-track))
+                          ;; Initial draw, the frame & background.
                           (multiple-value-bind (left right top bottom)
                               (mezzano.gui.widgets:frame-size frame)
                             (mezzano.gui:bitset :set
@@ -236,60 +388,17 @@
                             (mezzano.gui.compositor:damage-window window
                                                                   0 0
                                                                   width height))
-                          (loop
-                            (handler-case
-                                (let ((interesting-objects (list mbox)))
-                                  (if pending-audio
-                                      (push audio-sink interesting-objects)
-                                      (push audio-frame-mailbox interesting-objects))
-                                  (when (< last-video-time current-time)
-                                    (push video-frame-mailbox interesting-objects))
-                                  (let ((objects (apply #'mezzano.sync:wait-for-objects interesting-objects)))
-                                    (when (member mbox objects)
-                                      (let ((obj (mezzano.sync:mailbox-receive mbox :wait-p nil)))
-                                        (when obj
-                                          (dispatch-event player obj))))
-                                    (when (member audio-frame-mailbox objects)
-                                      (let ((obj (mezzano.sync:mailbox-receive audio-frame-mailbox :wait-p t)))
-                                        (when obj
-                                          (setf pending-audio (list* 0 obj))
-                                          (setf current-time (first obj)))))
-                                    (when (member audio-sink objects)
-                                      ;; We have audio and want to push it to the sink.
-                                      (let* ((pcm (third pending-audio))
-                                             (new-offset (mezzano.driver.sound:output-sound pcm audio-sink :start (first pending-audio) :wait-p nil)))
-                                        (if (>= new-offset (length pcm))
-                                            (setf pending-audio nil)
-                                            (setf (first pending-audio) new-offset))))
-                                    (when (member video-frame-mailbox objects)
-                                      (let ((obj (mezzano.sync:mailbox-receive video-frame-mailbox :wait-p nil)))
-                                        (when obj
-                                          (let ((surface (second obj)))
-                                            (setf last-video-time (first obj))
-                                            (multiple-value-bind (left right top bottom)
-                                                (mezzano.gui.widgets:frame-size frame)
-                                              (declare (ignore right bottom))
-                                              (mezzano.gui:bitblt
-                                               :set
-                                               (mezzano.gui:surface-width surface)
-                                               (mezzano.gui:surface-height surface)
-                                               surface 0 0
-                                               framebuffer left top)
-                                              (mezzano.gui.compositor:damage-window window
-                                                                                    0 0
-                                                                                    width height))))))))
-                              (error (c)
-                                (ignore-errors
-                                 (format t "Error: ~A~%" c)))
-                              ;; Exit when the close button is clicked.
-                              (mezzano.gui.widgets:close-button-clicked ()
-                                (return-from main)))))
+                          ;; Main loop.
+                          (main-loop player))
+                     (mezzano.driver.sound:flush-sink audio-sink)
+                     ;; Make sure to terminate worker threads.
+                     (when (demux-thread player)
+                       (mezzano.supervisor:terminate-thread (demux-thread player)))
                      (when (audio-decode-thread player)
                        (mezzano.supervisor:terminate-thread (audio-decode-thread player)))
                      (when (video-decode-thread player)
                        (mezzano.supervisor:terminate-thread (video-decode-thread player))))))))
-        (orchard.matroska::close-container container)
-        (mezzano.driver.sound:flush-sink audio-sink)))))
+        (orchard:close-container container)))))
 
 (defun spawn (path)
   (setf path (merge-pathnames path))
