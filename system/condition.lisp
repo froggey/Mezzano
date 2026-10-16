@@ -106,18 +106,43 @@
       ;; difficult to handle because of the visibility requirements when calling
       ;; handlers.
       (mezzano.delimited-continuations:with-continuation-barrier ('handler-bind)
-        (let ((*active-handlers* (cons bindings *active-handlers*)))
+        (let* ((new-binding (cons bindings *active-handlers*))
+               (*active-handlers* new-binding))
+          (declare (dynamic-extent new-binding))
           (funcall thunk)))
-      (let ((*active-handlers* (cons bindings *active-handlers*)))
+      (let* ((new-binding (cons bindings *active-handlers*))
+             (*active-handlers* new-binding))
+        (declare (dynamic-extent new-binding))
         (funcall thunk))))
 
+;; This is less complicated than it looks. All it's doing is assembling a list
+;; of type/handler pairs to pass off to %HANDLER-BIND. Each one needs to be
+;; exposed, along with the handler itself, so that they can all have
+;; DYNAMIC-EXTENT declarations applied to them.
 (defmacro handler-bind (bindings &body forms)
-  `(%handler-bind (list ,@(mapcar (lambda (binding)
-                                    (destructuring-bind (type handler)
-                                        binding
-                                      `(cons ',type ,handler)))
-                                  bindings))
-                  (lambda () (progn ,@forms))))
+  (let ((handler-syms (loop for binding in bindings
+                            collect (gensym "HANDLER")))
+        (handler-cell-syms (loop for binding in bindings
+                            collect (gensym "HANDLER-CELL")))
+        (body-sym (gensym "BODY"))
+        (bindings-sym (gensym "BINDINGS")))
+    `(let* ((,body-sym (lambda () (progn ,@forms)))
+            ,@(loop for (type handler) in bindings
+                    for handler-sym in handler-syms
+                    for cell-sym in handler-cell-syms
+                    collect (list handler-sym handler)
+                    collect (list cell-sym `(cons ',type ,handler-sym)))
+            (,bindings-sym (list ,@handler-cell-syms)))
+       (declare (dynamic-extent ,body-sym
+                                ,@(loop for (type handler) in bindings
+                                        for handler-sym in handler-syms
+                                        when (and (listp handler)
+                                                  (or (eql (car handler) 'lambda)
+                                                      (eql (car handler) 'function)))
+                                          collect handler-sym)
+                                ,@handler-cell-syms
+                                ,bindings-sym))
+       (%handler-bind ,bindings-sym ,body-sym))))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 (defun compute-handler-case-forms (clauses)
