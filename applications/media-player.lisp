@@ -67,6 +67,8 @@
          (loop
            (multiple-value-bind (track presentation-timestamp data start end)
                (orchard:read-packet container)
+             (when (not track)
+               (return))
              (loop for (target-track mailbox) in tracks
                    when (eql target-track track)
                      do (mezzano.sync:mailbox-send
@@ -113,6 +115,7 @@
                         (the fixnum (ash b (byte-position mezzano.gui:+colour-blue-bits+))))))))))
 
 (defun video-worker (player video-track)
+  (declare (ignore video-track))
   (unwind-protect
        (let ((packet-mbox (video-packet-mailbox player))
              (frame-mbox (video-frame-mailbox player)))
@@ -164,6 +167,7 @@
     pcm))
 
 (defun audio-worker (player audio-track)
+  (declare (ignore audio-track))
   (unwind-protect
        (let ((packet-mbox (audio-packet-mailbox player))
              (frame-mbox (audio-frame-mailbox player)))
@@ -213,33 +217,42 @@
          audio-sink-tag
          audio-frame-tag
          video-frame-tag
+         timer-tag
          ;; When we have audio to sink, this is a list of
          ;; (OFFSET PRESENTATION-TIMESTAMP DATA)
          ;; Offset gets updated as we gradually sink data into
          ;; the output.
          (pending-audio nil)
          ;; This is our current presentation time, roughly paced by
-         ;; audio output.
+         ;; audio output. If we don't have an audio stream, then a
+         ;; timer is used instead.
          (current-time 0.0d0)
+         (pacing-timer (mezzano.supervisor:make-timer :name player))
          ;; Presentation time of the last video frame displayed.
          (last-video-time 0.0d0))
     ;; Use the underlying WATCHER interface, rather than WAIT-FOR-OBJECTS
     ;; to reduce allocation.
     (mezzano.supervisor:with-watcher (watcher :name player)
       (mezzano.supervisor:watcher-add-object mbox watcher)
-      (setf audio-sink-tag (mezzano.supervisor:watcher-add-object
-                            audio-sink watcher))
+      (when audio-sink
+        (setf audio-sink-tag (mezzano.supervisor:watcher-add-object
+                              audio-sink watcher)))
       (setf audio-frame-tag (mezzano.supervisor:watcher-add-object
                              audio-frame-mailbox watcher))
       (setf video-frame-tag (mezzano.supervisor:watcher-add-object
                              video-frame-mailbox watcher))
+      (setf timer-tag (mezzano.supervisor:watcher-add-object pacing-timer watcher))
+      (unless audio-sink
+        (mezzano.supervisor:timer-arm 0.0d0 pacing-timer)
+        (setf (mezzano.supervisor:watcher-event-enabled-p timer-tag watcher) t))
       (loop
         (handler-case
             (progn
               ;; Reset the tags.
-              (setf (mezzano.supervisor:watcher-event-enabled-p audio-sink-tag watcher) nil)
-              (setf (mezzano.supervisor:watcher-event-enabled-p audio-frame-tag watcher) nil)
-              (setf (mezzano.supervisor:watcher-event-enabled-p video-frame-tag watcher) nil)
+              (when audio-sink
+                (setf (mezzano.supervisor:watcher-event-enabled-p audio-sink-tag watcher) nil)
+                (setf (mezzano.supervisor:watcher-event-enabled-p audio-frame-tag watcher) nil)
+                (setf (mezzano.supervisor:watcher-event-enabled-p video-frame-tag watcher) nil))
               ;; If we have audio pending to stream, then listen to
               ;; the audio sink, otherwise to the audio mailbox.
               ;; Keep track of the returned tag since we'll want to remove
@@ -247,12 +260,13 @@
               ;; Audio is used to time output here, we pace video output
               ;; on it and use backpressure in the mailboxes to prevent
               ;; the decoders from racing ahead.
-              (if pending-audio
-                  (setf (mezzano.supervisor:watcher-event-enabled-p audio-sink-tag watcher) t)
-                  (setf (mezzano.supervisor:watcher-event-enabled-p audio-frame-tag watcher) t))
-              ;; We only care about video if it's time for a new frame.
-              (when (< last-video-time current-time)
-                (setf (mezzano.supervisor:watcher-event-enabled-p video-frame-tag watcher) t))
+              (when audio-sink
+                (if pending-audio
+                    (setf (mezzano.supervisor:watcher-event-enabled-p audio-sink-tag watcher) t)
+                    (setf (mezzano.supervisor:watcher-event-enabled-p audio-frame-tag watcher) t))
+                ;; We only care about video if it's time for a new frame.
+                (when (< last-video-time current-time)
+                  (setf (mezzano.supervisor:watcher-event-enabled-p video-frame-tag watcher) t)))
               ;; Wait for objects...
               (let ((objects (mezzano.supervisor:watcher-wait watcher)))
                 ;; Main message queue.
@@ -281,6 +295,10 @@
                     (when obj
                       (let ((surface (second obj)))
                         (setf last-video-time (first obj))
+                        (unless audio-sink
+                          (mezzano.supervisor:timer-arm (- last-video-time current-time) pacing-timer)
+                          (setf (mezzano.supervisor:watcher-event-enabled-p timer-tag watcher) t)
+                          (setf (mezzano.supervisor:watcher-event-enabled-p video-frame-tag watcher) nil))
                         (multiple-value-bind (left right top bottom)
                             (mezzano.gui.widgets:frame-size
                              (frame player))
@@ -295,7 +313,11 @@
                            window
                            left top
                            (mezzano.gui:surface-width surface)
-                           (mezzano.gui:surface-height surface)))))))))
+                           (mezzano.gui:surface-height surface)))))))
+                (when (member pacing-timer objects)
+                  (setf current-time last-video-time)
+                  (setf (mezzano.supervisor:watcher-event-enabled-p timer-tag watcher) nil)
+                  (setf (mezzano.supervisor:watcher-event-enabled-p video-frame-tag watcher) t))))
           (error (c)
             (ignore-errors
              (format t "Error: ~A~%" c)))
@@ -335,10 +357,11 @@
                  (compute-window-size (or video-width 200) (or video-height 50))
                (mezzano.gui.compositor:with-window (window mbox width height)
                  (let* ((audio-track (find-audio-track container))
-                        (audio-sink (mezzano.driver.sound:make-sound-output-sink
-                                     :buffer-duration 0.05
-                                     :format :pcm-s16le
-                                     :sample-rate (orchard:audio-track-sample-rate audio-track)))
+                        (audio-sink (when audio-track
+                                      (mezzano.driver.sound:make-sound-output-sink
+                                       :buffer-duration 0.05
+                                       :format :pcm-s16le
+                                       :sample-rate (orchard:audio-track-sample-rate audio-track))))
                         (framebuffer (mezzano.gui.compositor:window-buffer window))
                         (frame (make-instance 'mezzano.gui.widgets:frame
                                               :framebuffer framebuffer
@@ -360,8 +383,10 @@
                                 (make-thread-with-streams
                                  (list 'demux player) *terminal-io*
                                  #'demux-worker player
-                                 (list*
-                                  (list audio-track (audio-packet-mailbox player))
+                                 (append
+                                  (when audio-track
+                                    (list
+                                     (list audio-track (audio-packet-mailbox player))))
                                   (when video-track
                                     (list
                                      (list video-track (video-packet-mailbox player)))))))
@@ -371,9 +396,10 @@
                                    (list 'video-decode player) *terminal-io*
                                    #'video-worker player video-track)))
                           (setf (slot-value player '%audio-decode-thread)
-                                (make-thread-with-streams
-                                 (list 'audio-decode player) *terminal-io*
-                                 #'audio-worker player audio-track))
+                                (when audio-track
+                                  (make-thread-with-streams
+                                   (list 'audio-decode player) *terminal-io*
+                                   #'audio-worker player audio-track)))
                           ;; Initial draw, the frame & background.
                           (multiple-value-bind (left right top bottom)
                               (mezzano.gui.widgets:frame-size frame)
@@ -387,7 +413,8 @@
                                                                   width height))
                           ;; Main loop.
                           (main-loop player))
-                     (mezzano.driver.sound:flush-sink audio-sink)
+                     (when audio-sink
+                       (mezzano.driver.sound:flush-sink audio-sink))
                      ;; Make sure to terminate worker threads.
                      (when (demux-thread player)
                        (mezzano.supervisor:terminate-thread (demux-thread player)))
