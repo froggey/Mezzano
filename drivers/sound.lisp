@@ -406,6 +406,7 @@ Consumes all SAMPLES if WAIT-P is true, otherwise returns early if SINK is full.
           (setf (buffer-head sink) 0
                 (buffer-tail sink) 0
                 (buffer-empty sink) t)
+          (mezzano.supervisor:condition-notify *sink-cvar* t)
           (setf (sup:event-state (sink-not-full-event sink)) t)
           n-samples))))
 
