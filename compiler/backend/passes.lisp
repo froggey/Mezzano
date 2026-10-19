@@ -51,10 +51,12 @@
                         (replace-all-uses dst src uses))
                        (t
                         ;; Different kind. Replace with a move.
-                        (insert-before backend-function inst
-                                       (make-instance 'move-instruction
-                                                      :destination dst
-                                                      :source src))))
+                        (let ((move (make-instance 'move-instruction
+                                                   :destination dst
+                                                   :source src)))
+                          (insert-before backend-function inst move)
+                          (pushnew move (gethash src uses '()))
+                          (pushnew move (gethash dst defs '())))))
                  (push inst remove-me)
                  (incf n)))
           (typecase inst
