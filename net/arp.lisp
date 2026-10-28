@@ -130,7 +130,7 @@ Returns NIL if there is no entry currently in the cache, this will trigger a loo
   nil)
 
 (defun arp-expiration ()
-  (let ((time (1+ (get-internal-real-time))))
+  (let ((time (1+ (get-universal-time))))
     (mezzano.supervisor:with-mutex (*arp-lock*)
       (setf *arp-table* (remove-if #'(lambda (arp)
                                        (>= time (fourth arp)))
