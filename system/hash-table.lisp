@@ -272,7 +272,9 @@
              (when (eq slot-entry ,unbound-marker)
                ;; Unbound value marks the end of this run.
                (return (values nil ,free-slot)))
-             (when (,test-fn ,key slot-key)
+             ;; Dead entries and tombstones report NIL as their key. They
+             ;; must not match a live NIL key being looked up.
+             (when (and livep (,test-fn ,key slot-key))
                (return (values offset ,free-slot)))))
         `(let* ((offset ,offset)
                 (slot-key (aref ,storage (the fixnum (ash offset 1))))) ; hash-table-key-at
