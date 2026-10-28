@@ -208,7 +208,7 @@ The current internal run time can be fetched with GET-INTERNAL-RUN-TIME."
   (values))
 
 (defun convert-deadline-to-remaining-time (deadline)
-  (/ (min 0 (- deadline (get-internal-run-time)))
+  (/ (max 0 (- deadline (get-internal-run-time)))
      internal-time-units-per-second))
 
 (defun timer-disarm-absolute (timer)
