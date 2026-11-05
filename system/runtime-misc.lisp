@@ -36,6 +36,12 @@
     (declare (ignore function))
     nil))
 
+(when (and (fboundp 'update-function-reference-dependent)
+           (not (typep (fdefinition 'update-function-reference-dependent)
+                       'standard-generic-function)))
+  (fmakunbound 'update-function-reference-dependent))
+(defgeneric update-function-reference-dependent (function-reference dependent))
+
 (defmethod print-object ((object structure-object) stream)
   (write-string "#S" stream)
   (let ((class (class-of object)))

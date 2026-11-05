@@ -187,7 +187,7 @@
 
 (defun code-initial-offset (function-like)
   (if (sys.int::function-reference-p function-like)
-      32
+      40
       16))
 
 (defun code-byte (function-like offset)

@@ -201,7 +201,8 @@
 (defconstant +fref-undefined-entry-point+ 0)
 (defconstant +fref-name+ 1)
 (defconstant +fref-function+ 2)
-(defconstant +fref-code+ 3)
+(defconstant +fref-dependents+ 3)
+(defconstant +fref-code+ 4)
 
 ;;; Layout of complex arrays.
 (defconstant +complex-array-storage+ 0)
@@ -314,7 +315,7 @@ Internal to sg-vec, should not be used by other code.")
 reserved on the disk, but no specific block has been allocated.")
 (defconstant +block-map-id-not-allocated+ 0)
 
-(defparameter *llf-version* 36)
+(defparameter *llf-version* 37)
 
 (defconstant +llf-arch-x86-64+ 1)
 (defconstant +llf-arch-arm64+ 2)

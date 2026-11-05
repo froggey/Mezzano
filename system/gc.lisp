@@ -1112,8 +1112,8 @@ This is required to make the GC interrupt safe."
     (scavenge-many (+ address mc-size) pool-size cycle-kind)))
 
 (defun scan-function-reference (object cycle-kind)
-  ;; Scan the first 4 words normally.
-  (scan-generic object 4 cycle-kind)
+  ;; Scan the leading non-code words normally.
+  (scan-generic object (1+ +fref-code+) cycle-kind)
   ;; Now pull the target function out of the branch and scan that.
   ;; We may have caught (SETF FUNCTION-REFERENCE-FUNCTION) halfway
   ;; through an update.
@@ -1700,8 +1700,8 @@ Additionally update the card table offset fields and clear the mark bits."
               ;; TODO: Not implemented.
               nil))))
     (#.+object-tag-function-reference+
-     ;; Only the first 4 words. The remaining words are code words.
-     (verify-generic object 4))
+     ;; The leading non-code words.
+     (verify-generic object (1+ +fref-code+)))
     (#.+object-tag-function+
      ;; Not implemented.
      nil)
