@@ -1851,8 +1851,15 @@ has only has class specializer."
         (t
          (specializer-direct-methods specializer))))
 
-(defun std-add-dependent (metaobject dependent)
-  (pushnew dependent (std-slot-value metaobject 'dependents))
+(defun std-add-dependent (metaobject dependent weak)
+  ;; TODO: Make this more thread safe
+  (let ((dependents (std-slot-value metaobject 'dependents)))
+    (unless (loop for existing in dependents
+                    thereis (if (mezzano.extensions:weak-pointer-p existing)
+                                (eql (mezzano.extensions:weak-pointer-value existing)
+                                     dependent)
+                                (eql existing dependent)))
+      (push dependent (std-slot-value metaobject 'dependents))))
   (values))
 
 (defun safe-add-dependent (metaobject dependent)
@@ -1860,14 +1867,22 @@ has only has class specializer."
 
 (defun std-remove-dependent (metaobject dependent)
   (setf (std-slot-value metaobject 'dependents)
-        (remove dependent (std-slot-value metaobject 'dependents)))
+        (remove-if (lambda (x)
+                     (if (mezzano.extensions:weak-pointer-p x)
+                         (eql (mezzano.extensions:weak-pointer-value x) dependent)
+                         (eql x dependent)))
+                   (std-slot-value metaobject 'dependents)))
   (values))
 
 (defun safe-remove-dependent (metaobject dependent)
   (remove-dependent metaobject dependent))
 
 (defun std-map-dependents (metaobject function)
-  (mapc function (std-slot-value metaobject 'dependents))
+  (loop for dep in (std-slot-value metaobject 'dependents)
+        do (if (mezzano.extensions:weak-pointer-p dep)
+               (let ((val (mezzano.extensions:weak-pointer-value x)))
+                 (when val (funcall function val)))
+               (funcall function dep)))
   (values))
 
 (defun safe-map-dependents (metaobject function)
@@ -3020,12 +3035,12 @@ always match."
 
 ;;; Dependent maintenance protocol
 
-(defgeneric add-dependent (metaobject dependent))
-(defmethod add-dependent ((metaobject std-class) dependent)
+(defgeneric add-dependent (metaobject dependent &key weak))
+(defmethod add-dependent ((metaobject std-class) dependent &key weak)
   (std-add-dependent metaobject dependent)
   (values))
-(defmethod add-dependent ((metaobject standard-generic-function) dependent)
-  (std-add-dependent metaobject dependent)
+(defmethod add-dependent ((metaobject standard-generic-function) dependent &key weak)
+  (std-add-dependent metaobject dependent weak)
   (values))
 
 (defgeneric remove-dependent (metaobject dependent))
