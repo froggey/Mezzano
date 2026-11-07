@@ -317,8 +317,5 @@ Arguments to FUNCTION:
 (deftype compiled-function ()
   '(satisfies compiled-function-p))
 
-(defun sys.int::closure-p (object)
-  (%object-of-type-p object sys.int::+object-tag-closure+))
-
 (deftype sys.int::closure ()
   '(satisfies sys.int::closure-p))

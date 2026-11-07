@@ -149,6 +149,7 @@
     "system/describe.lisp"
     "system/runtime-misc.lisp"
     "runtime/inline-cache.lisp"
+    "system/clos/inline-cache.lisp"
     "system/condition.lisp"
     "system/error.lisp"
     "system/coerce.lisp"

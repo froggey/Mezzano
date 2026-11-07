@@ -345,6 +345,18 @@
        for m across mutexes
        do (format t "~S: ~:D times.~%" m (lock-contested-count m)))))
 
+(defun categorise-inline-caches ()
+  (let ((inline-caches (get-all-objects (lambda (x)
+                                          (typep x 'mezzano.runtime::inline-cache))))
+        (result (make-hash-table)))
+    (loop for cache across inline-caches
+          for fn = (funcallable-instance-function cache)
+          for real-fn = (if (closure-p fn)
+                            (%closure-function fn)
+                            fn)
+          do (push cache (gethash real-fn result)))
+    result))
+
 ;;; Memory grovelling
 
 (defun hexdump (start length &key memory width endian)
