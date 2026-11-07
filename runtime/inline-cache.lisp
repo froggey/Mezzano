@@ -90,7 +90,8 @@
 
 (defun inline-cache-fast-reader (inline-cache gf class slot-definition)
   (let* ((slot-name (mezzano.clos::slot-definition-name slot-definition))
-         (effective-slot (find slot-name (mezzano.clos::safe-class-slots class)))
+         (effective-slot (find slot-name (mezzano.clos::safe-class-slots class)
+                               :key #'mezzano.clos::safe-slot-definition-name))
          (known-header (mezzano.runtime::%make-instance-header
                         (mezzano.clos:class-layout class))))
     (cond (effective-slot
@@ -112,7 +113,7 @@
                                               slot-definition))))
                                 value)))
                          (t
-                          (inline-cache-miss inline-cache instance))))
+                          (inline-cache-miss inline-cache gf instance))))
                  ;; inline cell
                  (let ((index (mezzano.runtime::location-offset-t location)))
                    (lambda (instance)
@@ -137,7 +138,8 @@
 
 (defun inline-cache-fast-writer (inline-cache gf class slot-definition)
   (let* ((slot-name (mezzano.clos::slot-definition-name slot-definition))
-         (effective-slot (find slot-name (mezzano.clos::safe-class-slots class)))
+         (effective-slot (find slot-name (mezzano.clos::safe-class-slots class)
+                               :key #'mezzano.clos::safe-slot-definition-name))
          (typecheck (mezzano.clos::safe-slot-definition-typecheck effective-slot))
          (type (mezzano.clos::safe-slot-definition-type effective-slot))
          (known-header (mezzano.runtime::%make-instance-header
