@@ -58,7 +58,8 @@
     (#.+llf-short-float+ 'short-float)
     (#.+llf-complex-short-float+ 'complex-short-float)
     (#.+llf-class-reference+ 'class-reference)
-    (#.+llf-typed-integer-array+ 'typed-integer-array)))
+    (#.+llf-typed-integer-array+ 'typed-integer-array)
+    (#.+llf-inline-cache+ 'inline-cache)))
 
 (defun llf-architecture-name (id)
   (case id
@@ -408,7 +409,10 @@
     (#.+llf-class-reference+
      (mezzano.clos::class-reference (vector-pop stack)))
     (#.+llf-typed-integer-array+
-     (load-llf-typed-integer-array stream stack))))
+     (load-llf-typed-integer-array stream stack))
+    (#.+llf-inline-cache+
+     (let ((name (vector-pop stack)))
+       (mezzano.runtime::make-inline-cache name)))))
 
 (defun load-llf (stream &optional (*load-wired* nil))
   (check-llf-header stream)

@@ -369,7 +369,15 @@
             (total-size (array-total-size array)))
        (dotimes (i total-size)
          (setf (row-major-aref array i) (load-integer loader)))
-       array))))
+       array))
+    (#.sys.int::+llf-inline-cache+
+     (let* ((name (stack-pop loader))
+            (fref (env:function-reference (loader-environment loader) name))
+            (cache (make-instance 'env::inline-cache-proxy :fref fref)))
+       (vector-push-extend
+        cache
+        (env::environment-inline-cache-table (loader-environment loader)))
+       cache))))
 
 (defun load-compiled-file (environment filespec &key wired)
   (format t ";; Loading ~S~%" filespec)

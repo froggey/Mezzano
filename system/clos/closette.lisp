@@ -286,7 +286,9 @@ the old or new values are expected to be unbound.")
 
 (define-compiler-macro slot-value (&whole whole object slot-name)
   (cond ((typep slot-name '(cons (eql quote) (cons symbol null)))
-         `(funcall (load-time-value (fast-slot-value-reader ,slot-name))
+         `(funcall (load-time-value
+                    (mezzano.runtime::make-inline-cache
+                     (fast-slot-value-reader ,slot-name)))
                    ,object))
         (t
          whole)))
@@ -357,7 +359,9 @@ the old or new values are expected to be unbound.")
 
 (define-compiler-macro (setf slot-value) (&whole whole value object slot-name)
   (cond ((typep slot-name '(cons (eql quote) (cons symbol null)))
-         `(funcall (load-time-value (fast-slot-value-writer ,slot-name))
+         `(funcall (load-time-value
+                    (mezzano.runtime::make-inline-cache
+                     (fast-slot-value-writer ,slot-name)))
                    ,value
                    ,object))
         (t
@@ -1452,6 +1456,7 @@ Other arguments are included directly."
          (when (fboundp function-name)
            (fmakunbound function-name))
          (setf (compiler-macro-function function-name) nil)))
+  (proclaim `(sys.int::inline-caching ,function-name))
   (let ((existing-gf (and (fboundp function-name)
                           (fdefinition function-name))))
     (cond ((and existing-gf

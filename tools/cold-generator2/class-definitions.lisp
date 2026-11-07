@@ -223,3 +223,8 @@
 (defclass mezzano.simd.x86-64:sse-vector (t) () (:metaclass built-in-class))
 
 (defclass mezzano.simd:simd-pack (t) () (:metaclass built-in-class))
+
+(defclass mezzano.runtime::inline-cache (funcallable-standard-object)
+  ((mezzano.runtime::%fref)
+   (mezzano.runtime::%function))
+  (:metaclass funcallable-standard-class))

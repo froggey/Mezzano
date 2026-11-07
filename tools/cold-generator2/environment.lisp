@@ -89,6 +89,7 @@
            #:cross-class-instance
            #:cross-class-instance-layout
            #:cross-class-instance-slots
+           #:cross-class-funcallable-instance-p
            #:allocate-cross-class-instance
            #:cross-class-instance-slot-value
            #:cross-class-instance-slot-boundp
@@ -143,7 +144,12 @@
    (%class-table :initform (make-hash-table) :reader environment-class-table)
    ;; Class reference table.
    (%class-reference-table :initform (make-hash-table) :reader environment-class-reference-table)
-   ))
+   ;; Inline caches
+   (%inline-caches :reader environment-inline-cache-table)))
+
+(defmethod initialize-instance :after ((instance environment) &key)
+  (setf (slot-value instance '%inline-caches)
+        (make-array instance 128 :adjustable t :fill-pointer 0)))
 
 (defun add-special (environment name value)
   (setf (gethash name (environment-specials environment)) value))
@@ -342,6 +348,9 @@
   (print-unreadable-object (object stream :type t :identity t)
     (format stream "~S" (list :size (cross-byte-size object)
                               :position (cross-byte-position object)))))
+
+(defclass inline-cache-proxy ()
+  ((%fref :initarg :fref :reader inline-cache-proxy-fref)))
 
 (defun make-standard-environment (&rest initargs)
   (let ((env (apply #'make-instance 'environment initargs)))
@@ -649,12 +658,14 @@
 
 (defclass cross-class-instance ()
   ((%layout :initarg :layout :reader cross-class-instance-layout)
-   (%slots :initarg :slots :reader cross-class-instance-slots)))
+   (%slots :initarg :slots :reader cross-class-instance-slots)
+   (%funcallable-instance :initarg :funcallable-instance-p :initform nil :reader cross-class-funcallable-instance-p)))
 
-(defun allocate-cross-class-instance (environment layout)
+(defun allocate-cross-class-instance (environment layout &optional funcallable-instance-p)
   (let ((instance (make-instance 'cross-class-instance
                                  :layout layout
-                                 :slots (cl:make-array (/ (length (mezzano.internals::layout-instance-slots layout)) 2) :initial-element '%unbound-marker%))))
+                                 :slots (cl:make-array (/ (length (mezzano.internals::layout-instance-slots layout)) 2) :initial-element '%unbound-marker%)
+                                 :funcallable-instance-p funcallable-instance-p)))
     (setf (gethash instance (environment-object-area-table environment))
           (mezzano.internals::layout-area layout))
     instance))

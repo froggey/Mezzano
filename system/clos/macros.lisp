@@ -16,10 +16,17 @@
   (dolist (superclass-name direct-superclasses)
     (check-type superclass-name (and symbol (not null))))
   (let ((*defclass-slot-names* '())
-        (*defclass-options* '()))
+        (*defclass-options* '())
+        (accessors (loop for slot in direct-slots
+                         when (listp slot)
+                           append (loop for (key val) on (rest slot) by #'cddr
+                                        when (member key '(:reader :writer))
+                                          collect val))))
     `(progn
        (eval-when (:compile-toplevel)
          (sys.int::%compiler-defclass ',name))
+       ,@(when accessors
+           `((declaim (sys.int::inline-caching ,@accessors))))
        (ensure-class ',name
                      :source-location (lambda () (declare (sys.int::lambda-name (defclass ,name))))
                      :direct-superclasses ',direct-superclasses
@@ -189,13 +196,15 @@
                           append (canonicalize-defgeneric-option opt)))))
     ;; Try to keep E-G-F at the top-level, avoids a trip through the compiler
     ;; when file-compiling.
-    (cond (methods
-           `(let ((,gf ,egf-form))
-              ,@(loop
-                   for meth in methods
-                   collect (expand-defgeneric-method function-name meth))
-              ,gf))
-          (t egf-form))))
+    `(progn
+       (declaim (sys.int::inline-caching ,function-name))
+       ,(cond (methods
+               `(let ((,gf ,egf-form))
+                  ,@(loop
+                      for meth in methods
+                      collect (expand-defgeneric-method function-name meth))
+                  ,gf))
+              (t egf-form)))))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 

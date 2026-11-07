@@ -460,7 +460,7 @@
                          "tools/cold-generator2/class-definitions.lisp"
                          :package :mezzano.clos
                          :eval t)))
-    (assert (endp forms) () "Failed to load class definitions")
+    (assert (endp forms) (forms) "Failed to load class definitions")
     ;; Register structure definitions as primordial classes too.
     (env:do-all-environment-structs (sdef environment)
       (convert-sdef environment sdef))

@@ -483,6 +483,14 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
      (save-integer (%short-float-as-integer (realpart object)) stream)
      (save-integer (%short-float-as-integer (imagpart object)) stream))))
 
+(defmethod save-one-object ((object mezzano.runtime::inline-cache) omap stream)
+  (let ((fref (mezzano.runtime::inline-cache-function-reference object)))
+    (cond (fref
+           (save-one-object (function-reference-name fref) omap stream)
+           (write-byte sys.int::+llf-inline-cache+ stream))
+          (t
+           (call-next-method)))))
+
 (defun load-hash-table-entries (hash-table entries)
   (loop
      for i below (length entries) by 2

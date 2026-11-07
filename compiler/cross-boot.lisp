@@ -67,6 +67,7 @@
 
 (defvar *inline-modes* (make-hash-table :test #'equal))
 (defvar *inline-forms* (make-hash-table :test #'equal))
+(defvar *inline-caches* (make-hash-table :test #'equal))
 (defvar *function-types* (make-hash-table :test #'equal))
 
 (defun sys.int::%compiler-defun (name source-lambda)
@@ -178,6 +179,9 @@
          (rest declaration-specifier)
        (dolist (name vars)
          (setf (gethash name *function-types*) typespec))))
+    (sys.int::inline-caching
+     (dolist (name (rest declaration-specifier))
+       (setf (gethash name *inline-caches*) t)))
     (t (warn "Unknown declaration ~S" (first declaration-specifier)))))
 
 (defun sys.int::symbol-mode (symbol)

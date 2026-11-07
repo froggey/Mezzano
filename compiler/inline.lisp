@@ -90,36 +90,43 @@
   form)
 
 (defun expand-inline-function (form name arg-list architecture)
-  (multiple-value-bind (inlinep expansion)
+  (multiple-value-bind (inlinep expansion inline-cache-p)
       (function-inline-info name)
-    (when (and (or inlinep
-                   (eql (second (assoc name (ast-inline-declarations form))) 'inline))
-               (not (eql (second (assoc name (ast-inline-declarations form))) 'notinline))
-               (not (match-transform form 't architecture)))
-      (flet ((make-inline-environment ()
-               (extend-environment
-                nil
-                :declarations `((optimize ,@(loop for (quality value) on (ast-optimize form) by #'cddr
-                                               collect (list quality value)))
-                                (notinline ,@(loop for (name mode) in (ast-inline-declarations form)
-                                                  when (eql mode 'notinline)
-                                                  collect name))
-                                (inline ,@(loop for (name mode) in (ast-inline-declarations form)
-                                             when (eql mode 'inline)
-                                             collect name))))))
-        (cond (expansion
-               (ast `(call mezzano.runtime::%funcall
-                           ,(pass1-lambda expansion (make-inline-environment))
-                           ,@arg-list)
-                    form))
-              ((fboundp name)
-               (multiple-value-bind (expansion closurep)
-                   (function-lambda-expression (fdefinition name))
-                 (when (and expansion (not closurep))
+    (or (when (and (or inlinep
+                       (eql (second (assoc name (ast-inline-declarations form) :test #'equal)) 'inline))
+                   (not (eql (second (assoc name (ast-inline-declarations form) :test #'equal)) 'notinline))
+                   (not (match-transform form 't architecture)))
+          (flet ((make-inline-environment ()
+                   (extend-environment
+                    nil
+                    :declarations `((optimize ,@(loop for (quality value) on (ast-optimize form) by #'cddr
+                                                      collect (list quality value)))
+                                    (notinline ,@(loop for (name mode) in (ast-inline-declarations form)
+                                                       when (eql mode 'notinline)
+                                                         collect name))
+                                    (inline ,@(loop for (name mode) in (ast-inline-declarations form)
+                                                    when (eql mode 'inline)
+                                                      collect name))))))
+            (cond (expansion
                    (ast `(call mezzano.runtime::%funcall
                                ,(pass1-lambda expansion (make-inline-environment))
                                ,@arg-list)
-                        form)))))))))
+                        form))
+                  ((fboundp name)
+                   (multiple-value-bind (expansion closurep)
+                       (function-lambda-expression (fdefinition name))
+                     (when (and expansion (not closurep))
+                       (ast `(call mezzano.runtime::%funcall
+                                   ,(pass1-lambda expansion (make-inline-environment))
+                                   ,@arg-list)
+                            form)))))))
+        (when (and inline-cache-p
+                   (not (eql (second (assoc name (ast-inline-declarations form) :test #'equal)) 'notinline))
+                   (not (match-transform form 't architecture)))
+          (ast `(call mezzano.runtime::%funcall
+                      ',(mezzano.runtime::make-inline-cache name)
+                      ,@arg-list)
+               form)))))
 
 (defmethod il-form ((form ast-call) architecture)
   (il-implicit-progn (arguments form) architecture)

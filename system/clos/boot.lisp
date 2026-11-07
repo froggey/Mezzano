@@ -186,3 +186,30 @@
 (defun safe-class-constructor (class)
   (declare (ignore class))
   nil)
+
+(defun early-inline-cache-thunk (cache args)
+  (apply (fdefinition
+          (sys.int::function-reference-name
+           (primordial-slot-value cache 'mezzano.runtime::%fref)))
+         args))
+
+;; Initial version of make-inline-cache, replaced once more of clos is loaded.
+(defun mezzano.runtime::make-inline-cache (name-or-function)
+  (let* ((class (find-class 'mezzano.runtime::inline-cache))
+         (layout (primordial-slot-value class 'slot-storage-layout))
+         (cache (sys.int::%allocate-funcallable-instance
+                 (lambda ())
+                 layout)))
+    (cond ((functionp name-or-function)
+           (setf (primordial-slot-value cache 'mezzano.runtime::%fref) nil
+                 (primordial-slot-value cache 'mezzano.runtime::%function) name-or-function)
+           (setf (sys.int::funcallable-instance-function cache) name-or-function))
+          (t
+           (setf (primordial-slot-value cache 'mezzano.runtime::%fref)
+                 (sys.int::function-reference name-or-function))
+           (setf (primordial-slot-value cache 'mezzano.runtime::%function) nil)
+           (setf (sys.int::funcallable-instance-function cache)
+                 (lambda (&rest args)
+                   (declare (dynamic-extent args))
+                   (early-inline-cache-thunk cache args)))))
+    cache))

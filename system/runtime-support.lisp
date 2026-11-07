@@ -5,7 +5,8 @@
 (defstruct function-info
   compiler-macro
   inline-form
-  inline-mode)
+  inline-mode
+  inline-cache-p)
 
 (defvar *symbol-function-info*)
 (defvar *setf-function-info*)
@@ -49,7 +50,8 @@
 
 (defun known-declaration-p (declaration)
   (or (member declaration '(special constant global inline notinline
-                            maybe-inline type ftype declaration optimize))
+                            maybe-inline type ftype declaration optimize
+                            inline-caching))
       (type-specifier-p declaration)
       (member declaration *known-declarations*)))
 
@@ -97,6 +99,11 @@
          (check-type quality (member compilation-speed debug safety space speed))
          (check-type value (member 0 1 2 3))
          (setf (getf mezzano.compiler::*optimize-policy* quality) value))))
+    (inline-caching
+     (dolist (name (rest declaration-specifier))
+       (setf (function-info-inline-cache-p
+              (function-info-for name))
+             t)))
     (t
      (cond ((type-specifier-p (first declaration-specifier))
             ;; Actually a type declaration.
@@ -112,8 +119,9 @@
   (let ((info (function-info-for name nil)))
     (if info
         (values (eql (function-info-inline-mode info) 't)
-                (function-info-inline-form info))
-        (values nil nil))))
+                (function-info-inline-form info)
+                (function-info-inline-cache-p info))
+        (values nil nil nil))))
 
 ;;; Turn (APPLY fn args...) into (%APPLY fn (list* args...)), bypassing APPLY's
 ;;; rest-list generation.

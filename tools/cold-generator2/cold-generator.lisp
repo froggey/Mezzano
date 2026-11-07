@@ -148,6 +148,7 @@
     "system/thread-pool.lisp"
     "system/describe.lisp"
     "system/runtime-misc.lisp"
+    "runtime/inline-cache.lisp"
     "system/condition.lisp"
     "system/error.lisp"
     "system/coerce.lisp"
@@ -436,6 +437,8 @@
     (env:do-all-environment-class-references (cref environment)
       (vector-push-extend cref cref-table))
     (setf (env:cross-symbol-value environment 'sys.int::*initial-cref-obarray*) cref-table))
+  (setf (env:cross-symbol-value environment 'sys.int::*initial-inline-cache-obarray*)
+        (env::environment-inline-cache-table environment))
   ;; Do this last, no symbols can be added after it.
   (let ((symbol-table (env:make-array environment 0 :adjustable t :fill-pointer 0)))
     ;; Prod symbol to make sure it gets included.

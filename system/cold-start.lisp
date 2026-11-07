@@ -11,7 +11,8 @@
                   *initial-keyword-obarray*
                   *initial-fref-obarray*
                   *initial-function-docstrings*
-                  *initial-cref-obarray*)
+                  *initial-cref-obarray*
+                  *initial-inline-cache-obarray*)
          (special *terminal-io*
                   *standard-output*
                   *standard-input*
@@ -342,6 +343,13 @@ structures to exist, and for memory to be allocated, but not much beyond that."
   (let ((*package* *package*))
     (dotimes (i (length *additional-cold-toplevel-forms*))
       (eval (svref *additional-cold-toplevel-forms* i))))
+  ;; Populate initial inline caches
+  (loop for cache across *initial-inline-cache-obarray*
+        do (let ((cache cache))
+             (setf (funcallable-instance-function cache)
+                   (lambda (&rest args)
+                     (declare (dynamic-extent args))
+                     (mezzano.clos::early-inline-cache-thunk cache args)))))
   ;; Flush the bootstrap stuff.
   (makunbound '*initial-obarray*)
   (makunbound '*package-system*)
@@ -349,6 +357,7 @@ structures to exist, and for memory to be allocated, but not much beyond that."
   (makunbound '*cold-toplevel-forms*)
   (makunbound '*initial-fref-obarray*)
   (makunbound '*initial-cref-obarray*)
+  (makunbound '*initial-inline-cache-obarray*)
   (write-line "First GC.")
   (room)
   (gc :full t)
