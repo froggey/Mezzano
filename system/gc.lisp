@@ -1174,7 +1174,8 @@ a pointer to the new object. Leaves a forwarding pointer in place."
             (setf (%object-ref-t new-instance +function-entry-point+)
                   (%object-ref-t object +function-entry-point+))
             (setf (%object-ref-t new-instance +funcallable-instance-function+)
-                  (%object-ref-t object +funcallable-instance-function+)))
+                  (%object-ref-t object +funcallable-instance-function+))
+            (scavengef (%object-ref-t new-instance +funcallable-instance-function+) cycle-kind))
           (return-from transport-object
             (scavenge-object new-instance cycle-kind)))))
     (really-transport-object object cycle-kind)))
