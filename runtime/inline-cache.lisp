@@ -71,3 +71,37 @@
         (sys.int::register-function-reference-dependent fref cache)
         (initialize-inline-cache cache fun)
         cache)))
+
+(defun reset-inline-cache (inline-cache)
+  (deinitialize-inline-cache inline-cache (inline-cache-function inline-cache))
+  (change-class inline-cache 'inline-cache)
+  (let ((fref (inline-cache-function-reference inline-cache)))
+    (cond (fref
+           (let ((new (sys.int::function-reference-function fref)))
+             (setf (inline-cache-function inline-cache) new)
+             (initialize-inline-cache inline-cache new)))
+          (t
+           (initialize-inline-cache inline-cache (inline-cache-function inline-cache)))))
+  (values))
+
+(defun reset-all-inline-caches ()
+  (let ((inline-caches (sys.int::get-all-objects
+                        (lambda (x)
+                          (typep x 'mezzano.runtime::inline-cache)))))
+    (loop for cache across inline-caches
+          when (slot-boundp cache '%function)
+          do (reset-inline-cache cache)))
+  (values))
+
+(defun categorise-inline-caches ()
+  (let ((inline-caches (sys.int::get-all-objects
+                        (lambda (x)
+                          (typep x 'mezzano.runtime::inline-cache))))
+        (result (make-hash-table)))
+    (loop for cache across inline-caches
+          for fn = (sys.int::funcallable-instance-function cache)
+          for real-fn = (if (sys.int::closure-p fn)
+                            (sys.int::%closure-function fn)
+                            fn)
+          do (push cache (gethash real-fn result)))
+    result))

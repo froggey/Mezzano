@@ -16,6 +16,10 @@
   (mezzano.supervisor:panic (format nil "~A" condition)))
 (setf mezzano.debug:*global-debugger* 'ipl-debugger)
 
+;; Reset all inline-caches here so generic functions defined during the
+;; bootstrap era can actually participate in caching.
+(mezzano.runtime::reset-all-inline-caches)
+
 ;; Fast eval mode.
 (setf sys.int::*eval-hook* 'mezzano.fast-eval:eval-in-lexenv)
 

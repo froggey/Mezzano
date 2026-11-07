@@ -19,6 +19,12 @@
 ;;;; This will also allow type testing of builtin classes (instead of requring
 ;;;; instances)
 
+(defparameter *enable-generic-function-inline-caching* t
+  "Configure if inline caches attempt to optimize generic dispatch.
+
+This does not control if inline caches are generated or not in compiled
+code, it's a runtime flag that turns cache participation on or off.")
+
 (defun inline-cache-fast-reader (inline-cache gf class slot-definition)
   (let* ((slot-name (slot-definition-name slot-definition))
          (effective-slot (find slot-name (safe-class-slots class)
@@ -249,7 +255,8 @@
      (apply gf args))))
 
 (defmethod mezzano.runtime::initialize-inline-cache ((inline-cache mezzano.runtime::inline-cache) (gf standard-generic-function))
-  (cond ((eql (class-of gf) (find-class 'standard-generic-function))
+  (cond ((and *enable-generic-function-inline-caching*
+              (eql (class-of gf) (find-class 'standard-generic-function)))
          ;; Register as a dependent of the gf here so that we can invalidate
          ;; when the gf has methods added/removed.
          (add-dependent gf inline-cache :weak t)
