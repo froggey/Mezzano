@@ -780,9 +780,9 @@ This should only fill in the START- slots and ignore the END- slots.")
 (defun mezzano.runtime::symbol-global-p (symbol)
   (eql (gethash symbol cross-support::*system-symbol-declarations*) :global))
 
-(defclass cross-support::inline-cache-proxy ()
+(defclass mezzano.runtime::inline-cache ()
   ((%name :initarg :name :reader cross-support::inline-cache-proxy-name)))
 
 (defun mezzano.runtime::make-inline-cache (function-name-or-function)
   (check-type function-name-or-function (not function))
-  (make-instance 'cross-support::inline-cache-proxy :name function-name-or-function))
+  (make-instance 'mezzano.runtime::inline-cache :name function-name-or-function))

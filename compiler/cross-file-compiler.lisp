@@ -394,6 +394,6 @@
          (sys.int::save-object (symbol-name object) omap stream)
          (write-byte sys.int::+llf-uninterned-symbol+ stream))))
 
-(defmethod sys.int::save-one-object ((object cross-support::inline-cache-proxy) omap stream)
+(defmethod sys.int::save-one-object ((object mezzano.runtime::inline-cache) omap stream)
   (sys.int::save-object (cross-support::inline-cache-proxy-name object) omap stream)
   (write-byte sys.int::+llf-inline-cache+ stream))
