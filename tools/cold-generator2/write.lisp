@@ -117,7 +117,7 @@
   "Save areas to the file and update the block map"
   (flet ((save (area flags)
            (let ((store-position *store-bump*))
-             (incf *store-bump* (ser:area-size (ser:image-wired-area image)))
+             (incf *store-bump* (ser:area-size area))
              (file-position stream (+ image-offset store-position))
              (write-sequence (ser:area-data area) stream)
              (add-region-to-block-map
