@@ -47,9 +47,10 @@
 (defun make-symbol-macrolet-env (defs env)
   (let ((defs (loop
                  for (name expansion) in defs
-                 collect (make-instance 'mezzano.compiler::symbol-macro
-                                        :name name
-                                        :expansion expansion))))
+                 collect (list name
+                               (make-instance 'mezzano.compiler::symbol-macro
+                                              :name name
+                                              :expansion expansion)))))
     (mezzano.compiler::extend-environment env :variables defs)))
 
 (defun handle-top-level-implicit-progn (forms load-fn eval-fn mode env)
