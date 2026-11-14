@@ -1857,37 +1857,53 @@ has only has class specializer."
          (specializer-direct-methods specializer))))
 
 (defun std-add-dependent (metaobject dependent weak)
-  ;; TODO: Make this more thread safe
-  (let ((dependents (std-slot-value metaobject 'dependents)))
-    (unless (loop for existing in dependents
-                    thereis (if (mezzano.extensions:weak-pointer-p existing)
-                                (eql (mezzano.extensions:weak-pointer-value existing)
-                                     dependent)
-                                (eql existing dependent)))
-      (push dependent (std-slot-value metaobject 'dependents))))
+  (loop
+    with entry = (if weak
+                     (mezzano.extensions:make-weak-pointer dependent)
+                     dependent)
+    for dependents = (std-slot-value metaobject 'dependents)
+    until (loop for enry in dependents
+                  thereis (if (mezzano.extensions:weak-pointer-p entry)
+                              (eql (mezzano.extensions:weak-pointer-value entry)
+                                   dependent)
+                              (eql entry dependent)))
+    until (eq (mezzano.extensions:cas
+               (std-slot-value metaobject 'dependents)
+	           dependents
+               (list* entry dependents))
+	          dependents))
   (values))
 
 (defun safe-add-dependent (metaobject dependent)
   (add-dependent metaobject dependent))
 
 (defun std-remove-dependent (metaobject dependent)
-  (setf (std-slot-value metaobject 'dependents)
-        (remove-if (lambda (x)
-                     (if (mezzano.extensions:weak-pointer-p x)
-                         (eql (mezzano.extensions:weak-pointer-value x) dependent)
-                         (eql x dependent)))
-                   (std-slot-value metaobject 'dependents)))
+  (loop
+    for dependents = (std-slot-value metaobject 'dependents)
+    for new = (remove-if (lambda (entry)
+                           (if (mezzano.extensions:weak-pointer-p entry)
+                               (or (not entry) ; clean up dead entries
+                                   (eql (mezzano.extensions:weak-pointer-value entry)
+                                        dependent))
+                               (eql entry dependent)))
+                         dependents)
+    until (eq (mezzano.extensions:cas
+               (std-slot-value metaobject 'dependents)
+	           dependents
+               new)
+	          dependents))
   (values))
 
 (defun safe-remove-dependent (metaobject dependent)
   (remove-dependent metaobject dependent))
 
 (defun std-map-dependents (metaobject function)
-  (loop for dep in (std-slot-value metaobject 'dependents)
-        do (if (mezzano.extensions:weak-pointer-p dep)
-               (let ((val (mezzano.extensions:weak-pointer-value x)))
-                 (when val (funcall function val)))
-               (funcall function dep)))
+  (loop for entry in (std-slot-value metaobject 'dependents)
+        do (if (mezzano.extensions:weak-pointer-p entry)
+               (let ((value (mezzano.extensions:weak-pointer-value entry)))
+                 (when value
+                   (funcall function value)))
+               (funcall function entry)))
   (values))
 
 (defun safe-map-dependents (metaobject function)
@@ -3042,7 +3058,7 @@ always match."
 
 (defgeneric add-dependent (metaobject dependent &key weak))
 (defmethod add-dependent ((metaobject std-class) dependent &key weak)
-  (std-add-dependent metaobject dependent)
+  (std-add-dependent metaobject dependent weak)
   (values))
 (defmethod add-dependent ((metaobject standard-generic-function) dependent &key weak)
   (std-add-dependent metaobject dependent weak)
