@@ -440,20 +440,19 @@
         (t
          (values (gethash symbol cross-support::*system-symbol-declarations*)))))
 
-;; TODO: Wrap form in a bunch of macrolets.
-(defun x-eval (form env)
-  (declare (ignore env))
-  (when *compile-print*
-    (let ((*print-length* 3)
-          (*print-level* 2))
-      (format t ";; X-eval: ~S~%" form)))
-  (eval form))
-
 (defstruct cross-function
   mc
   constants
   fixups
   gc-info)
+
+(defun make-function (tag mc fixups constants gc-data wired)
+  (declare (ignore wired))
+  (assert (eql tag sys.int::+object-tag-function+))
+  (sys.int::make-cross-function :mc mc
+                                :constants constants
+                                :fixups fixups
+                                :gc-info gc-data))
 
 (defstruct (function-reference (:constructor make-cross-fref (name)))
   name)
@@ -552,11 +551,14 @@
   (check-type count (integer 1))
   (ash integer (- count)))
 
-(defun sys.int::eval-in-lexenv (lambda env)
-  ;; Just quietly ignore the environment for now...
-  ;; It's not currently needed by any of the cross-compiled files.
+;; TODO: Wrap form in a bunch of macrolets.
+(defun sys.int::eval-in-lexenv (form env)
   (declare (ignore env))
-  (eval lambda))
+  (when *compile-print*
+    (let ((*print-length* 3)
+          (*print-level* 2))
+      (format t ";; X-eval: ~S~%" form)))
+  (eval form))
 
 (defparameter *cross-logical-base* "SYS:SOURCE")
 

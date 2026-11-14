@@ -875,11 +875,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                            (if *compile-parallel* "Processing" "Compiling")
                            form)))
              ;; TODO: Deal with lexical environments.
-               (handle-top-level-form form
-                                      (lambda (f env)
-                                        (compile-top-level-form f env))
-                                      (lambda (f env)
-                                        (eval-in-lexenv f env)))
+               (handle-top-level-form form #'compile-top-level-form #'eval-in-lexenv)
                (incf *top-level-form-number*)))
         (when *deferred-functions*
           (let* ((n-functions (length *deferred-functions*))
