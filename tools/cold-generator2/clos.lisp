@@ -287,11 +287,16 @@
                                        :documentation (primordial-slot-value (first direct-slots) (env:translate-symbol environment 'mezzano.clos::documentation))))))))
 
 (defun primordial-compute-slots (environment class)
-  (let* ((all-slots (loop
-                       for c in (primordial-slot-value class (env:translate-symbol environment 'mezzano.clos::precedence-list))
-                       appending (primordial-slot-value c (env:translate-symbol environment 'mezzano.clos::direct-slots))))
+  (let* ((precedence-list (primordial-slot-value class (env:translate-symbol environment 'mezzano.clos::precedence-list)))
+         (all-slots (loop
+                      for c in precedence-list
+                      appending (primordial-slot-value c (env:translate-symbol environment 'mezzano.clos::direct-slots))))
          (all-names (remove-duplicates
-                     (mapcar (lambda (def) (primordial-slot-value def (env:translate-symbol environment 'mezzano.clos::name))) all-slots)))
+                     (loop for c in precedence-list
+                           for direct-slots = (primordial-slot-value c (env:translate-symbol environment 'mezzano.clos::direct-slots))
+                           append (loop for def in direct-slots
+                                        collect (primordial-slot-value def (env:translate-symbol environment 'mezzano.clos::name))))
+                     :from-end t))
          (effective-slots (mapcar (lambda (name)
                                     (primordial-compute-effective-slot-definition
                                      environment

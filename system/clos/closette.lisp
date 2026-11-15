@@ -1147,19 +1147,31 @@ Other arguments are included directly."
 
 ;;; Slot inheritance
 
+;; Must be kept in sync with PRIMORDIAL-COMPUTE-SLOTS
 (defun std-compute-slots (class)
-  (let* ((all-slots (mapappend #'safe-class-direct-slots
-                               (safe-class-precedence-list class)))
+  (let* ((precedence-list (safe-class-precedence-list class))
+         ;; Maintain precedence-list order here, need
+         ;; to use most-specific-first for c-e-s-d.
+         (all-slots
+           (loop for super in precedence-list
+                 append (safe-class-direct-slots super)))
+         ;; However, we order the slots themselves in reverse
+         ;; reverse precedence order. This allow child classes
+         ;; to potentially share a layout prefix with their parent
+         ;; class, since the parent slots now end up at the start
+         ;; rather than the end of the the child class's slot ordering.
          (all-names (remove-duplicates
-                      (mapcar #'safe-slot-definition-name all-slots))))
-    (mapcar #'(lambda (name)
-                (compute-effective-slot-definition
-                 class
-                 name
-                 (remove name all-slots
-                         :key #'safe-slot-definition-name
-                         :test-not #'eq)))
-            all-names)))
+                     (loop for super in (reverse precedence-list)
+                           append (loop for slot in (safe-class-direct-slots super)
+                                        collect (safe-slot-definition-name slot)))
+                     :from-end t)))
+    (loop for name in all-names
+          collect (compute-effective-slot-definition
+                   class
+                   name
+                   (remove name all-slots
+                           :key #'safe-slot-definition-name
+                           :test-not #'eql)))))
 
 (defun std-compute-slot-layouts (class effective-slots)
   (loop
