@@ -605,3 +605,32 @@
                        :result-1 result-1
                        :result-2 result-2
                        :prefix '(lap:lock))))
+
+(define-builtin sys.int::%atomic-object-ref-t ((object offset (:constant order (typep order 'atomic-order))) result :has-wrapper nil)
+  (with-builtin-object-access (ea ea-inputs object index 8)
+    (emit (make-instance 'x86-instruction
+                         :opcode 'lap:mov64
+                         :operands (list result ea)
+                         :inputs ea-inputs
+                         :outputs (list result)))))
+
+(define-builtin (setf sys.int::%atomic-object-ref-t) ((value object offset (:constant order (typep order 'atomic-order))) result :has-wrapper nil)
+  (if (eql order :seq-cst)
+      (let ((scratch (make-instance 'virtual-register)))
+        (emit (make-instance 'x86-atomic-instruction
+                           :opcode 'lap:xchg64
+                           :object object
+                           :index (if (constant-value-p offset '(signed-byte 29))
+                                      (fetch-constant-value offset)
+                                      offset)
+                           :rhs value
+                           :result scratch)))
+      (with-builtin-object-access (ea ea-inputs object index 8)
+        (emit (make-instance 'x86-instruction
+                             :opcode 'lap:mov64
+                             :operands (list ea value)
+                             :inputs (list* value ea-inputs)
+                             :outputs (list)))))
+  (emit (make-instance 'ir:move-instruction
+                       :source value
+                       :destination result)))

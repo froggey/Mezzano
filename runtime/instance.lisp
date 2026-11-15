@@ -145,6 +145,23 @@
   (def setf (value))
   (def sys.int::cas (new old so fo)))
 
+
+(defun atomic-instance-access (object location order &optional (index 0))
+  (ecase (location-type location)
+    (#.+location-type-t+
+     (sys.int::atomic (sys.int::%object-ref-t object (+ (location-offset-t location) index)) order))
+    (t
+     (error "Atomic accesses to instance locations of type ~S not implemented"
+            (location-type location)))))
+
+(defun (setf atomic-instance-access) (value object location order &optional (index 0))
+  (ecase (location-type location)
+    (#.+location-type-t+
+     (setf (sys.int::atomic (sys.int::%object-ref-t object (+ (location-offset-t location) index)) order) value))
+    (t
+     (error "Atomic accesses to instance locations of type ~S not implemented"
+            (location-type location)))))
+
 (declaim (inline %instance-dcas))
 (defun %instance-dcas (instance offset old-1 old-2 new-1 new-2
                        success-order failure-order)

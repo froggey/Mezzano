@@ -550,3 +550,30 @@
                        :old-value result
                        :index offset
                        :rhs delta)))
+
+(define-builtin sys.int::%atomic-object-ref-t ((object offset (:constant order (typep order 'atomic-order))) result :has-wrapper nil)
+  (emit (make-instance 'ir:move-instruction
+                       :source object
+                       :destination :x1))
+  (emit (make-instance 'arm64-atomic-instruction
+                       :opcode (ecase order
+                                 (:relaxed 'lap:ldr)
+                                 ((:acquire :acq-rel :seq-cst) 'lap:ldar))
+                       :old-value result
+                       :index offset
+                       :rhs nil)))
+
+(define-builtin (setf sys.int::%atomic-object-ref-t) ((value object offset (:constant order (typep order 'atomic-order))) result :has-wrapper nil)
+  (emit (make-instance 'ir:move-instruction
+                       :source object
+                       :destination :x1))
+  (emit (make-instance 'arm64-atomic-instruction
+                       :opcode (ecase order
+                                 (:relaxed 'lap:str)
+                                 ((:release :acq-rel :seq-cst) 'lap:stlr))
+                       :old-value nil
+                       :index offset
+                       :rhs value))
+  (emit (make-instance 'ir:move-instruction
+                       :source value
+                       :destination result)))

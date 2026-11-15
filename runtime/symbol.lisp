@@ -9,6 +9,8 @@
                  symbol-value-cell-value
                  (setf symbol-value-cell-value)
                  (sys.int::cas symbol-value-cell-value)
+                 %atomic-symbol-value-cell-value
+                 (setf %atomic-symbol-value-cell-value)
                  symbol-value-cell-boundp
                  symbol-value-cell-makunbound))
 
@@ -45,6 +47,17 @@
   (sys.int::cas (sys.int::%object-ref-t cell sys.int::+symbol-value-cell-value+)
                 old new so f))
 
+(defun %atomic-symbol-value-cell-value (cell order)
+  (let ((value (sys.int::atomic (sys.int::%object-ref-t cell sys.int::+symbol-value-cell-value+) order)))
+    (when (sys.int::%unbound-value-p value)
+      (sys.int::raise-unbound-error
+       (symbol-value-cell-symbol cell))
+      (sys.int::%%unreachable))
+    value))
+
+(defun (setf %atomic-symbol-value-cell-value) (value cell order)
+  (setf (sys.int::atomic (sys.int::%object-ref-t cell sys.int::+symbol-value-cell-value+) order) value))
+
 (defun symbol-value-cell-boundp (cell)
   (not (sys.int::%unbound-value-p (sys.int::%object-ref-t cell sys.int::+symbol-value-cell-value+))))
 
@@ -57,9 +70,13 @@
                  sys.int::symbol-global-value
                  (setf sys.int::symbol-global-value)
                  (sys.int::cas sys.int::symbol-global-value)
+                 sys.int::%atomic-symbol-global-value
+                 (setf sys.int::%atomic-symbol-global-value)
                  symbol-value
                  (setf symbol-value)
                  (sys.int::cas symbol-value)
+                 sys.int::%atomic-symbol-value
+                 (setf sys.int::%atomic-symbol-value)
                  symbol-global-p
                  symbol-constant-p
                  modifying-symbol-value))
@@ -129,6 +146,15 @@
   (check-symbol-value-type value symbol)
   (setf (symbol-value-cell-value (symbol-global-value-cell symbol)) value))
 
+(defun sys.int::%atomic-symbol-global-value (symbol order)
+  (%atomic-symbol-value-cell-value (symbol-global-value-cell symbol) order))
+
+(defun (setf sys.int::%atomic-symbol-global-value) (value symbol order)
+  (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)
+  (modifying-symbol-value symbol)
+  (check-symbol-value-type value symbol)
+  (setf (%atomic-symbol-value-cell-value (symbol-global-value-cell symbol order)) value))
+
 (define-compiler-macro (sys.int::cas sys.int::symbol-global-value) (&whole whole old new so fo symbol)
   (cond ((and (typep symbol '(cons (eql quote) (cons symbol null)))
               (not (symbol-constant-p (second symbol)))
@@ -195,6 +221,15 @@
   (check-symbol-value-type new symbol)
   (sys.int::cas (symbol-value-cell-value (symbol-value-cell symbol))
                 old new so fo))
+
+(defun sys.int::%atomic-symbol-value (symbol order)
+  (%atomic-symbol-value-cell-value (symbol-value-cell symbol) order))
+
+(defun (setf sys.int::%atomic-symbol-value) (value symbol order)
+  (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)
+  (modifying-symbol-value symbol)
+  (check-symbol-value-type value symbol)
+  (setf (%atomic-symbol-value-cell-value (symbol-value-cell symbol) order) value))
 
 (defvar *symbol-plists*
   (make-hash-table :test #'eql

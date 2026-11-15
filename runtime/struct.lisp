@@ -67,6 +67,34 @@
       (sys.int::cas (instance-access (mezzano.clos::fetch-up-to-date-instance-slots-and-layout object) loc)
                     old new so fo))))
 
+(defun sys.int::%atomic-struct-slot (object class-name slot-name order)
+  (let ((class (sys.int::get-structure-type class-name)))
+    (when (not (sys.int::structure-type-p object class))
+      (raise-struct-type-error object class slot-name)
+      (sys.int::%%unreachable))
+    (let* ((slot (find-struct-slot class slot-name))
+           (loc (mezzano.clos:slot-definition-location slot)))
+      (atomic-instance-access
+       (mezzano.clos::fetch-up-to-date-instance-slots-and-layout object)
+       loc
+       order))))
+
+(defun (setf sys.int::%atomic-struct-slot) (value object class-name slot-name order)
+  (let ((class (sys.int::get-structure-type class-name)))
+    (when (not (sys.int::structure-type-p object class))
+      (raise-struct-type-error object class slot-name)
+      (sys.int::%%unreachable))
+    (let* ((slot (find-struct-slot class slot-name))
+           (type (mezzano.clos:slot-definition-type slot))
+           (loc (mezzano.clos:slot-definition-location slot)))
+      (when (not (eq type 't))
+        (assert (typep value type)))
+      (setf (instance-access
+             (mezzano.clos::fetch-up-to-date-instance-slots-and-layout object)
+             loc
+             order)
+            value))))
+
 (macrolet ((def (name fn)
              `(defun ,name (object class-name slot-name value order)
                 (check-type value fixnum)

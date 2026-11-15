@@ -1276,6 +1276,72 @@ First return value is a list of elements, second is the final dotted component (
                                          so fo)))
                 form))))))
 
+(defun atomic-struct-slot-access-form (slot-def object fn-namespace order &rest additional-args)
+  (let ((type (mezzano.runtime::location-type
+                   (mezzano.clos:slot-definition-location slot-def))))
+    (assert (eql type mezzano.runtime::+location-type-t+)
+            (slot-def)
+            "Atomic accesses to structure slot ~S with instance type ~D not implemented"
+            slot-def type)
+    `(the ,(mezzano.clos:slot-definition-type slot-def)
+          (call ,(if fn-namespace
+                     (list fn-namespace 'sys.int::%atomic-object-ref-t)
+                     'sys.int::%atomic-object-ref-t)
+                ,@additional-args
+                ,object
+                ',(struct-slot-accessor-index slot-def)
+                ,order))))
+
+(defun simplify-atomic-struct-slot (form)
+  (change-made)
+  (destructuring-bind (object structure-name slot-name order)
+      (arguments form)
+    (let ((slot-def (find-struct-slot structure-name slot-name))
+          (struct (sys.int::get-structure-type (ast-value structure-name))))
+      (cond ((match-optimize-settings form '((= safety 0) (= speed 3)))
+             (ast (atomic-struct-slot-access-form slot-def object nil order)
+                  form))
+            (t
+             (ast `(let ((obj ,object)
+                         (order ,order))
+                     (if ,(struct-type-test-form 'obj struct)
+                         ,(atomic-struct-slot-access-form slot-def 'obj nil 'order)
+                         (notinline-call sys.int::%atomic-struct-slot
+                                         obj
+                                         ',(ast-value structure-name)
+                                         ',(ast-value slot-name)
+                                         order)))
+                  form))))))
+
+(defun simplify-setf-atomic-struct-slot (form)
+  (change-made)
+  (destructuring-bind (value object structure-name slot-name order)
+      (arguments form)
+    (let ((slot-def (find-struct-slot structure-name slot-name))
+          (struct (sys.int::get-structure-type (ast-value structure-name))))
+      (cond ((match-optimize-settings form '((= safety 0) (= speed 3)))
+             (ast (atomic-struct-slot-access-form slot-def object 'setf order value)
+                  form))
+            (t
+             (ast `(let ((val ,value)
+                         (obj ,object)
+                         (order ,order))
+                     (if ,(struct-type-test-form 'obj struct)
+                         (progn
+                           (if (source-fragment (typep val ',(mezzano.clos:slot-definition-type slot-def)))
+                               'nil
+                               (progn
+                                 (call sys.int::raise-type-error val ',(mezzano.clos:slot-definition-type slot-def))
+                                 (call sys.int::%%unreachable)))
+                           ,(atomic-struct-slot-access-form slot-def 'obj 'setf 'order 'val))
+                         (notinline-call (setf sys.int::%atomic-struct-slot)
+                                         val
+                                         obj
+                                         ',(ast-value structure-name)
+                                         ',(ast-value slot-name)
+                                         'order)))
+                  form))))))
+
 (defun test-atomic-fixnum-op-struct-slot-transform-viability (form)
   (destructuring-bind (object structure-name slot-name value order)
       (arguments form)
@@ -1905,6 +1971,18 @@ least one value."
           (= (length (arguments form)) 7)
           (find-struct-slot (sixth (arguments form)) (seventh (arguments form))))
      (simplify-cas-struct-slot form))
+    ;; (%atomic-struct-slot s 'def 'slot order) => fast-reader
+    ((and (eql (name form) 'sys.int::%atomic-struct-slot)
+          (local-inlining-permitted-p form)
+          (= (length (arguments form)) 4)
+          (find-struct-slot (second (arguments form)) (third (arguments form))))
+     (simplify-atomic-struct-slot form))
+    ;; ((setf %atomic-struct-slot) value s 'def 'slot order) => fast-writer
+    ((and (equal (name form) '(setf sys.int::%atomic-struct-slot))
+          (local-inlining-permitted-p form)
+          (= (length (arguments form)) 5)
+          (find-struct-slot (third (arguments form)) (fourth (arguments form))))
+     (simplify-setf-atomic-struct-slot form))
     ;; (%atomic-fixnum-add-struct-slot object 'struct-name 'slot-name value order)
     ((and (member (name form) '(sys.int::%atomic-fixnum-add-struct-slot
                                 sys.int::%atomic-fixnum-logand-struct-slot

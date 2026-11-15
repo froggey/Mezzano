@@ -51,12 +51,12 @@ RETURN-FROM/GO must not be used to leave this form."
         (old-value (gensym)))
     (multiple-value-bind (vars vals old-sym new-sym so fo ro wo cas-form read-form write-form)
         (sys.int::get-atomic-expansion place environment)
-      (declare (ignore wo write-form))o
+      (declare (ignore wo write-form))
       `(let ((,self (local-cpu))
              ,@(mapcar #'list vars vals)
-             (,so :seq-cst)
-             (,fo :seq-cst)
-             (,ro :seq-cst))
+             (,so :acq-rel)
+             (,fo :acquire)
+             (,ro :acquire))
          (ensure-interrupts-disabled)
          (block nil
            ;; Attempt one.

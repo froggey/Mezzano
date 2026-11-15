@@ -1338,10 +1338,20 @@
   ;; x9 is interior pointer into x1.
   (emit-gc-info :extra-registers :rax)
   ;; Atomic op
-  (emit (list (arm64-instruction-opcode instruction)
-              (arm64-atomic-rhs instruction)
-              (arm64-atomic-old-value instruction)
-              '(:x9)))
+  (cond ((and (arm64-atomic-rhs instruction)
+              (arm64-atomic-old-value instruction))
+         (emit (list (arm64-instruction-opcode instruction)
+                     (arm64-atomic-rhs instruction)
+                     (arm64-atomic-old-value instruction)
+                     '(:x9))))
+        ((arm64-atomic-old-value instruction)
+         (emit (list (arm64-instruction-opcode instruction)
+                     (arm64-atomic-old-value instruction)
+                     '(:x9))))
+        ((arm64-atomic-rhs instruction)
+         (emit (list (arm64-instruction-opcode instruction)
+                     (arm64-atomic-rhs instruction)
+                     '(:x9)))))
   ;; Finish up.
   (emit-gc-info))
 

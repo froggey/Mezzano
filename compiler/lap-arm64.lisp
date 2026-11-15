@@ -726,6 +726,20 @@
                (ash (register-number base) +rn-shift+)))
       (return-from instruction t))))
 
+(define-instruction ldar (reg address)
+  (destructuring-bind (base) address
+    (check-register-class base :gpr-64 :sp)
+    (check-register-class reg :gpr-64 :xzr :gpr-32 :wzr)
+    (let ((is-64-bit (member (register-class reg) '(:gpr-64 :xzr))))
+      (emit-instruction
+       (logior #x88DFFC00
+               (if is-64-bit
+                   #x40000000
+                   #x00000000)
+               (ash (register-number reg) +rt-shift+)
+               (ash (register-number base) +rn-shift+)))
+      (return-from instruction t))))
+
 (define-instruction stlxrb (status reg address)
   (destructuring-bind (base) address
     (check-register-class status :gpr-64 :xzr :gpr-32 :wzr)
@@ -795,6 +809,20 @@
                (ash (register-number status) +rs-shift+)
                (ash (register-number r1) +rt-shift+)
                (ash (register-number r2) +rt2-shift+)
+               (ash (register-number base) +rn-shift+)))
+      (return-from instruction t))))
+
+(define-instruction stlr (reg address)
+  (destructuring-bind (base) address
+    (check-register-class base :gpr-64 :sp)
+    (check-register-class reg :gpr-64 :xzr :gpr-32 :wzr)
+    (let ((is-64-bit (member (register-class reg) '(:gpr-64 :xzr))))
+      (emit-instruction
+       (logior #x889FFC00
+               (if is-64-bit
+                   #x40000000
+                   #x00000000)
+               (ash (register-number reg) +rt-shift+)
                (ash (register-number base) +rn-shift+)))
       (return-from instruction t))))
 
