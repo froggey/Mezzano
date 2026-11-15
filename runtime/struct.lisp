@@ -53,7 +53,7 @@
         (assert (typep value type)))
       (setf (instance-access (mezzano.clos::fetch-up-to-date-instance-slots-and-layout object) loc) value))))
 
-(defun (sys.int::cas sys.int::%struct-slot) (old new object class-name slot-name)
+(defun (sys.int::cas sys.int::%struct-slot) (old new so fo object class-name slot-name)
   (let ((class (sys.int::get-structure-type class-name)))
     (when (not (sys.int::structure-type-p object class))
       (raise-struct-type-error object class slot-name)
@@ -65,7 +65,7 @@
         (assert (typep old type))
         (assert (typep new type)))
       (sys.int::cas (instance-access (mezzano.clos::fetch-up-to-date-instance-slots-and-layout object) loc)
-                    old new))))
+                    old new so fo))))
 
 (macrolet ((def (name fn)
              `(defun ,name (object class-name slot-name value order)
@@ -175,7 +175,7 @@
         (assert (typep value type)))
       (setf (instance-access (mezzano.clos::fetch-up-to-date-instance-slots-and-layout object) loc index) value))))
 
-(defun (sys.int::cas sys.int::%struct-vector-slot) (old new object class-name slot-name index)
+(defun (sys.int::cas sys.int::%struct-vector-slot) (old new so fo object class-name slot-name index)
   (let ((class (sys.int::get-structure-type class-name)))
     (when (not (sys.int::structure-type-p object class))
       (raise-struct-type-error object class slot-name)
@@ -187,7 +187,8 @@
       (when (not (eq type 't))
         (assert (typep old type))
         (assert (typep new type)))
-      (sys.int::cas (instance-access (mezzano.clos::fetch-up-to-date-instance-slots-and-layout object) loc index) old new))))
+      (sys.int::cas (instance-access (mezzano.clos::fetch-up-to-date-instance-slots-and-layout object) loc index)
+                    old new so fo))))
 
 (defun structure-object-class (object)
   "If OBJECT is a structure object, return the object's class. Otherwise return NIL."

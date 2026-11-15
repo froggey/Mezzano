@@ -764,26 +764,28 @@
         (t ;; Normal array, backed by a simple array.
          (setf (%simple-array-aref (%complex-array-storage array) index) value))))
 
-(defun (cas %row-major-aref) (old new array index)
+(defun (cas %row-major-aref) (old new so fo array index)
   "(CAS ROW-MAJOR-AREF) with no bounds check."
   (cond ((%simple-1d-array-p array)
-         (cas (%simple-array-aref array index) old new))
+         (cas (%simple-array-aref array index) old new so fo))
         ((%complex-array-info array)
          (let ((storage (%complex-array-storage array)))
            (cond ((or (fixnump storage)
                       (typep storage 'mezzano.supervisor:dma-buffer))
                   ;; A memory array.
-                  (cas (%memory-array-aref storage index) old new))
+                  (cas (%memory-array-aref storage index)
+                       old new so fo))
                  (t
                   ;; A displaced array.
                   (cas (row-major-aref storage
                                        (+ index (%complex-array-info array)))
-                       old new)))))
+                       old new so fo)))))
         ((character-array-p array)
          ;; TODO. The promotion from narrow backing arrays to wide backing arrays complicates this...
          (error "CAS not supported on character arrays"))
         (t ;; Normal array, backed by a simple array.
-         (cas (%simple-array-aref (%complex-array-storage array) index) old new))))
+         (cas (%simple-array-aref (%complex-array-storage array) index)
+              old new so fo))))
 
 (defun row-major-aref (array index)
   (check-type array array)
@@ -801,13 +803,13 @@
       (error "Row-major index ~S exceeds total size ~S of array ~S." index total-size array))
     (setf (%row-major-aref array index) value)))
 
-(defun (cas row-major-aref) (old new array index)
+(defun (cas row-major-aref) (old new so fo array index)
   (check-type array array)
   (check-type index (integer 0) "a non-negative integer")
   (let ((total-size (array-total-size array)))
     (when (>= index total-size)
       (error "Row-major index ~S exceeds total size ~S of array ~S." index total-size array))
-    (cas (%row-major-aref array index) old new)))
+    (cas (%row-major-aref array index) old new so fo)))
 
 (defun aref (array &rest subscripts)
   (declare (dynamic-extent subscripts))
@@ -817,9 +819,10 @@
   (declare (dynamic-extent subscripts))
   (setf (%row-major-aref array (apply #'array-row-major-index array subscripts)) value))
 
-(defun (cas aref) (old new array &rest subscripts)
+(defun (cas aref) (old new so fo array &rest subscripts)
   (declare (dynamic-extent subscripts))
-  (cas (%row-major-aref array (apply #'array-row-major-index array subscripts)) old new))
+  (cas (%row-major-aref array (apply #'array-row-major-index array subscripts))
+       old new so fo))
 
 (defun aref-1 (array index)
   (check-type index integer)
@@ -841,7 +844,7 @@
            index (array-dimension array 0)))
   (setf (%row-major-aref array index) value))
 
-(defun (cas aref-1) (old new array index)
+(defun (cas aref-1) (old new so fo array index)
   (check-type index integer)
   (unless (= (array-rank array) 1)
     (error "Invalid number of indices to array ~S." array))
@@ -849,7 +852,8 @@
             (>= index (array-dimension array 0)))
     (error "Index ~S out of bounds. Must be 0 <= n < ~D~%"
            index (array-dimension array 0)))
-  (cas (%row-major-aref array index) old new))
+  (cas (%row-major-aref array index)
+       old new so fo))
 
 (defun aref-2 (array index1 index2)
   (check-type index1 integer)
@@ -883,7 +887,7 @@
   (let ((ofs (+ (* index1 (array-dimension array 1)) index2)))
     (setf (%row-major-aref array ofs) value)))
 
-(defun (cas aref-2) (old new array index1 index2)
+(defun (cas aref-2) (old new so fo array index1 index2)
   (check-type index1 integer)
   (check-type index2 integer)
   (unless (= (array-rank array) 2)
@@ -897,7 +901,8 @@
     (error "Index ~S out of bounds. Must be 0 <= n < ~D~%"
            index2 (array-dimension array 1)))
   (let ((ofs (+ (* index1 (array-dimension array 1)) index2)))
-    (cas (%row-major-aref array ofs) old new)))
+    (cas (%row-major-aref array ofs)
+         old new so fo)))
 
 (defun aref-3 (array index1 index2 index3)
   (check-type index1 integer)
@@ -941,7 +946,7 @@
     (let ((ofs (+ (* (+ (* index1 dim2) index2) dim3) index3)))
       (setf (%row-major-aref array ofs) value))))
 
-(defun (cas aref-3) (old new array index1 index2 index3)
+(defun (cas aref-3) (old new so fo array index1 index2 index3)
   (check-type index1 integer)
   (check-type index2 integer)
   (check-type index3 integer)
@@ -960,7 +965,8 @@
               (>= index3 dim3))
       (error "Index ~S out of bounds. Must be 0 <= n < ~D~%" index3 dim3))
     (let ((ofs (+ (* (+ (* index1 dim2) index2) dim3) index3)))
-      (cas (%row-major-aref array ofs) old new))))
+      (cas (%row-major-aref array ofs)
+           old new so fo))))
 
 (defun bit (bit-array &rest subscripts)
   (declare (dynamic-extent subscripts))

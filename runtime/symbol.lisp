@@ -41,10 +41,10 @@
 (defun (setf symbol-value-cell-value) (value cell)
   (setf (sys.int::%object-ref-t cell sys.int::+symbol-value-cell-value+) value))
 
-(defun (sys.int::cas symbol-value-cell-value) (old new cell)
+(defun (sys.int::cas symbol-value-cell-value) (old new so fo cell)
   (multiple-value-bind (successp actual-value)
-      (sys.int::%cas-object cell sys.int::+symbol-value-cell-value+ old new
-                            :seq-cst :seq-cst)
+      (sys.int::%cas-object cell sys.int::+symbol-value-cell-value+
+                            old new so fo)
     (declare (ignore successp))
     actual-value))
 
@@ -134,21 +134,21 @@
   (check-symbol-value-type value symbol)
   (setf (symbol-value-cell-value (symbol-global-value-cell symbol)) value))
 
-(define-compiler-macro (sys.int::cas sys.int::symbol-global-value) (&whole whole old new symbol)
+(define-compiler-macro (sys.int::cas sys.int::symbol-global-value) (&whole whole old new so fo symbol)
   (cond ((and (typep symbol '(cons (eql quote) (cons symbol null)))
               (not (symbol-constant-p (second symbol)))
               (eql (symbol-type (second symbol)) 't))
          `(sys.int::cas (symbol-value-cell-value (symbol-global-value-cell ',(second symbol)))
-                        ,old ,new))
+                        ,old ,new ,so ,fo))
         (t
          whole)))
 
-(defun (sys.int::cas sys.int::symbol-global-value) (old new symbol)
+(defun (sys.int::cas sys.int::symbol-global-value) (old new so fo symbol)
   (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)
   (modifying-symbol-value symbol)
   (check-symbol-value-type new symbol)
   (sys.int::cas (symbol-value-cell-value (symbol-global-value-cell symbol))
-                old new))
+                old new so fo))
 
 (define-compiler-macro symbol-value-cell (symbol)
   (let ((sym (gensym)))
@@ -194,12 +194,12 @@
   (check-symbol-value-type value symbol)
   (setf (symbol-value-cell-value (symbol-value-cell symbol)) value))
 
-(defun (sys.int::cas symbol-value) (old new symbol)
+(defun (sys.int::cas symbol-value) (old new so fo symbol)
   (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)
   (modifying-symbol-value symbol)
   (check-symbol-value-type new symbol)
   (sys.int::cas (symbol-value-cell-value (symbol-value-cell symbol))
-                old new))
+                old new so fo))
 
 (defvar *symbol-plists*
   (make-hash-table :test #'eql

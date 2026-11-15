@@ -86,7 +86,7 @@
           (t
            (setf (sys.int::%struct-slot instance class slot) new-value)))))
 
-(defmethod (sys.int::cas slot-value-using-class) (old new (class structure-class) instance (slot structure-effective-slot-definition))
+(defmethod (sys.int::cas slot-value-using-class) (old new so fo (class structure-class) instance (slot structure-effective-slot-definition))
   (when (structure-slot-definition-read-only slot)
     (error "The slot ~S in class ~S is read-only."
            (slot-definition-name slot)
@@ -95,7 +95,7 @@
     (cond (fv
            (error "CAS on fixed-vector slots not supported"))
           (t
-           (sys.int::cas (sys.int::%struct-slot instance class slot) old new)))))
+           (sys.int::cas (sys.int::%struct-slot instance class slot) old new so fo)))))
 
 (defmethod slot-boundp-using-class ((class structure-class) instance (slot structure-effective-slot-definition))
   t)

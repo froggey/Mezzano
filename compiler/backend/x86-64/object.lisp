@@ -408,7 +408,7 @@
          (emit (make-instance 'ir:move-instruction
                               :source value
                               :destination result))))
-     (define-builtin (sys.int::cas ,name) ((old new object index) result)
+     (define-builtin (sys.int::cas ,name) ((old new so fo object index) result)
        (let ((old-unboxed (make-instance 'ir:virtual-register :kind :integer))
              (new-unboxed (make-instance 'ir:virtual-register :kind :integer))
              (result-unboxed (make-instance 'ir:virtual-register :kind :integer)))

@@ -131,11 +131,11 @@ the old or new values are expected to be unbound.")
       (setf (sys.int::%object-ref-t instance (mezzano.runtime::location-offset-t location))
             new-value)))
 
-(defun (sys.int::cas standard-instance-access) (old new instance location)
+(defun (sys.int::cas standard-instance-access) (old new so fo instance location)
   (if (consp location)
-      (sys.int::cas (cdr location) old new)
+      (sys.int::cas (cdr location) old new so fo)
       (sys.int::cas (sys.int::%object-ref-t instance (mezzano.runtime::location-offset-t location))
-                    old new)))
+                    old new so fo)))
 
 ;; Instance and funcallable instances are accessed in the same way,
 ;; these are provided for compatibility with other MOP implementations.
@@ -145,8 +145,8 @@ the old or new values are expected to be unbound.")
 (defun (setf funcallable-standard-instance-access) (value instance location)
   (setf (standard-instance-access instance location) value))
 
-(defun (sys.int::cas funcallable-standard-instance-access) (old new instance location)
-  (sys.int::cas (standard-instance-access instance location) old new))
+(defun (sys.int::cas funcallable-standard-instance-access) (old new so fo instance location)
+  (sys.int::cas (standard-instance-access instance location) old new so fo))
 
 (defun slot-location-using-layout (slot-name layout)
   "If SLOT-NAME names an instance slot in LAYOUT, return the location otherwise NIL"
@@ -367,32 +367,35 @@ the old or new values are expected to be unbound.")
         (t
          whole)))
 
-(defun (sys.int::cas std-slot-value) (old new instance slot-name)
+(defun (sys.int::cas std-slot-value) (old new so fo instance slot-name)
   (multiple-value-bind (slots location)
       (slot-location-in-instance instance slot-name)
     (when (not location)
       (return-from std-slot-value
-        (slot-missing (class-of instance) instance slot-name 'sys.int::cas (list old new))))
+        (slot-missing (class-of instance) instance slot-name 'sys.int::cas (list old new so fo))))
     (when (not (eql new '+slot-unbound+))
       (check-slot-type new instance slot-name))
     (let* ((real-old (if (eql old '+slot-unbound+) *secret-unbound-value* old))
            (real-new (if (eql new '+slot-unbound+) *secret-unbound-value* new))
-           (prev (sys.int::cas (standard-instance-access slots location) real-old real-new)))
+           (prev (sys.int::cas (standard-instance-access slots location)
+                               real-old real-new so fo)))
       (cond ((eql prev *secret-unbound-value*)
              (if (eql old '+slot-unbound+)
                  '+slot-unbound+
                  (values (slot-unbound (class-of instance) instance slot-name))))
             (t
              prev)))))
-(defun (sys.int::cas slot-value) (old new object slot-name)
+(defun (sys.int::cas slot-value) (old new so fo object slot-name)
   (cond ((std-class-p (class-of (class-of object)))
-         (sys.int::cas (std-slot-value object slot-name) old new))
+         (sys.int::cas (std-slot-value object slot-name)
+                       old new so fo))
         (t
          (let ((slot (find-effective-slot object slot-name)))
            (cond (slot
-                  (sys.int::cas (slot-value-using-class (class-of object) object slot) old new))
+                  (sys.int::cas (slot-value-using-class (class-of object) object slot)
+                                old new so fo))
                  (t
-                  (values (slot-missing (class-of object) object slot-name 'sys.int::cas (list old new)))))))))
+                  (values (slot-missing (class-of object) object slot-name 'sys.int::cas (list old new so fo)))))))))
 
 (defun std-slot-boundp (instance slot-name)
   (multiple-value-bind (slots location)
@@ -2983,9 +2986,10 @@ always match."
 (defmethod (setf slot-value-using-class) (new-value (class std-class) instance (slot standard-effective-slot-definition))
   (setf (std-slot-value instance (safe-slot-definition-name slot)) new-value))
 
-(defgeneric (sys.int::cas slot-value-using-class) (old new class instance slot))
-(defmethod (sys.int::cas slot-value-using-class) (old new (class std-class) instance (slot standard-effective-slot-definition))
-  (sys.int::cas (std-slot-value instance (safe-slot-definition-name slot)) old new))
+(defgeneric (sys.int::cas slot-value-using-class) (old new so fo class instance slot))
+(defmethod (sys.int::cas slot-value-using-class) (old new so fo (class std-class) instance (slot standard-effective-slot-definition))
+  (sys.int::cas (std-slot-value instance (safe-slot-definition-name slot))
+                old new so fo))
 
 (defgeneric slot-boundp-using-class (class instance slot))
 (defmethod slot-boundp-using-class ((class std-class) instance (slot standard-effective-slot-definition))

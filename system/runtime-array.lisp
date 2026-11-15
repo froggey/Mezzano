@@ -286,14 +286,14 @@
            (%object-ref-double-float array (1+ (* index 2))) (imagpart value))))
   value)
 
-(defun (cas %simple-array-aref) (old new array index)
+(defun (cas %simple-array-aref) (old new so fo array index)
   (ecase (%object-tag array)
     (#.+object-tag-array-t+ ;; simple-vector
-     (cas (%object-ref-t array index) old new))
+     (cas (%object-ref-t array index) old new so fo))
     (#.+object-tag-array-fixnum+
      (check-type old fixnum)
      (check-type new fixnum)
-     (cas (%object-ref-t array index) old new))
+     (cas (%object-ref-t array index) old new so fo))
     ((#.+object-tag-array-bit+
       #.+object-tag-array-unsigned-byte-2+
       #.+object-tag-array-unsigned-byte-4+
@@ -303,27 +303,27 @@
      ;; ### These could be supported with a RMW CAS loop, but it's not really worth it.
      (error "CAS not supported on sub-octet arrays"))
     (#.+object-tag-array-unsigned-byte-8+
-     (cas (%object-ref-unsigned-byte-8 array index) old new))
+     (cas (%object-ref-unsigned-byte-8 array index) old new so fo))
     (#.+object-tag-array-unsigned-byte-16+
-     (cas (%object-ref-unsigned-byte-16 array index) old new))
+     (cas (%object-ref-unsigned-byte-16 array index) old new so fo))
     (#.+object-tag-array-unsigned-byte-32+
-     (cas (%object-ref-unsigned-byte-32 array index) old new))
+     (cas (%object-ref-unsigned-byte-32 array index) old new so fo))
     (#.+object-tag-array-unsigned-byte-64+
-     (cas (%object-ref-unsigned-byte-64 array index) old new))
+     (cas (%object-ref-unsigned-byte-64 array index) old new so fo))
     (#.+object-tag-array-signed-byte-8+
-     (cas (%object-ref-signed-byte-8 array index) old new))
+     (cas (%object-ref-signed-byte-8 array index) old new so fo))
     (#.+object-tag-array-signed-byte-16+
-     (cas (%object-ref-signed-byte-16 array index) old new))
+     (cas (%object-ref-signed-byte-16 array index) old new so fo))
     (#.+object-tag-array-signed-byte-32+
-     (cas (%object-ref-signed-byte-32 array index) old new))
+     (cas (%object-ref-signed-byte-32 array index) old new so fo))
     (#.+object-tag-array-signed-byte-64+
-     (cas (%object-ref-signed-byte-64 array index) old new))
+     (cas (%object-ref-signed-byte-64 array index) old new so fo))
     (#.+object-tag-array-short-float+
-     (cas (%object-ref-short-float array index) old new))
+     (cas (%object-ref-short-float array index) old new so fo))
     (#.+object-tag-array-single-float+
-     (cas (%object-ref-single-float array index) old new))
+     (cas (%object-ref-single-float array index) old new so fo))
     (#.+object-tag-array-double-float+
-     (cas (%object-ref-double-float array index) old new))
+     (cas (%object-ref-double-float array index) old new so fo))
     ((#.+object-tag-array-complex-short-float+
       #.+object-tag-array-complex-single-float+
       #.+object-tag-array-complex-double-float+)
@@ -509,17 +509,17 @@
              (memref-double-float address (1+ (* index 2))) (imagpart value)))))
   value)
 
-(defun (cas %memory-array-aref) (old new array index)
+(defun (cas %memory-array-aref) (old new so fo array index)
   (let ((address (%complex-array-storage array)))
     (when (typep address 'mezzano.supervisor:dma-buffer)
       (setf address (mezzano.supervisor:dma-buffer-virtual-address address)))
     (ecase (%complex-array-info array)
       (#.+object-tag-array-t+ ;; simple-vector
-       (cas (memref-t address index) old new))
+       (cas (memref-t address index) old new so fo))
       (#.+object-tag-array-fixnum+
        (check-type old fixnum)
        (check-type new fixnum)
-       (cas (memref-t address index) old new))
+       (cas (memref-t address index) old new so fo))
       ((#.+object-tag-array-bit+
         #.+object-tag-array-unsigned-byte-2+
         #.+object-tag-array-unsigned-byte-4+
@@ -529,32 +529,33 @@
        ;; ### These could be supported with a RMW CAS loop, but it's not really worth it.
        (error "CAS not supported on sub-octet arrays"))
       (#.+object-tag-array-unsigned-byte-8+
-       (cas (memref-unsigned-byte-8 address index) old new))
+       (cas (memref-unsigned-byte-8 address index) old new so fo))
       (#.+object-tag-array-unsigned-byte-16+
-       (cas (memref-unsigned-byte-16 address index) old new))
+       (cas (memref-unsigned-byte-16 address index) old new so fo))
       (#.+object-tag-array-unsigned-byte-32+
-       (cas (memref-unsigned-byte-32 address index) old new))
+       (cas (memref-unsigned-byte-32 address index) old new so fo))
       (#.+object-tag-array-unsigned-byte-64+
-       (cas (memref-unsigned-byte-64 address index) old new))
+       (cas (memref-unsigned-byte-64 address index) old new so fo))
       (#.+object-tag-array-signed-byte-8+
-       (cas (memref-signed-byte-8 address index) old new))
+       (cas (memref-signed-byte-8 address index) old new so fo))
       (#.+object-tag-array-signed-byte-16+
-       (cas (memref-signed-byte-16 address index) old new))
+       (cas (memref-signed-byte-16 address index) old new so fo))
       (#.+object-tag-array-signed-byte-32+
-       (cas (memref-signed-byte-32 address index) old new))
+       (cas (memref-signed-byte-32 address index) old new so fo))
       (#.+object-tag-array-signed-byte-64+
-       (cas (memref-signed-byte-64 address index) old new))
+       (cas (memref-signed-byte-64 address index) old new so fo))
       (#.+object-tag-array-short-float+
        (check-type old short-float)
        (check-type new short-float)
        (%integer-as-short-float
         (cas (memref-unsigned-byte-16 array index)
              (%short-float-as-integer old)
-             (%short-float-as-integer new))))
+             (%short-float-as-integer new)
+             so fo)))
       (#.+object-tag-array-single-float+
-       (cas (memref-single-float address index) old new))
+       (cas (memref-single-float address index) old new so fo))
       (#.+object-tag-array-double-float+
-       (cas (memref-double-float address index) old new))
+       (cas (memref-double-float address index) old new so fo))
       ((#.+object-tag-array-complex-short-float+
         #.+object-tag-array-complex-single-float+
         #.+object-tag-array-complex-double-float+)

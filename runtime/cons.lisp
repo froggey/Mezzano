@@ -45,30 +45,30 @@
          (sys.int::%%unreachable))))
 
 (declaim (inline (mezzano.extensions:cas car) (mezzano.extensions:cas cdr)))
-(defun (mezzano.extensions:cas car) (old new cons)
+(defun (mezzano.extensions:cas car) (old new so fo cons)
   (declare (optimize (debug 0)))
   (cond ((consp cons)
-         (nth-value 1 (sys.int::%cas-cons-car cons old new)))
+         (nth-value 1 (sys.int::%cas-cons-car cons old new so fo)))
         (t
          (sys.int::raise-type-error cons 'cons)
          (sys.int::%%unreachable))))
 
-(defun (mezzano.extensions:cas cdr) (old new cons)
+(defun (mezzano.extensions:cas cdr) (old new so fo cons)
   (declare (optimize (debug 0)))
   (cond ((consp cons)
-         (nth-value 1 (sys.int::%cas-cons-cdr cons old new)))
+         (nth-value 1 (sys.int::%cas-cons-cdr cons old new so fo)))
         (t
          (sys.int::raise-type-error cons 'cons)
          (sys.int::%%unreachable))))
 
 (declaim (inline sys.int::%atomic-swap-car))
-(defun sys.int::%atomic-swap-car (cons value)
+(defun sys.int::%atomic-swap-car (cons value order)
   (when (not (consp cons))
     (sys.int::raise-type-error cons 'cons))
-  (sys.int::%xchg-car cons value))
+  (sys.int::%xchg-car cons value order))
 
 (declaim (inline sys.int::%atomic-swap-cdr))
-(defun sys.int::%atomic-swap-cdr (cons value)
+(defun sys.int::%atomic-swap-cdr (cons value order)
   (when (not (consp cons))
     (sys.int::raise-type-error cons 'cons))
-  (sys.int::%xchg-cdr cons value))
+  (sys.int::%xchg-cdr cons value order))

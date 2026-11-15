@@ -16,15 +16,19 @@
     (:acq-rel :acquire)
     (:seq-cst :seq-cst)))
 
-;; Follows SBCL's interface, returns six values:
+;; Returns many values:
 ;; list of temporary variables
 ;; list of value-forms whose results those variable must be bound
 ;; temporary variable for the old value of place
 ;; temporary variable for the new value of place
+;; temporary variable for the success-ordering
+;; temporary variable for the failure-ordering
+;; temporary variable for the load-ordering
+;; temporary variable for the store-ordering
 ;; form using the aforementioned temporaries which performs the compare-and-swap operation on place
 ;; form using the aforementioned temporaries with which to perform an atomic read of place
 ;; form using the aforementioned temporaries with which to perform an atomic write of place
-(defun get-cas-expansion (place &optional environment)
+(defun get-atomic-expansion (place &optional environment)
   (let ((expansion (macroexpand place environment)))
     (cond ((symbolp expansion)
            ;; Lexical variables would be ok to cas (captured variables, etc),
@@ -41,52 +45,71 @@
               (error "CAS on symbol-macro ~S not allowed." expansion))
              (:global
               (let ((old (gensym "OLD"))
-                    (new (gensym "NEW")))
+                    (new (gensym "NEW"))
+                    (so (gensym "SUCCESS-ORDER"))
+                    (fo (gensym "FAILURE-ORDER"))
+                    (ro (gensym "LOAD-ORDER"))
+                    (wo (gensym "STORE-ORDER")))
                 (values '()
                         '()
-                        old
-                        new
-                        `(funcall #'(cas symbol-global-value) ,old ,new ',expansion)
+                        old new
+                        so fo ro wo
+                        `(funcall #'(cas symbol-global-value) ,old ,new ,so ,fo ',expansion)
                         `(symbol-global-value ',expansion)
                         `(setf (symbol-global-value ',expansion) ,new))))
              ((:special nil)
               ;; Fall back on CAS of SYMBOL-VALUE.
               (let ((old (gensym "OLD"))
-                    (new (gensym "NEW")))
+                    (new (gensym "NEW"))
+                    (so (gensym "SUCCESS-ORDER"))
+                    (fo (gensym "FAILURE-ORDER"))
+                    (ro (gensym "LOAD-ORDER"))
+                    (wo (gensym "STORE-ORDER")))
                 (values '()
                         '()
-                        old
-                        new
-                        `(funcall #'(cas symbol-value) ,old ,new ',expansion)
+                        old new
+                        so fo ro wo
+                        `(funcall #'(cas symbol-value) ,old ,new ,so ,fo ',expansion)
                         `(symbol-value ',expansion)
                         `(setf (symbol-value ',expansion) ,new))))))
           (t
            ;; All other CAS forms are currently functions!
            (let ((old (gensym "OLD"))
                  (new (gensym "NEW"))
+                 (so (gensym "SUCCESS-ORDER"))
+                 (fo (gensym "FAILURE-ORDER"))
+                 (ro (gensym "LOAD-ORDER"))
+                 (wo (gensym "STORE-ORDER"))
                  (vars (loop
                           for arg in (rest expansion)
                           collect (gensym))))
              (values vars
                      (copy-list (rest expansion))
-                     old
-                     new
-                     `(funcall #'(cas ,(first expansion)) ,old ,new ,@vars)
+                     old new
+                     so fo ro wo
+                     `(funcall #'(cas ,(first expansion)) ,old ,new ,so ,fo ,@vars)
                      `(,(first expansion) ,@vars)
                      `(setf (,(first expansion) ,@vars) ,new)))))))
 
 )
 
-(defmacro cas (place old new)
+(defmacro cas (place old new &optional success-order failure-order)
   "Synonym for COMPARE-AND-SWAP."
-  `(compare-and-swap ,place ,old ,new))
+  `(compare-and-swap ,place ,old ,new ,success-order ,failure-order))
 
-(defmacro compare-and-swap (place old new &environment environment)
-  (multiple-value-bind (vars vals old-sym new-sym cas-form)
-      (get-cas-expansion place environment)
+(defmacro compare-and-swap (place old new &optional success-order failure-order &environment environment)
+  (when (null success-order)
+    (setf success-order :seq-cst))
+  (when (and (null failure-order)
+             (keywordp success-order))
+    (setf failure-order (cas-failure-order success-order)))
+  (multiple-value-bind (vars vals old-sym new-sym so fo lo wo cas-form)
+      (get-atomic-expansion place environment)
     `(let (,@(mapcar #'list vars vals)
            (,old-sym ,old)
-           (,new-sym ,new))
+           (,new-sym ,new)
+           (,so ,success-order)
+           (,fo ,failure-order))
        ,cas-form)))
 
 (declaim (inline wrapping-fixnum-+))
@@ -142,8 +165,11 @@ If NAME does not name a struct accessor, then NIL is returned."
                                 '(order)
                                 '(&optional order)))
          ,documentation
-         (multiple-value-bind (vars vals old-sym new-sym cas-form read-form)
-             (get-cas-expansion ,place ,env)
+         (when (null order)
+           (setf order :seq-cst))
+         (multiple-value-bind (vars vals old-sym new-sym so fo ro wo cas-form read-form)
+             (get-atomic-expansion ,place ,env)
+           (declare (ignore wo))
            (let ,(loop
                     for name in all-names
                     for sym in all-name-syms
@@ -153,58 +179,60 @@ If NAME does not name a struct accessor, then NIL is returned."
                           for name in all-names
                           for sym in all-name-syms
                           collect ``(,,sym ,,name)))
-                ,(cond
-                   ;; If READ-FORM is of the form (SYMBOL-GLOBAL-VALUE 'foo), then we know
-                   ;; this is a global symbol and can touch it directly.
-                   ((and (typep read-form '(cons (eql symbol-global-value)
-                                            (cons (cons (eql quote) (cons symbol null))
-                                             null)))
-                         ,(if require-fixnum
-                              `(type-equal (mezzano.runtime::symbol-type (second (second read-form))) 'fixnum ,env)
-                              't))
-                    (list
-                      ',symbol-function
-                      `',(second (second read-form))
-                      ,@all-name-syms
-                      order))
-                   ,@(when cons-operations
-                       `(((typep read-form '(cons (member car first) (cons t null)))
-                          (list
-                            ',(car cons-operations)
-                            (second read-form)
-                            ,@all-name-syms
-                            order))
-                         ((typep read-form '(cons (member cdr rest) (cons t null)))
-                          (list
-                            ',(cdr cons-operations)
-                            (second read-form)
-                            ,@all-name-syms
-                            order))))
-                   ;; If it names a structure slot accessor, then perform that
-                   ;; operation.
-                   ((and (typep read-form '(cons symbol (cons t null)))
-                         (struct-accessor-info (first read-form) ,env))
-                    ;; Try for structure accessors
-                    (multiple-value-bind (struct-name slot-name)
-                        (struct-accessor-info (first read-form) ,env)
+                (let* ((,so ,order)
+                       (,fo ,so)
+                       (,ro ,so))
+                  ,(cond
+                     ;; If READ-FORM is of the form (SYMBOL-GLOBAL-VALUE 'foo), then we know
+                     ;; this is a global symbol and can touch it directly.
+                     ((and (typep read-form '(cons (eql symbol-global-value)
+                                              (cons (cons (eql quote) (cons symbol null))
+                                               null)))
+                           ,(if require-fixnum
+                                `(type-equal (mezzano.runtime::symbol-type (second (second read-form))) 'fixnum ,env)
+                                't))
                       (list
-                        ',struct-slot-function
-                        (second read-form)
-                        `',struct-name `',slot-name
-                        ,@all-name-syms
-                        order)))
-                   (t
-                    ;; Fall back on a CAS loop.
-                    ;; TODO: Support directly on struct slots that have been declared fixnum.
-                    ;; TODO: Ordering
-                    `(loop
-                        for ,old-sym = ,read-form
-                        for ,new-sym = ,(list
+                       ',symbol-function
+                       `',(second (second read-form))
+                       ,@all-name-syms
+                       order))
+                     ,@(when cons-operations
+                         `(((typep read-form '(cons (member car first) (cons t null)))
+                            (list
+                             ',(car cons-operations)
+                             (second read-form)
+                             ,@all-name-syms
+                             order))
+                           ((typep read-form '(cons (member cdr rest) (cons t null)))
+                            (list
+                             ',(cdr cons-operations)
+                             (second read-form)
+                             ,@all-name-syms
+                             order))))
+                     ;; If it names a structure slot accessor, then perform that
+                     ;; operation.
+                     ((and (typep read-form '(cons symbol (cons t null)))
+                           (struct-accessor-info (first read-form) ,env))
+                      ;; Try for structure accessors
+                      (multiple-value-bind (struct-name slot-name)
+                          (struct-accessor-info (first read-form) ,env)
+                        (list
+                         ',struct-slot-function
+                         (second read-form)
+                         `',struct-name `',slot-name
+                         ,@all-name-syms
+                         order)))
+                     (t
+                      ;; Fall back on a CAS loop.
+                      ;; TODO: Support directly on struct slots that have been declared fixnum.
+                      `(loop
+                         for ,old-sym = ,read-form
+                         for ,new-sym = ,(list
                                           ',function
                                           old-sym
                                           ,@all-name-syms)
-                        when (eq ,cas-form ,old-sym)
-                        return ,,(if no-result '(values) 'old-sym)))))))))))
+                         when (eq ,cas-form ,old-sym)
+                           return ,,(if no-result '(values) 'old-sym))))))))))))
 
 ;; TODO: We've got atomic ops that perform these operations directly. Use
 ;; them instead of expanding to CAS loops.
@@ -269,6 +297,11 @@ Returns no values.")
 Returns the old value of PLACE.")
 
 (defmacro double-compare-and-swap (&environment env place-1 place-2 old-1 old-2 new-1 new-2 &optional success-order failure-order)
+  (when (null success-order)
+    (setf success-order :seq-cst))
+  (when (and (null failure-order)
+             (keywordp success-order))
+    (setf failure-order (cas-failure-order success-order)))
   (let ((place-1 (macroexpand place-1 env))
         (place-2 (macroexpand place-2 env)))
     (cond ((and (typep place-1 '(cons (member car first) (cons t null)))

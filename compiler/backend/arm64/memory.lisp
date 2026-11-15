@@ -104,7 +104,7 @@
          (emit (make-instance 'ir:move-instruction
                               :source value
                               :destination result))))
-     (define-builtin (sys.int::cas ,name) ((old new address index) result :has-wrapper nil)
+     (define-builtin (sys.int::cas ,name) ((old new (:constant so (typep so 'atomic-order)) (:constant fo (typep fo 'atomic-order)) address index) result :has-wrapper nil)
        (let ((old-unboxed (make-instance 'ir:virtual-register :kind :integer))
              (new-unboxed (make-instance 'ir:virtual-register :kind :integer))
              (current-unboxed (make-instance 'ir:virtual-register :kind :integer))
@@ -131,9 +131,8 @@
                               :old-value old-unboxed
                               :new-value new-unboxed
                               :current-value current-unboxed
-                              ;; TODO: Pass orders through
-                              :success-order :seq-cst
-                              :failure-order :seq-cst))
+                              :success-order so
+                              :failure-order fo))
          (emit (make-instance ',box-op
                               :source current-unboxed
                               :destination result))))))

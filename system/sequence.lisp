@@ -58,15 +58,15 @@
         (setf (car the-cdr) value))
       (setf (aref sequence index) value)))
 
-(defun (cas elt) (sequence index old new)
+(defun (cas elt) (old new so fo sequence index)
   (check-type sequence sequence)
   (check-type index (integer 0))
   (if (listp sequence)
       (let ((the-cdr (nthcdr index sequence)))
         (when (null the-cdr)
           (error "Index ~D out of bounds for sequence ~S." index sequence))
-        (cas (car the-cdr) old new))
-      (cas (aref sequence index) old new)))
+        (cas (car the-cdr) old new so fo))
+      (cas (aref sequence index) old new so fo)))
 
 (declaim (inline position-if))
 (defun position-if (predicate sequence &key key from-end (start 0) end)

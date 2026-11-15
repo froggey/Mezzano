@@ -76,9 +76,9 @@
       (setf (sys.int::memref-unsigned-byte-64 page-table index) value)
     (%dc.cvau (+ page-table (* index 8)))))
 
-(defun (ext:cas page-table-entry) (old new page-table &optional (index 0))
+(defun (ext:cas page-table-entry) (old new so fo page-table &optional (index 0))
   (prog1
-      (ext:cas (sys.int::memref-unsigned-byte-64 page-table index) old new)
+      (ext:cas (sys.int::memref-unsigned-byte-64 page-table index) old new so fo)
     (%dc.cvau (+ page-table (* index 8)))))
 
 (defun make-pte (frame &key writable (present t) block wired dirty copy-on-write (cache-mode :normal))

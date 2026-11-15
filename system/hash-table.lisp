@@ -231,7 +231,8 @@
     (funcall (the function fast-fn) value key hash-table))
   value)
 
-(defun (cas gethash) (old-value new-value key hash-table &optional default)
+(defun (cas gethash) (old-value new-value so fo key hash-table &optional default)
+  (declare (ignore so fo))
   (check-type hash-table hash-table)
   (let ((fast-fn (hash-table-cashash-fn hash-table)))
     (declare (optimize speed (safety 0)))

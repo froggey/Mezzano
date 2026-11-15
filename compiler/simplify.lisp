@@ -1236,20 +1236,24 @@ First return value is a list of elements, second is the final dotted component (
 
 (defun simplify-cas-struct-slot (form)
   (change-made)
-  (destructuring-bind (old new object structure-name slot-name)
+  (destructuring-bind (old new so fo object structure-name slot-name)
       (arguments form)
     (let ((slot-def (find-struct-slot structure-name slot-name))
           (struct (sys.int::get-structure-type (ast-value structure-name))))
       (cond ((match-optimize-settings form '((= safety 0) (= speed 3)))
              (ast `(let ((old ,old)
                          (new ,new)
-                         (obj ,object))
-                     ,(struct-slot-access-form slot-def 'obj 'sys.int::cas 'old 'new))
+                         (obj ,object)
+                         (so ,so)
+                         (fo ,fo))
+                     ,(struct-slot-access-form slot-def 'obj 'sys.int::cas 'old 'new 'so 'fo))
                   form))
             (t
              (ast `(let ((old ,old)
                          (new ,new)
-                         (obj ,object))
+                         (obj ,object)
+                         (so ,so)
+                         (fo ,fo))
                      (if ,(struct-type-test-form 'obj struct)
                          (progn
                            (if (source-fragment (typep old ',(mezzano.clos:slot-definition-type slot-def)))
@@ -1262,13 +1266,14 @@ First return value is a list of elements, second is the final dotted component (
                                (progn
                                  (call sys.int::raise-type-error new ',(mezzano.clos:slot-definition-type slot-def))
                                  (call sys.int::%%unreachable)))
-                           ,(struct-slot-access-form slot-def 'obj 'sys.int::cas 'old 'new))
+                           ,(struct-slot-access-form slot-def 'obj 'sys.int::cas 'old 'new 'so 'fo))
                          (notinline-call (sys.int::cas sys.int::%struct-slot)
                                          old
                                          new
                                          obj
                                          ',(ast-value structure-name)
-                                         ',(ast-value slot-name))))
+                                         ',(ast-value slot-name)
+                                         so fo)))
                 form))))))
 
 (defun test-atomic-fixnum-op-struct-slot-transform-viability (form)
@@ -1599,20 +1604,24 @@ First return value is a list of elements, second is the final dotted component (
 
 (defun simplify-cas-struct-vector-slot (form)
   (change-made)
-  (destructuring-bind (old new object structure-name slot-name index)
+  (destructuring-bind (old new so fo object structure-name slot-name index)
       (arguments form)
     (let ((slot-def (find-struct-slot structure-name slot-name))
           (struct (sys.int::get-structure-type (ast-value structure-name))))
       (cond ((match-optimize-settings form '((= safety 0) (= speed 3)))
              (ast `(let ((old ,old)
                          (new ,new)
+                         (so ,so)
+                         (fo ,fo)
                          (obj ,object)
                          (ind ,index))
-                     ,(struct-vector-slot-access-form slot-def 'obj 'sys.int::cas 'ind t 'old 'new))
+                     ,(struct-vector-slot-access-form slot-def 'obj 'sys.int::cas 'ind t 'old 'new 'so 'fo))
                 form))
           (t
            (ast `(let ((old ,old)
                        (new ,new)
+                       (so ,so)
+                       (fo ,fo)
                        (obj ,object)
                        (ind ,index))
                    (progn
@@ -1629,10 +1638,11 @@ First return value is a list of elements, second is the final dotted component (
                                (progn
                                  (call sys.int::raise-type-error new ',(mezzano.clos:slot-definition-type slot-def))
                                  (call sys.int::%%unreachable)))
-                           ,(struct-vector-slot-access-form slot-def 'obj 'sys.int::cas 'ind nil 'old 'new))
+                           ,(struct-vector-slot-access-form slot-def 'obj 'sys.int::cas 'ind nil 'old 'new 'so 'fo))
                          (notinline-call (sys.int::cas sys.int::%struct-vector-slot)
                                          old
                                          new
+                                         so fo
                                          obj
                                          ',(ast-value structure-name)
                                          ',(ast-value slot-name)
@@ -1889,11 +1899,11 @@ least one value."
           (= (length (arguments form)) 4)
           (find-struct-slot (third (arguments form)) (fourth (arguments form))))
      (simplify-setf-struct-slot form))
-    ;; ((cas %struct-slot) old new s 'def 'slot) => fast-cas
+    ;; ((cas %struct-slot) old new so fo s 'def 'slot) => fast-cas
     ((and (equal (name form) '(sys.int::cas sys.int::%struct-slot))
           (local-inlining-permitted-p form)
-          (= (length (arguments form)) 5)
-          (find-struct-slot (fourth (arguments form)) (fifth (arguments form))))
+          (= (length (arguments form)) 7)
+          (find-struct-slot (sixth (arguments form)) (seventh (arguments form))))
      (simplify-cas-struct-slot form))
     ;; (%atomic-fixnum-add-struct-slot object 'struct-name 'slot-name value order)
     ((and (member (name form) '(sys.int::%atomic-fixnum-add-struct-slot
@@ -1930,11 +1940,11 @@ least one value."
           (= (length (arguments form)) 5)
           (find-struct-slot (third (arguments form)) (fourth (arguments form))))
      (simplify-setf-struct-vector-slot form))
-    ;; ((cas %struct-vector-slot) old new s 'def 'slot index) => fast-cas
+    ;; ((cas %struct-vector-slot) old new so fo s 'def 'slot index) => fast-cas
     ((and (equal (name form) '(sys.int::cas sys.int::%struct-vector-slot))
           (local-inlining-permitted-p form)
-          (= (length (arguments form)) 6)
-          (find-struct-slot (fourth (arguments form)) (fifth (arguments form))))
+          (= (length (arguments form)) 8)
+          (find-struct-slot (sixth (arguments form)) (seventh (arguments form))))
      (simplify-cas-struct-vector-slot form))
     ;; (%allocate-struct 'name) => (%allocate-struct 'struct)
     ((and (eql (name form) 'sys.int::%allocate-struct)

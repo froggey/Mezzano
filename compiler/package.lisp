@@ -154,9 +154,9 @@
 
    ;; Atomics
    #:atomic-order
+   #:get-atomic-expansion
    #:cas
    #:compare-and-swap
-   #:get-cas-expansion
    #:atomic-incf
    #:atomic-decf
    #:atomic-logandf

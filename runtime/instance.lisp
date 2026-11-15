@@ -143,7 +143,7 @@
                                                    (* index ,(location-type-scale type))))))))))
   (def nil ())
   (def setf (value))
-  (def sys.int::cas (new old)))
+  (def sys.int::cas (new old so fo)))
 
 (declaim (inline %instance-dcas))
 (defun %instance-dcas (instance offset old-1 old-2 new-1 new-2
@@ -197,8 +197,9 @@
 (defun (setf instance-access-by-name) (value object slot-name &optional (index 0))
   (setf (instance-access object (instance-slot-location object slot-name) index) value))
 
-(defun (sys.int::cas instance-access-by-name) (old new object slot-name &optional (index 0))
-  (sys.int::cas (instance-access object (instance-slot-location object slot-name) index) old new))
+(defun (sys.int::cas instance-access-by-name) (old new so fo object slot-name &optional (index 0))
+  (sys.int::cas (instance-access object (instance-slot-location object slot-name) index)
+                old new so fo))
 
 (defun sys.int::instance-header-p (object)
   (sys.int::%value-has-tag-p object sys.int::+tag-instance-header+))

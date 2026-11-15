@@ -2,7 +2,8 @@
 
 (in-package :cross-support)
 
-(defmacro mezzano.extensions:cas (place old new)
+(defmacro mezzano.extensions:cas (place old new &optional so fo)
+  (declare (ignore so fo))
   ;; As a special cross-build exception, support hash-tables.
   (cond ((and (consp place)
               (eql (first place) 'gethash))

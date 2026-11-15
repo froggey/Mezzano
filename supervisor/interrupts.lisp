@@ -49,10 +49,14 @@ RETURN-FROM/GO must not be used to leave this form."
 (defmacro acquire-place-spinlock (place &environment environment)
   (let ((self (gensym))
         (old-value (gensym)))
-    (multiple-value-bind (vars vals old-sym new-sym cas-form read-form)
-        (sys.int::get-cas-expansion place environment)
+    (multiple-value-bind (vars vals old-sym new-sym so fo ro wo cas-form read-form write-form)
+        (sys.int::get-atomic-expansion place environment)
+      (declare (ignore wo write-form))o
       `(let ((,self (local-cpu))
-             ,@(mapcar #'list vars vals))
+             ,@(mapcar #'list vars vals)
+             (,so :seq-cst)
+             (,fo :seq-cst)
+             (,ro :seq-cst))
          (ensure-interrupts-disabled)
          (block nil
            ;; Attempt one.
@@ -81,12 +85,14 @@ RETURN-FROM/GO must not be used to leave this form."
          (values)))))
 
 (defmacro release-place-spinlock (place &environment environment)
-  (multiple-value-bind (vars vals old-sym new-sym cas-form read-form write-form)
-      (sys.int::get-cas-expansion place environment)
-    (declare (ignore old-sym cas-form read-form))
+  (multiple-value-bind (vars vals old-sym new-sym so fo ro lo cas-form read-form write-form)
+      (sys.int::get-atomic-expansion place environment)
+    (declare (ignore old-sym cas-form read-form so fo ro))
     `(let* (,@(mapcar #'list vars vals)
             (,new-sym :unlocked)
-            (,old-sym ,read-form))
+            (,old-sym ,read-form)
+            (,so :seq-cst)
+            (,fo :seq-cst))
        ;; FIXME: This should use the write form but that doesn't have the proper
        ;; release semantics yet on arm64.
        ,cas-form

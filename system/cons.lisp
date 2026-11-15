@@ -54,8 +54,8 @@
 (defun (setf rest) (new-tail list)
   (setf (cdr list) new-tail))
 
-(defun (cas rest) (old new list)
-  (cas (cdr list) old new))
+(defun (cas rest) (old new so fo list)
+  (cas (cdr list) old new so fo))
 
 (declaim (inline rplaca rplacd))
 (defun rplaca (cons object)
@@ -135,8 +135,8 @@
 (defun (setf nth) (value n list)
   (setf (car (nthcdr n list)) value))
 
-(defun (cas nth) (old new n list)
-  (cas (car (nthcdr n list)) old new))
+(defun (cas nth) (old new so fo n list)
+  (cas (car (nthcdr n list)) old new so fo))
 
 (defun append (&rest lists)
   (declare (dynamic-extent lists))

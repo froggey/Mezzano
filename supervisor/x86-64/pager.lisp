@@ -28,8 +28,8 @@
 (defun (setf page-table-entry) (value page-table &optional (index 0))
   (setf (sys.int::memref-unsigned-byte-64 page-table index) value))
 
-(defun (ext:cas page-table-entry) (old new page-table &optional (index 0))
-  (ext:cas (sys.int::memref-unsigned-byte-64 page-table index) old new))
+(defun (ext:cas page-table-entry) (old new so fo page-table &optional (index 0))
+  (ext:cas (sys.int::memref-unsigned-byte-64 page-table index) old new so fo))
 
 (defun pte-page-present-p (pte)
   (logtest +x86-64-pte-present+ pte))
