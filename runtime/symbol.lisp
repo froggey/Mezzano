@@ -43,7 +43,8 @@
 
 (defun (sys.int::cas symbol-value-cell-value) (old new cell)
   (multiple-value-bind (successp actual-value)
-      (sys.int::%cas-object cell sys.int::+symbol-value-cell-value+ old new)
+      (sys.int::%cas-object cell sys.int::+symbol-value-cell-value+ old new
+                            :seq-cst :seq-cst)
     (declare (ignore successp))
     actual-value))
 
@@ -97,7 +98,8 @@
              (let ((new-cell (make-symbol-global-value-cell symbol)))
                ;; Try to atomically update the value cell.
                (multiple-value-bind (successp old-value)
-                   (sys.int::%cas-object symbol sys.int::+symbol-value+ nil new-cell)
+                   (sys.int::%cas-object symbol sys.int::+symbol-value+ nil new-cell
+                                         :seq-cst :seq-cst)
                  (if successp
                      new-cell
                      old-value)))))))
@@ -273,7 +275,7 @@
           ((:global) sys.int::+symbol-mode-global+)))
   value)
 
-(define-compiler-macro sys.int::%atomic-fixnum-add-symbol (&whole whole symbol value)
+(define-compiler-macro sys.int::%atomic-fixnum-add-symbol (&whole whole symbol value order)
   (cond ((and (typep symbol '(cons (eql quote) (cons symbol null)))
               (symbol-global-p (second symbol)))
          (let ((value-sym (gensym "VALUE")))
@@ -281,54 +283,61 @@
               (when (not (sys.int::fixnump ,value-sym))
                 (sys.int::raise-type-error ,value-sym 'fixnum)
                 (sys.int::%%unreachable))
-              (sys.int::%atomic-fixnum-add-object (symbol-global-value-cell ,symbol)
-                                                  sys.int::+symbol-value-cell-value+
-                                                  ,value-sym))))
+              (sys.int::%atomic-fixnum-add-object
+               (symbol-global-value-cell ,symbol)
+               sys.int::+symbol-value-cell-value+
+               ,value-sym
+               ,order))))
         (t
          whole)))
 
-(defun sys.int::%atomic-fixnum-add-symbol (symbol value)
+(defun sys.int::%atomic-fixnum-add-symbol (symbol value order)
   (when (not (sys.int::fixnump value))
     (sys.int::raise-type-error value 'fixnum))
   (modifying-symbol-value symbol)
   (sys.int::%atomic-fixnum-add-object (symbol-value-cell symbol)
                                       sys.int::+symbol-value-cell-value+
-                                      value))
+                                      value
+                                      order))
 
 (declaim (inline sys.int::%atomic-fixnum-logand-symbol))
-(defun sys.int::%atomic-fixnum-logand-symbol (symbol value)
+(defun sys.int::%atomic-fixnum-logand-symbol (symbol value order)
   (when (not (sys.int::fixnump value))
     (sys.int::raise-type-error value 'fixnum))
   (modifying-symbol-value symbol)
   (sys.int::%atomic-fixnum-logand-object (symbol-value-cell symbol)
                                          sys.int::+symbol-value-cell-value+
-                                         value))
+                                         value
+                                         order))
 
 (declaim (inline sys.int::%atomic-fixnum-logior-symbol))
-(defun sys.int::%atomic-fixnum-logior-symbol (symbol value)
+(defun sys.int::%atomic-fixnum-logior-symbol (symbol value order)
   (when (not (sys.int::fixnump value))
     (sys.int::raise-type-error value 'fixnum))
   (modifying-symbol-value symbol)
   (sys.int::%atomic-fixnum-logior-object (symbol-value-cell symbol)
                                          sys.int::+symbol-value-cell-value+
-                                         value))
+                                         value
+                                         order))
 
 (declaim (inline sys.int::%atomic-fixnum-logxor-symbol))
-(defun sys.int::%atomic-fixnum-logxor-symbol (symbol value)
+(defun sys.int::%atomic-fixnum-logxor-symbol (symbol value order)
   (when (not (sys.int::fixnump value))
     (sys.int::raise-type-error value 'fixnum))
   (modifying-symbol-value symbol)
   (sys.int::%atomic-fixnum-logxor-object (symbol-value-cell symbol)
                                          sys.int::+symbol-value-cell-value+
-                                         value))
+                                         value
+                                         order))
 
 (declaim (inline sys.int::%atomic-swap-symbol))
-(defun sys.int::%atomic-swap-symbol (symbol new-value)
+(defun sys.int::%atomic-swap-symbol (symbol new-value order)
   (modifying-symbol-value symbol)
   (check-symbol-value-type new-value symbol)
   (sys.int::%xchg-object (symbol-value-cell symbol)
                          sys.int::+symbol-value-cell-value+
-                         new-value))
+                         new-value
+                         order))
 
 (defun sys.int::symbol-hash (symbol)
   (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)

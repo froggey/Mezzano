@@ -235,8 +235,8 @@ Protected by the world stop lock."
       (setf (thread-state idle) :active)
       (setf (sys.int::msr +msr-ia32-gs-base+) (sys.int::lisp-object-address idle)))
     ;; Have now reached a quiescent state.
-    (sys.int::%atomic-fixnum-add-symbol '*non-quiescent-cpus-remaining*
-                                        -1)
+    (sys.int::%atomic-fixnum-add-symbol
+     '*non-quiescent-cpus-remaining* -1 :seq-cst)
     (when was-active
       ;; Finally, return to the idle thread.
       (%%switch-to-thread-common idle
@@ -277,10 +277,10 @@ Protected by the world stop lock."
     (save-fpu-state current)
     (save-interrupted-state current interrupt-frame))
   (sys.int::%atomic-fixnum-add-symbol
-   '*debug-magic-button-ready-variable* -1)
+   '*debug-magic-button-ready-variable* -1 :seq-cst)
   (loop while *debug-magic-button-hold-variable*)
   (sys.int::%atomic-fixnum-add-symbol
-   '*debug-magic-button-ready-variable* -1))
+   '*debug-magic-button-ready-variable* -1 :seq-cst))
 
 (sys.int::defglobal *tlb-shootdown-in-progress* nil)
 (sys.int::defglobal *busy-tlb-shootdown-cpus*)
@@ -329,8 +329,8 @@ TLB shootdown must be protected by the VM lock."
 (defun tlb-shootdown-ipi-handler (interrupt-frame info)
   (declare (ignore info))
   (lapic-eoi)
-  (sys.int::%atomic-fixnum-add-symbol '*busy-tlb-shootdown-cpus*
-                                      -1)
+  (sys.int::%atomic-fixnum-add-symbol
+   '*busy-tlb-shootdown-cpus* -1 :seq-cst)
   (loop
      (when (not *tlb-shootdown-in-progress*)
        (return))
@@ -339,8 +339,8 @@ TLB shootdown must be protected by the VM lock."
        (magic-button-ipi-handler-1 interrupt-frame))
      (sys.int::cpu-relax))
   (flush-tlb)
-  (sys.int::%atomic-fixnum-add-symbol '*busy-tlb-shootdown-cpus*
-                                      -1))
+  (sys.int::%atomic-fixnum-add-symbol
+   '*busy-tlb-shootdown-cpus* -1 :seq-cst))
 
 (sys.int::define-lap-function local-cpu (())
   "Return the address of the local CPU's info vector."

@@ -145,10 +145,14 @@
   (def setf (value))
   (def sys.int::cas (new old)))
 
-(defun %instance-dcas (instance offset old-1 old-2 new-1 new-2)
-  (sys.int::%dcas-object instance offset old-1 old-2 new-1 new-2))
+(declaim (inline %instance-dcas))
+(defun %instance-dcas (instance offset old-1 old-2 new-1 new-2
+                       success-order failure-order)
+  (sys.int::%dcas-object instance offset old-1 old-2 new-1 new-2
+                         success-order failure-order))
 
-(defun instance-dcas (instance loc-1 loc-2 old-1 old-2 new-1 new-2)
+(defun instance-dcas (instance loc-1 loc-2 old-1 old-2 new-1 new-2
+                      success-order failure-order)
   ;; TODO: Eventually combinations of same-width locations could be supported.
   ;; T and UB64, or UB32 and SINGLE-FLOAT, etc
   (when (not (eql (location-type loc-1) (location-type loc-2)))
@@ -164,11 +168,13 @@
         (ofs-2 (location-offset-t loc-2)))
     (cond ((eql (1+ ofs-1) ofs-2)
            ;; Normal location ordering.
-           (%instance-dcas instance ofs-1 old-1 old-2 new-1 new-2))
+           (%instance-dcas instance ofs-1 old-1 old-2 new-1 new-2
+                           success-order failure-order))
           ((eql (1+ ofs-2) ofs-1)
            ;; Reversed location ordering.
            (multiple-value-bind (successp value-2 value-1)
-               (%instance-dcas instance ofs-2 old-2 old-1 new-2 new-1)
+               (%instance-dcas instance ofs-2 old-2 old-1 new-2 new-1
+                               success-order failure-order)
              (values successp value-1 value-2)))
           (t
            (error "DCAS is not supported on discontigious locations ~S and ~S" loc-1 loc-2)))))

@@ -68,7 +68,7 @@
                     old new))))
 
 (macrolet ((def (name fn)
-             `(defun ,name (object class-name slot-name value)
+             `(defun ,name (object class-name slot-name value order)
                 (check-type value fixnum)
                 (let ((class (sys.int::get-structure-type class-name)))
                   (when (not (sys.int::structure-type-p object class))
@@ -87,13 +87,14 @@
                     (,fn
                      (mezzano.clos::fetch-up-to-date-instance-slots-and-layout object)
                      (location-offset-t loc)
-                     value))))))
+                     value
+                     order))))))
   (def sys.int::%atomic-fixnum-add-struct-slot sys.int::%atomic-fixnum-add-object)
   (def sys.int::%atomic-fixnum-logand-struct-slot sys.int::%atomic-fixnum-logand-object)
   (def sys.int::%atomic-fixnum-logior-struct-slot sys.int::%atomic-fixnum-logior-object)
   (def sys.int::%atomic-fixnum-logxor-struct-slot sys.int::%atomic-fixnum-logxor-object))
 
-(defun sys.int::%atomic-swap-struct-slot (object class-name slot-name value)
+(defun sys.int::%atomic-swap-struct-slot (object class-name slot-name value order)
   (let ((class (sys.int::get-structure-type class-name)))
     (when (not (sys.int::structure-type-p object class))
       (raise-struct-type-error object class slot-name)
@@ -108,12 +109,14 @@
       (sys.int::%xchg-object
        (mezzano.clos::fetch-up-to-date-instance-slots-and-layout object)
        (location-offset-t loc)
-       value))))
+       value
+       order))))
 
 (defun sys.int::%dcas-struct-slot (object
                                    place-1-class-name place-1-slot-name
                                    place-2-class-name place-2-slot-name
-                                   old-1 old-2 new-1 new-2)
+                                   old-1 old-2 new-1 new-2
+                                   success-order failure-order)
   (let ((class-1 (sys.int::get-structure-type place-1-class-name))
         (class-2 (sys.int::get-structure-type place-2-class-name)))
     (when (not (sys.int::structure-type-p object class-1))
@@ -142,7 +145,8 @@
         (error "Slots ~S and ~S in structure types ~S and ~S are not DCAS siblings"
                slot-1 slot-2 class-1 class-2))
       (instance-dcas (mezzano.clos::fetch-up-to-date-instance-slots-and-layout object)
-                     loc-1 loc-2 old-1 old-2 new-1 new-2))))
+                     loc-1 loc-2 old-1 old-2 new-1 new-2
+                     success-order failure-order))))
 
 (defun check-vector-slot-bounds (slot index)
   (check-type index fixnum)

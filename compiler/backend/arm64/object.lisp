@@ -433,12 +433,12 @@
 ;; (defun fixnum-add (object slot delta)
 ;;   (prog1 (%object-ref-t object slot)
 ;;     (incf (%object-ref-t object slot) delta)))
-(define-builtin sys.int::%atomic-fixnum-add-object ((object offset delta (:constant ordering (typep ordering 'atomic-ordering))) result :has-wrapper nil)
+(define-builtin sys.int::%atomic-fixnum-add-object ((object offset delta (:constant order (typep order 'atomic-order))) result :has-wrapper nil)
   (emit (make-instance 'ir:move-instruction
                        :source object
                        :destination :x1))
   (emit (make-instance 'arm64-atomic-instruction
-                       :opcode (ecase ordering
+                       :opcode (ecase order
                                  (:relaxed 'lap:ldadd)
                                  (:acquire 'lap:ldadda)
                                  (:release 'lap:ldaddl)
@@ -451,12 +451,12 @@
 ;; (defun xchg (object slot new)
 ;;   (prog1 (%object-ref-t object slot)
 ;;     (setf (%object-ref-t object slot) new)))
-(define-builtin sys.int::%xchg-object ((object offset new (:constant ordering (typep ordering 'atomic-ordering))) result :has-wrapper nil)
+(define-builtin sys.int::%xchg-object ((object offset new (:constant order (typep order 'atomic-order))) result :has-wrapper nil)
   (emit (make-instance 'ir:move-instruction
                        :source object
                        :destination :x1))
   (emit (make-instance 'arm64-atomic-instruction
-                       :opcode (ecase ordering
+                       :opcode (ecase order
                                  (:relaxed 'lap:swp)
                                  (:acquire 'lap:swpa)
                                  (:release 'lap:swpl)
@@ -475,7 +475,7 @@
 ;;                    t)
 ;;                   (t nil))
 ;;             slot-value)))
-(define-builtin sys.int::%cas-object ((object offset old new (:constant success-ordering (typep success-ordering 'atomic-ordering)) (:constant failure-ordering (typep failure-ordering 'atomic-ordering))) (result slot-value) :has-wrapper nil)
+(define-builtin sys.int::%cas-object ((object offset old new (:constant success-order (typep success-order 'atomic-order)) (:constant failure-order (typep failure-order 'atomic-order))) (result slot-value) :has-wrapper nil)
   (emit (make-instance 'ir:move-instruction
                        :source object
                        :destination :x1))
@@ -485,10 +485,10 @@
                        :result result
                        :current-value slot-value
                        :index offset
-                       :success-ordering success-ordering
-                       :failure-ordering failure-ordering)))
+                       :success-order success-order
+                       :failure-order failure-order)))
 
-(define-builtin sys.int::%dcas-object ((object offset old-1 old-2 new-1 new-2 (:constant success-ordering (typep success-ordering 'atomic-ordering)) (:constant failure-ordering (typep failure-ordering 'atomic-ordering))) (result value-1 value-2) :has-wrapper nil)
+(define-builtin sys.int::%dcas-object ((object offset old-1 old-2 new-1 new-2 (:constant success-order (typep success-order 'atomic-order)) (:constant failure-order (typep failure-order 'atomic-order))) (result value-1 value-2) :has-wrapper nil)
   (emit (make-instance 'ir:move-instruction
                        :source object
                        :destination :x1))
@@ -508,8 +508,8 @@
   (emit (make-instance 'arm64-casp-instruction
                        :result result
                        :index offset
-                       :success-ordering success-ordering
-                       :failure-ordering failure-ordering))
+                       :success-order success-order
+                       :failure-order failure-order))
   (emit (make-instance 'ir:move-instruction
                        :source :x2
                        :destination value-1))
@@ -520,12 +520,12 @@
 ;; (defun fixnum-logior (object slot value)
 ;;   (prog1 (%object-ref-t object slot)
 ;;     (setf (%object-ref-t object slot) (logior (%object-ref-t object slot) value)))
-(define-builtin sys.int::%atomic-fixnum-logior-object ((object offset delta (:constant ordering (typep ordering 'atomic-ordering))) result :has-wrapper nil)
+(define-builtin sys.int::%atomic-fixnum-logior-object ((object offset delta (:constant order (typep order 'atomic-order))) result :has-wrapper nil)
   (emit (make-instance 'ir:move-instruction
                        :source object
                        :destination :x1))
   (emit (make-instance 'arm64-atomic-instruction
-                       :opcode (ecase ordering
+                       :opcode (ecase order
                                  (:relaxed 'lap:ldset)
                                  (:acquire 'lap:ldseta)
                                  (:release 'lap:ldsetl)
@@ -537,12 +537,12 @@
 ;; (defun fixnum-logxor (object slot value)
 ;;   (prog1 (%object-ref-t object slot)
 ;;     (setf (%object-ref-t object slot) (logxor (%object-ref-t object slot) value)))
-(define-builtin sys.int::%atomic-fixnum-logxor-object ((object offset delta (:constant ordering (typep ordering 'atomic-ordering))) result :has-wrapper nil)
+(define-builtin sys.int::%atomic-fixnum-logxor-object ((object offset delta (:constant order (typep order 'atomic-order))) result :has-wrapper nil)
   (emit (make-instance 'ir:move-instruction
                        :source object
                        :destination :x1))
   (emit (make-instance 'arm64-atomic-instruction
-                       :opcode (ecase ordering
+                       :opcode (ecase order
                                  (:relaxed 'lap:ldeor)
                                  (:acquire 'lap:ldeora)
                                  (:release 'lap:ldeorl)

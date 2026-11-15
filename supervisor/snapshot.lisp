@@ -498,7 +498,7 @@ This event will be signalled when the epoch changes."
 
 (defun call-with-snapshot-inhibited (fn)
   ;; FIXME: Switch to ATOMIC-INCF/-DECF. Needs xcompiler fixes for declaim.
-  (sys.int::%atomic-fixnum-add-symbol '*snapshot-inhibit* 1)
+  (sys.int::%atomic-fixnum-add-symbol '*snapshot-inhibit* 1 :seq-cst)
   (unwind-protect
        (funcall fn)
-    (sys.int::%atomic-fixnum-add-symbol '*snapshot-inhibit* -1)))
+    (sys.int::%atomic-fixnum-add-symbol '*snapshot-inhibit* -1 :seq-cst)))

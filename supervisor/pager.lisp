@@ -1034,10 +1034,10 @@ It will put the thread to sleep, while it waits for the page."
     (when (and *pager-fast-path-enabled*
                (wait-for-page-fast-path address writep))
       (sys.int::%atomic-fixnum-add-symbol
-       '*pager-fast-path-hits* 1)
+       '*pager-fast-path-hits* 1 :relaxed)
       (return-from wait-for-page-via-interrupt))
     (sys.int::%atomic-fixnum-add-symbol
-     '*pager-fast-path-misses* 1)
+     '*pager-fast-path-misses* 1 :relaxed)
     (with-symbol-spinlock (*pager-lock*)
       (acquire-global-thread-lock)
       (setf (thread-state self) (if writep

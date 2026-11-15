@@ -1345,21 +1345,21 @@
   ;; Finish up.
   (emit-gc-info))
 
-(defun pick-cas-op (success-ordering failure-ordering)
-  (ecase success-ordering
+(defun pick-cas-op (success-order failure-order)
+  (ecase success-order
     (:relaxed
-     (ecase failure-ordering
+     (ecase failure-order
        (:relaxed (values 'lap:cas 'lap:casp))
        ((:acquire :seq-cst) (values 'lap:casa 'lap:caspa))))
     (:acquire
-     (ecase failure-ordering
+     (ecase failure-order
        ((:relaxed :acquire :seq-cst) (values 'lap:casa 'lap:caspa))))
     (:release
-     (ecase failure-ordering
+     (ecase failure-order
        (:relaxed (values 'lap:casl 'lap:caspl))
        ((:acquire :seq-cst) (values 'lap:casal 'lap:caspal))))
     ((:acq-rel :seq-cst)
-     (ecase failure-ordering
+     (ecase failure-order
        ((:relaxed :acquire :seq-cst) (values 'lap:casal 'lap:caspal))))))
 
 (defun narrow-cas-op (op width)
@@ -1378,8 +1378,8 @@
 ;; TODO: This also generates the result value, that could be done directly in %cas-object
 ;; to generate a predicate result.
 (defmethod emit-lap (backend-function (instruction arm64-cas-instruction) uses defs)
-  (let ((op (pick-cas-op (arm64-cas-success-ordering instruction)
-                         (arm64-cas-failure-ordering instruction))))
+  (let ((op (pick-cas-op (arm64-cas-success-order instruction)
+                         (arm64-cas-failure-order instruction))))
     ;; Convert to unboxed integer (scaled appropriately), with tag adjustment.
     (emit `(lap:add :x9 :xzr ,(arm64-cas-index instruction) :lsl ,(- 3 sys.int::+n-fixnum-bits+))
           `(lap:sub :x9 :x9 (- (object-slot-displacement 0))))
@@ -1404,8 +1404,8 @@
           `(lap:csel.eq ,(arm64-cas-result instruction) ,(arm64-cas-result instruction) :x26))))
 
 (defmethod emit-lap (backend-function (instruction arm64-casp-instruction) uses defs)
-  (let ((op (nth-value 1 (pick-cas-op (arm64-cas-success-ordering instruction)
-                                      (arm64-cas-failure-ordering instruction)))))
+  (let ((op (nth-value 1 (pick-cas-op (arm64-cas-success-order instruction)
+                                      (arm64-cas-failure-order instruction)))))
     ;; Convert to unboxed integer (scaled appropriately), with tag adjustment.
     (emit `(lap:add :x9 :xzr ,(arm64-cas-index instruction) :lsl ,(- 3 sys.int::+n-fixnum-bits+))
           `(lap:sub :x9 :x9 (- (object-slot-displacement 0))))
@@ -1431,8 +1431,8 @@
 
 ;; Needed because this is a two-address op that writes the input old value register
 (defmethod emit-lap (backend-function (instruction arm64-cas-mem-instruction) uses defs)
-  (let* ((fundamental-op (pick-cas-op (arm64-cas-success-ordering instruction)
-                                      (arm64-cas-failure-ordering instruction)))
+  (let* ((fundamental-op (pick-cas-op (arm64-cas-success-order instruction)
+                                      (arm64-cas-failure-order instruction)))
          (width (arm64-cas-mem-width instruction))
          (conversion-width (if (eql width 64) 64 32))
          (op (narrow-cas-op fundamental-op width)))

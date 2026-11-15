@@ -286,7 +286,7 @@ thread's stack if this function is called from normal code."
   (setf (%object-ref-t object index) value))
 (defun (cas %object-ref-t) (old new object index)
   (multiple-value-bind (successp actual-value)
-      (%cas-object object index old new)
+      (%cas-object object index old new :seq-cst :seq-cst)
     (declare (ignore successp))
     actual-value))
 
@@ -411,3 +411,124 @@ thread's stack if this function is called from normal code."
 
 (defun %function-reference-code-location (fref)
   (mezzano.runtime::%object-slot-address fref +fref-code+))
+
+;;; Atomic op wrappers
+;;;
+;;; Since the compiler only deals in constant orders and
+;;; as the orders are &OPTIONAL args, we need to both
+;;; define a custom wrapper function that dispatched to
+;;; a known order and to define a compiler macro
+;;; that makes any optional order explicit in the call
+;;; to prevent the compiler falling back to the wrapper
+;;; for every call.
+
+(define-compiler-macro %cas-object (&whole whole object offset old new success-order failure-order)
+  ;; Make the optional orders explicit so the compiler can see them.
+  (cond ((or (null success-order)
+             (and (null failure-order)
+                  (or (null success-order)
+                      (keywordp success-order))))
+         (when (null success-order)
+           (setf success-order :seq-cst))
+         (when (and (null failure-order)
+                    (keywordp success-order))
+           (setf failure-order (cas-failure-order success-order)))
+         `(%cas-object ,object ,offset ,old ,new ,success-order ,failure-order))
+        (t
+         whole)))
+
+;; Out-of-line wrapper as the compiler only deals in constant orders.
+(defun %cas-object (object offset old new success-order failure-order)
+  (let* ((success-order (or success-order :seq-cst))
+         (failure-order (or failure-order (cas-failure-order success-order))))
+    (ecase success-order
+      (:relaxed
+       (ecase failure-order
+         (:relaxed (%cas-object object offset old new :relaxed :relaxed))
+         (:acquire (%cas-object object offset old new :relaxed :acquire))
+         (:seq-cst (%cas-object object offset old new :relaxed :seq-cst))))
+      (:acquire
+       (ecase failure-order
+         (:relaxed (%cas-object object offset old new :acquire :relaxed))
+         (:acquire (%cas-object object offset old new :acquire :acquire))
+         (:seq-cst (%cas-object object offset old new :acquire :seq-cst))))
+      (:release
+       (ecase failure-order
+         (:relaxed (%cas-object object offset old new :release :relaxed))
+         (:acquire (%cas-object object offset old new :release :acquire))
+         (:seq-cst (%cas-object object offset old new :release :seq-cst))))
+      (:acq-rel
+       (ecase failure-order
+         (:relaxed (%cas-object object offset old new :acq-rel :relaxed))
+         (:acquire (%cas-object object offset old new :acq-rel :acquire))
+         (:seq-cst (%cas-object object offset old new :acq-rel :seq-cst))))
+      (:seq-cst
+       (ecase failure-order
+         (:relaxed (%cas-object object offset old new :seq-cst :relaxed))
+         (:acquire (%cas-object object offset old new :seq-cst :acquire))
+         (:seq-cst (%cas-object object offset old new :seq-cst :seq-cst)))))))
+
+(define-compiler-macro %dcas-object (&whole whole object offset old-1 old-2 new-1 new-2 success-order failure-order)
+  ;; Make the optional orders explicit so the compiler can see them.
+  (cond ((or (null success-order)
+             (and (null failure-order)
+                  (or (null success-order)
+                      (keywordp success-order))))
+         (when (null success-order)
+           (setf success-order :seq-cst))
+         (when (and (null failure-order)
+                    (keywordp success-order))
+           (setf failure-order (cas-failure-order success-order)))
+         `(%dcas-object ,object ,offset ,old-1 ,old-2 ,new-1 ,new-2 ,success-order ,failure-order))
+        (t
+         whole)))
+
+(defun %dcas-object (object offset old-1 old-2 new-1 new-2 success-order failure-order)
+  (let* ((success-order (or success-order :seq-cst))
+         (failure-order (or failure-order (cas-failure-order success-order))))
+    (ecase success-order
+      (:relaxed
+       (ecase failure-order
+         (:relaxed (%dcas-object object offset old-1 old-2 new-1 new-2 :relaxed :relaxed))
+         (:acquire (%dcas-object object offset old-1 old-2 new-1 new-2 :relaxed :acquire))
+         (:seq-cst (%dcas-object object offset old-1 old-2 new-1 new-2 :relaxed :seq-cst))))
+      (:acquire
+       (ecase failure-order
+         (:relaxed (%dcas-object object offset old-1 old-2 new-1 new-2 :acquire :relaxed))
+         (:acquire (%dcas-object object offset old-1 old-2 new-1 new-2 :acquire :acquire))
+         (:seq-cst (%dcas-object object offset old-1 old-2 new-1 new-2 :acquire :seq-cst))))
+      (:release
+       (ecase failure-order
+         (:relaxed (%dcas-object object offset old-1 old-2 new-1 new-2 :release :relaxed))
+         (:acquire (%dcas-object object offset old-1 old-2 new-1 new-2 :release :acquire))
+         (:seq-cst (%dcas-object object offset old-1 old-2 new-1 new-2 :release :seq-cst))))
+      (:acq-rel
+       (ecase failure-order
+         (:relaxed (%dcas-object object offset old-1 old-2 new-1 new-2 :acq-rel :relaxed))
+         (:acquire (%dcas-object object offset old-1 old-2 new-1 new-2 :acq-rel :acquire))
+         (:seq-cst (%dcas-object object offset old-1 old-2 new-1 new-2 :acq-rel :seq-cst))))
+      (:seq-cst
+       (ecase failure-order
+         (:relaxed (%dcas-object object offset old-1 old-2 new-1 new-2 :seq-cst :relaxed))
+         (:acquire (%dcas-object object offset old-1 old-2 new-1 new-2 :seq-cst :acquire))
+         (:seq-cst (%dcas-object object offset old-1 old-2 new-1 new-2 :seq-cst :seq-cst)))))))
+
+(defmacro define-atomic-wrapper (name lambda-list)
+  `(progn
+     (define-compiler-macro ,name (&whole whole ,@lambda-list order)
+       (cond ((null order)
+              (list ',name ,@lambda-list :seq-cst))
+             (t whole)))
+     (defun ,name (,@lambda-list order)
+       (ecase (or order :seq-cst)
+         (:relaxed (,name ,@lambda-list :relaxed))
+         (:acquire (,name ,@lambda-list :acquire))
+         (:release (,name ,@lambda-list :release))
+         (:acq-rel (,name ,@lambda-list :acq-rel))
+         (:seq-cst (,name ,@lambda-list :seq-cst))))))
+
+(define-atomic-wrapper %atomic-fixnum-add-object (object offset delta))
+(define-atomic-wrapper %atomic-fixnum-logand-object (object offset value))
+(define-atomic-wrapper %atomic-fixnum-logior-object (object offset value))
+(define-atomic-wrapper %atomic-fixnum-logxor-object (object offset value))
+(define-atomic-wrapper %xchg-object (object offset new))

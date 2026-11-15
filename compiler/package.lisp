@@ -153,7 +153,7 @@
    #:weak-pointer-live-p
 
    ;; Atomics
-   #:atomic-ordering
+   #:atomic-order
    #:cas
    #:compare-and-swap
    #:get-cas-expansion
@@ -1002,7 +1002,7 @@
                     (:sys.int :mezzano.internals)
                     (:simd :mezzano.simd.x86-64))
   (:import-from :mezzano.extensions
-                #:atomic-ordering))
+                #:atomic-order))
 
 (defpackage :mezzano.compiler.backend.arm64
   (:use :cl)
@@ -1012,7 +1012,7 @@
                     (:c :mezzano.compiler)
                     (:sys.int :mezzano.internals))
   (:import-from :mezzano.extensions
-                #:atomic-ordering))
+                #:atomic-order))
 
 (defpackage :mezzano.simd.arm64
   (:use :cl)

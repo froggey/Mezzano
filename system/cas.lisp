@@ -2,14 +2,14 @@
 
 (in-package :mezzano.internals)
 
-(deftype atomic-ordering ()
+(deftype atomic-order ()
   `(member :relaxed :release :acquire :acq-rel :seq-cst))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 
-(defun cas-failure-ordering (success-ordering)
-  "Return the appropriate default failure ordering for SUCCESS-ORDERING."
-  (ecase success-ordering
+(defun cas-failure-order (success-order)
+  "Return the appropriate default failure order for SUCCESS-ORDER."
+  (ecase success-order
     (:relaxed :relaxed)
     (:acquire :acquire)
     (:release :relaxed)
@@ -129,15 +129,18 @@ If NAME does not name a struct accessor, then NIL is returned."
           "Can't require fixnum type with CAR/CDR slots")
   (multiple-value-bind (required optional rest enable-keys keys allow-other-keys aux)
       (parse-ordinary-lambda-list lambda-list)
-    (when (or enable-keys keys allow-other-keys aux)
-      (error "&KEYS and &AUX not permitted in define-atomic-rmw-operation lambda list"))
+    (when (or rest enable-keys keys allow-other-keys aux)
+      (error "&REST, &KEYS, and &AUX not permitted in define-atomic-rmw-operation lambda list"))
     ;; Use MAKE-SYMBOL instead of GENSYM to avoid producing a name like PLACE1234.
     ;; This is visible in the lambda list and is shown by Slime.
     (let* ((place (make-symbol "PLACE"))
            (env (gensym "ENV"))
-           (all-names (append required (mapcar #'car optional) (if rest (list rest) '())))
+           (all-names (append required (mapcar #'car optional)))
            (all-name-syms (loop for name in all-names collect (gensym (string name)))))
-      `(defmacro ,name (&environment ,env ,place ,@lambda-list)
+      `(defmacro ,name (&environment ,env ,place ,@lambda-list
+                          ,@(if (member '&optional lambda-list)
+                                '(order)
+                                '(&optional order)))
          ,documentation
          (multiple-value-bind (vars vals old-sym new-sym cas-form read-form)
              (get-cas-expansion ,place ,env)
@@ -159,21 +162,24 @@ If NAME does not name a struct accessor, then NIL is returned."
                          ,(if require-fixnum
                               `(type-equal (mezzano.runtime::symbol-type (second (second read-form))) 'fixnum ,env)
                               't))
-                    (,(if rest 'list* 'list)
+                    (list
                       ',symbol-function
                       `',(second (second read-form))
-                      ,@all-name-syms))
+                      ,@all-name-syms
+                      order))
                    ,@(when cons-operations
                        `(((typep read-form '(cons (member car first) (cons t null)))
-                          (,(if rest 'list* 'list)
+                          (list
                             ',(car cons-operations)
                             (second read-form)
-                            ,@all-name-syms))
+                            ,@all-name-syms
+                            order))
                          ((typep read-form '(cons (member cdr rest) (cons t null)))
-                          (,(if rest 'list* 'list)
+                          (list
                             ',(cdr cons-operations)
                             (second read-form)
-                            ,@all-name-syms))))
+                            ,@all-name-syms
+                            order))))
                    ;; If it names a structure slot accessor, then perform that
                    ;; operation.
                    ((and (typep read-form '(cons symbol (cons t null)))
@@ -181,17 +187,19 @@ If NAME does not name a struct accessor, then NIL is returned."
                     ;; Try for structure accessors
                     (multiple-value-bind (struct-name slot-name)
                         (struct-accessor-info (first read-form) ,env)
-                      (,(if rest 'list* 'list)
+                      (list
                         ',struct-slot-function
                         (second read-form)
                         `',struct-name `',slot-name
-                        ,@all-name-syms)))
+                        ,@all-name-syms
+                        order)))
                    (t
                     ;; Fall back on a CAS loop.
                     ;; TODO: Support directly on struct slots that have been declared fixnum.
+                    ;; TODO: Ordering
                     `(loop
                         for ,old-sym = ,read-form
-                        for ,new-sym = ,(,(if rest 'list* 'list)
+                        for ,new-sym = ,(list
                                           ',function
                                           old-sym
                                           ,@all-name-syms)
@@ -212,7 +220,7 @@ will be wrapped as though it were a fixnum-sized signed 2's complement integer.
 DELTA must be a fixnum.
 Returns the old value of PLACE.")
 
-(defmacro atomic-decf (place &optional (delta 1))
+(defmacro atomic-decf (place &optional (delta 1) order)
   "Atomically decrement PLACE by DELTA.
 PLACE must contain a fixnum and if overflow occurs then the resulting value
 will be wrapped as though it were a fixnum-sized signed 2's complement integer.
@@ -220,7 +228,7 @@ DELTA must be a fixnum.
 Returns the old value of PLACE."
   ;; FIXME: This won't work for subtracting MOST-NEGATIVE-FIXNUM.
   ;; Negating it produces (1+ MOST-POSITIVE-FIXNUM)
-  `(atomic-incf ,place (- ,delta)))
+  `(atomic-incf ,place (- ,delta) ,order))
 
 (define-atomic-rmw-operation atomic-logandf (integer)
   logand
@@ -260,7 +268,7 @@ Returns no values.")
   :documentation "Atomically set PLACE to NEW-VALUE.
 Returns the old value of PLACE.")
 
-(defmacro double-compare-and-swap (&environment env place-1 place-2 old-1 old-2 new-1 new-2)
+(defmacro double-compare-and-swap (&environment env place-1 place-2 old-1 old-2 new-1 new-2 &optional success-order failure-order)
   (let ((place-1 (macroexpand place-1 env))
         (place-2 (macroexpand place-2 env)))
     (cond ((and (typep place-1 '(cons (member car first) (cons t null)))
@@ -273,7 +281,8 @@ Returns the old value of PLACE.")
                 (when (not (eq ,place-1-list ,place-2-list))
                   (error "DCAS CAR/CDR used on disjoint objects ~S and ~S"
                          ,place-1-list ,place-2-list))
-                (%dcas-cons ,place-1-list ,old-1 ,old-2 ,new-1 ,new-2))))
+                (%dcas-cons ,place-1-list ,old-1 ,old-2 ,new-1 ,new-2
+                            ,success-order ,failure-order))))
           ((and (typep place-1 '(cons (member cdr rest) (cons t null)))
                 (typep place-2 '(cons (member car first) (cons t null))))
            ;; DCAS on the CAR/CDR of a CONS, with the arguments swapped.
@@ -296,7 +305,8 @@ Returns the old value of PLACE.")
                   (error "DCAS used on disjoint objects ~S and ~S"
                          ,place-1-list ,place-2-list))
                 (multiple-value-bind (,successp-sym ,value-1-sym ,value-2-sym)
-                    (%dcas-cons ,place-1-list ,old-2-sym ,old-1-sym ,new-2-sym ,new-1-sym)
+                    (%dcas-cons ,place-1-list ,old-2-sym ,old-1-sym ,new-2-sym ,new-1-sym
+                                ,success-order ,failure-order)
                   (values ,successp-sym ,value-2-sym ,value-1-sym)))))
           ((and (typep place-1 '(cons symbol (cons t null)))
                 (typep place-2 '(cons symbol (cons t null))))
@@ -319,6 +329,7 @@ Returns the old value of PLACE.")
                                        ',place-1-struct ',place-1-slot
                                        ',place-2-struct ',place-2-slot
                                        ,old-1 ,old-2
-                                       ,new-1 ,new-2))))))
+                                       ,new-1 ,new-2
+                                       ,success-order ,failure-order))))))
           (t
            (error "Unsupported DCAS place pair ~S and ~S" place-1 place-2)))))

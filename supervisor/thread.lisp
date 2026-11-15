@@ -543,7 +543,9 @@ Interrupts must be off and the global thread lock must be held."
                 ;; Footholds in a new thread are inhibited until the terminate-thread
                 ;; catch block is established, to guarantee that it's always available.
                 (progn
-                  (when (eql (sys.int::%atomic-fixnum-add-object (current-thread) +thread-inhibit-footholds+ -1) 1)
+                  (when (eql (sys.int::%atomic-fixnum-add-object
+                              (current-thread) +thread-inhibit-footholds+ -1 :seq-cst)
+                             1)
                     (run-pending-footholds))
                   (setf return-values (multiple-value-list (funcall function))))
              ;; Re-inhibit footholds when leaving. This way it is never possible
@@ -552,7 +554,8 @@ Interrupts must be off and the global thread lock must be held."
              ;; the unwind protect handler is executing (before inhibit footholds
              ;; has been incremented), then footholds will still be enabled.
              ;; The perils of asynchronous interrupts...
-             (sys.int::%atomic-fixnum-add-object (current-thread) +thread-inhibit-footholds+ 1)))
+             (sys.int::%atomic-fixnum-add-object
+              (current-thread) +thread-inhibit-footholds+ 1 :seq-cst)))
       ;; Cleanup, terminate the thread.
       (thread-final-cleanup return-values))))
 
@@ -628,12 +631,12 @@ not and WAIT-P is false."
                 (%disable-interrupts)))))))
 
 (defun increment-n-running-cpus ()
-  (let ((prev (sys.int::%atomic-fixnum-add-symbol '*n-running-cpus* 1)))
+  (let ((prev (sys.int::%atomic-fixnum-add-symbol '*n-running-cpus* 1 :seq-cst)))
     (when (zerop prev)
       (set-run-light t))))
 
 (defun decrement-n-running-cpus ()
-  (let ((prev (sys.int::%atomic-fixnum-add-symbol '*n-running-cpus* -1)))
+  (let ((prev (sys.int::%atomic-fixnum-add-symbol '*n-running-cpus* -1 :seq-cst)))
     (when (and (eql prev 1)
                (boundp '*light-run*))
       ;; Clear the run light immediately so it doesn't stay on between
@@ -822,7 +825,7 @@ not and WAIT-P is false."
     ;; This would cause T-I-F to be decremented by the cleanup handler, even
     ;; though it had never been incremented.
     `(let ((,thread (current-thread)))
-       (sys.int::%atomic-fixnum-add-object ,thread +thread-inhibit-footholds+ 1)
+       (sys.int::%atomic-fixnum-add-object ,thread +thread-inhibit-footholds+ 1 :seq-cst)
        (let ((,old-allow-with-footholds (thread-allow-with-footholds ,thread)))
          (when ,old-allow-with-footholds
            ;; The WHEN is a performance kludge, avoid touching thread slots as much as possible
@@ -842,7 +845,7 @@ not and WAIT-P is false."
                 ,@body)
            (when ,old-allow-with-footholds
              (setf (thread-allow-with-footholds ,thread) t))
-           (when (eql (sys.int::%atomic-fixnum-add-object ,thread +thread-inhibit-footholds+ -1) 1)
+           (when (eql (sys.int::%atomic-fixnum-add-object ,thread +thread-inhibit-footholds+ -1 :seq-cst) 1)
              (run-pending-footholds)))))))
 
 (defmacro with-footholds (&body body)
@@ -871,9 +874,11 @@ footholds will be reenabled, otherwise footholds will stay inhibited."
 
 (declaim (inline run-pending-footholds))
 (defun run-pending-footholds ()
-  (let ((footholds (sys.int::%xchg-object (mezzano.supervisor:current-thread)
-                                          mezzano.supervisor::+thread-pending-footholds+
-                                          nil)))
+  (let ((footholds (sys.int::%xchg-object
+                    (mezzano.supervisor:current-thread)
+                    mezzano.supervisor::+thread-pending-footholds+
+                    nil
+                    :seq-cst)))
     (dolist (fh footholds)
       (funcall fh))))
 

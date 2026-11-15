@@ -1272,9 +1272,9 @@ First return value is a list of elements, second is the final dotted component (
                 form))))))
 
 (defun test-atomic-fixnum-op-struct-slot-transform-viability (form)
-  (destructuring-bind (object structure-name slot-name value)
+  (destructuring-bind (object structure-name slot-name value order)
       (arguments form)
-    (declare (ignore object value))
+    (declare (ignore object value order))
     (let ((slot (find-struct-slot structure-name slot-name)))
       (and
        ;; Structures & slots must be known.
@@ -1298,19 +1298,23 @@ First return value is a list of elements, second is the final dotted component (
 
 (defun simplify-atomic-fixnum-op-struct-slot (form)
   (change-made)
-  (destructuring-bind (object structure-name slot-name value)
+  (destructuring-bind (object structure-name slot-name value order)
       (arguments form)
+    (when (and (quoted-form-p order)
+               (null (value order)))
+      (setf order (ast '':seq-cst form)))
     (let ((slot-def (find-struct-slot structure-name slot-name))
           (struct (sys.int::get-structure-type (ast-value structure-name)))
           (op (atomic-op-for-atomic-struct-slot-op (name form))))
       (cond ((match-optimize-settings form '((= safety 0) (= speed 3)))
              (ast `(let ((obj ,object)
                          (value ,value))
-                     (call ,op obj ',(struct-slot-accessor-index slot-def) value))
+                     (call ,op obj ',(struct-slot-accessor-index slot-def) value ,order))
                   form))
             (t
              (ast `(let ((obj ,object)
-                         (value ,value))
+                         (value ,value)
+                         (order ,order))
                      (if ,(struct-type-test-form 'obj struct)
                          (progn
                            (if (source-fragment (typep value 'fixnum))
@@ -1318,18 +1322,19 @@ First return value is a list of elements, second is the final dotted component (
                                (progn
                                  (call sys.int::raise-type-error value 'fixnum)
                                  (call sys.int::%%unreachable)))
-                           (call ,op obj ',(struct-slot-accessor-index slot-def) value))
+                           (call ,op obj ',(struct-slot-accessor-index slot-def) value order))
                          (notinline-call ,(name form)
                                          obj
                                          ',(ast-value structure-name)
                                          ',(ast-value slot-name)
-                                         value)))
+                                         value
+                                         order)))
                 form))))))
 
 (defun test-atomic-swap-struct-slot-transform-viability (form)
-  (destructuring-bind (object structure-name slot-name value)
+  (destructuring-bind (object structure-name slot-name value order)
       (arguments form)
-    (declare (ignore object value))
+    (declare (ignore object value order))
     (let ((slot (find-struct-slot structure-name slot-name)))
       (and
        ;; Structures & slots must be known.
@@ -1339,7 +1344,7 @@ First return value is a list of elements, second is the final dotted component (
 
 (defun simplify-atomic-swap-struct-slot (form)
   (change-made)
-  (destructuring-bind (object structure-name slot-name value)
+  (destructuring-bind (object structure-name slot-name value order)
       (arguments form)
     (let ((slot-def (find-struct-slot structure-name slot-name))
           (struct (sys.int::get-structure-type (ast-value structure-name))))
@@ -1349,11 +1354,13 @@ First return value is a list of elements, second is the final dotted component (
                      (call sys.int::%xchg-object
                            obj
                            ',(struct-slot-accessor-index slot-def)
-                           value))
+                           value
+                           order))
                   form))
             (t
              (ast `(let ((obj ,object)
-                         (value ,value))
+                         (value ,value)
+                         (order ,order))
                      (if ,(struct-type-test-form 'obj struct)
                          (progn
                            (if (source-fragment (typep value ',(mezzano.clos:slot-definition-type slot-def)))
@@ -1364,12 +1371,14 @@ First return value is a list of elements, second is the final dotted component (
                            (call sys.int::%xchg-object
                                  obj
                                  ',(struct-slot-accessor-index slot-def)
-                                 value))
+                                 value
+                                 order))
                          (notinline-call ,(name form)
                                          obj
                                          ',(ast-value structure-name)
                                          ',(ast-value slot-name)
-                                         value)))
+                                         value
+                                         order)))
                 form))))))
 
 (defun test-dcas-struct-slot-transform-viability
@@ -1394,7 +1403,7 @@ First return value is a list of elements, second is the final dotted component (
             (member struct-2 (mezzano.clos:class-precedence-list struct-1))
             (member struct-1 (mezzano.clos:class-precedence-list struct-2)))))))
 
-(defun generate-dcas-form (slot-1 slot-2 object old-1 old-2 new-1 new-2)
+(defun generate-dcas-form (slot-1 slot-2 object old-1 old-2 new-1 new-2 so fo)
   (let ((loc-1 (mezzano.clos:slot-definition-location slot-1))
         (loc-2 (mezzano.clos:slot-definition-location slot-2)))
     (assert (eql (mezzano.runtime::location-type loc-1) mezzano.runtime::+location-type-t+))
@@ -1407,14 +1416,16 @@ First return value is a list of elements, second is the final dotted component (
              ;; THE, but the compiler has issues with VALUES types here.
              `(call sys.int::%dcas-object
                     ,object ',ofs-1
-                    ,old-1 ,old-2 ,new-1 ,new-2))
+                    ,old-1 ,old-2 ,new-1 ,new-2
+                    ,so ,fo))
             ((eql (1+ ofs-2) ofs-1)
              ;; Inverted slots.
              (assert (oddp ofs-2))
              `(multiple-value-bind (successp value-2 value-1)
                   (call sys.int::%dcas-object
                         ,object ',ofs-2
-                        ,old-2 ,old-1 ,new-2 ,new-1)
+                        ,old-2 ,old-1 ,new-2 ,new-1
+                        ,so ,fo)
                 (call values
                       successp
                       (the ,(mezzano.clos:slot-definition-type slot-1) value-1)
@@ -1428,8 +1439,17 @@ First return value is a list of elements, second is the final dotted component (
                        structure-name-1 slot-name-1
                        structure-name-2 slot-name-2
                        old-1 old-2
-                       new-1 new-2)
+                       new-1 new-2
+                       success-order failure-order)
       (arguments form)
+    (when (and (quoted-form-p success-order)
+               (null (value success-order)))
+      (setf success-order (ast '':seq-cst form)))
+    (when (and (quoted-form-p failure-order)
+               (null (value failure-order))
+               (quoted-form-p success-order)
+               (keywordp (value success-order)))
+      (setf failure-order (ast `',(sys.int::cas-failure-order (value success-order)) form)))
     (let* ((slot-def-1 (find-struct-slot structure-name-1 slot-name-1))
            (slot-def-2 (find-struct-slot structure-name-2 slot-name-2))
            (struct-1 (sys.int::get-structure-type (ast-value structure-name-1)))
@@ -1442,12 +1462,14 @@ First return value is a list of elements, second is the final dotted component (
              (ast `(let ((old-1 ,old-1) (old-2 ,old-2)
                          (new-1 ,new-1) (new-2 ,new-2)
                          (obj ,object))
-                     ,(generate-dcas-form slot-def-1 slot-def-2 'obj 'old-1 'old-2 'new-1 'new-2))
+                     ,(generate-dcas-form slot-def-1 slot-def-2 'obj 'old-1 'old-2 'new-1 'new-2
+                                          success-order failure-order))
                   form))
             (t
              (ast `(let ((old-1 ,old-1) (old-2 ,old-2)
                          (new-1 ,new-1) (new-2 ,new-2)
-                         (obj ,object))
+                         (obj ,object)
+                         (so ,success-order) (fo ,failure-order))
                      (if ,(struct-type-test-form 'obj struct)
                          (progn
                            (if (source-fragment (typep old-1 ',(mezzano.clos:slot-definition-type slot-def-1)))
@@ -1470,13 +1492,15 @@ First return value is a list of elements, second is the final dotted component (
                                (progn
                                  (call sys.int::raise-type-error new-2 ',(mezzano.clos:slot-definition-type slot-def-2))
                                  (call sys.int::%%unreachable)))
-                           ,(generate-dcas-form slot-def-1 slot-def-2 'obj 'old-1 'old-2 'new-1 'new-2))
+                           ,(generate-dcas-form slot-def-1 slot-def-2 'obj 'old-1 'old-2 'new-1 'new-2
+                                                'so 'fo))
                          (notinline-call sys.int::%dcas-struct-slot
                                          obj
                                          ',(ast-value structure-name-1) ',(ast-value slot-name-1)
                                          ',(ast-value structure-name-2) ',(ast-value slot-name-2)
                                          old-1 old-2
-                                         new-1 new-2)))
+                                         new-1 new-2
+                                         so fo)))
                 form))))))
 
 (defun simplify-struct-vector-slot-check-bounds (index slot-def)
@@ -1871,25 +1895,25 @@ least one value."
           (= (length (arguments form)) 5)
           (find-struct-slot (fourth (arguments form)) (fifth (arguments form))))
      (simplify-cas-struct-slot form))
-    ;; (%atomic-fixnum-add-struct-slot object 'struct-name 'slot-name value)
+    ;; (%atomic-fixnum-add-struct-slot object 'struct-name 'slot-name value order)
     ((and (member (name form) '(sys.int::%atomic-fixnum-add-struct-slot
                                 sys.int::%atomic-fixnum-logand-struct-slot
                                 sys.int::%atomic-fixnum-logior-struct-slot
                                 sys.int::%atomic-fixnum-logxor-struct-slot))
           (local-inlining-permitted-p form)
-          (= (length (arguments form)) 4)
+          (= (length (arguments form)) 5)
           (test-atomic-fixnum-op-struct-slot-transform-viability form))
      (simplify-atomic-fixnum-op-struct-slot form))
-    ;; (%atomic-swap-struct-slot object 'struct-name 'slot-name value)
+    ;; (%atomic-swap-struct-slot object 'struct-name 'slot-name value order)
     ((and (eql (name form) 'sys.int::%atomic-swap-struct-slot)
           (local-inlining-permitted-p form)
-          (= (length (arguments form)) 4)
+          (= (length (arguments form)) 5)
           (test-atomic-swap-struct-slot-transform-viability form))
      (simplify-atomic-swap-struct-slot form))
-    ;; (%dcas-struct-slot object 'struct-1 'slot-1 'struct-2 'slot-2 old-1 old-2 new-1 new-2) => fast-dcas
+    ;; (%dcas-struct-slot object 'struct-1 'slot-1 'struct-2 'slot-2 old-1 old-2 new-1 new-2 success-order failure-order) => fast-dcas
     ((and (equal (name form) 'sys.int::%dcas-struct-slot)
           (local-inlining-permitted-p form)
-          (= (length (arguments form)) 9)
+          (= (length (arguments form)) 11)
           (test-dcas-struct-slot-transform-viability
            (second (arguments form)) (third (arguments form))
            (fourth (arguments form)) (fifth (arguments form))))

@@ -683,7 +683,7 @@ then NIL will be returned."
                 (let ((new-fref (make-function-reference name-root)))
                   ;; Try to atomically update the function cell.
                   (multiple-value-bind (successp old-value)
-                      (%cas-object name-root +symbol-function+ nil new-fref)
+                      (%cas-object name-root +symbol-function+ nil new-fref :seq-cst :seq-cst)
                     (if successp
                         new-fref
                         old-value))))))

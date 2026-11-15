@@ -260,8 +260,8 @@ Protected by the world stop lock."
       ;; Partially switch to the idle thread.
       (setf (thread-state idle) :active))
     ;; Have now reached a quiescent state.
-    (sys.int::%atomic-fixnum-add-symbol '*non-quiescent-cpus-remaining*
-                                        -1)
+    (sys.int::%atomic-fixnum-add-symbol
+     '*non-quiescent-cpus-remaining* -1 :seq-cst)
     (when was-active
       ;; Finally, return to the idle thread.
       (%%switch-to-thread-common idle
@@ -294,10 +294,10 @@ Protected by the world stop lock."
     (save-fpu-state current)
     (save-interrupted-state current interrupt-frame))
   (sys.int::%atomic-fixnum-add-symbol
-   '*debug-magic-button-ready-variable* -1)
+   '*debug-magic-button-ready-variable* -1 :seq-cst)
   (loop while *debug-magic-button-hold-variable*)
   (sys.int::%atomic-fixnum-add-symbol
-   '*debug-magic-button-ready-variable* -1))
+   '*debug-magic-button-ready-variable* -1 :seq-cst))
 
 ;; TLB shootdown isn't required as ARM has cross-core TLB invalidation instructions
 

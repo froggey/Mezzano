@@ -112,7 +112,7 @@
   (sys.int::%type-check simple-vector sys.int::+object-tag-array-t+ 'simple-vector)
   (sys.int::%bounds-check simple-vector index)
   (multiple-value-bind (successp actual-value)
-      (sys.int::%cas-object simple-vector index old new)
+      (sys.int::%cas-object simple-vector index old new :seq-cst :seq-cst)
     (declare (ignore successp))
     actual-value))
 

@@ -104,7 +104,7 @@
          (emit (make-instance 'ir:move-instruction
                               :source value
                               :destination result))))
-     (define-builtin (sys.int::cas ,name) ((old new address index) result)
+     (define-builtin (sys.int::cas ,name) ((old new address index) result :has-wrapper nil)
        (let ((old-unboxed (make-instance 'ir:virtual-register :kind :integer))
              (new-unboxed (make-instance 'ir:virtual-register :kind :integer))
              (current-unboxed (make-instance 'ir:virtual-register :kind :integer))
@@ -131,9 +131,9 @@
                               :old-value old-unboxed
                               :new-value new-unboxed
                               :current-value current-unboxed
-                              ;; TODO: Pass orderings through
-                              :success-ordering :seq-cst
-                              :failure-ordering :seq-cst))
+                              ;; TODO: Pass orders through
+                              :success-order :seq-cst
+                              :failure-order :seq-cst))
          (emit (make-instance ',box-op
                               :source current-unboxed
                               :destination result))))))

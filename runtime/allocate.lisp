@@ -444,7 +444,7 @@
            ;; Double expansion granularity for next time.
            (setf (sys.int::symbol-global-value granularity-symbol) (* expansion 2))
            ;; Atomically store the new limit, other CPUs may be reading the value.
-           (sys.int::%atomic-fixnum-add-symbol limit-symbol expansion)
+           (sys.int::%atomic-fixnum-add-symbol limit-symbol expansion :seq-cst)
            (when sys.int::*gc-enable-logging*
              (mezzano.supervisor:debug-print-line "new remaining: " (bytes-remaining)))
            t)
@@ -456,8 +456,10 @@
 
 (defun %do-get-new-tlab ()
   (let* ((size (* sys.int::+tlab-size+ 8))
-         (old-bump (sys.int::%atomic-fixnum-add-symbol 'sys.int::*general-area-young-gen-bump*
-                                                        size))
+         (old-bump (sys.int::%atomic-fixnum-add-symbol
+                    'sys.int::*general-area-young-gen-bump*
+                    size
+                    :seq-cst))
          (new-bump (+ old-bump size)))
     (and (<= new-bump sys.int::*general-area-young-gen-limit*)
          old-bump)))
