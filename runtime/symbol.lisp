@@ -42,11 +42,8 @@
   (setf (sys.int::%object-ref-t cell sys.int::+symbol-value-cell-value+) value))
 
 (defun (sys.int::cas symbol-value-cell-value) (old new so fo cell)
-  (multiple-value-bind (successp actual-value)
-      (sys.int::%cas-object cell sys.int::+symbol-value-cell-value+
-                            old new so fo)
-    (declare (ignore successp))
-    actual-value))
+  (sys.int::cas (sys.int::%object-ref-t cell sys.int::+symbol-value-cell-value+)
+                old new so f))
 
 (defun symbol-value-cell-boundp (cell)
   (not (sys.int::%unbound-value-p (sys.int::%object-ref-t cell sys.int::+symbol-value-cell-value+))))
@@ -97,12 +94,10 @@
         (and create
              (let ((new-cell (make-symbol-global-value-cell symbol)))
                ;; Try to atomically update the value cell.
-               (multiple-value-bind (successp old-value)
-                   (sys.int::%cas-object symbol sys.int::+symbol-value+ nil new-cell
-                                         :seq-cst :seq-cst)
-                 (if successp
-                     new-cell
-                     old-value)))))))
+               (or (sys.int::cas
+                    (sys.int::%object-ref-t symbol sys.int::+symbol-value+)
+                    nil new-cell)
+                   new-cell))))))
 
 (defun symbol-type (symbol)
   (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)

@@ -682,11 +682,9 @@ then NIL will be returned."
            (and create
                 (let ((new-fref (make-function-reference name-root)))
                   ;; Try to atomically update the function cell.
-                  (multiple-value-bind (successp old-value)
-                      (%cas-object name-root +symbol-function+ nil new-fref :seq-cst :seq-cst)
-                    (if successp
-                        new-fref
-                        old-value))))))
+                  (or (cas (%object-ref-t name-root +symbol-function+)
+                           nil new-fref)
+                      new-fref)))))
       (setf
        (let ((fref (gethash name-root *setf-fref-table*)))
          (when (and (not fref) create)

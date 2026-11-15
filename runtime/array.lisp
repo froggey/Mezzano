@@ -111,10 +111,7 @@
 (defun (sys.int::cas svref) (old new so fo simple-vector index)
   (sys.int::%type-check simple-vector sys.int::+object-tag-array-t+ 'simple-vector)
   (sys.int::%bounds-check simple-vector index)
-  (multiple-value-bind (successp actual-value)
-      (sys.int::%cas-object simple-vector index old new so fo)
-    (declare (ignore successp))
-    actual-value))
+  (cas (sys.int::%object-ref-t simple-vector index) old new so f))
 
 (defun sys.int::simple-vector-length (simple-vector)
   (sys.int::%type-check simple-vector sys.int::+object-tag-array-t+ 'simple-vector)
