@@ -45,7 +45,7 @@
 
 (defun (sys.int::cas symbol-value-cell-value) (old new so fo cell)
   (sys.int::cas (sys.int::%object-ref-t cell sys.int::+symbol-value-cell-value+)
-                old new so f))
+                old new so fo))
 
 (defun %atomic-symbol-value-cell-value (cell order)
   (let ((value (sys.int::atomic (sys.int::%object-ref-t cell sys.int::+symbol-value-cell-value+) order)))
@@ -153,7 +153,7 @@
   (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)
   (modifying-symbol-value symbol)
   (check-symbol-value-type value symbol)
-  (setf (%atomic-symbol-value-cell-value (symbol-global-value-cell symbol order)) value))
+  (setf (%atomic-symbol-value-cell-value (symbol-global-value-cell symbol) order) value))
 
 (define-compiler-macro (sys.int::cas sys.int::symbol-global-value) (&whole whole old new so fo symbol)
   (cond ((and (typep symbol '(cons (eql quote) (cons symbol null)))

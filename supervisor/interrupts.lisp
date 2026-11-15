@@ -85,17 +85,13 @@ RETURN-FROM/GO must not be used to leave this form."
          (values)))))
 
 (defmacro release-place-spinlock (place &environment environment)
-  (multiple-value-bind (vars vals old-sym new-sym so fo ro lo cas-form read-form write-form)
+  (multiple-value-bind (vars vals old-sym new-sym so fo ro wo cas-form read-form write-form)
       (sys.int::get-atomic-expansion place environment)
     (declare (ignore old-sym cas-form read-form so fo ro))
     `(let* (,@(mapcar #'list vars vals)
             (,new-sym :unlocked)
-            (,old-sym ,read-form)
-            (,so :seq-cst)
-            (,fo :seq-cst))
-       ;; FIXME: This should use the write form but that doesn't have the proper
-       ;; release semantics yet on arm64.
-       ,cas-form
+            (,wo :release))
+       ,write-form
        (values))))
 
 (defmacro with-place-spinlock ((place) &body body)
