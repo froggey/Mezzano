@@ -727,53 +727,6 @@
   (mezzano.lap.arm64:movz :x5 #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
   (mezzano.lap.arm64:ret))
 
-(sys.int::define-lap-function sys.int::%dcas-object ((object offset old-1 old-2 new-1 new-2))
-  ;; object = x0
-  ;; offset = x1
-  ;; old-1 = x2
-  ;; old-2 = x3
-  ;; new-1 = x4
-  ;; new-2 = [sp 0]
-  (:gc :no-frame :layout #*)
-  ;; Convert offset to unboxed integer (scaled appropriately), with tag adjustment.
-  (mezzano.lap.arm64:add :x9 :xzr :x1 :lsl #.(- 3 sys.int::+n-fixnum-bits+))
-  (mezzano.lap.arm64:add-imm :x9 :x9 #.(- 8 sys.int::+tag-object+)) ; offset of first slot
-  ;; object must be in x1 for the gc
-  (mezzano.lap.arm64:orr :x1 :xzr :x0)
-  ;; Load new-2 out of the argument area
-  (mezzano.lap.arm64:ldr :x7 (:sp))
-  ;; And new-1 into an adjacent register
-  (mezzano.lap.arm64:orr :x6 :xzr :x4)
-  ;; Save old values
-  (mezzano.lap.arm64:orr :x0 :xzr :x2)
-  (mezzano.lap.arm64:orr :x4 :xzr :x3)
-  ;; Generate the address.
-  (mezzano.lap.arm64:add :x9 :x1 :x9)
-  ;; Move to linked gc mode.
-  ;; x9 is interior pointer into x1.
-  (:gc :no-frame :layout #* :extra-registers :rax)
-  ;; x0 = saved old-1
-  ;; x1 = object
-  ;; x2 = old-1 (will become cmp-1)
-  ;; x3 = old-2 (will become cmp-2)
-  ;; x4 = saved old-2
-  ;; x6 = new-1
-  ;; x7 = new-2
-  ;; x9 = slot-address (linked to x1)
-  (mezzano.lap.arm64:caspal :x2 :x6 (:x9))
-  (:gc :no-frame :layout #*)
-  ;; Compare values to generate the success result.
-  (mezzano.lap.arm64:ldr :x1 (:constant t)) ; first return value, T
-  (mezzano.lap.arm64:subs :xzr :x2 :x0) ; old-1 vs cmp-1
-  (mezzano.lap.arm64:csel.eq :x0 :x1 :x26)
-  (mezzano.lap.arm64:subs :xzr :x3 :x4) ; old-2 vs cmp-2
-  (mezzano.lap.arm64:csel.eq :x0 :x0 :x26)
-  ;; Set up for return.
-  (mezzano.lap.arm64:orr :x1 :xzr :x2) ; second return value, cmp-1
-  (mezzano.lap.arm64:orr :x2 :xzr :x3) ; third return value, cmp-2
-  (mezzano.lap.arm64:movz :x5 #.(ash 3 sys.int::+n-fixnum-bits+)) ; three return values
-  (mezzano.lap.arm64:ret))
-
 ;; Slightly funny calling convention here.
 ;; First argument is either the symbol for global-cell, or 0 if the symbol is known
 ;; to not be global.

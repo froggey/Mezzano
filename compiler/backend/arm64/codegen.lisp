@@ -1345,43 +1345,103 @@
   ;; Finish up.
   (emit-gc-info))
 
+(defun pick-cas-op (success-ordering failure-ordering)
+  (ecase success-ordering
+    (:relaxed
+     (ecase failure-ordering
+       (:relaxed (values 'lap:cas 'lap:casp))
+       ((:acquire :seq-cst) (values 'lap:casa 'lap:caspa))))
+    (:acquire
+     (ecase failure-ordering
+       ((:relaxed :acquire :seq-cst) (values 'lap:casa 'lap:caspa))))
+    (:release
+     (ecase failure-ordering
+       (:relaxed (values 'lap:casl 'lap:caspl))
+       ((:acquire :seq-cst) (values 'lap:casal 'lap:caspal))))
+    ((:acq-rel :seq-cst)
+     (ecase failure-ordering
+       ((:relaxed :acquire :seq-cst) (values 'lap:casal 'lap:caspal))))))
+
+(defun narrow-cas-op (op width)
+  (let ((index (ecase width
+                 (8 0)
+                 (16 1)
+                 (32 2)
+                 (64 3)))
+        (table (ecase op
+                 (lap:cas #(lap:casb lap:cash lap:casw lap:cas))
+                 (lap:casa #(lap:casab lap:casah lap:casaw lap:casa))
+                 (lap:casl #(lap:caslb lap:caslh lap:caslw lap:casl))
+                 (lap:casal #(lap:casalb lap:casalh lap:casalw lap:casal)))))
+    (aref table index)))
+
+;; TODO: This also generates the result value, that could be done directly in %cas-object
+;; to generate a predicate result.
 (defmethod emit-lap (backend-function (instruction arm64-cas-instruction) uses defs)
-  ;; Convert to unboxed integer (scaled appropriately), with tag adjustment.
-  (emit `(lap:add :x9 :xzr ,(arm64-cas-index instruction) :lsl ,(- 3 sys.int::+n-fixnum-bits+))
-        `(lap:sub :x9 :x9 (- (object-slot-displacement 0))))
-  ;; Generate the address.
-  (emit `(lap:add :x9 :x1 :x9))
-  ;; Move to linked gc mode.
-  ;; x9 is interior pointer into x1.
-  (emit-gc-info :extra-registers :rax)
-  ;; Assume success
-  (emit `(lap:ldr ,(arm64-cas-result instruction) (:constant t)))
-  ;; Cas op
-  (emit `(lap:orr ,(arm64-cas-current-value instruction)
-                  :xzr
-                  ,(arm64-cas-old-value instruction)))
-  (emit `(lap:casal ,(arm64-cas-current-value instruction)
-                    ,(arm64-cas-new-value instruction)
-                    (:x9)))
-  ;; Finish up.
-  (emit-gc-info)
-  ;; failure?
-  (emit `(lap:subs :xzr ,(arm64-cas-current-value instruction) ,(arm64-cas-old-value instruction))
-        `(lap:csel.eq ,(arm64-cas-result instruction) ,(arm64-cas-result instruction) :x26)))
+  (let ((op (pick-cas-op (arm64-cas-success-ordering instruction)
+                         (arm64-cas-failure-ordering instruction))))
+    ;; Convert to unboxed integer (scaled appropriately), with tag adjustment.
+    (emit `(lap:add :x9 :xzr ,(arm64-cas-index instruction) :lsl ,(- 3 sys.int::+n-fixnum-bits+))
+          `(lap:sub :x9 :x9 (- (object-slot-displacement 0))))
+    ;; Generate the address.
+    (emit `(lap:add :x9 :x1 :x9))
+    ;; Move to linked gc mode.
+    ;; x9 is interior pointer into x1.
+    (emit-gc-info :extra-registers :rax)
+    ;; Cas op
+    (emit `(lap:orr ,(arm64-cas-current-value instruction)
+                    :xzr
+                    ,(arm64-cas-old-value instruction)))
+    (emit `(,op ,(arm64-cas-current-value instruction)
+                ,(arm64-cas-new-value instruction)
+                (:x9)))
+    ;; Finish up.
+    (emit-gc-info)
+    ;; Assume success
+    (emit `(lap:ldr ,(arm64-cas-result instruction) (:constant t)))
+    ;; failure?
+    (emit `(lap:subs :xzr ,(arm64-cas-current-value instruction) ,(arm64-cas-old-value instruction))
+          `(lap:csel.eq ,(arm64-cas-result instruction) ,(arm64-cas-result instruction) :x26))))
+
+(defmethod emit-lap (backend-function (instruction arm64-casp-instruction) uses defs)
+  (let ((op (nth-value 1 (pick-cas-op (arm64-cas-success-ordering instruction)
+                                      (arm64-cas-failure-ordering instruction)))))
+    ;; Convert to unboxed integer (scaled appropriately), with tag adjustment.
+    (emit `(lap:add :x9 :xzr ,(arm64-cas-index instruction) :lsl ,(- 3 sys.int::+n-fixnum-bits+))
+          `(lap:sub :x9 :x9 (- (object-slot-displacement 0))))
+    ;; Generate the address.
+    (emit `(lap:add :x9 :x1 :x9))
+    ;; Save old-1/old-2, we need them for result generation later.
+    (emit `(lap:mov :x0 :x2)
+          `(lap:mov :x4 :x3))
+    ;; Move to linked gc mode.
+    ;; x9 is interior pointer into x1.
+    (emit-gc-info :extra-registers :rax)
+    ;; Cas op. Values are in the right registers already.
+    (emit `(,op :x2 :x6 (:x9)))
+    ;; Finish up.
+    (emit-gc-info)
+    ;; Result generation.
+    ;; TODO: Figure out how to do this in a way that the compiler can see & eliminate
+    (emit `(lap:ldr ,(arm64-cas-result instruction) (:constant t))
+          `(lap:subs :xzr :x2 :x0) ; value-1 vs old-1
+          `(lap:csel.eq ,(arm64-cas-result instruction) ,(arm64-cas-result instruction) :x26)
+          `(lap:subs :xzr :x3 :x4) ; value-2 vs old-2
+          `(lap:csel.eq ,(arm64-cas-result instruction) ,(arm64-cas-result instruction) :x26))))
 
 ;; Needed because this is a two-address op that writes the input old value register
 (defmethod emit-lap (backend-function (instruction arm64-cas-mem-instruction) uses defs)
-  ;; Cas op
-  (emit `(lap:orr ,(arm64-cas-current-value instruction)
-                  :xzr
-                  ,(arm64-cas-old-value instruction)))
-  (let ((width (if (member (arm64-instruction-opcode instruction)
-                           '(lap:cas lap:casa lap:casal lap:casl))
-                   64
-                   32)))
-    (emit (list (arm64-instruction-opcode instruction)
-                (lap::convert-width (arm64-cas-current-value instruction) width)
-                (lap::convert-width (arm64-cas-new-value instruction) width)
+  (let* ((fundamental-op (pick-cas-op (arm64-cas-success-ordering instruction)
+                                      (arm64-cas-failure-ordering instruction)))
+         (width (arm64-cas-mem-width instruction))
+         (conversion-width (if (eql width 64) 64 32))
+         (op (narrow-cas-op fundamental-op width)))
+    (emit `(lap:orr ,(arm64-cas-current-value instruction)
+                    :xzr
+                    ,(arm64-cas-old-value instruction)))
+    (emit (list op
+                (lap::convert-width (arm64-cas-current-value instruction) conversion-width)
+                (lap::convert-width (arm64-cas-new-value instruction) conversion-width)
                 (list (arm64-cas-mem-address instruction))))))
 
 (defmethod emit-lap (backend-function (instruction arm64-ld/st-multiple-instruction) uses defs)

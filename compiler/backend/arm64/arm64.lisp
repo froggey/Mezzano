@@ -96,7 +96,9 @@
    (%old-value :initarg :old-value :accessor arm64-cas-old-value)
    (%result :initarg :result :accessor arm64-cas-result)
    (%current-value :initarg :current-value :accessor arm64-cas-current-value)
-   (%index :initarg :index :accessor arm64-cas-index)))
+   (%index :initarg :index :accessor arm64-cas-index)
+   (%success-ordering :initarg :success-ordering :accessor arm64-cas-success-ordering)
+   (%failure-ordering :initarg :failure-ordering :accessor arm64-cas-failure-ordering)))
 
 (defmethod ra:instruction-clobbers ((instruction arm64-cas-instruction) (architecture c:arm64-target))
   '(:x9 :x1))
@@ -128,14 +130,52 @@
                           ,(arm64-cas-current-value instruction)
                           ,(arm64-cas-result instruction)
                           ,(arm64-atomic-index instruction)
-                          ,(arm64-atomic-rhs instruction))))
+                          ,(arm64-atomic-rhs instruction)
+                          ,(arm64-cas-success-ordering instruction)
+                          ,(arm64-cas-failure-ordering instruction))))
+
+(defclass arm64-casp-instruction (ir:backend-instruction)
+  ((%result :initarg :result :accessor arm64-cas-result)
+   (%index :initarg :index :accessor arm64-cas-index)
+   (%success-ordering :initarg :success-ordering :accessor arm64-cas-success-ordering)
+   (%failure-ordering :initarg :failure-ordering :accessor arm64-cas-failure-ordering)))
+
+(defmethod ra:instruction-clobbers ((instruction arm64-casp-instruction) (architecture c:arm64-target))
+  '(:x9 :x0 :x1 :x2 :x3 :x4 :x6 :x7))
+
+(defmethod ra:instruction-inputs-read-before-outputs-written-p ((instruction arm64-casp-instruction) (architecture c:arm64-target))
+  ;; Outputs may clobber inputs!
+  nil)
+
+(defmethod ir:instruction-inputs ((instruction arm64-casp-instruction))
+  ;; object
+  ;; old-1/old-2
+  ;; new-1/new-2
+  (list (arm64-cas-index instruction)))
+
+(defmethod ir:instruction-outputs ((instruction arm64-casp-instruction))
+  ;; value-1/value-2
+  (list (arm64-cas-result instruction)))
+
+(defmethod ir:replace-all-registers ((instruction arm64-casp-instruction) substitution-function)
+  (setf (arm64-cas-result instruction) (funcall substitution-function (arm64-cas-result instruction)))
+  (setf (arm64-cas-index instruction) (funcall substitution-function (arm64-cas-index instruction))))
+
+(defmethod ir:print-instruction ((instruction arm64-casp-instruction))
+  (format t "   ~S~%"
+          `(:arm64-dcas   ,(arm64-cas-result instruction)
+                          ,(arm64-cas-index instruction)
+                          ,(arm64-cas-success-ordering instruction)
+                          ,(arm64-cas-failure-ordering instruction))))
 
 (defclass arm64-cas-mem-instruction (ir:backend-instruction)
-  ((%opcode :initarg :opcode :reader arm64-instruction-opcode)
+  ((%width :initarg :width :reader arm64-cas-mem-width)
    (%address :initarg :address :accessor arm64-cas-mem-address)
    (%new-value :initarg :new-value :accessor arm64-cas-new-value)
    (%old-value :initarg :old-value :accessor arm64-cas-old-value)
-   (%current-value :initarg :current-value :accessor arm64-cas-current-value)))
+   (%current-value :initarg :current-value :accessor arm64-cas-current-value)
+   (%success-ordering :initarg :success-ordering :accessor arm64-cas-success-ordering)
+   (%failure-ordering :initarg :failure-ordering :accessor arm64-cas-failure-ordering)))
 
 (defmethod ra:instruction-clobbers ((instruction arm64-cas-mem-instruction) (architecture c:arm64-target))
   '())
@@ -160,11 +200,13 @@
 
 (defmethod ir:print-instruction ((instruction arm64-cas-mem-instruction))
   (format t "   ~S~%"
-          `(:arm64-cas-mem ,(arm64-instruction-opcode instruction)
+          `(:arm64-cas-mem ,(arm64-cas-mem-width instruction)
                            ,(arm64-cas-mem-address instruction)
                            ,(arm64-cas-new-value instruction)
                            ,(arm64-cas-old-value instruction)
-                           ,(arm64-cas-current-value instruction))))
+                           ,(arm64-cas-current-value instruction)
+                           ,(arm64-cas-success-ordering instruction)
+                           ,(arm64-cas-failure-ordering instruction))))
 
 ;; Expects object in :x1
 (defclass arm64-ld/st-multiple-instruction (ir:backend-instruction)

@@ -153,6 +153,7 @@
    #:weak-pointer-live-p
 
    ;; Atomics
+   #:atomic-ordering
    #:cas
    #:compare-and-swap
    #:get-cas-expansion
@@ -999,7 +1000,9 @@
                     (:ra :mezzano.compiler.backend.register-allocator)
                     (:c :mezzano.compiler)
                     (:sys.int :mezzano.internals)
-                    (:simd :mezzano.simd.x86-64)))
+                    (:simd :mezzano.simd.x86-64))
+  (:import-from :mezzano.extensions
+                #:atomic-ordering))
 
 (defpackage :mezzano.compiler.backend.arm64
   (:use :cl)
@@ -1007,7 +1010,9 @@
                     (:ir :mezzano.compiler.backend)
                     (:ra :mezzano.compiler.backend.register-allocator)
                     (:c :mezzano.compiler)
-                    (:sys.int :mezzano.internals)))
+                    (:sys.int :mezzano.internals))
+  (:import-from :mezzano.extensions
+                #:atomic-ordering))
 
 (defpackage :mezzano.simd.arm64
   (:use :cl)

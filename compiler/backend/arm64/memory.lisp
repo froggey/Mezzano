@@ -76,10 +76,8 @@
 
 ;; TODO: (cas memref-t) & dcas memref-t. the cmpxchg ir instructions currently only support object-relative accesses
 
-;; TODO: Convert this to use the cas instructions. This will require a small amount of
-;; work as they modify their inputs, need to be made to be SSA-safe. Not urgent, these
-;; are only used in a few small places.
 (defmacro define-memref-integer-accessor (name read-op write-op cas-op scale box-op unbox-op)
+  (declare (ignore cas-op))
   `(progn
      (define-builtin ,name ((address index) result)
        (let ((temp (make-instance 'ir:virtual-register :kind :integer)))
@@ -128,11 +126,14 @@
                                 :inputs (list address-unboxed scaled-index)
                                 :outputs (list generated-address))))
          (emit (make-instance 'arm64-cas-mem-instruction
-                              :opcode ',cas-op
+                              :width ',(* scale 8)
                               :address generated-address
                               :old-value old-unboxed
                               :new-value new-unboxed
-                              :current-value current-unboxed))
+                              :current-value current-unboxed
+                              ;; TODO: Pass orderings through
+                              :success-ordering :seq-cst
+                              :failure-ordering :seq-cst))
          (emit (make-instance ',box-op
                               :source current-unboxed
                               :destination result))))))

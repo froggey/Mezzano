@@ -2,7 +2,19 @@
 
 (in-package :mezzano.internals)
 
+(deftype atomic-ordering ()
+  `(member :relaxed :release :acquire :acq-rel :seq-cst))
+
 (eval-when (:compile-toplevel :load-toplevel :execute)
+
+(defun cas-failure-ordering (success-ordering)
+  "Return the appropriate default failure ordering for SUCCESS-ORDERING."
+  (ecase success-ordering
+    (:relaxed :relaxed)
+    (:acquire :acquire)
+    (:release :relaxed)
+    (:acq-rel :acquire)
+    (:seq-cst :seq-cst)))
 
 ;; Follows SBCL's interface, returns six values:
 ;; list of temporary variables
