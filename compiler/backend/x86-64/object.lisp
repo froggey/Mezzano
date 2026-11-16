@@ -479,7 +479,7 @@
 ;; (defun fixnum-add (object slot delta)
 ;;   (prog1 (%object-ref-t object slot)
 ;;     (incf (%object-ref-t object slot) delta)))
-(define-builtin sys.int::%atomic-fixnum-add-object ((object offset delta (:constant order atomic-order)) result :has-wrapper nil)
+(define-builtin sys.int::%atomic-fixnum-add-object ((object offset delta (:constant order (typep order 'atomic-order))) result :has-wrapper nil)
   (emit (make-instance 'x86-atomic-instruction
                        :opcode 'lap:xadd64
                        :object object
@@ -497,7 +497,7 @@
 ;;   (setf (%object-ref-t object slot)
 ;;         (logand (%object-ref-t object slot) value))
 ;;   (values))
-(define-builtin sys.int::%atomic-fixnum-logand-object ((object offset value (:constant order atomic-order)) () :has-wrapper nil)
+(define-builtin sys.int::%atomic-fixnum-logand-object ((object offset value (:constant order (typep order 'atomic-order))) () :has-wrapper nil)
   (emit (make-instance 'x86-atomic-instruction
                        :opcode 'lap:and64
                        :object object
@@ -515,7 +515,7 @@
 ;;   (setf (%object-ref-t object slot)
 ;;         (logior (%object-ref-t object slot) value))
 ;;   (values))
-(define-builtin sys.int::%atomic-fixnum-logior-object ((object offset value (:constant order atomic-order)) () :has-wrapper nil)
+(define-builtin sys.int::%atomic-fixnum-logior-object ((object offset value (:constant order (typep order 'atomic-order))) () :has-wrapper nil)
   (emit (make-instance 'x86-atomic-instruction
                        :opcode 'lap:or64
                        :object object
@@ -533,7 +533,7 @@
 ;;   (setf (%object-ref-t object slot)
 ;;         (logxor (%object-ref-t object slot) value))
 ;;   (values))
-(define-builtin sys.int::%atomic-fixnum-logxor-object ((object offset value (:constant order atomic-order)) () :has-wrapper nil)
+(define-builtin sys.int::%atomic-fixnum-logxor-object ((object offset value (:constant order (typep order 'atomic-order))) () :has-wrapper nil)
   (emit (make-instance 'x86-atomic-instruction
                        :opcode 'lap:xor64
                        :object object
@@ -548,7 +548,7 @@
 ;; (defun xchg (object slot new)
 ;;   (prog1 (%object-ref-t object slot)
 ;;     (setf (%object-ref-t object slot) new)))
-(define-builtin sys.int::%xchg-object ((object offset new (:constant order atomic-order)) result :has-wrapper nil)
+(define-builtin sys.int::%xchg-object ((object offset new (:constant order (typep order 'atomic-order))) result :has-wrapper nil)
   (emit (make-instance 'x86-atomic-instruction
                        :opcode 'lap:xchg64
                        :object object
@@ -568,7 +568,9 @@
 ;;                    t)
 ;;                   (t nil))
 ;;             slot-value)))
-(define-builtin sys.int::%cas-object ((object offset old new (:constant success-order atomic-order) (:constant failure-order atomic-order)) (:z result) :has-wrapper nil)
+(define-builtin sys.int::%cas-object ((object offset old new (:constant success-order (typep success-order 'atomic-order)) (:constant failure-order (typep failure-order 'atomic-order)))
+                                      (:z result)
+                                      :has-wrapper nil)
   (emit (make-instance 'x86-cmpxchg-instruction
                        :object object
                        :index (if (constant-value-p offset '(signed-byte 29))
@@ -592,7 +594,9 @@
 ;;                   (t nil))
 ;;             slot-value-1
 ;;             slot-value-2)))
-(define-builtin sys.int::%dcas-object ((object offset old-1 old-2 new-1 new-2 (:constant success-order atomic-order) (:constant failure-order atomic-order)) (:z result-1 result-2) :has-wrapper nil)
+(define-builtin sys.int::%dcas-object ((object offset old-1 old-2 new-1 new-2 (:constant success-order (typep success-order 'atomic-order)) (:constant failure-order (typep failure-order 'atomic-order)))
+                                       (:z result-1 result-2)
+                                       :has-wrapper nil)
   (emit (make-instance 'x86-cmpxchg16b-instruction
                        :object object
                        :index (if (constant-value-p offset '(signed-byte 29))
@@ -606,7 +610,7 @@
                        :result-2 result-2
                        :prefix '(lap:lock))))
 
-(define-builtin sys.int::%atomic-object-ref-t ((object offset (:constant order (typep order 'atomic-order))) result :has-wrapper nil)
+(define-builtin sys.int::%atomic-object-ref-t ((object index (:constant order (typep order 'atomic-order))) result :has-wrapper nil)
   (with-builtin-object-access (ea ea-inputs object index 8)
     (emit (make-instance 'x86-instruction
                          :opcode 'lap:mov64
@@ -614,15 +618,15 @@
                          :inputs ea-inputs
                          :outputs (list result)))))
 
-(define-builtin (setf sys.int::%atomic-object-ref-t) ((value object offset (:constant order (typep order 'atomic-order))) result :has-wrapper nil)
+(define-builtin (setf sys.int::%atomic-object-ref-t) ((value object index (:constant order (typep order 'atomic-order))) result :has-wrapper nil)
   (if (eql order :seq-cst)
       (let ((scratch (make-instance 'virtual-register)))
         (emit (make-instance 'x86-atomic-instruction
                            :opcode 'lap:xchg64
                            :object object
-                           :index (if (constant-value-p offset '(signed-byte 29))
-                                      (fetch-constant-value offset)
-                                      offset)
+                           :index (if (constant-value-p index '(signed-byte 29))
+                                      (fetch-constant-value index)
+                                      index)
                            :rhs value
                            :result scratch)))
       (with-builtin-object-access (ea ea-inputs object index 8)
