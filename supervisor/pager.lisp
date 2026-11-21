@@ -10,6 +10,7 @@
 
 (sys.int::defglobal *pager-fast-path-hits*)
 (sys.int::defglobal *pager-fast-path-misses*)
+(declaim (type fixnum *pager-fast-path-hits* *pager-fast-path-misses*))
 
 (sys.int::defglobal *pager-waiting-threads*)
 (sys.int::defglobal *pager-current-thread*)
@@ -1033,11 +1034,9 @@ It will put the thread to sleep, while it waits for the page."
              " addr:" address " writep:" writep " ist-state:" ist-state))
     (when (and *pager-fast-path-enabled*
                (wait-for-page-fast-path address writep))
-      (sys.int::%atomic-fixnum-add-symbol
-       '*pager-fast-path-hits* 1 :relaxed)
+      (sys.int::atomic-incf *pager-fast-path-hits* 1 :relaxed)
       (return-from wait-for-page-via-interrupt))
-    (sys.int::%atomic-fixnum-add-symbol
-     '*pager-fast-path-misses* 1 :relaxed)
+    (sys.int::atomic-incf *pager-fast-path-misses* 1 :relaxed)
     (with-symbol-spinlock (*pager-lock*)
       (acquire-global-thread-lock)
       (setf (thread-state self) (if writep

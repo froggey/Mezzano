@@ -232,12 +232,13 @@ If NAME does not name a struct accessor, then NIL is returned."
                 (let* ((,so ,order)
                        (,fo ,so)
                        (,ro ,so))
+                  (declare (ignorable ,so ,fo ,ro))
                   ,(cond
                      ;; If READ-FORM is of the form (SYMBOL-GLOBAL-VALUE 'foo), then we know
                      ;; this is a global symbol and can touch it directly.
-                     ((and (typep read-form '(cons (eql symbol-global-value)
+                     ((and (typep read-form '(cons (eql mezzano.internals::%atomic-symbol-global-value)
                                               (cons (cons (eql quote) (cons symbol null))
-                                               null)))
+                                               (cons t null))))
                            ,(if require-fixnum
                                 `(type-equal (mezzano.runtime::symbol-type (second (second read-form))) 'fixnum ,env)
                                 't))
@@ -245,33 +246,32 @@ If NAME does not name a struct accessor, then NIL is returned."
                        ',symbol-function
                        `',(second (second read-form))
                        ,@all-name-syms
-                       order))
+                       so))
                      ,@(when cons-operations
                          `(((typep read-form '(cons (member car first) (cons t null)))
                             (list
                              ',(car cons-operations)
                              (second read-form)
                              ,@all-name-syms
-                             order))
+                             so))
                            ((typep read-form '(cons (member cdr rest) (cons t null)))
                             (list
                              ',(cdr cons-operations)
                              (second read-form)
                              ,@all-name-syms
-                             order))))
+                             so))))
                      ;; If it names a structure slot accessor, then perform that
                      ;; operation.
-                     ((and (typep read-form '(cons symbol (cons t null)))
-                           (struct-accessor-info (first read-form) ,env))
+                     ((typep read-form '(cons (eql %atomic-struct-slot) t))
                       ;; Try for structure accessors
-                      (multiple-value-bind (struct-name slot-name)
-                          (struct-accessor-info (first read-form) ,env)
+                      (destructuring-bind (obj struct-name slot-name ord)
+                          (rest read-form)
                         (list
                          ',struct-slot-function
-                         (second read-form)
-                         `',struct-name `',slot-name
+                         obj
+                         struct-name slot-name
                          ,@all-name-syms
-                         order)))
+                         ord)))
                      (t
                       ;; Fall back on a CAS loop.
                       ;; TODO: Support directly on struct slots that have been declared fixnum.

@@ -202,16 +202,17 @@ The bootloader is loaded to #x7C00, so #x7000 should be safe.")
   (loop (%arch-panic-stop)))
 
 (sys.int::defglobal *non-quiescent-cpus-remaining*)
+(declaim (type fixnum *non-quiescent-cpus-remaining*))
 
 ;; FIXME: quiesce-cpus-for-world-stop and begin-tlb-shootdown both need to
 ;; prevent migration across CPUs.
 (defun quiesce-cpus-for-world-stop ()
   "Bring all CPUs to a consistent state to stop the world.
 Protected by the world stop lock."
-  (setf *non-quiescent-cpus-remaining* (1- *n-up-cpus*))
+  (setf (sys.int::atomic *non-quiescent-cpus-remaining*) (1- *n-up-cpus*))
   (broadcast-ipi +ipi-type-fixed+ +quiesce-ipi-vector+)
   (loop
-     (when (eql *non-quiescent-cpus-remaining* 0)
+     (when (eql (sys.int::atomic *non-quiescent-cpus-remaining*) 0)
        (return))
      (sys.int::cpu-relax)))
 
@@ -235,8 +236,7 @@ Protected by the world stop lock."
       (setf (thread-state idle) :active)
       (setf (sys.int::msr +msr-ia32-gs-base+) (sys.int::lisp-object-address idle)))
     ;; Have now reached a quiescent state.
-    (sys.int::%atomic-fixnum-add-symbol
-     '*non-quiescent-cpus-remaining* -1 :seq-cst)
+    (sys.int::atomic-decf *non-quiescent-cpus-remaining*)
     (when was-active
       ;; Finally, return to the idle thread.
       (%%switch-to-thread-common idle
@@ -247,21 +247,22 @@ Protected by the world stop lock."
 ;; and IRQs are only sent to the BSP.
 (sys.int::defglobal *debug-magic-button-hold-variable*)
 (sys.int::defglobal *debug-magic-button-ready-variable*)
+(declaim (type fixnum *debug-magic-button-ready-variable*))
 
 (defun stop-other-cpus-for-debug-magic-button ()
-  (setf *debug-magic-button-ready-variable* (1- *n-up-cpus*)
-        *debug-magic-button-hold-variable* t)
+  (setf (sys.int::atomic *debug-magic-button-ready-variable*) (1- *n-up-cpus*)
+        (sys.int::atomic *debug-magic-button-hold-variable*) t)
   (broadcast-ipi +ipi-type-fixed+ +magic-button-ipi-vector+)
   ;; Wait for other CPUs to arrive, this ensures the thread state is actually
   ;; consistent.
-  (loop until (eql *debug-magic-button-ready-variable* 0)))
+  (loop until (eql (sys.int::atomic *debug-magic-button-ready-variable*) 0)))
 
 (defun resume-other-cpus-for-debug-magic-button ()
-  (setf *debug-magic-button-ready-variable* (1- *n-up-cpus*)
-        *debug-magic-button-hold-variable* nil)
+  (setf (sys.int::atomic *debug-magic-button-ready-variable*) (1- *n-up-cpus*)
+        (sys.int::atomic *debug-magic-button-hold-variable*) nil)
   ;; Wait for other CPUs to leave, this ensures they've all seen
   ;; the hold variable going to NIL.
-  (loop until (eql *debug-magic-button-ready-variable* 0)))
+  (loop until (eql (sys.int::atomic *debug-magic-button-ready-variable*) 0)))
 
 (defun magic-button-ipi-handler (interrupt-frame info)
   (declare (ignore info))
@@ -269,78 +270,77 @@ Protected by the world stop lock."
   (lapic-eoi))
 
 (defun magic-button-ipi-handler-1 (interrupt-frame)
-  (when (not *debug-magic-button-hold-variable*)
+  (when (not (sys.int::atomic *debug-magic-button-hold-variable*))
     ;; Can happen due to double-entry from the TLB path.
     (return-from magic-button-ipi-handler-1))
   ;; Save the current thread state so it looks approximately correct.
   (let ((current (current-thread)))
     (save-fpu-state current)
     (save-interrupted-state current interrupt-frame))
-  (sys.int::%atomic-fixnum-add-symbol
-   '*debug-magic-button-ready-variable* -1 :seq-cst)
-  (loop while *debug-magic-button-hold-variable*)
-  (sys.int::%atomic-fixnum-add-symbol
-   '*debug-magic-button-ready-variable* -1 :seq-cst))
+  (sys.int::atomic-decf *debug-magic-button-ready-variable*)
+  (loop while (sys.int::atomic *debug-magic-button-hold-variable*))
+  (sys.int::atomic-decf *debug-magic-button-ready-variable*))
 
 (sys.int::defglobal *tlb-shootdown-in-progress* nil)
 (sys.int::defglobal *busy-tlb-shootdown-cpus*)
+(declaim (type *busy-tlb-shootdown-cpus*))
 
 ;; TODO: This unconditionally invalidates the entire TLB.
 ;; Should be more fine-grained.
 
 (defun check-tlb-shootdown-not-in-progress ()
-  (ensure (not *tlb-shootdown-in-progress*) "TLB shootdown in progress!"))
+  (ensure (not (sys.int::atomic *tlb-shootdown-in-progress*))
+          "TLB shootdown in progress!"))
 
 (defun begin-tlb-shootdown ()
   "Bring all CPUs to state ready for TLB shootdown.
 TLB shootdown must be protected by the VM lock."
   (ensure (rw-lock-write-held-p *vm-lock*) "VM lock not held when doing TLB shootdown!")
-  (ensure (not *tlb-shootdown-in-progress*) "TLB shootdown already in progress!")
-  (setf *tlb-shootdown-in-progress* t)
-  (setf *busy-tlb-shootdown-cpus* (1- *n-up-cpus*))
+  (ensure (not (sys.int::atomic *tlb-shootdown-in-progress*))
+          "TLB shootdown already in progress!")
+  (setf (sys.int::atomic *tlb-shootdown-in-progress*) t)
+  (setf (sys.int::atomic *busy-tlb-shootdown-cpus*) (1- *n-up-cpus*))
   (broadcast-ipi +ipi-type-fixed+ +tlb-shootdown-ipi-vector+)
   ;; Wait for other CPUs to reach the handler.
   (loop
-     (when (eql *busy-tlb-shootdown-cpus* 0)
+     (when (eql (sys.int::atomic *busy-tlb-shootdown-cpus*) 0)
        (return))
      (sys.int::cpu-relax)))
 
 (defun tlb-shootdown-single (address)
   (declare (ignore address))
-  (ensure *tlb-shootdown-in-progress*))
+  (ensure (sys.int::atomic *tlb-shootdown-in-progress*)))
 
 (defun tlb-shootdown-range (base length)
   (declare (ignore base length))
-  (ensure *tlb-shootdown-in-progress*))
+  (ensure (sys.int::atomic *tlb-shootdown-in-progress*)))
 
 (defun tlb-shootdown-all ()
-  (ensure *tlb-shootdown-in-progress*))
+  (ensure (sys.int::atomic *tlb-shootdown-in-progress*)))
 
 (defun finish-tlb-shootdown ()
-  (ensure *tlb-shootdown-in-progress*)
-  (setf *busy-tlb-shootdown-cpus* (1- *n-up-cpus*))
-  (setf *tlb-shootdown-in-progress* nil)
+  (ensure (sys.int::atomic *tlb-shootdown-in-progress*))
+  (setf (sys.int::atomic *busy-tlb-shootdown-cpus*) (1- *n-up-cpus*))
+  (setf (sys.int::atomic *tlb-shootdown-in-progress*) nil)
   ;; Wait for CPUs to leave the handler.
   (loop
-     (when (eql *busy-tlb-shootdown-cpus* 0)
+     (when (eql (sys.int::atomic *busy-tlb-shootdown-cpus*) 0)
        (return))
      (sys.int::cpu-relax)))
 
 (defun tlb-shootdown-ipi-handler (interrupt-frame info)
   (declare (ignore info))
   (lapic-eoi)
-  (sys.int::%atomic-fixnum-add-symbol
-   '*busy-tlb-shootdown-cpus* -1 :seq-cst)
+  (sys.int::atomic-decf *busy-tlb-shootdown-cpus*)
   (loop
-     (when (not *tlb-shootdown-in-progress*)
+     (when (not (sys.int::atomic *tlb-shootdown-in-progress*))
        (return))
      ;; FIXME: hack... maybe this should sit with interrupts enabled?
-     (when *debug-magic-button-hold-variable*
+     (when (sys.int::atomic *debug-magic-button-hold-variable*)
        (magic-button-ipi-handler-1 interrupt-frame))
      (sys.int::cpu-relax))
   (flush-tlb)
-  (sys.int::%atomic-fixnum-add-symbol
-   '*busy-tlb-shootdown-cpus* -1 :seq-cst))
+  (sys.int::atomic-decf *busy-tlb-shootdown-cpus*))
 
 (sys.int::define-lap-function local-cpu (())
   "Return the address of the local CPU's info vector."
@@ -484,8 +484,8 @@ TLB shootdown must be protected by the VM lock."
   (when (not (boundp '*cpus*))
     ;; For panics early in the first boot.
     (setf *cpus* '()))
-  (setf *debug-magic-button-hold-variable* nil)
-  (setf *tlb-shootdown-in-progress* nil)
+  (setf (sys.int::atomic *debug-magic-button-hold-variable*) nil)
+  (setf (sys.int::atomic *tlb-shootdown-in-progress*) nil)
   (populate-cpu-info *bsp-cpu*
                      (+ (car sys.int::*bsp-wired-stack*) (cdr sys.int::*bsp-wired-stack*))
                      (+ (car sys.int::*exception-stack*) (cdr sys.int::*exception-stack*))

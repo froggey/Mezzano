@@ -230,16 +230,17 @@
   (broadcast-ipi +wakeup-sgi-id+))
 
 (sys.int::defglobal *non-quiescent-cpus-remaining*)
+(declaim (type fixnum *non-quiescent-cpus-remaining*))
 
 ;; FIXME: quiesce-cpus-for-world-stop needs to prevent migration across CPUs.
 (defun quiesce-cpus-for-world-stop ()
   "Bring all CPUs to a consistent state to stop the world.
 Protected by the world stop lock."
-  (setf *non-quiescent-cpus-remaining* (1- *n-up-cpus*))
+  (setf (sys.int::atomic *non-quiescent-cpus-remaining*) (1- *n-up-cpus*))
   (broadcast-ipi +quiesce-sgi-id+)
   ;; FIXME: Use WFE/SEV instead of this spin-loop.
   (loop
-     (when (eql *non-quiescent-cpus-remaining* 0)
+     (when (eql (sys.int::atomic *non-quiescent-cpus-remaining*) 0)
        (return))
      (sys.int::cpu-relax)))
 
@@ -260,8 +261,7 @@ Protected by the world stop lock."
       ;; Partially switch to the idle thread.
       (setf (thread-state idle) :active))
     ;; Have now reached a quiescent state.
-    (sys.int::%atomic-fixnum-add-symbol
-     '*non-quiescent-cpus-remaining* -1 :seq-cst)
+    (sys.int::atomic-decf *non-quiescent-cpus-remaining*)
     (when was-active
       ;; Finally, return to the idle thread.
       (%%switch-to-thread-common idle
@@ -272,32 +272,31 @@ Protected by the world stop lock."
 ;; and IRQs are only sent to the BSP.
 (sys.int::defglobal *debug-magic-button-hold-variable*)
 (sys.int::defglobal *debug-magic-button-ready-variable*)
+(declaim (type fixnum *debug-magic-button-ready-variable*))
 
 (defun stop-other-cpus-for-debug-magic-button ()
-  (setf *debug-magic-button-ready-variable* (1- *n-up-cpus*)
-        *debug-magic-button-hold-variable* t)
+  (setf (sys.int::atomic *debug-magic-button-ready-variable*) (1- *n-up-cpus*)
+        (sys.int::atomic *debug-magic-button-hold-variable*) t)
   (broadcast-ipi +magic-button-sgi-id+)
   ;; Wait for other CPUs to arrive, this ensures the thread state is actually
   ;; consistent.
-  (loop until (eql *debug-magic-button-ready-variable* 0)))
+  (loop until (eql (sys.int::atomic *debug-magic-button-ready-variable*) 0)))
 
 (defun resume-other-cpus-for-debug-magic-button ()
-  (setf *debug-magic-button-ready-variable* (1- *n-up-cpus*)
-        *debug-magic-button-hold-variable* nil)
+  (setf (sys.int::atomic *debug-magic-button-ready-variable*) (1- *n-up-cpus*)
+        (sys.int::atomic *debug-magic-button-hold-variable*) nil)
   ;; Wait for other CPUs to leave, this ensures they've all seen
   ;; the hold variable going to NIL.
-  (loop until (eql *debug-magic-button-ready-variable* 0)))
+  (loop until (eql (sys.int::atomic *debug-magic-button-ready-variable*) 0)))
 
 (defun magic-button-ipi-handler (interrupt-frame)
   ;; Save the current thread state so it looks approximately correct.
   (let ((current (current-thread)))
     (save-fpu-state current)
     (save-interrupted-state current interrupt-frame))
-  (sys.int::%atomic-fixnum-add-symbol
-   '*debug-magic-button-ready-variable* -1 :seq-cst)
-  (loop while *debug-magic-button-hold-variable*)
-  (sys.int::%atomic-fixnum-add-symbol
-   '*debug-magic-button-ready-variable* -1 :seq-cst))
+  (sys.int::atomic-decf *debug-magic-button-ready-variable*)
+  (loop while (sys.int::atomic *debug-magic-button-hold-variable*))
+  (sys.int::atomic-decf *debug-magic-button-ready-variable*))
 
 ;; TLB shootdown isn't required as ARM has cross-core TLB invalidation instructions
 

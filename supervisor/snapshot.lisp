@@ -5,6 +5,7 @@
 (sys.int::defglobal *snapshot-in-progress* nil)
 (sys.int::defglobal *snapshot-state*)
 (sys.int::defglobal *snapshot-inhibit*)
+(declaim (type fixnum *snapshot-inhibit*))
 
 (sys.int::defglobal *snapshot-disk-request*)
 (sys.int::defglobal *snapshot-bounce-buffer-page*)
@@ -355,7 +356,7 @@ Returns 4 values:
         (previously-deferred-free-blocks nil))
     ;; Stop the world before taking the *VM-LOCK*. There may be PA threads waiting for pages.
     (with-world-stopped ()
-      (when (not (zerop *snapshot-inhibit*))
+      (when (not (zerop (sys.int::atomic *snapshot-inhibit*)))
         (set-snapshot-light nil)
         (return-from take-snapshot :retry))
       (debug-print-line "Begin snapshot.")
@@ -407,7 +408,7 @@ This event will be signalled when the epoch changes."
     (loop
        ;; Retry occurs when *SNAPSHOT-INHIBIT* is non-zero.
        (loop
-          while (or (not (eql *snapshot-inhibit* 0))
+          while (or (not (eql (sys.int::atomic *snapshot-inhibit*) 0))
                     (eql (take-snapshot) :retry))
           do (timer-sleep snapshot-retry-timer 0.1))
        ;; After taking a snapshot, clear *snapshot-in-progress*
@@ -455,7 +456,7 @@ This event will be signalled when the epoch changes."
          (setf *snapshot-epoch* (make-event :name 'snapshot-epoch))))
   (setf *snapshot-disk-request* (make-disk-request))
   (setf *snapshot-in-progress* nil)
-  (setf *snapshot-inhibit* 1)
+  (setf (sys.int::atomic *snapshot-inhibit*) 1)
   (setf *enable-snapshot-cow-fast-path* nil)
   ;; Allocate pages to copy the wired area into.
   ;; TODO: Use 2MB pages when possible.
@@ -497,8 +498,7 @@ This event will be signalled when the epoch changes."
   `(call-with-snapshot-inhibited (dx-lambda () ,@body) ,@options))
 
 (defun call-with-snapshot-inhibited (fn)
-  ;; FIXME: Switch to ATOMIC-INCF/-DECF. Needs xcompiler fixes for declaim.
-  (sys.int::%atomic-fixnum-add-symbol '*snapshot-inhibit* 1 :seq-cst)
+  (sys.int::atomic-incf *snapshot-inhibit*)
   (unwind-protect
        (funcall fn)
-    (sys.int::%atomic-fixnum-add-symbol '*snapshot-inhibit* -1 :seq-cst)))
+    (sys.int::atomic-decf *snapshot-inhibit*)))

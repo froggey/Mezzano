@@ -127,7 +127,7 @@
       (let ((self (current-thread)))
         ;; *SNAPSHOT-INHIBIT* is set to 1 during boot, decrement it
         ;; and enable snapshotting now that all boot work has been done.
-        (sys.int::%atomic-fixnum-add-symbol '*snapshot-inhibit* -1 :seq-cst)
+        (sys.int::atomic-decf *snapshot-inhibit*)
         (acquire-global-thread-lock)
         (setf (thread-wait-item self) "Next boot"
               (thread-state self) :sleeping)
