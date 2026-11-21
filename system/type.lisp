@@ -833,6 +833,13 @@
             (and (consp type-specifier)
                  (member (first type-specifier) '(values function))))
     (error "Type specifier ~S cannot be used with TYPEP" type-specifier))
+  (when (eql type-specifier 'fixnum)
+    ;; bootstrap hack - we declare a bunch of globals fixnum and
+    ;; proclaim wants to call typep before the type system is
+    ;; properly up and running. the way to do this properly would
+    ;; be to have the cold-generator understand some calls to proclaim.
+    (return-from typep
+      (fixnump object)))
   (when (and (instance-p type-specifier)
              (subclassp (class-of type-specifier) (find-class 'mezzano.clos:class)))
     (return-from typep
