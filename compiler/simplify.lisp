@@ -22,7 +22,8 @@ Returns NIL if there is no THE form.")
   (ast-the-type form))
 
 (defmethod fetch-inner-the-type ((form ast-block))
-  (fetch-inner-the-type (ast-body form)))
+  (when (eql (lexical-variable-use-count (info form)) 0)
+    (fetch-inner-the-type (ast-body form))))
 
 (defmethod fetch-inner-the-type ((form ast-let))
   (fetch-inner-the-type (ast-body form)))
