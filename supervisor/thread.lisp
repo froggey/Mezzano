@@ -105,7 +105,7 @@ can be reprotected.")
   (pending-footholds '())
   ;; A non-negative fixnum, when 0 footholds are permitted to run.
   ;; When positive, they are deferred.
-  (inhibit-footholds 1)
+  (inhibit-footholds 1 :type fixnum)
   ;; Permit WITH-FOOTHOLDS to temporarily reenable footholds when true.
   (allow-with-footholds t)
   ;; Next/previous links for the *all-threads* list.
@@ -846,7 +846,7 @@ not and WAIT-P is false."
                 ,@body)
            (when ,old-allow-with-footholds
              (setf (thread-allow-with-footholds ,thread) t))
-           (when (eql (sys.int::atomic-incf (thread-inhibit-footholds ,thread)) 1)
+           (when (eql (sys.int::atomic-decf (thread-inhibit-footholds ,thread)) 1)
              (run-pending-footholds)))))))
 
 (defmacro with-footholds (&body body)

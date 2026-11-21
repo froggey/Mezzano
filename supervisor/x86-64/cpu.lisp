@@ -283,7 +283,7 @@ Protected by the world stop lock."
 
 (sys.int::defglobal *tlb-shootdown-in-progress* nil)
 (sys.int::defglobal *busy-tlb-shootdown-cpus*)
-(declaim (type *busy-tlb-shootdown-cpus*))
+(declaim (type fixnum *busy-tlb-shootdown-cpus*))
 
 ;; TODO: This unconditionally invalidates the entire TLB.
 ;; Should be more fine-grained.
