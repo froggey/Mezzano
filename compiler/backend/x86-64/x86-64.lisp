@@ -447,7 +447,7 @@ The resulting code is not in SSA form so this pass must be late in the compiler.
                    (if (integerp (x86-atomic-index inst))
                        (values `(:object ,(x86-atomic-object inst) ,(x86-atomic-index inst))
                                (list (x86-atomic-object inst)))
-                       (values `(:object ,(x86-atomic-object inst) 0 ,(x86-atomic-index inst))
+                       (values `(:object ,(x86-atomic-object inst) 0 ,(x86-atomic-index inst) 4)
                                (list (x86-atomic-object inst) (x86-atomic-index inst))))))
           (change-class inst 'x86-instruction
                         :operands (list ea output-reg)
