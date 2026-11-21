@@ -620,7 +620,7 @@
 
 (define-builtin (setf sys.int::%atomic-object-ref-t) ((value object index (:constant order (typep order 'atomic-order))) result :has-wrapper nil)
   (if (eql order :seq-cst)
-      (let ((scratch (make-instance 'virtual-register)))
+      (let ((scratch (make-instance 'ir:virtual-register)))
         (emit (make-instance 'x86-atomic-instruction
                            :opcode 'lap:xchg64
                            :object object
