@@ -87,12 +87,20 @@
                   (compiler-valid-type-equal-p (the-type (test form)) 'null))
              (change-made)
              ;; Use the else branch.
-             (pick-branch (if-else form) (if-then form)))
+             (if (pure-p (test form))
+                 (pick-branch (if-else form) (if-then form))
+                 (ast `(progn ,(test form)
+                              ,(pick-branch (if-else form) (if-then form)))
+                      form)))
             ((and (typep (test form) 'ast-the)
                   (compiler-valid-subtypep (the-type (test form)) '(not null)))
              (change-made)
              ;; Use the true branch.
-             (pick-branch (if-then form) (if-else form)))
+             (if (pure-p (test form))
+                 (pick-branch (if-then form) (if-else form))
+                 (ast `(progn ,(test form)
+                              ,(pick-branch (if-then form) (if-else form)))
+                      form)))
             (t
              (flush-mutable-variables)
              (setf (if-then form) (cp-form (if-then form)))
