@@ -1268,12 +1268,10 @@ First return value is a list of elements, second is the final dotted component (
                                  (call sys.int::%%unreachable)))
                            ,(struct-slot-access-form slot-def 'obj 'sys.int::cas 'old 'new 'so 'fo))
                          (notinline-call (sys.int::cas sys.int::%struct-slot)
-                                         old
-                                         new
+                                         old new so fo
                                          obj
                                          ',(ast-value structure-name)
-                                         ',(ast-value slot-name)
-                                         so fo)))
+                                         ',(ast-value slot-name))))
                 form))))))
 
 (defun atomic-struct-slot-access-form (slot-def object fn-namespace order &rest additional-args)
@@ -1339,7 +1337,7 @@ First return value is a list of elements, second is the final dotted component (
                                          obj
                                          ',(ast-value structure-name)
                                          ',(ast-value slot-name)
-                                         'order)))
+                                         order)))
                   form))))))
 
 (defun test-atomic-fixnum-op-struct-slot-transform-viability (form)
