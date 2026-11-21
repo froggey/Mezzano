@@ -7,6 +7,7 @@
 (defvar *propagated-type-definitions*)
 
 (defun apply-transforms (lambda target-architecture)
+  (detect-uses lambda)
   (let ((*propagated-type-definitions* '()))
     (apply-transforms-1 lambda target-architecture)))
 
@@ -79,7 +80,9 @@
                           collect (list var transformed)
                           when (and (not (eql initform transformed))
                                     (typep transformed 'ast-the)
-                                    (lexical-variable-p var))
+                                    (not (values-type-p (ast-the-type transformed)))
+                                    (lexical-variable-p var)
+                                    (zerop (lexical-variable-write-count var)))
                             do (push (cons var (ast-the-type transformed))
                                      *propagated-type-definitions*)))
   (setf (body form) (apply-transforms-1 (body form) target-architecture))
@@ -94,10 +97,12 @@
       (let ((types (if (and (listp (ast-the-type (value-form form)))
                             (eql (car (ast-the-type (value-form form))) 'values))
                        (cdr (ast-the-type (value-form form)))
-                       (ast-the-type (value-form form)))))
+                       (list (ast-the-type (value-form form))))))
         (loop for ty in types
               for var in (ast-bindings form)
-              when (lexical-variable-p var)
+              until (member ty '(&optional &rest &allow-other-keys))
+              when (and (lexical-variable-p var)
+                        (zerop (lexical-variable-write-count var)))
                 do (push (cons var ty) *propagated-type-definitions*))))
     (setf (body form) (apply-transforms-1 (body form) target-architecture)))
   form)
