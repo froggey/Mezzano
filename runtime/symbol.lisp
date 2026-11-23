@@ -149,6 +149,19 @@
 (defun sys.int::%atomic-symbol-global-value (symbol order)
   (%atomic-symbol-value-cell-value (symbol-global-value-cell symbol) order))
 
+(define-compiler-macro (setf sys.int::%atomic-symbol-global-value) (&whole whole value symbol order)
+  (cond ((and (typep symbol '(cons (eql quote) (cons symbol null)))
+              (not (symbol-constant-p (second symbol)))
+              (eql (symbol-type (second symbol)) 't))
+         `(setf (%atomic-symbol-value-cell-value (symbol-global-value-cell ,symbol) ,order) ,value))
+        ((and (typep symbol '(cons (eql quote) (cons symbol null)))
+              (not (symbol-constant-p (second symbol))))
+         `(progn
+            (assert (typep ,value ',(symbol-type (second symbol))))
+            (setf (%atomic-symbol-value-cell-value (symbol-global-value-cell ,symbol) ,order) ,value)))
+        (t
+         whole)))
+
 (defun (setf sys.int::%atomic-symbol-global-value) (value symbol order)
   (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)
   (modifying-symbol-value symbol)
@@ -161,6 +174,12 @@
               (eql (symbol-type (second symbol)) 't))
          `(sys.int::cas (symbol-value-cell-value (symbol-global-value-cell ',(second symbol)))
                         ,old ,new ,so ,fo))
+        ((and (typep symbol '(cons (eql quote) (cons symbol null)))
+              (not (symbol-constant-p (second symbol))))
+         `(progn
+            (assert (typep ,new ',(symbol-type (second symbol))))
+            (sys.int::cas (symbol-value-cell-value (symbol-global-value-cell ',(second symbol)))
+                          ,old ,new ,so ,fo)))
         (t
          whole)))
 
