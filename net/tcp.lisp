@@ -210,8 +210,12 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
    (%rto :accessor tcp-connection-rto :initarg :rto)
    (%retransmit-queue :accessor tcp-connection-retransmit-queue :initform '())
    (%lock :reader tcp-connection-lock)
-   (%cvar :reader tcp-connection-cvar)
+   ;; True when the connection attempt has succeeded or failed.
+   (%connect-complete-event :reader tcp-connection-connected-event)
+   ;; True when there's data to read (or a terminal outcome is reached).
    (%receive-event :reader tcp-connection-receive-event)
+   ;; True when data can be written (or a terminal outcome is reached).
+   (%send-event :reader tcp-connection-send-event)
    (%pending-error :accessor tcp-connection-pending-error :initform nil)
    (%retransmit-timer :reader tcp-connection-retransmit-timer)
    (%retransmit-source :reader tcp-connection-retransmit-source)
@@ -294,7 +298,6 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
           (make-condition 'connection-timed-out
                           :host (tcp-connection-remote-ip connection)
                           :port (tcp-connection-remote-port connection)))
-    (mezzano.supervisor:condition-notify (tcp-connection-cvar connection) t)
     (case (tcp-connection-state connection)
       (:syn-sent
        (detach-tcp-connection connection))
@@ -304,10 +307,18 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
 
 (defmethod initialize-instance :after ((instance tcp-connection) &key)
   (setf (slot-value instance '%lock) (mezzano.supervisor:make-mutex instance)
-        (slot-value instance '%cvar) (mezzano.supervisor:make-condition-variable instance)
-        (slot-value instance '%receive-event) (mezzano.supervisor:make-event :name `(:data-available ,instance))
-        (slot-value instance '%retransmit-timer) (mezzano.supervisor:make-timer :name `(:tcp-retransmit ,instance))
-        (slot-value instance '%timeout-timer) (mezzano.supervisor:make-timer :name `(:tcp-timeout ,instance)))
+        (slot-value instance '%connect-complete-event) (sync:make-event
+                                                        :name `(:connect-complete ,instance))
+        (slot-value instance '%receive-event) (sync:make-event
+                                               :name `(:data-available ,instance))
+        (slot-value instance '%send-event) (sync:make-event
+                                            :name `(:send-ready ,instance)
+                                            ;; TODO!
+                                            :state t)
+        (slot-value instance '%retransmit-timer) (mezzano.supervisor:make-timer
+                                                  :name `(:tcp-retransmit ,instance))
+        (slot-value instance '%timeout-timer) (mezzano.supervisor:make-timer
+                                               :name `(:tcp-timeout ,instance)))
   (setf (slot-value instance '%retransmit-source)
         (mezzano.sync.dispatch:make-source (tcp-connection-retransmit-timer instance)
                                            (lambda ()
@@ -376,6 +387,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                                              :rcv.nxt (+u32 irs 1)
                                              :rcv.wnd *initial-window-size*
                                              :boot-id (mezzano.supervisor:current-boot-id))))
+             (setf (sync:event-state (tcp-connection-connected-event connection)) t)
              (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
                (push connection *tcp-connections*))
              (setf (gethash connection (tcp-listener-pending-connections listener))
@@ -429,6 +441,9 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
   (mezzano.supervisor:timer-disarm (tcp-connection-timeout-timer connection))
   (mezzano.sync.dispatch:cancel (tcp-connection-retransmit-source connection))
   (mezzano.sync.dispatch:cancel (tcp-connection-timeout-source connection))
+  (setf (sync:event-state (tcp-connection-connected-event connection)) t)
+  (setf (sync:event-state (tcp-connection-receive-event connection)) t)
+  (setf (sync:event-state (tcp-connection-send-event connection)) t)
   (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
     (setf *tcp-connections* (remove connection *tcp-connections*))))
 
@@ -568,7 +583,6 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                               :host (tcp-connection-remote-ip connection)
                               :port (tcp-connection-remote-port connection)))
         (detach-tcp-connection connection)
-        (mezzano.supervisor:condition-notify (tcp-connection-cvar connection) t)
         (return-from tcp4-connection-receive))
       ;; :CLOSED should never be seen here
       (ecase (tcp-connection-state connection)
@@ -604,9 +618,11 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                       (make-condition 'connection-aborted
                                       :host (tcp-connection-remote-ip connection)
                                       :port (tcp-connection-remote-port connection)))
-                (detach-tcp-connection connection))))
+                (detach-tcp-connection connection)))
+         ;; Transitioning out of syn-sent means we're connected.
+         (setf (sync:event-state (tcp-connection-connected-event connection)) t))
         (:syn-received
-         ;; Pasive open
+         ;; Passive open
          (cond ((and (eql flags +tcp4-flag-ack+)
                      (eql seq (tcp-connection-rcv.nxt connection))
                      (eql ack (tcp-connection-snd.nxt connection)))
@@ -755,9 +771,7 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
                     (logtest flags +tcp4-flag-ack+))
            ;; Remote has sent ACK, connection closed
            (detach-tcp-connection connection)))))
-    (update-timeout-timer connection)
-    ;; Notify any waiters that something may have changed.
-    (mezzano.supervisor:condition-notify (tcp-connection-cvar connection) t)))
+    (update-timeout-timer connection)))
 
 (defun tcp4-send-packet (connection seq ack data &key cwr-p ece-p urg-p (ack-p t) psh-p rst-p syn-p fin-p errors-escape)
   (let* ((source (tcp-connection-local-ip connection))
@@ -783,7 +797,6 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
       (mezzano.network.ip:no-route-to-host (c)
         (detach-tcp-connection connection)
         (setf (tcp-connection-pending-error connection) c)
-        (mezzano.supervisor:condition-notify (tcp-connection-cvar connection) t)
         (when errors-escape
           (error c))))))
 
@@ -891,7 +904,6 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
               (make-condition 'connection-stale
                               :host (tcp-connection-remote-ip connection)
                               :port (tcp-connection-remote-port connection)))
-        (mezzano.supervisor:condition-notify (tcp-connection-cvar connection) t)
         (detach-tcp-connection connection)))))
 
 (defun check-connection-error (connection)
@@ -928,10 +940,8 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
        (arm-retransmit-timer connection)
        (arm-timeout-timer *tcp-connect-timeout* connection))
      net::*network-serial-queue*)
+    (sync:event-wait (tcp-connection-connected-event connection))
     (with-tcp-connection-locked connection
-      (mezzano.supervisor:condition-wait-for ((tcp-connection-cvar connection)
-                                              (tcp-connection-lock connection))
-        (not (eql (tcp-connection-state connection) :syn-sent)))
       (check-connection-error connection))
     connection))
 
@@ -1036,23 +1046,6 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
             :fin-wait-1
             :fin-wait-2)))
 
-(defun refill-tcp-packet-buffer (stream)
-  (let ((connection (tcp-stream-connection stream)))
-    ;; Wait for data or for the connection to close.
-    (mezzano.supervisor:condition-wait-for ((tcp-connection-cvar connection)
-                                            (tcp-connection-lock connection))
-      (when (tcp-stream-packet stream)
-        ;; There was already data waiting or another thread refilled
-        ;; while we were waiting.
-        (return-from refill-tcp-packet-buffer t))
-      (or (tcp-connection-rx-data connection)
-          (not (connection-may-have-additional-data-p connection))))
-    (when (and (null (tcp-connection-rx-data connection))
-               (not (connection-may-have-additional-data-p connection)))
-      (return-from refill-tcp-packet-buffer nil))
-    (setf (tcp-stream-packet stream) (pop (tcp-connection-rx-data connection))))
-  t)
-
 (defun refill-tcp-packet-buffer-no-hang (stream)
   (let ((connection (tcp-stream-connection stream)))
     (when (and (null (tcp-stream-packet stream))
@@ -1082,16 +1075,10 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
     (and result (not (eql result :eof)))))
 
 (defmethod gray:stream-read-byte ((stream tcp-octet-stream))
-  (with-tcp-connection-locked (tcp-stream-connection stream)
-    (check-connection-error (tcp-stream-connection stream))
-    (when (not (refill-tcp-packet-buffer stream))
-      (return-from gray:stream-read-byte :eof))
-    (let* ((packet (tcp-stream-packet stream))
-           (byte (aref (first packet) (second packet))))
-      (when (>= (incf (second packet)) (third packet))
-        (setf (tcp-stream-packet stream) nil))
-      (maybe-clear-receive-ready-event stream)
-      byte)))
+  (let ((byte (make-array 1 :element-type '(unsigned-byte 8))))
+    (declare (dynamic-extent byte))
+    (gray:stream-read-sequence stream byte)
+    (aref byte 0)))
 
 (defmethod gray:stream-read-byte-no-hang ((stream tcp-octet-stream))
   (with-tcp-connection-locked (tcp-stream-connection stream)
@@ -1112,12 +1099,19 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
 (defmethod gray:stream-read-sequence ((stream tcp-octet-stream) sequence &optional (start 0) end)
   (when (not end)
     (setf end (length sequence)))
-  (with-tcp-connection-locked (tcp-stream-connection stream)
-    (check-connection-error (tcp-stream-connection stream))
-    (let ((position start))
-      (loop (when (or (>= position end)
-                      (not (refill-tcp-packet-buffer stream)))
-              (return))
+  (let* ((position start)
+         (conn (tcp-stream-connection stream))
+         (evt (tcp-connection-receive-event conn)))
+    (loop while (< position end) do
+      (sync:event-wait evt)
+      (with-tcp-connection-locked conn
+        (check-connection-error conn)
+        (refill-tcp-packet-buffer-no-hang stream)
+        (when (and (null (tcp-connection-rx-data conn))
+                   (not (connection-may-have-additional-data-p conn)))
+          ;; At EOF
+          (return))
+        (when (tcp-stream-packet stream)
          (let* ((packet (tcp-stream-packet stream))
                 (pkt-data (first packet))
                 (pkt-offset (second packet))
@@ -1130,8 +1124,8 @@ Set to a value near 2^32 to test SND sequence number wrapping.")
            (when (>= (incf (second packet) bytes-to-copy) (third packet))
              (setf (tcp-stream-packet stream) nil))
            (incf position bytes-to-copy)))
-      (maybe-clear-receive-ready-event stream)
-      position)))
+        (maybe-clear-receive-ready-event stream)))
+    position))
 
 (defmethod gray:stream-write-byte ((stream tcp-octet-stream) byte)
   (let ((ary (make-array 1 :element-type '(unsigned-byte 8)

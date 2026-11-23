@@ -84,7 +84,8 @@
                 #:ub64ref/be #:ub64ref/le)
   (:local-nicknames (:gray :mezzano.gray)
                     (:net :mezzano.network)
-                    (:sys.int :mezzano.internals))
+                    (:sys.int :mezzano.internals)
+                    (:sync :mezzano.sync))
   (:export #:tcp-stream-connect
            #:tcp-listen
            #:tcp-accept
