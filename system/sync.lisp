@@ -8,8 +8,19 @@
   (:import-from :mezzano.supervisor
                 #:wait-for-objects
                 #:get-object-event
-                #:thread-pool-block)
-  (:export #:wait-for-objects
+                #:thread-pool-block
+                #:event
+                #:make-event
+                #:event-name
+                #:event-state
+                #:event-wait)
+  (:export #:event
+           #:make-event
+           #:event-name
+           #:event-state
+           #:event-wait
+
+           #:wait-for-objects
            #:wait-for-objects-with-timeout
            #:get-object-event
 
@@ -79,7 +90,7 @@ Returns the number of seconds remaining as a secondary value if TIMEOUT is non-N
          ;; Special case, zero or negative timeout - just poll the events.
          (values (loop
                     for object in objects
-                    when (sup:event-state (get-object-event object))
+                    when (event-state (get-object-event object))
                     collect object)
                  0))
         (t
@@ -88,23 +99,23 @@ Returns the number of seconds remaining as a secondary value if TIMEOUT is non-N
            (values (delete timer (apply #'wait-for-objects timer objects))
                    (sup:timer-remaining timer))))))
 
-(defmethod get-object-event ((object sup:event))
+(defmethod get-object-event ((object event))
   object)
 
-(defmethod name ((object sup:event))
-  (sup:event-name object))
+(defmethod name ((object event))
+  (event-name object))
 
-(defmethod print-object ((object sup:event) stream)
+(defmethod print-object ((object event) stream)
   (print-unreadable-object (object stream :type t :identity t)
-    (let ((name (sup:event-name object)))
+    (let ((name (event-name object)))
       (when name
         (format stream "~A " name))
-      (format stream "=> ~S" (sup:event-state object)))))
+      (format stream "=> ~S" (event-state object)))))
 
-(mezzano.internals::defglobal *always-false-event* (sup:make-event :name "Always false"))
+(mezzano.internals::defglobal *always-false-event* (make-event :name "Always false"))
 (defun always-false-event () *always-false-event*)
 
-(mezzano.internals::defglobal *always-true-event* (sup:make-event :name "Always true" :state t))
+(mezzano.internals::defglobal *always-true-event* (make-event :name "Always true" :state t))
 (defun always-true-event () *always-true-event*)
 
 (defmethod get-object-event ((object sup:timer))
@@ -175,7 +186,7 @@ Returns the number of seconds remaining as a secondary value if TIMEOUT is non-N
     (error "Semaphore initial value ~D exceeds limit ~D"
            (%semaphore-value instance) (semaphore-limit instance)))
   (setf (slot-value instance '%not-zero-event)
-        (sup:make-event :name name
+        (make-event :name name
                         :state (not (zerop (%semaphore-value instance))))))
 
 (defmethod print-object ((object semaphore) stream)
@@ -197,7 +208,7 @@ Returns the number of seconds remaining as a secondary value if TIMEOUT is non-N
   (make-instance 'semaphore :name name :value value :limit limit))
 
 (defmethod name ((object semaphore))
-  (sup:event-name (semaphore-not-zero-event object)))
+  (event-name (semaphore-not-zero-event object)))
 
 (defun semaphore-value (semaphore)
   "Return SEMAPHORE's current value."
@@ -210,7 +221,7 @@ Returns the number of seconds remaining as a secondary value if TIMEOUT is non-N
       (when (and limit (eql (%semaphore-value semaphore) limit))
         (error "Semaphore at limit ~D" limit)))
     (incf (%semaphore-value semaphore))
-    (setf (sup:event-state (semaphore-not-zero-event semaphore)) t))
+    (setf (event-state (semaphore-not-zero-event semaphore)) t))
   (values))
 
 (defun semaphore-down (semaphore &key (wait-p t))
@@ -223,11 +234,11 @@ Returns true if SEMAPHORE was decremented, false if WAIT-P is false and the sema
        (when (not (zerop (%semaphore-value semaphore)))
          (decf (%semaphore-value semaphore))
          (when (zerop (%semaphore-value semaphore))
-           (setf (sup:event-state (semaphore-not-zero-event semaphore)) nil))
+           (setf (event-state (semaphore-not-zero-event semaphore)) nil))
          (return t)))
      (when (not wait-p)
        (return nil))
-     (sup:event-wait (semaphore-not-zero-event semaphore))))
+     (event-wait (semaphore-not-zero-event semaphore))))
 
 ;;;; Mailbox. A buffered communication channel.
 
@@ -253,10 +264,10 @@ Returns true if SEMAPHORE was decremented, false if WAIT-P is false and the sema
   (check-type (mailbox-capacity instance) (or null (integer 1)))
   (setf (slot-value instance '%lock) (sup:make-mutex instance))
   ;; Mailbox is initially empty.
-  (setf (slot-value instance '%not-full-event) (sup:make-event
+  (setf (slot-value instance '%not-full-event) (make-event
                                                 :name `(mailbox-send-possible-event ,instance)
                                                 :state t)
-        (slot-value instance '%not-empty-event) (sup:make-event
+        (slot-value instance '%not-empty-event) (make-event
                                                  :name `(mailbox-receive-possible-event ,instance)
                                                  :state nil))
   (setf (mailbox-head instance) (cons nil nil)
@@ -292,15 +303,15 @@ Returns true if the value was pushed, false if the mailbox is full and WAIT-P is
            (setf (car (mailbox-tail mailbox)) value
                  (cdr (mailbox-tail mailbox)) link
                  (mailbox-tail mailbox) link))
-         (setf (sup:event-state (mailbox-receive-possible-event mailbox)) t)
+         (setf (event-state (mailbox-receive-possible-event mailbox)) t)
          (incf (slot-value mailbox '%n-pending))
          (when (eql (mailbox-n-pending-messages mailbox) (mailbox-capacity mailbox))
            ;; Mailbox now full.
-           (setf (sup:event-state (mailbox-send-possible-event mailbox)) nil))
+           (setf (event-state (mailbox-send-possible-event mailbox)) nil))
          (return t)))
      (when (not wait-p)
        (return nil))
-     (sup:event-wait (mailbox-send-possible-event mailbox))))
+     (event-wait (mailbox-send-possible-event mailbox))))
 
 (defun mailbox-receive (mailbox &key (wait-p t))
   "Pop a value from the mailbox.
@@ -313,13 +324,13 @@ If the mailbox is empty, this will block if WAIT-P is true."
          (let ((message (pop (mailbox-head mailbox))))
            (when (endp (cdr (mailbox-head mailbox)))
              ;; This was the last message.
-             (setf (sup:event-state (mailbox-receive-possible-event mailbox)) nil))
+             (setf (event-state (mailbox-receive-possible-event mailbox)) nil))
            (decf (slot-value mailbox '%n-pending))
-           (setf (sup:event-state (mailbox-send-possible-event mailbox)) t)
+           (setf (event-state (mailbox-send-possible-event mailbox)) t)
            (return (values message t))))
        (when (not wait-p)
          (return (values nil nil))))
-     (sup:event-wait (mailbox-receive-possible-event mailbox))))
+     (event-wait (mailbox-receive-possible-event mailbox))))
 
 (defun mailbox-peek (mailbox &key (wait-p t))
   "Peek at the next pending message in the mailbox, if any.
@@ -333,7 +344,7 @@ Like MAILBOX-RECEIVE, but leaves the message in the mailbox."
                          t)))
        (when (not wait-p)
          (return (values nil nil))))
-     (sup:event-wait (mailbox-receive-possible-event mailbox))))
+     (event-wait (mailbox-receive-possible-event mailbox))))
 
 (defun mailbox-flush (mailbox)
   "Empty MAILBOX, returning a list of all pending messages."
@@ -342,8 +353,8 @@ Like MAILBOX-RECEIVE, but leaves the message in the mailbox."
       (setf (mailbox-head mailbox) (cons nil nil)
             (mailbox-tail mailbox) (mailbox-head mailbox))
       (setf (slot-value mailbox '%n-pending) 0)
-      (setf (sup:event-state (mailbox-send-possible-event mailbox)) t
-            (sup:event-state (mailbox-receive-possible-event mailbox)) nil)
+      (setf (event-state (mailbox-send-possible-event mailbox)) t
+            (event-state (mailbox-receive-possible-event mailbox)) nil)
       messages)))
 
 (defun mailbox-empty-p (mailbox)
@@ -446,7 +457,7 @@ Returns a tag that can be passed to WATCHABLE-SET-REM-WATCHER to unregister."
   (setf (event-state latch) nil))
 
 (defun sup:latch-wait (latch)
-  (sup:event-wait latch)
+  (event-wait latch)
   (values))
 
 (defun sup:latch-trigger (latch)
